@@ -54,7 +54,7 @@ import { AGENT_TOOL } from "./tools.js";
 import { SKILL_TOOL, agentTool, skillResult, skillsSection, type NativeHelper, type NativeRun } from "./native-runtime.js";
 import { DurableTurns } from "./durable/runtime.js";
 import type { HarnessClientOptions } from "./durable/client.js";
-import type { AgentSpec, AgentStart, RouteSpec, ToolDef } from "./durable/protocol.js";
+import type { AgentSpec, AgentStart, DurableInspection, RouteSpec, ToolDef } from "./durable/protocol.js";
 
 /** The most of a /action's answer the agent's note carries; the transcript keeps all of it. */
 export const ACTION_NOTE_CHARS = 4000;
@@ -1125,6 +1125,30 @@ export class AgentRunner {
   durableHarness(): { available: boolean; connected: boolean; version: string | null; pid: number | null } {
     const c = this.durable?.client;
     return { available: !!this.durable?.available(), connected: !!c?.connected(), version: c?.harness?.version ?? null, pid: c?.harness?.pid ?? null };
+  }
+
+  /**
+   * What the background runtime is doing: its live tasks, queued messages and
+   * recent reports, by Studio session. Never starts a runtime; a runtime from
+   * an older Studio does not answer, and is replaced by itself once idle.
+   */
+  async durableInspect(): Promise<{ running: false; note: string } | ({ running: true } & DurableInspection)> {
+    const c = this.durable?.client;
+    if (!this.durable?.available() || !c) return { running: false, note: "The durable runtime is not installed with this Studio: update Studio to get it." };
+    if (!c.connected()) return { running: false, note: "No background runtime is running now. It starts with the next reply." };
+    let seen: DurableInspection;
+    try {
+      seen = (await c.call("inspect", {}, 5000)) as DurableInspection;
+    } catch {
+      throw new Error(`The background runtime running now (Studio ${c.harness?.version ?? "unknown"}) is older than this Studio and cannot answer this. It is replaced by this Studio's once no reply is running; ask again after the current replies end.`);
+    }
+    const studioId = (key?: string) => (key ? key.split("~")[0] : undefined);
+    return {
+      running: true,
+      ...seen,
+      tasks: seen.tasks.map((t) => ({ ...t, ...(t.sessionId ? { sessionId: studioId(t.sessionId) } : {}) })),
+      submissions: seen.submissions.map((s) => ({ ...s, ...(s.sessionId ? { sessionId: studioId(s.sessionId) } : {}) })),
+    };
   }
 
   /** A model's route on the durable runtime, with the window the context meter shows, so the harness compacts where the meter says. */

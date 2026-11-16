@@ -374,7 +374,7 @@ export function registerChat(api: DaemonExtensionApi, agentVersion = "0.0.0", pa
       },
     },
   });
-  registerDurableRoutes(api, { setting: durableSetting, harness: () => runner.durableHarness() });
+  registerDurableRoutes(api, { setting: durableSetting, harness: () => runner.durableHarness(), inspect: () => runner.durableInspect() });
   const unregisterSteps = offersStepApproval(stepHost) ? stepHost.flows!.approveSteps((r) => runner.approveFlowStep(r)) : () => {};
   // Flow agent steps, such as the playtest flow's draft, run on the model picked here, on its route.
   const unregisterModel = registerFlowModel(api as ModelHost, {

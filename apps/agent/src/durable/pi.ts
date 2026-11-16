@@ -22,7 +22,7 @@ import { createRegistry, defineDoc, defineExtension, defineTool, GenerationTask,
 import { openNodeSqliteStorage } from "@earendil-works/pi-durable/storage/sqlite/node";
 import { NOOP_TELEMETRY_CONTEXT } from "@earendil-works/pi-telemetry";
 import { createClaudeCodeProvider } from "studio-pi-claude-code";
-import type { AgentSpec, AgentStart, EntryEvent, HarnessMessage, HarnessRequest, RouteSpec, ToolDef, UserContent } from "./protocol.js";
+import type { AgentSpec, AgentStart, DurableInspection, EntryEvent, HarnessMessage, HarnessRequest, RouteSpec, ToolDef, UserContent } from "./protocol.js";
 
 /** Pi Durable's call context. Studio never cancels through it: a wait it gives up on is raced instead. */
 type Ctx = Parameters<typeof Harness.open>[2];
@@ -311,6 +311,7 @@ export class DurableEngine {
     private readonly registry: ReturnType<typeof createRegistry>,
     private readonly routes: RouteModels,
     private readonly host: EngineHost,
+    private readonly reports: DurableInspection["reports"],
   ) {}
 
   /** The last tool definitions per agent kind, so a newer extension can be installed over them. */
@@ -329,6 +330,14 @@ export class DurableEngine {
     const routes = new RouteModels(host);
     const registry = createRegistry();
     const storage = await openNodeSqliteStorage(file);
+    // Pi Durable's reports (faulted, interrupted or blocked tasks, hook and tool errors), newest first, for inspect().
+    const reports: DurableInspection["reports"] = [];
+    const onReport = (r: { kind: string; error?: unknown; reason?: string; task?: { id?: unknown } }): void => {
+      const message = r.error instanceof Error ? r.error.message : String(r.error ?? "");
+      host.log(`report ${r.kind}: ${message}`);
+      reports.unshift({ at: new Date().toISOString(), kind: r.kind, ...(r.reason ? { reason: String(r.reason) } : {}), ...(r.task?.id !== undefined ? { task: String(r.task.id) } : {}), message: message.slice(0, 500) });
+      reports.length = Math.min(reports.length, 50);
+    };
     const harness = await Harness.open(storage, {
       models: () => routes.models,
       registry,
@@ -340,9 +349,9 @@ export class DurableEngine {
         // A failed run leaves what was queued behind it to the next input, as Studio's loop does.
         afterFailedRun: "continue",
       },
-      onReport: (r: { kind: string; error?: unknown }) => host.log(`report ${r.kind}: ${r.error instanceof Error ? r.error.message : String(r.error ?? "")}`),
+      onReport,
     } as never, CTX);
-    const engine = new DurableEngine(harness, registry, routes, host);
+    const engine = new DurableEngine(harness, registry, routes, host, reports);
     await engine.load();
     return engine;
   }
@@ -400,6 +409,38 @@ export class DurableEngine {
       for (const [callId, c] of Object.entries(rec.children)) this.byConv.set(c.conv, { sessionId, parent: callId });
     }
     for (const [conv, on] of Object.entries(doc.search ?? {})) this.searching.set(conv, on);
+  }
+
+  /** Live tasks, unsettled submissions and recent reports, mapped to Studio's sessions. Writes nothing and runs no task code. */
+  async inspect(): Promise<Omit<DurableInspection, "version" | "pid" | "extension">> {
+    type Task = { record: { id: unknown; kind: string; conversationId: unknown; owner?: unknown; background: boolean; abortRequested: boolean }; state: { kind: string; reason?: string; on?: readonly unknown[]; until?: number } };
+    type Sub = { id: unknown; conversationId: unknown; type: string; status: string };
+    const seen = (await this.harness.inspect(CTX)) as unknown as { scheduling: string; tasks: readonly Task[]; submissions: readonly Sub[] };
+    const where = (conv: unknown) => this.byConv.get(String(conv));
+    return {
+      scheduling: seen.scheduling,
+      tasks: seen.tasks.map(({ record: r, state }) => {
+        const w = where(r.conversationId);
+        return {
+          id: String(r.id),
+          kind: r.kind,
+          conversation: String(r.conversationId),
+          ...(w ? { sessionId: w.sessionId, parent: w.parent } : {}),
+          ...(r.owner !== undefined ? { owner: String(r.owner) } : {}),
+          background: r.background,
+          abortRequested: r.abortRequested,
+          state: state.kind,
+          ...(state.reason ? { blocked: state.reason } : {}),
+          ...(state.on ? { on: state.on.map(String) } : {}),
+          ...(state.until !== undefined ? { until: state.until } : {}),
+        };
+      }),
+      submissions: seen.submissions.map((s) => {
+        const w = where(s.conversationId);
+        return { id: String(s.id), conversation: String(s.conversationId), ...(w ? { sessionId: w.sessionId } : {}), type: s.type, status: s.status };
+      }),
+      reports: [...this.reports],
+    };
   }
 
   /** Start running what the last process left, and the reporters of background subagents. */
