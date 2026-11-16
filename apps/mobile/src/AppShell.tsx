@@ -5,7 +5,7 @@
  * connection overlays; the navigation drawer; and the PIN lock over all of
  * it. The project's Studio theme picks the app's theme.
  */
-import { createContext, useContext, useEffect, useMemo, useRef, useState } from "react";
+import { useContext, useEffect, useMemo, useRef, useState } from "react";
 import { Linking, Pressable, StyleSheet, View } from "react-native";
 import Svg, { Path } from "react-native-svg";
 import { studioApi, type PanelLocation, type Transport } from "@ue-mcp-studio/client-core";
@@ -40,6 +40,8 @@ import { CompatBanner } from "./native/CompatBanner";
 import { useDeviceOnline } from "./native/online";
 import { OFFLINE_STRIP } from "./views/OfflineBanner";
 import { FileViewerProvider } from "./chat/FileViewer";
+// Ways out of the project the drawer offers at all times: the projects list and pairing.
+import { Exits } from "./exits";
 
 const TABS = ["Chat", "Playtests", "Plugins", "Settings"] as const;
 type Tab = (typeof TABS)[number];
@@ -58,8 +60,6 @@ export interface AppShellProps {
   initial?: PanelLocation;
 }
 
-/** Ways out of the project the drawer offers at all times: the projects list and pairing. */
-const Exits = createContext<{ name: string; onBack: () => void; onPair?: () => void }>({ name: "", onBack: () => undefined });
 
 export function AppShell({ device, onBack, onUnpaired, onPair, transport, initial }: AppShellProps) {
   // The computer saying it does not know this phone ends the project: its pairing is dropped and pairing opens.
