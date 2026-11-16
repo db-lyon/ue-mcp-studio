@@ -7,6 +7,13 @@
  * it produced. It is never a running sum; the session's spend is kept apart,
  * as totals.
  */
+import { PI_CATALOG, type CatalogModel } from "./pi-catalog.js";
+
+/** pi-ai's catalog entry for a model: its exact id, or the id without a dated snapshot suffix. */
+export function catalogModel(model: string): CatalogModel | null {
+  const id = model.toLowerCase().replace(/^models\//, "").replace(/^(anthropic|openai|google)[./]/, "").replace(/@.*$/, "");
+  return PI_CATALOG[id] ?? PI_CATALOG[id.replace(/-\d{8}$/, "")] ?? null;
+}
 
 /** One agent's context as its latest model request measured it. */
 export interface ContextUsage {
@@ -78,13 +85,17 @@ export const DEFAULT_CONTEXT_WINDOW = 128_000;
 
 /**
  * A model's context window in tokens: from the vendor's own list when it gave
- * one, else from what Studio knows of the model's family. `known` is false for
- * the assumed fallback.
+ * one, else pi-ai's catalog for that model, else what Studio knows of the
+ * model's family. `known` is false for the assumed fallback.
  */
 export function contextWindowOf(model: string, listed?: number | null): { tokens: number; known: boolean } {
   if (listed && listed > 0) return { tokens: listed, known: true };
   const id = model.toLowerCase().replace(/^models\//, "").replace(/^(anthropic|openai|google)[./]/, "");
   const known = (tokens: number) => ({ tokens, known: true });
+  // A window tag names the variant: claude-sonnet-4-5[1m] is the 1M one, whatever the base model has.
+  if (/\[1m\]$/.test(id)) return known(1_000_000);
+  const listedByPi = catalogModel(id);
+  if (listedByPi) return known(listedByPi.window);
   if (id.startsWith("claude-")) {
     // Claude 3, Haiku 4.5 and the 4.x models before 4.6 have 200K; Opus and Sonnet 4.6 and every later model 1M.
     if (/^claude-(3|instant|2)/.test(id) || /^claude-haiku-4/.test(id) || /^claude-(opus|sonnet)-4(-[0-5])?($|-\d{8})/.test(id)) return known(200_000);
@@ -132,12 +143,19 @@ const PRICES: Array<{ match: RegExp; input: number; output: number; cacheRead: n
   { match: /^claude-haiku-4/, input: 1, output: 5, cacheRead: 0.1 },
 ];
 
-/** What one request cost at the vendor's API prices, or null for a model Studio has no prices for. */
+/**
+ * What one request cost at the vendor's API prices: Studio's own table first,
+ * then pi-ai's catalog; null for a model neither prices.
+ */
 export function requestCost(model: string, u: { input: number; output: number; cacheRead?: number; cacheWrite?: number }, at: number = Date.now()): number | null {
   const id = model.toLowerCase().replace(/^models\//, "");
-  const p = PRICES.find((x) => x.match.test(id) && (!x.from || at >= Date.parse(x.from)));
-  if (!p) return null;
   const write = u.cacheWrite ?? 0;
+  const p = PRICES.find((x) => x.match.test(id) && (!x.from || at >= Date.parse(x.from)));
+  if (!p) {
+    const c = catalogModel(id.replace(/\[[^\]]*\]$/, ""));
+    if (!c || (!c.input && !c.output)) return null;
+    return ((u.input - write) * c.input + write * (c.cacheWrite || c.input) + (u.cacheRead ?? 0) * c.cacheRead + u.output * c.output) / 1_000_000;
+  }
   return ((u.input - write) * p.input + write * p.input * (p.cacheWrite ?? 1.25) + (u.cacheRead ?? 0) * p.cacheRead + u.output * p.output) / 1_000_000;
 }
 
