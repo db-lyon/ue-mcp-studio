@@ -22,7 +22,8 @@ export const isLocalTool = (name: string): name is LocalToolName => (LOCAL_TOOL_
 export const CHANGING_TOOLS: readonly LocalToolName[] = ["shell", "write_file", "edit_file"];
 
 export const SHELL_TIMEOUT_DEFAULT_S = 120;
-export const SHELL_TIMEOUT_MAX_S = 600;
+/** Two hours: a full engine build, a cook or a package run finishes within it. */
+export const SHELL_TIMEOUT_MAX_S = 7200;
 /** How much of a command's output the model sees: this much from the start and this much from the end. */
 export const OUTPUT_HEAD = 15_000;
 export const OUTPUT_TAIL = 15_000;

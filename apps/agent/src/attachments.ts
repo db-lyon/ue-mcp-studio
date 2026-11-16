@@ -164,5 +164,8 @@ export async function contentFor(a: Attachment & { path: string }): Promise<unkn
   if (isText(a) && a.size <= MAX_INLINE_TEXT_BYTES) {
     return [note("Its text follows."), { type: "text", text: fs.readFileSync(a.path, "utf-8") }];
   }
+  // Too large to inline, but still readable: say how, rather than that it cannot be read.
+  if (isText(a)) return [note("It is too long to include whole; read it from that path with read_file (offset and limit) or search it with grep.")];
+  if (a.type === "application/pdf") return [note("It is larger than the model takes as a document; extract its text or split it with the shell, then read the parts.")];
   return [note("You cannot read this kind of file directly; import it into the project with ue-mcp if the task needs it.")];
 }

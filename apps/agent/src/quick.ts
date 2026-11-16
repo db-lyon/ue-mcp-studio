@@ -27,9 +27,11 @@ export function parseQuickRequest(body: unknown): QuickRequest | string {
   if (typeof b.text !== "string" || !b.text.trim()) return "body must be { text: string, context?: Array<{ kind, label, path, class? }> } with text";
   if (b.context === undefined) return { text: b.text };
   if (!Array.isArray(b.context)) return "context must be an array";
-  if (b.context.length > MAX_CONTEXT) return `context holds at most ${MAX_CONTEXT} items`;
+  // A selection larger than the context holds still asks: the first items go in, and the rest are counted.
+  const more = Math.max(0, b.context.length - MAX_CONTEXT);
+  const text = more ? `${b.text}\n\n(${more} more items were selected than are listed as context.)` : b.text;
   const context: QuickContextItem[] = [];
-  for (const raw of b.context) {
+  for (const raw of b.context.slice(0, MAX_CONTEXT)) {
     const c = (raw ?? {}) as Record<string, unknown>;
     if (!KINDS.includes(c.kind as QuickContextItem["kind"])) return `context kind must be one of ${KINDS.join(", ")}`;
     if (typeof c.path !== "string" || !line(c.path)) return "every context item needs a path";
@@ -39,7 +41,7 @@ export function parseQuickRequest(body: unknown): QuickRequest | string {
     const at = typeof c.at === "string" && line(c.at) ? line(c.at, 120) : undefined;
     context.push({ kind: c.kind as QuickContextItem["kind"], label, path: line(c.path), ...(cls ? { class: cls } : {}), ...(at ? { at } : {}) });
   }
-  return { text: b.text, context };
+  return { text, context };
 }
 
 /** The package an actor's object path lives in: /Game/Maps/L.L:PersistentLevel.A gives /Game/Maps/L. */
