@@ -19,7 +19,10 @@ describe("context windows", () => {
     expect(contextWindowOf("claude-sonnet-4-6").tokens).toBe(1_000_000);
     expect(contextWindowOf("gemini-3.1-pro-preview").tokens).toBe(1_048_576);
     expect(contextWindowOf("models/gemini-3.8-flash").tokens).toBe(1_048_576);
-    expect(contextWindowOf("gpt-6-astra").tokens).toBe(400_000);
+    // pi-ai's catalog: the 272k input a GPT-6 request may send, not the 400k that counts the answer too.
+    expect(contextWindowOf("gpt-6-astra").tokens).toBe(272_000);
+    // A GPT model the catalog does not list keeps Studio's family rule.
+    expect(contextWindowOf("gpt-7-nova").tokens).toBe(400_000);
     expect(contextWindowOf("qwen3-coder:30b")).toEqual({ tokens: 128_000, known: false });
     // A vendor's list wins over what Studio knows.
     expect(contextWindowOf("qwen3-coder:30b", 262_144)).toEqual({ tokens: 262_144, known: true });
