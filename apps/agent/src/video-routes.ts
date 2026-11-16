@@ -14,7 +14,7 @@ import * as path from "node:path";
 import type { DaemonExtensionApi } from "ue-mcp/daemon";
 import { RELAY_MEDIA_DEFAULTS, VIDEO_COMPRESS_TARGET_BYTES, VIDEO_EXT, hasPaidPlan, isVideo, type AccountUsage, type Attachment, type VideoLimits } from "@ue-mcp-studio/shared";
 import type { AttachmentStore } from "./attachments.js";
-import { compressVideo, findFfmpeg, forgetFfmpeg } from "./video.js";
+import { canCompress, compressVideo, findFfmpeg, forgetFfmpeg } from "./video.js";
 import { openWithSystem } from "./native-routes.js";
 
 export interface VideoRouteOptions {
@@ -38,11 +38,11 @@ const USAGE_TTL_MS = 3 * 60_000;
 
 export function registerVideoRoutes(api: Pick<DaemonExtensionApi, "route">, o: VideoRouteOptions): void {
   const open = o.open ?? openWithSystem;
+  // Compress works wherever an ffmpeg is found or a pinned one can be fetched on first use.
   const ffmpeg = o.ffmpeg ?? (() => {
-    // A user told to install ffmpeg does it while Studio runs: look again until one is found.
-    const f = findFfmpeg();
-    if (!f) forgetFfmpeg();
-    return f;
+    const can = canCompress();
+    if (!findFfmpeg()) forgetFfmpeg();
+    return can ? "ffmpeg" : null;
   });
   const compress = o.compress ?? compressVideo;
   let cached: { at: number; value: AccountUsage | null } | null = null;
