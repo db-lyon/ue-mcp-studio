@@ -794,7 +794,11 @@ export function registerChat(api: DaemonExtensionApi, agentVersion = "0.0.0", pa
     const now = (req.body as { now?: unknown } | undefined)?.now === true;
     const running = s.status === "running" || s.status === "waiting";
     // While the main agent waits only on its subagents, or they run on after its reply, it takes the message at once and they keep working.
-    if (running && !now && !runner.mainFree(s.id)) return { status: 409, body: { error: "a turn is already in progress; queue the message or send it with now: true" } };
+    // Otherwise it waits behind the turn, as a queued message does.
+    if (running && !now && !runner.mainFree(s.id)) {
+      runner.enqueue(s.id, m.text, m.files.map(({ path: _p, ...a }) => a));
+      return { status: 202, body: { sessionId: s.id, to: "queue" } };
+    }
     if (running && !runner.keepsSubagents(s.id)) stopSide(s.id);
     // The turn runs past this response; its progress is on the event stream.
     runner.sendNow(s.id, m.text, m.files).catch((e) => api.log.warn(`turn in session ${s.id} failed`, e));
@@ -810,7 +814,7 @@ export function registerChat(api: DaemonExtensionApi, agentVersion = "0.0.0", pa
     if (b.source !== undefined && !Number.isInteger(b.source)) return bad("source is the transcript index of an agent message");
     const source = b.source as number | undefined;
     if (source !== undefined && (s.transcript[source]?.kind !== "assistant" || s.transcript[source].parent)) return bad(`entry ${source} is not one of the agent's messages`);
-    if (s.status === "running" || s.status === "waiting") return { status: 409, body: { error: "a turn is already in progress; wait for it to finish or stop it" } };
+    // During a turn the runner queues the card's command behind it, as a message queues.
     const request: PlaytestRequest = { text: (b.text as string | undefined) ?? "", ...(source !== undefined ? { source } : {}), ...(b.turn !== undefined ? { turn: b.turn as number } : {}) };
     runner.playtest(s.id, request).catch((e) => api.log.warn(`playtest in session ${s.id} failed`, e));
     return { status: 202, body: { sessionId: s.id } };
@@ -823,7 +827,7 @@ export function registerChat(api: DaemonExtensionApi, agentVersion = "0.0.0", pa
     if (typeof b.name !== "string" || !b.name.trim()) return bad("body must be { name: string, params?: object, text?: string }");
     if (b.params !== undefined && (typeof b.params !== "object" || b.params === null || Array.isArray(b.params))) return bad("params is an object of the flow's inputs");
     if (b.text !== undefined && typeof b.text !== "string") return bad("text is the message the chat shows");
-    if (s.status === "running" || s.status === "waiting") return { status: 409, body: { error: "a turn is already in progress; wait for it to finish or stop it" } };
+    // During a turn the runner queues the card's command behind it, as a message queues.
     const request: FlowRunRequest = { name: b.name.trim(), params: (b.params as Record<string, unknown> | undefined) ?? {}, ...(b.text ? { text: b.text as string } : {}) };
     runner.flow(s.id, request).catch((e) => api.log.warn(`flow in session ${s.id} failed`, e));
     return { status: 202, body: { sessionId: s.id } };
@@ -852,7 +856,7 @@ export function registerChat(api: DaemonExtensionApi, agentVersion = "0.0.0", pa
     if (typeof b.category !== "string" || typeof b.method !== "string" || !splitActionName(`${b.category}.${b.method}`)) return bad("body must be { category: string, method: string, args?: object, text?: string }");
     if (b.args !== undefined && (typeof b.args !== "object" || b.args === null || Array.isArray(b.args))) return bad("args is an object of the action's parameters");
     if (b.text !== undefined && typeof b.text !== "string") return bad("text is the message the chat shows");
-    if (s.status === "running" || s.status === "waiting") return { status: 409, body: { error: "a turn is already in progress; wait for it to finish or stop it" } };
+    // During a turn the runner queues the card's command behind it, as a message queues.
     const request: ActionRunRequest = { category: b.category, method: b.method, args: (b.args as Record<string, unknown> | undefined) ?? {}, ...(b.text ? { text: b.text as string } : {}) };
     runner.action(s.id, request).catch((e) => api.log.warn(`action in session ${s.id} failed`, e));
     return { status: 202, body: { sessionId: s.id } };

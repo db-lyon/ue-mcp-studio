@@ -1019,6 +1019,35 @@ describe("queued messages", () => {
     expect(store.get(s.id)!.transcript.filter((t) => t.kind === "user").map((t) => t.kind === "user" && t.text)).toEqual(["one", "two", "three"]);
   });
 
+  it("a send the main agent cannot take is queued instead of refused", async () => {
+    const model = new GatedModel();
+    const runner = runnerWith(model as unknown as ScriptedModel);
+    const s = store.create();
+    const first = runner.send(s.id, "one");
+    await until(() => model.waiting === 1);
+    await runner.send(s.id, "two");
+    expect(store.get(s.id)!.queue!.map((q) => q.text)).toEqual(["two"]);
+    model.release();
+    await first;
+    await until(() => model.waiting === 1);
+    model.release();
+    await until(() => store.get(s.id)!.status === "idle" && model.requests.length === 2);
+  });
+
+  it("a card's flow or action pressed during a turn waits in the queue as its command, and a message the main agent cannot take does too", async () => {
+    const model = new GatedModel();
+    const runner = runnerWith(model as unknown as ScriptedModel);
+    const s = store.create();
+    const first = runner.send(s.id, "one");
+    await until(() => model.waiting === 1);
+    await runner.flow(s.id, { name: "qa", params: { level: "Main map" } });
+    await runner.action(s.id, { category: "level", method: "place_actor", args: { name: "A" } });
+    await runner.playtest(s.id, { text: "the door" });
+    expect(store.get(s.id)!.queue!.map((q) => q.text)).toEqual(['/flow qa level="Main map"', "/action level.place_actor name=A", "/playtest the door"]);
+    model.release();
+    await first;
+  });
+
   it("can be changed or removed before they go, and wait after a Stop until asked", async () => {
     const model = new GatedModel();
     const runner = runnerWith(model as unknown as ScriptedModel);

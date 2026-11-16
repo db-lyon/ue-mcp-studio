@@ -222,12 +222,14 @@ describe("a /action in a session", () => {
     expect(note).toContain(`[cut at ${ACTION_NOTE_CHARS} characters]`);
   });
 
-  it("refuses while a turn runs, and a name that is no category.method", async () => {
+  it("queues behind a running turn, and refuses a name that is no category.method", async () => {
     const { runner, s } = setup();
     const live = store.get(s.id)!;
     live.status = "running";
     store.save(live);
-    await expect(runner.action(s.id, { category: "level", method: "place_actor", args: {} })).rejects.toThrow(/in progress/);
+    await runner.action(s.id, { category: "level", method: "place_actor", args: {} });
+    expect(store.get(s.id)!.queue!.map((q) => q.text)).toEqual(["/action level.place_actor"]);
+    live.queue = [];
     live.status = "idle";
     store.save(live);
     await expect(runner.action(s.id, { category: "level", method: "", args: {} })).rejects.toThrow(/category\.method/);

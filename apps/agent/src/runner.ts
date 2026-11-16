@@ -879,7 +879,17 @@ export class AgentRunner {
     if (this.busy(s)) throw new Error("a turn is in progress; compact when it ends");
     if (s.messages.length === 0) throw new Error("there is nothing to compact yet");
     // On the durable runtime the harness compacts the conversation, as it does on its own near the window.
-    if (this.durable?.owns(s) && this.o.durable?.route()) return this.durable.compact(s, instructions.trim());
+    if (this.durable?.owns(s) && this.o.durable?.route()) {
+      try {
+        return await this.durable.compact(s, instructions.trim());
+      } catch (e) {
+        // The failure lands on the session, where the user sees it with the way on, not only in the log.
+        const why = e instanceof Error ? e.message : String(e);
+        this.addEntry(s, { kind: "compaction", at: now(), trigger: "manual", state: "failed", before: 0, error: `${why} Nothing was compacted. Use Compact now to try again, or start a new session and paste what it needs.` } as CompactionEntry);
+        this.o.store.save(s);
+        throw e;
+      }
+    }
     const onClaude = !!this.o.subscription?.();
     const asked = instructions.trim();
     s.error = null;
@@ -1387,7 +1397,9 @@ export class AgentRunner {
     if (this.active.has(s.id) || s.status === "running" || s.status === "waiting") {
       // Only subagents are working, or the main agent waits only on them: it takes the message now.
       if (this.mainFree(s.id) && (await this.tell(s, text, attachments, about))) return;
-      throw new Error("a turn is already in progress; stop it or wait for it to finish");
+      // The main agent is not free: the message waits for the turn's end, as a queued message does.
+      this.enqueue(s.id, text, attachments.map(({ path: _path, ...a }) => a), about);
+      return;
     }
     s.archived = false;
     if (s.messages.length === 0 && s.title === DEFAULT_SESSION_TITLE) s.title = text.trim().split("\n")[0].slice(0, 60) || attachments[0]?.name || s.title;
@@ -1488,7 +1500,11 @@ export class AgentRunner {
    */
   async playtest(sessionId: string, request: PlaytestRequest, text?: string): Promise<void> {
     const s = this.require(sessionId);
-    if (this.busy(s)) throw new Error("a turn is already in progress; stop it or wait for it to finish");
+    // A card button pressed during a turn waits behind it, as a message does.
+    if (this.busy(s)) {
+      this.enqueue(sessionId, text ?? (request.text.trim() ? `/playtest ${request.text.trim()}` : "/playtest"), []);
+      return;
+    }
     const source = request.source === undefined ? null : s.transcript[request.source];
     if (request.source !== undefined && (source?.kind !== "assistant" || source.parent)) throw new Error(`entry ${request.source} is not one of the agent's messages`);
     const shown = text ?? (request.text.trim() ? `/playtest ${request.text.trim()}` : "/playtest");
@@ -1553,9 +1569,12 @@ export class AgentRunner {
    */
   async flow(sessionId: string, request: FlowRunRequest): Promise<void> {
     const s = this.require(sessionId);
-    if (this.busy(s)) throw new Error("a turn is already in progress; stop it or wait for it to finish");
     const name = request.name.trim();
     if (!name) throw new Error("name the flow to run: /flow <name>");
+    if (this.busy(s)) {
+      this.enqueue(sessionId, flowCommandText(name, request.params), []);
+      return;
+    }
     const shown = request.text?.trim() || flowCommandText(name, request.params);
     s.archived = false;
     if (s.messages.length === 0 && s.title === DEFAULT_SESSION_TITLE) s.title = shown.slice(0, 60);
@@ -1672,9 +1691,12 @@ export class AgentRunner {
    */
   async action(sessionId: string, request: ActionRunRequest): Promise<void> {
     const s = this.require(sessionId);
-    if (this.busy(s)) throw new Error("a turn is already in progress; stop it or wait for it to finish");
     const { category, method } = request;
     if (!splitActionName(`${category}.${method}`)) throw new Error("name the action as category.method: /action level.place_actor");
+    if (this.busy(s)) {
+      this.enqueue(sessionId, actionCommandText(category, method, request.args), []);
+      return;
+    }
     const shown = request.text?.trim() || actionCommandText(category, method, request.args);
     s.archived = false;
     if (s.messages.length === 0 && s.title === DEFAULT_SESSION_TITLE) s.title = shown.slice(0, 60);
