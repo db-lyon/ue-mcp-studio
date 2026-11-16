@@ -96,7 +96,7 @@ export function FeedbackSheet({ onClose, initial }: { onClose: () => void; initi
                     );
                   })}
                 </View>
-                <Input accessibilityLabel="Title" placeholder={kind === "problem" ? "What went wrong, in a line" : "The idea, in a line"} value={title} onChangeText={setTitle} maxLength={200} />
+                <Input accessibilityLabel="Title" placeholder={kind === "problem" ? "What went wrong, in a line" : "The idea, in a line"} value={title} onChangeText={setTitle} />
                 <View>
                 <TextInput
                   accessibilityLabel="Description"

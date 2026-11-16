@@ -49,14 +49,25 @@ export const issueLink = feedbackIssueLink;
 export function validate(r: Partial<FeedbackReport>): string | null {
   if (r.kind !== "problem" && r.kind !== "idea") return "kind must be problem or idea";
   if (typeof r.title !== "string" || r.title.trim().length === 0) return "Give it a title.";
-  if (r.title.trim().length > 200) return "Keep the title under 200 characters.";
   if (r.description !== undefined && typeof r.description !== "string") return "The description must be text.";
   if ((r.description ?? "").length > 50_000) return "The description is too long.";
   return null;
 }
 
+/** The longest title an issue gets; a longer one goes whole at the top of the description. */
+export const TITLE_MAX = 200;
+
+/** A report whose title is too long for one: the title cut at a word, the whole of it leading the description. */
+export function fitTitle(r: FeedbackReport): FeedbackReport {
+  const title = r.title.trim();
+  if (title.length <= TITLE_MAX) return r;
+  const cut = title.slice(0, TITLE_MAX - 3).replace(/\s+\S*$/, "") || title.slice(0, TITLE_MAX - 3);
+  return { ...r, title: `${cut}...`, description: [title, r.description ?? ""].filter(Boolean).join("\n\n") };
+}
+
 /** File the report, or say where the user can finish it themselves. */
-export async function submitFeedback(r: FeedbackReport, env: Environment | null, fetchImpl: typeof fetch = fetch): Promise<FeedbackResult> {
+export async function submitFeedback(given: FeedbackReport, env: Environment | null, fetchImpl: typeof fetch = fetch): Promise<FeedbackResult> {
+  const r = fitTitle(given);
   const title = r.title.trim();
   const body = issueBody(r, r.includeEnvironment ? env : null);
   const labels = [LABEL[r.kind], "from-studio"];
