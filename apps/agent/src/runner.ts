@@ -2347,6 +2347,15 @@ ${result}`);
   }
 
   /**
+   * The sessions with a conversation in a turn host, the main agent's or a
+   * subagent's. A Studio update waits for them: the release after the cutover
+   * has no turn hosts to take them over.
+   */
+  hostedSessions(): string[] {
+    return this.o.turnHosts?.running() ?? [];
+  }
+
+  /**
    * End a turn now: the user stopped it, or Studio has to (its daemon is about
    * to restart). Every call it leaves unanswered says who ended it and what
    * goes on regardless, and the model hears the same with the next message.

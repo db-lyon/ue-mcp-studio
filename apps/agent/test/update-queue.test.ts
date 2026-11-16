@@ -135,6 +135,33 @@ describe("turns that run in host processes", () => {
     q.stop();
   });
 
+  it("holds Studio, but not the restart, while a turn runs in a turn host the next Studio cannot take over", async () => {
+    busy = true;
+    pinned = false;
+    let hosted = true;
+    const q = new UpdateQueue({
+      dataDir: dir,
+      busy: () => busy,
+      pinned: () => pinned,
+      hosted: () => hosted,
+      run: async (step) => {
+        ran.push(step);
+        return { ok: true, started: step !== "plugin" };
+      },
+      interruptTurns: () => void interrupted++,
+      pollMs: 60_000,
+    });
+    expect(await q.request("restart")).toMatchObject({ ok: true, started: true });
+    expect(await q.request("studio")).toEqual({ ok: true, deferred: ["studio"] });
+    await q.tick();
+    expect(ran).toEqual(["restart"]);
+    hosted = false;
+    await q.tick();
+    expect(ran).toEqual(["restart", "studio"]);
+    expect(interrupted).toBe(0);
+    q.stop();
+  });
+
   it("a waiting Studio step runs once only hosted turns are left", async () => {
     busy = true;
     pinned = true;

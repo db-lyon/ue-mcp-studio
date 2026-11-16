@@ -294,7 +294,7 @@ export function registerChat(api: DaemonExtensionApi, agentVersion = "0.0.0", pa
   };
   // ue-mcp asks before each flow step as it runs when it offers "flows.stepApproval"; older daemons get the plan check.
   const stepHost = api as unknown as FlowStepHost;
-  // The durable runtime, per route, off by default (durable/routes.ts).
+  // The durable runtime, per route: on by default for the routes in DURABLE_DEFAULT_ON, each can be turned off (durable/routes.ts).
   const durableSetting = new DurableSetting(api.dataDir);
   const durableRoute = () => {
     const r = durableRouteOf(route(), settings.provider());
@@ -437,6 +437,8 @@ export function registerChat(api: DaemonExtensionApi, agentVersion = "0.0.0", pa
     dataDir: api.dataDir,
     busy: () => runner.activeSessions().length > 0,
     pinned: () => runner.pinnedSessions().length > 0,
+    // A Studio update also waits for turns in a turn host: the Studio after the cutover cannot take them over.
+    hosted: () => runner.hostedSessions().length > 0,
     interruptTurns: () => {
       for (const id of runner.activeSessions()) runner.interrupt(id, { by: "studio", why: "the user chose Restart now to install an update" });
     },
