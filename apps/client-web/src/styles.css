@@ -991,6 +991,17 @@ pre.diff .hunk { color: var(--accent-hi); display: block; }
 
 /* Feedback: a report for Studio's tracker. */
 .overlay-card.feedback { width: min(580px, 100%); }
+/* What's new: an accordion per part, each release's notes under its version, in the Updates card's type. */
+.overlay-card.whats-new { width: min(680px, 100%); max-height: min(86vh, 100%); gap: 10px; }
+.whats-new-part { border-top: 1px solid var(--line); padding-top: 8px; }
+.whats-new-part > summary { cursor: pointer; padding: 2px 0 6px; color: var(--text); }
+.whats-new-part > summary strong { font-weight: 600; }
+.whats-new-entry { margin: 4px 0 12px; }
+.whats-new-version { gap: 8px; margin-bottom: 4px; }
+.whats-new-version h3 { margin: 0; font: 600 13px/1.4 var(--mono); color: var(--text); }
+.whats-new-notes { font-size: 13px; overflow-wrap: anywhere; }
+.whats-new-notes h1, .whats-new-notes h2, .whats-new-notes h3, .whats-new-notes h4 { margin: 10px 0 6px; font-size: 13px; font-weight: 600; color: var(--text); }
+.whats-new-error .row { gap: 10px; margin-top: 8px; }
 .overlay-card.feedback input:not([type="checkbox"]), .overlay-card.feedback textarea { width: 100%; box-sizing: border-box; }
 .overlay-card.feedback textarea { resize: vertical; min-height: 120px; font: inherit; }
 .feedback-kind { gap: 6px; }

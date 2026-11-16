@@ -5,12 +5,13 @@
  */
 import { useCallback, useEffect, useState } from "react";
 import { View } from "react-native";
-import { PLUGIN_OUTSIDE, REMOTE_UPDATES, checkFailure, pluginOutside, updateStatus, updateFailureLine, readUpdatesWith, readyLine, updateRows, updateSteps, waiting, waitingSteps, type Updates } from "@ue-mcp-studio/client-core";
+import { PLUGIN_OUTSIDE, REMOTE_UPDATES, WHATS_NEW_TITLE, checkFailure, pluginOutside, updateStatus, updateFailureLine, readUpdatesWith, readyLine, updateRows, updateSteps, waiting, waitingSteps, type Updates } from "@ue-mcp-studio/client-core";
 import { Banner, Button, Card, Pill, Spacer, bannerText, labelFont, T, useTheme } from "../../ui";
 import { Details } from "../settings/Details";
 import { Radio, Txt } from "../settings/controls";
 import { useSettingsApi } from "../settings/hooks";
 import { useRun } from "../../views/UpdateOverlay";
+import { WhatsNewSheet } from "./WhatsNewSheet";
 
 /** Every read's count goes to the dot on Settings, so it never disagrees with the card. */
 const countListeners = new Set<(n: number) => void>();
@@ -41,6 +42,7 @@ export function UpdatesCard() {
   const working = !!run && run.summary === undefined && !run.error;
   const waits = !!run && waitingSteps(run).length > 0;
   const [stopped, setStopped] = useState<string | null>(null);
+  const [notes, setNotes] = useState(false);
   useEffect(() => {
     if (run?.error) setStopped(run.error);
     else if (working) setStopped(null);
@@ -66,8 +68,10 @@ export function UpdatesCard() {
           Updates
         </T>
         <Spacer />
+        <Button variant="ghost" title={WHATS_NEW_TITLE} testID="whats-new-open" onPress={() => setNotes(true)} />
         {!working && steps.length === 0 ? <Button title="Check again" onPress={load} /> : null}
       </View>
+      {notes ? <WhatsNewSheet onClose={() => setNotes(false)} /> : null}
       {!u ? <Txt tone="muted" style={{ marginVertical: t.base.size }}>Checking</Txt> : null}
       {/* The card is block flow: margins between its rows collapse, so each top here is what is left after the one above. */}
       {u ? (

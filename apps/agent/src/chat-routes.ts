@@ -40,6 +40,7 @@
  * studio.tool.queued, studio.approval.requested and studio.approval.resolved.
  */
 import { registerVersionNotice } from "./version-notice.js";
+import { registerWhatsNew } from "./whats-new.js";
 import { readDiscovery, type DaemonExtensionApi } from "ue-mcp/daemon";
 import { registerQueueRoutes } from "./queue-routes.js";
 import { registerVideoRoutes } from "./video-routes.js";
@@ -514,7 +515,16 @@ export function registerChat(api: DaemonExtensionApi, agentVersion = "0.0.0", pa
     if (!r.ok) return { status: 500, body: { error: r.error } };
     return { status: r.started ? 202 : 200, body: r };
   };
-  api.route("GET", "/updates", async () => ({ body: { ...(await updater.check()), deferred: updates.steps(), failure: updater.lastFailure() } }));
+  // What's new: each part's release notes since the version installed before its last update.
+  const recordVersions = registerWhatsNew(api, {
+    dataDir: api.dataDir,
+    installed: () => ({ studio: agentVersion, plugin: updater.installedPlugin()?.version ?? null, bridge: updater.bridgeVersion(), ueMcp: api.version }),
+    channel: () => readChannel(),
+  });
+  api.route("GET", "/updates", async () => {
+    recordVersions();
+    return { body: { ...(await updater.check()), deferred: updates.steps(), failure: updater.lastFailure() } };
+  });
   // Stable or beta, for every project: Update follows it for Studio and the editor plugin.
   api.route("PUT", "/updates/channel", (req) => {
     const channel = (req.body as { channel?: unknown } | undefined)?.channel;

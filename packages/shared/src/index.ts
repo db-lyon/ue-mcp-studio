@@ -1001,6 +1001,7 @@ export * from "./composer.js";
 export * from "./native.js";
 export * from "./settings-read.js";
 export * from "./version.js";
+export * from "./whats-new.js";
 export * from "./mentions.js";
 export * from "./context.js";
 export * from "./notifications.js";
