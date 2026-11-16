@@ -21,7 +21,7 @@ import type { MessageParam } from "../providers.js";
 import type { TokenUsage } from "../usage.js";
 import { isContextOverflow } from "../compaction.js";
 import { HarnessClient, type HarnessClientOptions } from "./client.js";
-import type { AgentSpec, AgentStart, EntryEvent, HarnessMessage, HarnessRequest, UserContent } from "./protocol.js";
+import type { AgentSpec, AgentStart, EntryEvent, HarnessMessage, HarnessRequest, LedgerUsage, UserContent } from "./protocol.js";
 
 /** How long a reply waits for a run it just stopped to report its end, before it starts anyway. */
 const STOP_END_WAIT_MS = 3000;
@@ -53,7 +53,9 @@ export interface DurableHooks {
   replyToUser(s: StoredSession, callId: string, input: Record<string, unknown>): ToolExecution;
   skill(name: unknown): { text: string; isError: boolean };
   /** Count a request's spend for the main agent (null) or a subagent. */
-  spent(s: StoredSession, agent: string | null, u: TokenUsage, model: string): void;
+  spent(s: StoredSession, agent: string | null, u: TokenUsage, model: string, tokens?: boolean): void;
+  /** Count tokens and cost from a spend ledger, without a request: the entries count those. */
+  spentLedger(s: StoredSession, agent: string | null, u: TokenUsage, model: string): void;
   canon(name: string, input: Record<string, unknown>): { name: string; input: Record<string, unknown> };
   replyEnded(s: StoredSession, error: string | null): void;
   replying: Set<string>;
@@ -79,6 +81,8 @@ export interface DurableState {
   children: Record<string, string>;
   /** The conversation before the move was written into it. */
   seeded: boolean;
+  /** The spend ledger totals last counted, per harness conversation and provider/model. */
+  usage?: Record<string, Record<string, LedgerUsage>>;
 }
 
 const keyOf = (s: StoredSession): string => s.durable!.key;
@@ -364,6 +368,8 @@ export class DurableTurns {
       }
       case "run":
         return this.run(m);
+      case "usage":
+        return this.ledger(m);
       case "child": {
         const s = this.session(m.sessionId);
         if (!s?.durable || s.durable.children[m.callId] === m.conv) return;
@@ -391,6 +397,40 @@ export class DurableTurns {
     }
   }
 
+  /** The harness sends its spend ledgers: entries then count requests and the context, the ledger counts tokens and cost. */
+  private ledgerMode(): boolean {
+    return this.client.harness?.features.includes("usage") ?? false;
+  }
+
+  /**
+   * A conversation's spend ledger: count what grew since the totals last seen,
+   * which includes what has no entry, such as compaction summaries. The first
+   * totals seen of a conversation are its baseline: a new one's are empty, and
+   * one from before this (or a fork's inherited spend) was counted already.
+   */
+  private ledger(m: Extract<HarnessMessage, { t: "usage" }>): void {
+    const s = this.session(m.sessionId);
+    // Counted from the ledger only while this harness said it sends one; otherwise the entries count it all.
+    if (!s?.durable || !this.ledgerMode()) return;
+    const seen = (s.durable.usage ??= {});
+    const prev = seen[m.conv];
+    seen[m.conv] = m.models;
+    if (prev) {
+      for (const [key, u] of Object.entries(m.models)) {
+        const p = prev[key];
+        const grew = {
+          input: Math.max(0, u.input - (p?.input ?? 0)),
+          output: Math.max(0, u.output - (p?.output ?? 0)),
+          cacheRead: Math.max(0, u.cacheRead - (p?.cacheRead ?? 0)),
+          cacheWrite: Math.max(0, u.cacheWrite - (p?.cacheWrite ?? 0)),
+          ...(u.reasoning !== undefined ? { reasoning: Math.max(0, u.reasoning - (p?.reasoning ?? 0)) } : {}),
+        };
+        if (grew.input || grew.output || grew.cacheRead || grew.cacheWrite) this.h.spentLedger(s, m.parent, grew, key.slice(key.indexOf("/") + 1));
+      }
+    }
+    this.h.store.save(s);
+  }
+
   /** One committed entry, applied once. */
   private entry(e: EntryEvent): void {
     const s = this.session(e.sessionId);
@@ -400,7 +440,7 @@ export class DurableTurns {
     const parent = e.parent;
     const at = new Date().toISOString();
     if (e.role === "assistant") {
-      if (e.usage && (e.usage.input || e.usage.output)) this.h.spent(s, parent, e.usage, e.model || "");
+      if (e.usage && (e.usage.input || e.usage.output)) this.h.spent(s, parent, e.usage, e.model || "", !this.ledgerMode());
       if (e.text) {
         this.h.addEntry(s, { kind: "assistant", text: e.text, at, ...(parent ? { parent } : {}) });
         if (!parent) {

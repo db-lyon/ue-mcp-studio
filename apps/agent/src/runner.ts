@@ -530,10 +530,17 @@ export class AgentRunner {
       lostCall: (s, id, name, input) => this.lostCall(s, id, name, input),
       replyToUser: (s, id, input) => this.replyToUser(s, id, input),
       skill: (name) => skillResult(this.native()?.skills ?? [], name),
-      spent: (s, agent, u, model) => {
-        this.count(s, usageTokens(u), agent);
-        this.spend(s, u, model);
+      spent: (s, agent, u, model, tokens = true) => {
+        if (tokens) {
+          this.count(s, usageTokens(u), agent);
+          this.spend(s, u, model);
+        } else (s.totals ??= { ...EMPTY_TOTALS }).requests += 1;
         this.measure(s, agent, u, model);
+      },
+      spentLedger: (s, agent, u, model) => {
+        this.count(s, usageTokens(u), agent);
+        this.spend(s, u, model, false);
+        this.changed(s, agent);
       },
       canon: (name, input) => this.surface().canon(name, input),
       replyEnded: (s, error) => this.replyEnded(s, error),

@@ -22,7 +22,7 @@ import { createRegistry, defineDoc, defineExtension, defineTool, GenerationTask,
 import { openNodeSqliteStorage } from "@earendil-works/pi-durable/storage/sqlite/node";
 import { NOOP_TELEMETRY_CONTEXT } from "@earendil-works/pi-telemetry";
 import { createClaudeCodeProvider } from "studio-pi-claude-code";
-import type { AgentSpec, AgentStart, DurableInspection, EntryEvent, HarnessMessage, HarnessRequest, RouteSpec, ToolDef, UserContent } from "./protocol.js";
+import type { AgentSpec, AgentStart, DurableInspection, EntryEvent, LedgerUsage, HarnessMessage, HarnessRequest, RouteSpec, ToolDef, UserContent } from "./protocol.js";
 
 /** Pi Durable's call context. Studio never cancels through it: a wait it gives up on is raced instead. */
 type Ctx = Parameters<typeof Harness.open>[2];
@@ -679,6 +679,8 @@ export class DurableEngine {
       const w = this.watched.get(conv);
       const where = this.byConv.get(conv);
       if (w && where) this.host.emit({ t: "run", sessionId: where.sessionId, parent: where.parent, running: w.running });
+      // Spend while no daemon was connected: the daemon counts what grew since the totals it last saw.
+      this.ledger(conv, undefined, true);
     }
   }
 
@@ -709,6 +711,8 @@ export class DurableEngine {
         const failure = live?.runFailure as { reason?: string; detail?: string } | undefined;
         this.host.emit({ t: "run", sessionId: where.sessionId, parent: where.parent, running, ...(!running && failure?.reason ? { failure: { reason: failure.reason, ...(failure.detail ? { detail: failure.detail } : {}) } } : {}) });
       }
+      // Before its first request a conversation has no ledger yet: an empty one, so that request's spend counts.
+      this.ledger(conv, call.value?.docs?.["pi.usage"] ?? { models: {}, tools: {} });
       const msg = (live?.generation as { message?: Record<string, unknown> } | undefined)?.message;
       const content = Array.isArray(msg?.content) ? (msg!.content as Array<Record<string, unknown>>) : [];
       const text = content.filter((x) => x.type === "text").map((x) => String(x.text ?? "")).join("");
@@ -717,6 +721,26 @@ export class DurableEngine {
         this.host.emit({ t: "delta", sessionId: where.sessionId, parent: where.parent, text });
       } else if (!msg) w.text = "";
     });
+  }
+
+  /** A conversation's spend ledger as last sent, by conversation. */
+  private readonly ledgers = new Map<string, { json: string; value: unknown }>();
+
+  /** Send a conversation's spend ledger (pi.usage) when it changed since it was last sent; `force` sends it anyway. */
+  private ledger(conv: string, value: unknown, force = false): void {
+    const where = this.byConv.get(conv);
+    if (value !== undefined) {
+      const json = JSON.stringify(value);
+      if (this.ledgers.get(conv)?.json === json && !force) return;
+      this.ledgers.set(conv, { json, value });
+    }
+    const last = this.ledgers.get(conv);
+    if (!where || !last) return;
+    const models: Record<string, LedgerUsage> = {};
+    for (const [key, u] of Object.entries((last.value as { models?: Record<string, Record<string, number>> } | null)?.models ?? {})) {
+      models[key] = { input: u.input ?? 0, output: u.output ?? 0, cacheRead: u.cacheRead ?? 0, cacheWrite: u.cacheWrite ?? 0, ...(u.reasoning !== undefined ? { reasoning: u.reasoning } : {}) };
+    }
+    this.host.emit({ t: "usage", sessionId: where.sessionId, parent: where.parent, conv, models });
   }
 
   /** Send a conversation's entries committed since the last one sent, in order. */

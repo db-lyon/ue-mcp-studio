@@ -169,6 +169,15 @@ export interface DurableInspection {
   reports: Array<{ at: string; kind: string; reason?: string; task?: string; message: string }>;
 }
 
+/** One ledger bucket's totals, in pi-ai's usage counters. */
+export interface LedgerUsage {
+  input: number;
+  output: number;
+  cacheRead: number;
+  cacheWrite: number;
+  reasoning?: number;
+}
+
 /** Client to harness. Requests carry an id answered by ret. */
 export type ClientMessage =
   | { t: "hello"; protocol: number; token: string; version: string; role: "daemon" | "observer"; extension?: { version: string; file: string } }
@@ -197,7 +206,14 @@ export type ClientMessage =
 
 /** Harness to client. */
 export type HarnessMessage =
-  | { t: "hello"; protocol: number; version: string; pid: number; extension: string }
+  /** `features`: what this harness sends beyond its protocol, such as "usage" (its spend ledgers). Absent on an older harness. */
+  | { t: "hello"; protocol: number; version: string; pid: number; extension: string; features?: string[] }
+  /**
+   * A conversation's spend ledger (Pi Durable's pi.usage): totals per provider/model, counting what has no
+   * transcript entry too, such as compaction summaries. Sent whenever it changes and on sync; the daemon counts
+   * what grew since the totals it last saw.
+   */
+  | { t: "usage"; sessionId: string; parent: string | null; conv: string; models: Record<string, LedgerUsage> }
   | { t: "refused"; why: string }
   | { t: "ret"; id: string; ok: boolean; value?: unknown; error?: string }
   | EntryEvent
