@@ -22,6 +22,7 @@ import { TurnHosts } from "../../src/hosted-turn.js";
 import { syncOf } from "../../src/session-delta.js";
 import { FakeHost } from "../durable/helpers.js";
 import { routeSpec } from "../../src/durable/routes.js";
+import { ChatGptAuth } from "../../src/chatgpt.js";
 
 export interface DaemonConfig {
   runtime: "loop" | "hosts" | "durable";
@@ -35,6 +36,8 @@ export interface DaemonConfig {
   ask: boolean;
   /** Run the durable runtime on the real Claude sign-in instead of the stand-in API: this model, through this Claude runtime. */
   claude?: { model: string; command: string };
+  /** Run it on a real Sign in with ChatGPT instead: this model, with the sign-in kept in `home` (a test folder, never the user's own). */
+  chatgpt?: { model: string; home: string };
 }
 
 const config = JSON.parse(fs.readFileSync(process.argv[2], "utf-8")) as DaemonConfig;
@@ -51,17 +54,22 @@ const base: RunnerOptions = {
   askBeforeChanges: () => config.ask,
   provider: () => new AnthropicProvider("test-key", new Anthropic({ apiKey: "test-key", baseURL: config.base })),
 };
+if (config.chatgpt) process.env.STUDIO_CHATGPT_HOME = config.chatgpt.home;
+const chatgpt = config.chatgpt ? new ChatGptAuth() : null;
 const runner = new AgentRunner(
   config.runtime === "durable" ? {
     ...base,
     ...(config.claude ? { model: () => config.claude!.model } : {}),
+    ...(config.chatgpt ? { model: () => config.chatgpt!.model } : {}),
     durable: {
-      route: () => (config.claude ? "claude" : "key:anthropic"),
+      route: () => (config.claude ? "claude" : config.chatgpt ? "chatgpt" : "key:anthropic"),
       routeSpec: (model) => (config.claude
         // The route as Studio ships it, with the provider's own web search.
         ? routeSpec({ route: "claude", model, vendor: "anthropic", gatewayUrl: "", agentVersion: config.version, endpoint: () => null })
-        : { route: "key:anthropic", provider: "anthropic", api: "anthropic-messages", model, baseUrl: config.base, auth: "apiKey" }),
-      credential: async () => "test-key",
+        : config.chatgpt
+          ? routeSpec({ route: "chatgpt", model, vendor: "openai", gatewayUrl: "", agentVersion: config.version, endpoint: () => null })
+          : { route: "key:anthropic", provider: "anthropic", api: "anthropic-messages", model, baseUrl: config.base, auth: "apiKey" }),
+      credential: async (route) => (route === "chatgpt" && chatgpt ? chatgpt.accessToken() : "test-key"),
       harness: {
         dataDir: config.dataDir, projectDir: config.projectDir, version: config.version, script: path.join(config.dist, "durable-harness.js"), extensionFile: path.join(config.dist, "durable-extension.js"),
         ...(config.claude ? { claudeCommand: async () => config.claude!.command } : {}),

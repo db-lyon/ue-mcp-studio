@@ -244,12 +244,28 @@ function withHeaders(streams: Streams, spec: RouteSpec): Streams {
   return { stream: wrap(streams.stream) as Streams["stream"], streamSimple: wrap(streams.streamSimple) as Streams["streamSimple"] };
 }
 
+/** The Sign in with ChatGPT route: OpenAI's Responses API on the plan's token. */
+export const isChatGpt = (spec: RouteSpec): boolean => spec.route === "chatgpt" && spec.api === "openai-responses" && spec.baseUrl === "https://api.openai.com/v1";
+
+/**
+ * pi-ai's Responses API knows a ChatGPT sign-in by its model's provider
+ * ("openai" at api.openai.com) and a token that is not an API key, and only
+ * then leaves out what the plan refuses (configuration_update items, output
+ * limits, cache retention). Studio's route has a provider id of its own, so
+ * the API is handed the model as OpenAI's.
+ */
+export function asChatGpt(streams: Streams): Streams {
+  const wrap = (fn: (...a: unknown[]) => unknown) => (model: unknown, context: unknown, opts?: unknown) => fn({ ...(model as Record<string, unknown>), provider: "openai" }, context, opts);
+  return { stream: wrap(streams.stream) as Streams["stream"], streamSimple: wrap(streams.streamSimple) as Streams["streamSimple"] };
+}
+
 function apiFor(spec: RouteSpec): Streams {
   const api = spec.api === "anthropic-messages" ? anthropicMessagesApi()
     : spec.api === "openai-responses" ? openAIResponsesApi()
     : spec.api === "openai-completions" ? openAICompletionsApi()
     : googleGenerativeAIApi();
-  return withHeaders(api as unknown as Streams, spec);
+  const streams = withHeaders(api as unknown as Streams, spec);
+  return isChatGpt(spec) ? asChatGpt(streams) : streams;
 }
 
 /**
@@ -311,7 +327,8 @@ class RouteModels {
             resolve: async () => {
               if (spec.auth === "none") return { auth: { apiKey: "none" } };
               const c = await this.credential(route);
-              return spec.auth === "bearer" ? { auth: { headers: { authorization: `Bearer ${c}` } } } : { auth: { apiKey: c } };
+              // A ChatGPT sign-in's token goes as the API key, as pi-ai's own sign-in sends it: pi-ai then leaves out what the plan refuses.
+              return spec.auth === "bearer" && !isChatGpt(spec) ? { auth: { headers: { authorization: `Bearer ${c}` } } } : { auth: { apiKey: c } };
             },
           },
         },
