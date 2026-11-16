@@ -1,18 +1,29 @@
 /**
- * The web client's SentVideo (chat/Transcript.tsx): a video a message carried.
- * It plays when it fits the account's limit, read through the relay into a
- * file the player opens; otherwise the offer: Compress and play, Check again
- * when the computer has no encoder yet, and the upgrade where a plan plays it.
+ * The web client's SentVideo (chat/Transcript.tsx) through the relay, as the
+ * phone always is: a video plays when it fits the plan's relay limit, read
+ * into a file the player opens; otherwise the offer: Compress and play (a
+ * smaller copy made on the computer), Open on the computer, and Check again
+ * while the computer has no encoder.
  */
 import { useEffect, useState } from "react";
 import { View } from "react-native";
 import { useVideoPlayer, VideoView } from "expo-video";
-import { VIDEO_COMPRESSING_LABEL, VIDEO_COMPRESS_LABEL, VIDEO_RECHECK_LABEL, attachmentUrl, forgetVideoLimits, formatBytes, videoLimitsOnce, videoTile } from "@ue-mcp-studio/client-core";
+import {
+  VIDEO_COMPRESSING_LABEL,
+  VIDEO_COMPRESS_LABEL,
+  VIDEO_OPENED_ON_COMPUTER,
+  VIDEO_OPEN_ON_COMPUTER_LABEL,
+  VIDEO_RECHECK_LABEL,
+  attachmentUrl,
+  forgetVideoLimits,
+  formatBytes,
+  videoLimitsOnce,
+  videoTile,
+} from "@ue-mcp-studio/client-core";
 import type { Attachment, VideoLimits } from "@ue-mcp-studio/shared";
 import { useProjectNav } from "../nav";
 import { Banner, Button, T, useTheme } from "../ui";
 import { readDaemonPicture } from "./daemon-picture";
-import { UpgradeAction } from "../screens/chat/composer/remote/Upgrade";
 
 /** A video file on the phone, played inline with the system's controls. */
 function Player({ uri, label }: { uri: string; label: string }) {
@@ -52,6 +63,7 @@ export function SentVideo({ file, sessionId }: { file: Attachment; sessionId: st
   const [copy, setCopy] = useState<Attachment | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [note, setNote] = useState<string | null>(null);
   const [asked, setAsked] = useState(0);
   useEffect(() => {
     let alive = true;
@@ -62,7 +74,7 @@ export function SentVideo({ file, sessionId }: { file: Attachment; sessionId: st
   }, [api, asked]);
   const label = `${file.name}, ${formatBytes(file.size)}`;
   if (!limits) return <T>{label}</T>;
-  const tile = videoTile(file, limits, copy);
+  const tile = videoTile(file, limits, copy, true);
   if (tile.play) return <Loaded sessionId={sessionId} play={tile.play} label={label} />;
   const compress = async () => {
     setBusy(true);
@@ -80,16 +92,21 @@ export function SentVideo({ file, sessionId }: { file: Attachment; sessionId: st
     forgetVideoLimits();
     setAsked((n) => n + 1);
   };
+  const openOnComputer = () => {
+    setError(null);
+    api.openVideoOnComputer(sessionId, file.id).then(() => setNote(VIDEO_OPENED_ON_COMPUTER), (e: Error) => setError(e.message));
+  };
   return (
     <View style={{ gap: 6, maxWidth: 360, paddingVertical: 8, paddingHorizontal: 10, borderWidth: 1, borderColor: t.c.accentLine, borderRadius: 6 }}>
       <T>{label}</T>
       <T style={{ color: t.c.dim }}>{tile.offer}</T>
       {error ? <Banner kind="bad">{error}</Banner> : null}
+      {note ? <T style={{ color: t.c.dim }}>{note}</T> : null}
       <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 6 }}>
         {tile.compress ? <Button size="small" variant="primary" disabled={busy} title={busy ? VIDEO_COMPRESSING_LABEL : VIDEO_COMPRESS_LABEL} onPress={() => void compress()} /> : null}
         {tile.recheck ? <Button size="small" title={VIDEO_RECHECK_LABEL} onPress={recheck} /> : null}
+        {tile.openOnComputer ? <Button size="small" title={VIDEO_OPEN_ON_COMPUTER_LABEL} onPress={openOnComputer} /> : null}
       </View>
-      {tile.upgrade ? <UpgradeAction /> : null}
     </View>
   );
 }

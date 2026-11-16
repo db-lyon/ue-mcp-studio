@@ -44,7 +44,6 @@ import { registerWhatsNew } from "./whats-new.js";
 import { readDiscovery, type DaemonExtensionApi } from "ue-mcp/daemon";
 import { registerQueueRoutes } from "./queue-routes.js";
 import { registerVideoRoutes } from "./video-routes.js";
-import { RemotePlanCheck } from "./remote/plan.js";
 import { PlaytestFlow } from "./playtest-flow.js";
 import { FlowCaller, offersStepApproval, type FlowStepHost } from "./flow-run.js";
 
@@ -733,8 +732,15 @@ export function registerChat(api: DaemonExtensionApi, agentVersion = "0.0.0", pa
     return { headers: { "content-type": a.type, "content-disposition": `inline; filename="${a.name.replace(/"/g, "")}"` }, body: fs.readFileSync(a.path) };
   });
   // Videos in the chat: the size that plays for this account, and a smaller copy of one that does not.
-  const paidPlan = new RemotePlanCheck({ token: () => account.token(), gatewayUrl: () => settings.gatewayUrl() });
-  registerVideoRoutes(api, { attachments, paid: () => paidPlan.available() });
+  registerVideoRoutes(api, {
+    attachments,
+    usage: async () => {
+      const token = await account.token();
+      if (!token) return null;
+      const res = await fetchAccountUsage(settings.gatewayUrl(), token, fetch, AbortSignal.timeout(10_000));
+      return res.ok ? ((await res.json()) as AccountUsage) : null;
+    },
+  });
   api.route("PUT", "/sessions/:id/draft", (req) => {
     const s = store.get(req.params.id);
     if (!s) return missing(req.params.id);

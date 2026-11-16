@@ -165,6 +165,7 @@ export function studioApi(t: Transport) {
     // Videos in the chat: the size that plays for this account, and a smaller copy of one that does not.
     videoLimits: () => get<VideoLimits>(`${S}/video`),
     compressVideo: (id: string, attachmentId: string) => send<Attachment>("POST", `${session(id)}/attachments/${enc(attachmentId)}/compress`),
+    openVideoOnComputer: (id: string, attachmentId: string) => send<unknown>("POST", `${session(id)}/attachments/${enc(attachmentId)}/open`),
     searchMentions: (request: MentionSearchRequest, signal?: AbortSignal) => requestJson<MentionSearchResponse>(t, "POST", `${S}/mentions/search`, { json: request, ...(signal ? { signal } : {}) }),
     flows: () => get<{ flows: FlowListing[] }>("/v1/flows"),
     planFlow: (name: string) => get<unknown>(`/v1/flows/${enc(name)}/plan`),

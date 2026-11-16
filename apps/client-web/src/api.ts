@@ -254,6 +254,8 @@ export const api = {
   videoLimits: () => call<VideoLimits>("GET", "/v1/ext/studio/video"),
   compressVideo: (id: string, attachmentId: string) =>
     call<Attachment>("POST", `/v1/ext/studio/sessions/${encodeURIComponent(id)}/attachments/${encodeURIComponent(attachmentId)}/compress`),
+  openVideoOnComputer: (id: string, attachmentId: string) =>
+    call<void>("POST", `/v1/ext/studio/sessions/${encodeURIComponent(id)}/attachments/${encodeURIComponent(attachmentId)}/open`),
   stopSubagent: (id: string, callId: string) =>
     call<void>("POST", `/v1/ext/studio/sessions/${encodeURIComponent(id)}/agents/${encodeURIComponent(callId)}/stop`),
   /** Resume a subagent that stopped or failed: it goes on in its kept conversation under a new agent call. */
