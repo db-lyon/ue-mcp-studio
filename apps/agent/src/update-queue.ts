@@ -2,7 +2,8 @@
  * Updates that wait for the turns to finish. Updating Studio or restarting
  * ue-mcp restarts the daemon. A turn running in its own host process outlives
  * that, so those two steps wait only for turns that run inside the daemon
- * (pinned). Updating the editor plugin closes the editor, so it waits while
+ * (pinned); updating Studio also waits for turns in a turn host (hosted),
+ * since the Studio it installs has no turn hosts. Updating the editor plugin closes the editor, so it waits while
  * any session is running or waiting. A waiting step is kept here and runs once
  * nothing holds it. Restart now runs it at once, ending the turns first with
  * that said in each.
@@ -35,6 +36,13 @@ export interface UpdateQueueOptions {
    * this; busy when not given.
    */
   pinned?: () => boolean;
+  /**
+   * True while a conversation runs in a turn host. The studio step also waits
+   * on this: a later Studio has no turn hosts to take it over, so the turn
+   * finishes before the install. The restart keeps the same Studio and does
+   * not wait on it. Nothing waits on it when not given.
+   */
+  hosted?: () => boolean;
   /** Run one step now. */
   run: (step: DeferredStep) => Promise<StepResult>;
   /** End every turn in progress before a Restart now. */
@@ -92,9 +100,15 @@ export class UpdateQueue {
     return this.o.run(step);
   }
 
-  /** Whether a step has to wait: the plugin for every turn, Studio and the restart only for turns a daemon restart would end. */
+  /**
+   * Whether a step has to wait: the plugin for every turn, Studio and the
+   * restart for turns a daemon restart would end, and Studio also for turns in
+   * a turn host, which the next Studio cannot take over.
+   */
   private held(step: DeferredStep): boolean {
-    return step === "plugin" ? this.o.busy() : (this.o.pinned ?? this.o.busy)();
+    if (step === "plugin") return this.o.busy();
+    if (step === "studio" && this.o.hosted?.()) return true;
+    return (this.o.pinned ?? this.o.busy)();
   }
 
   /** Restart now: end the turns in progress and run every waiting step. */

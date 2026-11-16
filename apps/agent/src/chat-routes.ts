@@ -437,6 +437,8 @@ export function registerChat(api: DaemonExtensionApi, agentVersion = "0.0.0", pa
     dataDir: api.dataDir,
     busy: () => runner.activeSessions().length > 0,
     pinned: () => runner.pinnedSessions().length > 0,
+    // A Studio update also waits for turns in a turn host: the Studio after the cutover cannot take them over.
+    hosted: () => runner.hostedSessions().length > 0,
     interruptTurns: () => {
       for (const id of runner.activeSessions()) runner.interrupt(id, { by: "studio", why: "the user chose Restart now to install an update" });
     },

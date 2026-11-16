@@ -130,6 +130,11 @@ export class TurnHosts {
     return mine[0] ?? null;
   }
 
+  /** The sessions a live host runs a conversation for, attached or not; a subagent's host counts for its session. */
+  running(): string[] {
+    return [...new Set(listRecords(this.o.dataDir).filter((r) => pidAlive(r.pid)).map((r) => r.session.split("#")[0]))];
+  }
+
   /** Start a host for a turn and attach to it. Throws when the host cannot be started or reached. */
   async start(session: string, spec: TurnSpec, cb: HostedCallbacks): Promise<HostedRun> {
     const host = crypto.randomUUID();
