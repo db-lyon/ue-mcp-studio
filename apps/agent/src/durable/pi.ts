@@ -26,7 +26,7 @@ import { renderTrace } from "@earendil-works/pi-telemetry/render";
 import { openNodeSqliteDatabase } from "@earendil-works/chord/sqlite/node";
 import { createSqliteTelemetry } from "@earendil-works/chord/telemetry-sqlite";
 import { createClaudeCodeProvider } from "studio-pi-claude-code";
-import type { AgentSpec, AgentStart, DurableInspection, EntryEvent, LedgerUsage, HarnessMessage, HarnessRequest, RouteSpec, ToolDef, TraceDetail, TraceFilter, TracePage, TraceSummary, UserContent } from "./protocol.js";
+import type { AgentSpec, AgentStart, DurableInspection, EntryEvent, HistoryMessage, LedgerUsage, HarnessMessage, HarnessRequest, RouteSpec, ToolDef, TraceDetail, TraceFilter, TracePage, TraceSummary, UserContent } from "./protocol.js";
 
 type Telemetry = Awaited<ReturnType<typeof createSqliteTelemetry>>;
 type Trace = NonNullable<Awaited<ReturnType<Telemetry["getTrace"]>>>;
@@ -370,6 +370,64 @@ function summarize(e: { id: string; kind: string; conversationId: string; model?
   }
   if (m.role === "toolResult") return { ...base, role: "toolResult", text, callId: String(m.toolCallId), toolName: String(m.toolName ?? ""), isError: !!m.isError };
   return { ...base, role: "user", text };
+}
+
+/**
+ * Pi Durable entries as Messages-format messages, the way Studio's other
+ * runtimes keep a conversation: the latest compaction's summary first, then
+ * every message after it, same-role neighbours merged, and every tool call
+ * answered.
+ */
+export function historyOf(entries: ReadonlyArray<{ kind: string; model?: ReadonlyArray<Record<string, unknown>>; data?: unknown }>): HistoryMessage[] {
+  type Block = Record<string, unknown>;
+  const out: HistoryMessage[] = [];
+  const push = (role: "user" | "assistant", blocks: Array<Record<string, unknown>>): void => {
+    if (!blocks.length) return;
+    const last = out[out.length - 1];
+    if (last?.role === role) last.content.push(...blocks);
+    else out.push({ role, content: blocks });
+  };
+  const blocksOf = (content: unknown): Array<Record<string, unknown>> =>
+    typeof content === "string" ? (content ? [{ type: "text", text: content }] : []) : Array.isArray(content) ? (content as Array<Record<string, unknown>>) : [];
+  for (const e of entries) {
+    if (e.kind === "pi.compaction") {
+      out.length = 0;
+      const summary = String((e.data as { summary?: unknown } | undefined)?.summary ?? "");
+      if (summary) push("user", [{ type: "text", text: `[Studio] The conversation so far was compacted. Its summary:\n\n${summary}` }]);
+      continue;
+    }
+    for (const m of e.model ?? []) {
+      if (m.role === "user") {
+        push("user", blocksOf(m.content).flatMap((b): Block[] => b.type === "text" ? [{ type: "text", text: String(b.text ?? "") }]
+          : b.type === "image" ? [{ type: "image", source: { type: "base64", media_type: String(b.mimeType ?? "image/png"), data: String(b.data ?? "") } }]
+          : []));
+      } else if (m.role === "assistant") {
+        push("assistant", blocksOf(m.content).flatMap((b): Block[] => b.type === "text" && String(b.text ?? "").trim() ? [{ type: "text", text: String(b.text) }]
+          : b.type === "toolCall" ? [{ type: "tool_use", id: String(b.id), name: String(b.name), input: (b.arguments ?? {}) as Record<string, unknown> }]
+          : []));
+      } else if (m.role === "toolResult") {
+        const content = blocksOf(m.content).flatMap((b): Block[] => b.type === "text" ? [{ type: "text", text: String(b.text ?? "") }]
+          : b.type === "image" ? [{ type: "image", source: { type: "base64", media_type: String(b.mimeType ?? "image/png"), data: String(b.data ?? "") } }]
+          : []);
+        push("user", [{ type: "tool_result", tool_use_id: String(m.toolCallId), content, ...(m.isError ? { is_error: true } : {}) }]);
+      }
+    }
+  }
+  // Every tool call answered, in the user message right after it.
+  for (let i = 0; i < out.length; i++) {
+    const m = out[i];
+    if (m.role !== "assistant") continue;
+    const calls = m.content.filter((b) => b.type === "tool_use").map((b) => String(b.id));
+    if (!calls.length) continue;
+    let next = out[i + 1];
+    if (next?.role !== "user") out.splice(i + 1, 0, (next = { role: "user", content: [] }));
+    const answered = new Set(next.content.filter((b) => b.type === "tool_result").map((b) => String(b.tool_use_id)));
+    const missing = calls.filter((id) => !answered.has(id)).map((id) => ({ type: "tool_result", tool_use_id: id, content: [{ type: "text", text: "This call was interrupted; its outcome is unknown." }], is_error: true }));
+    next.content.unshift(...missing);
+  }
+  // A conversation starts with the user.
+  while (out[0]?.role === "assistant") out.shift();
+  return out;
 }
 
 /** Studio's effort as pi-ai's thinking level: the same five names. */
@@ -820,6 +878,30 @@ export class DurableEngine {
     // What the fork holds from its parent was applied with the parent: only what comes after the head is new.
     if (w && (!w.last || this.later(head, w.last))) w.last = head;
     return { conv: id, at: head };
+  }
+
+  /**
+   * The main agent's conversation as the model sees it now, in the Messages
+   * format: from the latest compaction's summary on, with tool calls, their
+   * results and images. A call that never got its result is answered as
+   * interrupted, so the conversation is one any provider takes. For a session
+   * that leaves this runtime. Null when the session has no conversation here.
+   */
+  async history(sessionId: string): Promise<HistoryMessage[] | null> {
+    const doc = await this.sessions();
+    const rec = doc.sessions[sessionId];
+    if (!rec) return null;
+    const conv = await this.harness.conversation(rec.conv as never, CTX);
+    if (!conv) return null;
+    type Entry = { id: unknown; kind: string; model?: Array<Record<string, unknown>>; data?: unknown };
+    const all: Entry[] = [];
+    let cursor: unknown;
+    do {
+      const page = (await conv.entries({ order: "ascending" } as never, 500, cursor as never, CTX)) as unknown as { items: Entry[]; next?: unknown };
+      all.push(...page.items);
+      cursor = page.next;
+    } while (cursor !== undefined);
+    return historyOf(all);
   }
 
   /** Send the session's entries after the given ones, then its live state. */

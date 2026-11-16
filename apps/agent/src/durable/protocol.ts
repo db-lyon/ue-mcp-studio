@@ -171,6 +171,12 @@ export interface DurableInspection {
   reports: Array<{ at: string; kind: string; reason?: string; task?: string; message: string }>;
 }
 
+/** A message of a conversation in the Messages format Studio's other runtimes keep (text, image, tool_use and tool_result blocks). */
+export interface HistoryMessage {
+  role: "user" | "assistant";
+  content: Array<Record<string, unknown>>;
+}
+
 /** Which traces to list: the newest first. */
 export interface TraceFilter {
   /** The name of a trace's first span, such as pi.ai.request. */
@@ -252,6 +258,8 @@ export type ClientMessage =
   | { t: "inspect"; id: string }
   /** The harness's traces, newest first (answers a TracePage), or one trace with its spans (a TraceDetail or null). Reads only. An older harness never answers it. */
   | { t: "traces"; id: string; filter?: TraceFilter; traceId?: string }
+  /** The main agent's conversation as the model sees it, for a session leaving this runtime: HistoryMessage[], or null. Reads only. An older harness never answers it. */
+  | { t: "history"; id: string; sessionId: string }
   /** An edited message or a fork: conversation `to` goes on from just before the message in `from`. Answers { conv, at } or null. An older harness never answers it. */
   | { t: "fork"; id: string; from: string; to: string; text: string; fromEnd: number }
   | { t: "res"; reqId: string; value: unknown }

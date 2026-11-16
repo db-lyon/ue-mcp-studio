@@ -21,6 +21,9 @@ export interface FakeTurn {
   inputTokens?: number;
   /** Thinking streamed before the answer. */
   thinking?: string;
+  /** Refuse the request with this HTTP status (a 400 is not retried) and `error` as its message. */
+  status?: number;
+  error?: string;
 }
 
 export interface FakeAnthropic {
@@ -75,6 +78,10 @@ export async function startFakeAnthropic(script: (req: { toolResults: number; sy
     if (turn.tool && !tools.includes(turn.tool.name)) {
       const named = tools.find((t) => t.endsWith(`__${turn.tool!.name}`));
       if (named) turn.tool = { ...turn.tool, name: named };
+    }
+    if (turn.status) {
+      res.writeHead(turn.status, { "content-type": "application/json" }).end(JSON.stringify({ type: "error", error: { type: "invalid_request_error", message: turn.error ?? "refused" } }));
+      return;
     }
     const pace = turn.paceMs ?? 5;
     if (turn.delayMs) await new Promise((r) => setTimeout(r, turn.delayMs));

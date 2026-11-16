@@ -20,7 +20,7 @@ import { DEFAULT_USAGE, type ApprovalDecision, type ApprovalKind, type Approvals
 import { AUTO_COMPACT_FRACTION, EMPTY_TOTALS, contextTokens, contextWindowOf, estimateTokens, requestCost, type CompactionRecord } from "@ue-mcp-studio/shared";
 import type { ContentBlock, ModelProvider, ModelTurn, MessageParam, WebSearchRecord } from "./providers.js";
 import { promptTokens, usageTokens, type TokenUsage } from "./usage.js";
-import { DEFAULT_SESSION_TITLE, SessionStore, type PendingTool, type StoredContext, type StoredSession } from "./sessions.js";
+import { DEFAULT_SESSION_TITLE, SessionStore, hasConversation, transcriptMessages, type PendingTool, type StoredContext, type StoredSession } from "./sessions.js";
 import { compactedMessages, conversationText, estimateMessagesTokens, isCompactedSummary, isContextOverflow, summaryInstruction, summaryRequest } from "./compaction.js";
 import type { QueuedMessage, ReplyImageInfo } from "@ue-mcp-studio/shared";
 import type { CardEntry, CardPost } from "@ue-mcp-studio/extension-api";
@@ -877,7 +877,7 @@ export class AgentRunner {
   async compact(sessionId: string, instructions = ""): Promise<void> {
     const s = this.require(sessionId);
     if (this.busy(s)) throw new Error("a turn is in progress; compact when it ends");
-    if (s.messages.length === 0) throw new Error("there is nothing to compact yet");
+    if (!hasConversation(s)) throw new Error("there is nothing to compact yet");
     // On the durable runtime the harness compacts the conversation, as it does on its own near the window.
     if (this.durable?.owns(s) && this.o.durable?.route()) {
       try {
@@ -1431,7 +1431,7 @@ export class AgentRunner {
       return;
     }
     s.archived = false;
-    if (s.messages.length === 0 && s.title === DEFAULT_SESSION_TITLE) s.title = text.trim().split("\n")[0].slice(0, 60) || attachments[0]?.name || s.title;
+    if (!hasConversation(s) && s.title === DEFAULT_SESSION_TITLE) s.title = text.trim().split("\n")[0].slice(0, 60) || attachments[0]?.name || s.title;
     if (s.crashed) this.reconcileCrash(s);
     const content: unknown[] = [];
     for (const note of [...s.notes.splice(0), ...this.aboutNotes(s, about)]) content.push({ type: "text", text: `[Studio] ${note}` });
@@ -1462,9 +1462,10 @@ export class AgentRunner {
     const s = this.o.store.get(sessionId);
     if (!s) throw new Error(`no session ${sessionId}`);
     if (s.status === "running" || s.status === "waiting") throw new Error("a turn is already in progress");
-    if (s.messages.length === 0) throw new Error("there is nothing to retry yet");
+    if (!hasConversation(s)) throw new Error("there is nothing to retry yet");
     const last = s.messages[s.messages.length - 1];
-    const content: unknown[] = last.role === "user"
+    // On the durable runtime the harness holds the message already: the model is asked to go on from it.
+    const content: unknown[] = last?.role === "user"
       ? (s.messages.pop(), typeof last.content === "string" ? [{ type: "text", text: last.content }] : [...(last.content as unknown[])])
       : [{ type: "text", text: "[Studio] Your last reply stopped on an error. Continue from where it stopped." }];
     s.error = null;
@@ -1491,8 +1492,8 @@ export class AgentRunner {
     s.route = this.o.route?.() ?? null;
     // The route's setting selects the durable runtime: the reply runs in the harness, whatever the route.
     if (this.durable && this.o.durable?.route() && this.durable.available()) return this.durable.reply(s, content);
-    // Back on another runtime: a later move to the durable one starts its conversation again from what Studio kept.
-    if (s.durable) this.durable?.release(s);
+    // Back on another runtime: its conversation is rebuilt from the harness, and a later move to the durable one starts again from that.
+    if (s.durable) await this.durable?.release(s, "harness");
     if (onClaude) {
       // The runtime's session has not seen the turns that ran on other routes: a new one starts, carrying the whole conversation.
       const earlier = s.messages.slice(0, -1);
@@ -1544,7 +1545,7 @@ export class AgentRunner {
       ? playtestTurnParams(s.transcript.slice(turn.start), turn.targets)
       : playtestParams(request.text, source?.kind === "assistant" ? source.text : null, s.transcript);
     s.archived = false;
-    if (s.messages.length === 0 && s.title === DEFAULT_SESSION_TITLE) s.title = shown.slice(0, 60);
+    if (!hasConversation(s) && s.title === DEFAULT_SESSION_TITLE) s.title = shown.slice(0, 60);
     s.transcript.push({ kind: "user", text: shown, at: now(), ...(request.source !== undefined ? { source: request.source } : {}) });
     s.turn = { start: s.transcript.length - 1, mutations: 0, targets: [], playtest: true };
     const card: Extract<TranscriptEntry, { kind: "playtest" }> = { kind: "playtest", state: "gathering", request, attempt: 1, at: now() };
@@ -1606,7 +1607,7 @@ export class AgentRunner {
     }
     const shown = request.text?.trim() || flowCommandText(name, request.params);
     s.archived = false;
-    if (s.messages.length === 0 && s.title === DEFAULT_SESSION_TITLE) s.title = shown.slice(0, 60);
+    if (!hasConversation(s) && s.title === DEFAULT_SESSION_TITLE) s.title = shown.slice(0, 60);
     s.transcript.push({ kind: "user", text: shown, at: now() });
     s.turn = { start: s.transcript.length - 1, mutations: 0, targets: [], playtest: false };
     const card: Extract<TranscriptEntry, { kind: "flow" }> = { kind: "flow", name, params: request.params, state: "running", steps: [], at: now() };
@@ -1728,7 +1729,7 @@ export class AgentRunner {
     }
     const shown = request.text?.trim() || actionCommandText(category, method, request.args);
     s.archived = false;
-    if (s.messages.length === 0 && s.title === DEFAULT_SESSION_TITLE) s.title = shown.slice(0, 60);
+    if (!hasConversation(s) && s.title === DEFAULT_SESSION_TITLE) s.title = shown.slice(0, 60);
     s.transcript.push({ kind: "user", text: shown, at: now() });
     s.turn = { start: s.transcript.length - 1, mutations: 0, targets: [], playtest: false };
     s.draft = "";
@@ -2459,7 +2460,8 @@ ${result}`);
       // On the durable runtime its subagents go on in the background and the harness steers the message into the main agent's run.
       if (this.replying.has(s.id)) this.toBackground(s);
       if (!(await this.durable!.tell(s, content))) return false;
-      addUserContent(s.messages, content);
+      // An earlier Studio's session keeps its copy until its next reply on the runtime empties it.
+      if (!s.durable?.only) addUserContent(s.messages, content);
     } else {
       if (!this.mainFreeNow(s)) return false;
       if (this.replying.has(s.id)) this.toBackground(s);
@@ -3231,7 +3233,7 @@ ${result}`);
     // the message, with every tool call and result before it; failing that, a new one from what is left.
     const forked = !!at && !!(await this.durable?.forkTo(s, s, at.text, at.fromEnd));
     SessionStore.truncateAt(s, index);
-    if (!forked) this.durable?.release(s);
+    if (!forked) await this.durable?.release(s, "transcript");
     if (later) s.notes.push(REWOUND_NOTE);
     s.status = "idle";
     s.waitingCause = null;
@@ -3257,8 +3259,11 @@ ${result}`);
     delete copy.agentRuns;
     delete copy.hostTurn;
     // The original's durable conversation stays the original's: the fork's first reply starts its own.
+    const harnessOnly = !!copy.durable?.only;
     delete copy.durable;
     SessionStore.truncateAt(copy, index);
+    // The harness held the original's only copy of the conversation: the copy's is rebuilt from its transcript.
+    if (harnessOnly) copy.messages = transcriptMessages(copy.transcript);
     // The original's Claude conversations stay the original's: deleting the fork must not take them with it.
     copy.sdkPast = [];
     copy.archived = false;
