@@ -11,6 +11,7 @@ import { OpenAICompatibleProvider, OPENAI_BASE_URLS, PROVIDER_EXTRA } from "./op
 import { ResponsesProvider } from "./responses.js";
 import type { Effort } from "@ue-mcp-studio/shared";
 import { messagesUsage, type TokenUsage } from "./usage.js";
+import { fetchRetrying } from "./retry.js";
 
 export type { TokenUsage } from "./usage.js";
 
@@ -181,7 +182,7 @@ export class GatewayProvider implements ModelProvider {
 
   async run(req: ModelRequest, onText: (text: string) => void, signal: AbortSignal): Promise<ModelTurn> {
     const { betas, ...body } = requestBody(req);
-    const res = await this.fetchImpl(`${this.gatewayUrl}/v1/messages`, {
+    const res = await fetchRetrying(this.fetchImpl, `${this.gatewayUrl}/v1/messages`, {
       method: "POST",
       signal,
       headers: {

@@ -7,6 +7,7 @@
 import type { ContentBlock, ModelProvider, ModelRequest, ModelTurn, MessageParam } from "./providers.js";
 import { geminiEffort, openaiEffort } from "./effort.js";
 import { openaiUsage, type TokenUsage } from "./usage.js";
+import { fetchRetrying } from "./retry.js";
 
 export const OPENAI_BASE_URLS = {
   openai: "https://api.openai.com/v1",
@@ -180,7 +181,7 @@ export class OpenAICompatibleProvider implements ModelProvider {
   ) {}
 
   async run(req: ModelRequest, onText: (text: string) => void, signal: AbortSignal): Promise<ModelTurn> {
-    const res = await this.fetchImpl(`${this.baseUrl}/chat/completions`, {
+    const res = await fetchRetrying(this.fetchImpl, `${this.baseUrl}/chat/completions`, {
       method: "POST",
       signal,
       // A local endpoint may take no key: it then gets no authorization header at all.
