@@ -4,7 +4,8 @@
  * pi-claude-code at commit d5b5e04). An API change upstream lands here and
  * nowhere else: the harness process (harness-main.ts) drives conversations
  * only through DurableEngine, and Studio's extension (extension.ts) only
- * through the Kit it is handed.
+ * through the Kit it is handed. (The daemon's Sign in with ChatGPT takes
+ * pi-ai's OAuth flow through ../pi-auth.ts, its only other door to pi-ai.)
  *
  * Conversations: one per Studio session (its main agent), and one per
  * subagent, made by the agent tool and kept ownerless so a subagent that goes
