@@ -266,6 +266,7 @@ export const api = {
     call<{ sessionId: string; to: "subagent" | "queue" | "main" }>("POST", `/v1/ext/studio/sessions/${encodeURIComponent(id)}/agents/${encodeURIComponent(callId)}/messages`, now ? { text, attachments, now } : { text, attachments }),
   stop:(id: string) => call<void>("POST", `/v1/ext/studio/sessions/${encodeURIComponent(id)}/stop`),
   /** Summarise the conversation to free context; the transcript stays whole. */
+  retry: (id: string) => call<{ sessionId: string }>("POST", `/v1/ext/studio/sessions/${encodeURIComponent(id)}/retry`),
   compact: (id: string, instructions?: string) => call<{ sessionId: string }>("POST", `/v1/ext/studio/sessions/${encodeURIComponent(id)}/compact`, instructions ? { instructions } : {}),
   approve: (id: string, approvalId: string, decision: ApprovalDecision) =>
     call<void>("POST", `/v1/ext/studio/sessions/${encodeURIComponent(id)}/approvals/${encodeURIComponent(approvalId)}`, { decision }),

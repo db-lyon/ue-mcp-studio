@@ -8,7 +8,9 @@
  */
 import { spawn, spawnSync, type ChildProcess } from "node:child_process";
 import * as fs from "node:fs";
+import * as os from "node:os";
 import * as path from "node:path";
+import * as readline from "node:readline";
 import type Anthropic from "@anthropic-ai/sdk";
 import { lineDiff, type ApprovalRequest, type DiffLine } from "@ue-mcp-studio/shared";
 import { IMAGE_EXTENSIONS, MAX_IMAGE_FILE_BYTES, describeImage, prepareImage, sniffImage, type ToolImage } from "./images.js";
@@ -37,6 +39,7 @@ const TEXT_MAX = 30_000;
 const FETCH_DEFAULT = 50_000;
 const FETCH_MAX = 200_000;
 const FETCH_TIMEOUT_MS = 30_000;
+const FETCH_TIMEOUT_MAX_S = 300;
 /** Folders a walk skips unless the pattern names them: version control, packages and Unreal's generated files. */
 const SKIP_DIRS = [".git", ".svn", ".vs", "node_modules", "Intermediate", "DerivedDataCache"];
 
@@ -100,16 +103,36 @@ export function detectShell(env: NodeJS.ProcessEnv = process.env, platform: Node
 let shellCache: ShellInfo | null = null;
 export const shell = (): ShellInfo => (shellCache ??= detectShell());
 
-/** Keeps the start and the end of a long output, and counts what it dropped. */
+/**
+ * Keeps the start and the end of a long output, and counts what it dropped.
+ * With `spill`, an output longer than both is also written whole to that
+ * file, so the middle the model is not shown (a build's first error) can
+ * still be read.
+ */
 export class OutputTail {
   private head = "";
   private tail = "";
   private total = 0;
+  private early: string[] = [];
+  private spilled = false;
 
-  constructor(private readonly headMax = OUTPUT_HEAD, private readonly tailMax = OUTPUT_TAIL) {}
+  constructor(private readonly headMax = OUTPUT_HEAD, private readonly tailMax = OUTPUT_TAIL, private readonly spill?: string) {}
 
   push(chunk: string): void {
     this.total += chunk.length;
+    if (this.spill) {
+      try {
+        if (this.spilled) fs.appendFileSync(this.spill, chunk);
+        else if (this.total > this.headMax + this.tailMax) {
+          fs.mkdirSync(path.dirname(this.spill), { recursive: true });
+          fs.writeFileSync(this.spill, this.early.join("") + chunk);
+          this.early = [];
+          this.spilled = true;
+        } else this.early.push(chunk);
+      } catch {
+        // Not kept: the cut output still reads.
+      }
+    }
     if (this.head.length < this.headMax) {
       const room = this.headMax - this.head.length;
       this.head += chunk.slice(0, room);
@@ -122,7 +145,8 @@ export class OutputTail {
   text(): string {
     const dropped = this.total - this.head.length - this.tail.length;
     if (dropped <= 0) return this.head + this.tail;
-    return `${this.head}\n\n[${dropped} characters cut from the middle: ${this.total} in all, showing the first ${this.head.length} and the last ${this.tail.length}]\n\n${this.tail}`;
+    const kept = this.spilled ? `; the whole output is saved at ${this.spill}, read it there with read_file or grep` : "";
+    return `${this.head}\n\n[${dropped} characters cut from the middle: ${this.total} in all, showing the first ${this.head.length} and the last ${this.tail.length}${kept}]\n\n${this.tail}`;
   }
 }
 
@@ -144,7 +168,7 @@ export function runShell(command: string, cwd: string, timeoutS: number, signal?
   const timeout = Math.min(Math.max(1, timeoutS), SHELL_TIMEOUT_MAX_S);
   const args = sh.kind === "bash" ? ["-c", command] : ["-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-Command", command];
   return new Promise((resolve) => {
-    const out = new OutputTail();
+    const out = new OutputTail(OUTPUT_HEAD, OUTPUT_TAIL, path.join(os.tmpdir(), "studio-shell-output", `${Date.now().toString(36)}-${process.pid}.log`));
     let child: ChildProcess;
     try {
       child = spawn(sh.exe, args, {
@@ -227,7 +251,7 @@ async function readImage(file: string, buf: Buffer, mediaType: string): Promise<
 }
 
 /** A text file with line numbers, or an image file as an image. */
-export async function readFile(projectDir: string, input: { path: string; offset?: number; limit?: number }): Promise<LocalResult> {
+export async function readFile(projectDir: string, input: { path: string; offset?: number; limit?: number; column?: number }): Promise<LocalResult> {
   const file = resolvePath(projectDir, input.path);
   let st: fs.Stats | null = null;
   try {
@@ -248,22 +272,56 @@ export async function readFile(projectDir: string, input: { path: string; offset
   } else if (st?.isFile() && IMAGE_EXTENSIONS[path.extname(file).toLowerCase()]) {
     return fail(`${file} is ${st.size} bytes, too large an image to open (at most ${MAX_IMAGE_FILE_BYTES / 1024 / 1024} MB)`);
   }
-  const r = readText(file);
-  if ("error" in r) return fail(r.error);
-  if (r.text === "") return { text: `${file} is empty.`, isError: false };
-  const lines = r.text.replace(/\r\n/g, "\n").split("\n");
-  if (lines[lines.length - 1] === "") lines.pop();
   const start = Math.max(1, Math.floor(input.offset ?? 1));
   const limit = Math.max(1, Math.floor(input.limit ?? READ_LINES_DEFAULT));
-  if (start > lines.length) return fail(`${file} has ${lines.length} lines; offset ${start} is past the end`);
-  const end = Math.min(lines.length, start + limit - 1);
+  const column = Math.max(0, Math.floor(input.column ?? 0));
+  // A file too large to hold is read as a stream, keeping only the lines asked for.
+  const big = st?.isFile() && st.size > READ_FILE_MAX ? await readRange(file, start, limit) : null;
+  if (big && "error" in big) return fail(big.error);
+  let picked: string[];
+  let total: number;
+  if (big) {
+    ({ lines: picked, total } = big);
+  } else {
+    const r = readText(file);
+    if ("error" in r) return fail(r.error);
+    if (r.text === "") return { text: `${file} is empty.`, isError: false };
+    const lines = r.text.replace(/\r\n/g, "\n").split("\n");
+    if (lines[lines.length - 1] === "") lines.pop();
+    total = lines.length;
+    picked = lines.slice(start - 1, start - 1 + limit);
+  }
+  if (start > total) return fail(`${file} has ${total} lines; offset ${start} is past the end`);
+  const end = Math.min(total, start + limit - 1);
   const width = String(end).length;
-  const body = lines.slice(start - 1, end).map((l, i) => {
-    const text = l.length > READ_LINE_MAX ? `${l.slice(0, READ_LINE_MAX)} [line cut at ${READ_LINE_MAX} characters]` : l;
+  const body = picked.map((l, i) => {
+    const part = l.slice(column, column + READ_LINE_MAX);
+    const text = l.length > column + READ_LINE_MAX ? `${part} [line cut: characters ${column} to ${column + READ_LINE_MAX} of ${l.length}; read on with column=${column + READ_LINE_MAX}]` : part;
     return `${String(start + i).padStart(width)}\t${text}`;
   }).join("\n");
-  const more = end < lines.length ? `\n[lines ${start} to ${end} of ${lines.length}; read on with offset=${end + 1}]` : "";
+  const more = end < total ? `\n[lines ${start} to ${end} of ${total}; read on with offset=${end + 1}]` : "";
   return { text: body + more, isError: false };
+}
+
+/** Lines `start` to `start + limit - 1` of a large text file, read as a stream, and how many lines it has. */
+async function readRange(file: string, start: number, limit: number): Promise<{ lines: string[]; total: number } | { error: string }> {
+  const head = Buffer.alloc(8000);
+  const fd = fs.openSync(file, "r");
+  let got = 0;
+  try {
+    got = fs.readSync(fd, head, 0, head.length, 0);
+  } finally {
+    fs.closeSync(fd);
+  }
+  if (isBinary(head.subarray(0, got))) return { error: `${file} is a binary file; read_file opens text, and PNG, JPEG, GIF and WebP images` };
+  const lines: string[] = [];
+  let total = 0;
+  const rl = readline.createInterface({ input: fs.createReadStream(file, { encoding: "utf-8" }), crlfDelay: Infinity });
+  for await (const line of rl) {
+    total++;
+    if (total >= start && total < start + limit) lines.push(line);
+  }
+  return { lines, total };
 }
 
 export function writeFile(projectDir: string, input: { path: string; content: string }): LocalResult {
@@ -521,13 +579,17 @@ async function grepJs(target: string, isDir: boolean, input: GrepInput, signal?:
   const files = isDir ? walk(target, input.glob ?? "", limit) : one();
   const root = isDir ? target : path.dirname(target);
   const lines: string[] = [];
+  const skipped: string[] = [];
   for await (const rel of files) {
     if (filter && !filter.test(rel)) continue;
     if (searchOver(limit)) break;
     const file = path.join(root, rel);
     let buf: Buffer;
     try {
-      if ((await fs.promises.stat(file)).size > GREP_FILE_MAX) continue;
+      if ((await fs.promises.stat(file)).size > GREP_FILE_MAX) {
+        skipped.push(rel);
+        continue;
+      }
       buf = await fs.promises.readFile(file);
     } catch {
       continue;
@@ -541,7 +603,11 @@ async function grepJs(target: string, isDir: boolean, input: GrepInput, signal?:
     }
   }
   const r = grepReport(target, input.pattern, lines, false);
-  return { ...r, text: r.text + stoppedNote(limit) };
+  // Never a silent miss: say which files were too large to search here, and how to reach them.
+  const big = skipped.length
+    ? `\n[not searched, over ${GREP_FILE_MAX / 1024 / 1024} MB: ${skipped.slice(0, 20).join(", ")}${skipped.length > 20 ? ` and ${skipped.length - 20} more` : ""}; search them with the shell (findstr or Select-String), or read ranges with read_file]`
+    : "";
+  return { ...r, text: r.text + big + stoppedNote(limit) };
 }
 
 export async function grep(projectDir: string, input: GrepInput, signal?: AbortSignal, useRg = true): Promise<LocalResult> {
@@ -599,15 +665,17 @@ export function htmlToText(html: string): string {
     .trim();
 }
 
-export async function webFetch(input: { url: string; max_length?: number }, signal?: AbortSignal, fetchImpl: typeof fetch = fetch): Promise<LocalResult> {
+export async function webFetch(input: { url: string; max_length?: number; offset?: number; timeout?: number }, signal?: AbortSignal, fetchImpl: typeof fetch = fetch): Promise<LocalResult> {
   const max = Math.min(Math.max(1000, Math.floor(input.max_length ?? FETCH_DEFAULT)), FETCH_MAX);
-  const timeout = AbortSignal.timeout(FETCH_TIMEOUT_MS);
+  const from = Math.max(0, Math.floor(input.offset ?? 0));
+  const waitMs = Math.min(Math.max(1, input.timeout ?? FETCH_TIMEOUT_MS / 1000), FETCH_TIMEOUT_MAX_S) * 1000;
+  const timeout = AbortSignal.timeout(waitMs);
   const sig = signal ? AbortSignal.any([signal, timeout]) : timeout;
   let res: Response;
   try {
     res = await fetchImpl(input.url, { signal: sig, redirect: "follow", headers: { "user-agent": "UE-MCP-Studio (+https://github.com/db-lyon/ue-mcp-studio)", accept: "text/html,text/markdown,text/plain,application/json;q=0.9,*/*;q=0.5" } });
   } catch (e) {
-    return fail(`Could not fetch ${input.url}: ${timeout.aborted ? `no answer in ${FETCH_TIMEOUT_MS / 1000} s` : e instanceof Error ? e.message : String(e)}`);
+    return fail(`Could not fetch ${input.url}: ${timeout.aborted ? `no answer in ${waitMs / 1000} s; try again with a longer timeout (at most ${FETCH_TIMEOUT_MAX_S})` : e instanceof Error ? e.message : String(e)}`);
   }
   const type = res.headers.get("content-type") ?? "";
   const head = `${res.url || input.url} (${res.status}${type ? `, ${type.split(";")[0]}` : ""})`;
@@ -615,7 +683,11 @@ export async function webFetch(input: { url: string; max_length?: number }, sign
   if (!textual) return { text: `${head}\nNot text: ${type}. Download it with the shell if you need the file.`, isError: !res.ok };
   const raw = await res.text();
   const body = /html/i.test(type) || /^\s*<(!doctype html|html)/i.test(raw) ? htmlToText(raw) : raw;
-  const cut = body.length > max ? `${body.slice(0, max)}\n\n[cut at ${max} of ${body.length} characters; raise max_length to read more]` : body;
+  if (from > 0 && from >= body.length) return { text: `${head}\n\n[the page has ${body.length} characters; offset ${from} is past the end]`, isError: false };
+  const end = from + max;
+  const cut = body.length > end || from > 0
+    ? `${body.slice(from, end)}\n\n[characters ${from} to ${Math.min(end, body.length)} of ${body.length}${end < body.length ? `; read on with offset=${end}` : ""}]`
+    : body;
   return { text: `${head}\n\n${cut}`, isError: !res.ok };
 }
 
@@ -648,7 +720,12 @@ export function localToolDefinitions(sh: ShellInfo = shell()): Anthropic.Beta.Be
       description: "Read a text file, with line numbers, or look at an image file (PNG, JPEG, GIF or WebP): you see the image itself, scaled down when it is large. A relative path is under the project folder; an absolute one is fine. For a large text file, read a range with offset (first line, from 1) and limit (lines).",
       input_schema: {
         type: "object",
-        properties: { path: S("The file"), offset: N("First line to read, from 1"), limit: N(`How many lines, ${READ_LINES_DEFAULT} by default`) },
+        properties: {
+          path: S("The file"),
+          offset: N("First line to read, from 1"),
+          limit: N(`How many lines, ${READ_LINES_DEFAULT} by default`),
+          column: N(`First character of each line to show, from 0: a line longer than ${READ_LINE_MAX} characters is cut, and says the column to read on from`),
+        },
         required: ["path"],
       },
     },
@@ -703,7 +780,12 @@ export function localToolDefinitions(sh: ShellInfo = shell()): Anthropic.Beta.Be
       description: "Fetch a URL over http or https and read it as text: a web page comes back as markdown, JSON and plain text as they are. Long pages are cut at max_length characters.",
       input_schema: {
         type: "object",
-        properties: { url: S("The http(s) URL"), max_length: N(`Characters to keep, ${FETCH_DEFAULT} by default, at most ${FETCH_MAX}`) },
+        properties: {
+          url: S("The http(s) URL"),
+          max_length: N(`Characters to keep, ${FETCH_DEFAULT} by default, at most ${FETCH_MAX}`),
+          offset: N("First character to keep, from 0: read a long page on in parts"),
+          timeout: N(`Seconds to wait for an answer, ${FETCH_TIMEOUT_MS / 1000} by default, at most ${FETCH_TIMEOUT_MAX_S}`),
+        },
         required: ["url"],
       },
     },
@@ -721,7 +803,7 @@ export function validateLocal(name: LocalToolName, i: Record<string, unknown>): 
       return optNum(i.timeout) ? null : "timeout must be a number of seconds";
     case "read_file":
       if (!str(i.path) || !i.path.trim()) return "read_file needs path";
-      return optNum(i.offset) && optNum(i.limit) ? null : "offset and limit must be numbers";
+      return optNum(i.offset) && optNum(i.limit) && optNum(i.column) ? null : "offset, limit and column must be numbers";
     case "write_file":
       if (!str(i.path) || !i.path.trim()) return "write_file needs path";
       return str(i.content) ? null : "write_file needs content";
@@ -734,7 +816,8 @@ export function validateLocal(name: LocalToolName, i: Record<string, unknown>): 
     case "grep":
       return str(i.pattern) && i.pattern ? null : "grep needs pattern";
     case "web_fetch":
-      return str(i.url) && /^https?:\/\//i.test(i.url) ? null : "web_fetch needs an http or https url";
+      if (!str(i.url) || !/^https?:\/\//i.test(i.url)) return "web_fetch needs an http or https url";
+      return optNum(i.max_length) && optNum(i.offset) && optNum(i.timeout) ? null : "max_length, offset and timeout must be numbers";
   }
 }
 
@@ -747,7 +830,7 @@ export async function runLocal(projectDir: string, name: LocalToolName, input: R
         return await runShell(String(input.command), projectDir, typeof input.timeout === "number" ? input.timeout : SHELL_TIMEOUT_DEFAULT_S, signal);
       }
       case "read_file":
-        return await readFile(projectDir, input as { path: string; offset?: number; limit?: number });
+        return await readFile(projectDir, input as { path: string; offset?: number; limit?: number; column?: number });
       case "write_file":
         return writeFile(projectDir, input as { path: string; content: string });
       case "edit_file":
@@ -757,7 +840,7 @@ export async function runLocal(projectDir: string, name: LocalToolName, input: R
       case "grep":
         return await grep(projectDir, input as unknown as GrepInput, signal);
       case "web_fetch":
-        return await webFetch(input as { url: string; max_length?: number }, signal);
+        return await webFetch(input as { url: string; max_length?: number; offset?: number; timeout?: number }, signal);
     }
   } catch (e) {
     return fail(e instanceof Error ? e.message : String(e));

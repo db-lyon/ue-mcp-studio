@@ -7,7 +7,7 @@ import { RemoteChatCard } from "./remote/RemoteChatCard";
 import type { SettingsSection } from "./settings/sections";
 import { ConnectModel, ModelAndEffort, ModelPicker, SignInForm, useCatalog } from "./ModelPicker";
 import type { DaemonState } from "../state";
-import { CHAT_INTRO, SESSIONS_SLOW, SESSION_TRY_AGAIN, SESSION_TRY_AGAIN_LABEL, SUBAGENT_TEXT_ONLY, sessionLoadFailed, SUBAGENTS_SHOWN_KEY, listedSubagents, subagentsLine, subagentsOf, subagentsPress, subagentsShownFrom, subagentsShownValue } from "@ue-mcp-studio/client-core";
+import { CHAT_INTRO, SESSIONS_SLOW, SESSION_TRY_AGAIN, SESSION_TRY_AGAIN_LABEL, sessionLoadFailed, SUBAGENTS_SHOWN_KEY, listedSubagents, subagentsLine, subagentsOf, subagentsPress, subagentsShownFrom, subagentsShownValue } from "@ue-mcp-studio/client-core";
 import { useAgentThread } from "../chat/agent-thread";
 import { useDismissed, useSeen } from "../chat/hooks";
 import { EditMessageContext, MainTranscript, PlaytestCommandContext, SubagentThread, type EditMode } from "../chat/Transcript";
@@ -339,10 +339,6 @@ export function ChatView({ daemon, nav, active = true, onSettings }: {
    */
   const toThread = (now: boolean) => {
     if (target.to === "main") return;
-    if (target.to === "subagent" && attach.ready.length > 0) {
-      setError(SUBAGENT_TEXT_ONLY);
-      return;
-    }
     const callId = target.call.id;
     dispatch((id, text, files) => api.messageSubagent(id, callId, text, files, now), toMainFromThread(target));
   };

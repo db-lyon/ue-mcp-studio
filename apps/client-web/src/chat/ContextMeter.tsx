@@ -1,6 +1,6 @@
 import { useEffect, useId, useRef, useState } from "react";
 import { contextView, type ContextUsage, type ContextView, type SessionSpend } from "@ue-mcp-studio/shared";
-import { compactLine, contextLabel, contextRing, contextWarningText, dollars, pct, planCoversLine, tipLines, tokenCount } from "@ue-mcp-studio/client-core";
+import { compactHint, compactLabel, compactLine, contextLabel, contextRing, contextWarningText, dollars, pct, planCoversLine, tipLines, tokenCount } from "@ue-mcp-studio/client-core";
 import { keepInView } from "./keepInView";
 
 export { dollars, tipLines };
@@ -109,8 +109,8 @@ export function ContextMeter({ context, totals, model, modelName, nameOf = (id) 
           <div className="context-pop-head">
             <span className="eyebrow">{owner ? `${owner} agent's context` : "Context"}</span>
             <span className="context-pop-actions">
-              <button disabled={busy || compacting || !view} onClick={() => { setOpen(false); onCompact(); }} title={busy ? "Available when the turn ends" : "Summarize the conversation to free context; the transcript stays"}>
-                Compact now
+              <button disabled={compacting || !view} onClick={() => { setOpen(false); onCompact(); }} title={compactHint(busy)}>
+                {compactLabel(busy)}
               </button>
               <button className="icon-button" aria-label="Close" title="Close" onClick={() => setOpen(false)}>{"\u00d7"}</button>
             </span>
@@ -167,7 +167,7 @@ export function ContextWarning({ view, runtime, busy, onCompact, onDismiss }: { 
       <span className="context-warning-text">
         {contextWarningText(view, runtime)}
       </span>
-      <button className="primary" disabled={busy} onClick={onCompact} title={busy ? "Available when the turn ends" : undefined}>Compact now</button>
+      <button className="primary" onClick={onCompact} title={busy ? compactHint(busy) : undefined}>{compactLabel(busy)}</button>
       <button className="icon-button" aria-label="Dismiss" title="Dismiss" onClick={onDismiss}>{"×"}</button>
     </div>
   );

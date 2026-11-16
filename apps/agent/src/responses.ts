@@ -69,8 +69,8 @@ export function toResponsesRequest(req: ModelRequest, search = false): Record<st
 
 /** Why a plan-usage request stopped, in words the panel can show. */
 const USAGE_ERRORS: Record<string, string> = {
-  subscription_sharing_usage_limit_exceeded: "Your ChatGPT plan's usage limit is reached for now.",
-  subscription_sharing_usage_unavailable: "Your ChatGPT plan's usage is not available to other apps right now.",
+  subscription_sharing_usage_limit_exceeded: "Your ChatGPT plan's usage limit is reached for now. Press Retry once it resets, or pick another model or an API key in the model picker.",
+  subscription_sharing_usage_unavailable: "Your ChatGPT plan's usage is not available to other apps right now. Press Retry later, or pick another model or an API key in the model picker.",
 };
 
 /** Fold a Responses event stream into one turn. Rejects unless the stream ends in response.completed. */
@@ -117,10 +117,16 @@ export async function readResponsesStream(lines: AsyncIterable<string>, onText: 
       const err = e.response?.error ?? (e as unknown as { error?: { code?: string; message?: string } }).error;
       throw new Error((err?.code && USAGE_ERRORS[err.code]) ?? `ChatGPT: ${err?.message ?? err?.code ?? "the response failed"}`);
     } else if (e.type === "response.incomplete") {
-      throw new Error(`ChatGPT stopped before finishing (${e.response?.incomplete_details?.reason ?? "incomplete"}).`);
+      const reason = e.response?.incomplete_details?.reason ?? "incomplete";
+      // Cut off at the output limit: what came is kept, and the loop asks the model to go on.
+      if (reason === "max_output_tokens") {
+        usage = openaiUsage(e.response?.usage);
+        return { content, stopReason: "max_tokens", searches, ...(usage ? { usage } : {}) };
+      }
+      throw new Error(`ChatGPT stopped before finishing (${reason}). Press Retry to send it again.`);
     }
   }
-  if (!completed) throw new Error("The ChatGPT response ended before it completed.");
+  if (!completed) throw new Error("The ChatGPT response ended before it completed. Press Retry to send it again.");
   return { content, stopReason: content.some((b) => b.type === "tool_use") ? "tool_use" : "end_turn", searches, ...(usage ? { usage } : {}) };
 }
 

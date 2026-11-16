@@ -15,6 +15,7 @@ import {
   IMAGE_RETRY,
   OUTCOME_LABEL,
   RESULT_PREVIEW_LINES,
+  TURN_RETRY_LABEL,
   TOOL_TAG,
   STATE_LABEL,
   agentFor,
@@ -38,7 +39,7 @@ import {
   type Call,
   type ThreadItem,
 } from "@ue-mcp-studio/client-core";
-import { Banner, baseFont, Button, ContentButton, buttonFont, font, labelFont, lineBox, MarkdownPiece, markdownPieces, Output, PIECE_CHARS, Pulse, stopOf, useTheme, type Theme } from "../ui";
+import { Banner, bannerText, baseFont, Button, T, ContentButton, buttonFont, font, labelFont, lineBox, MarkdownPiece, markdownPieces, Output, PIECE_CHARS, Pulse, stopOf, useTheme, type Theme } from "../ui";
 import { useProjectNav } from "../nav";
 import { copyText } from "../native/clipboard";
 import { MentionText } from "./MentionMenu";
@@ -322,6 +323,27 @@ function DaemonImage({ path, type, alt, maxWidth, maxHeight }: { path: string; t
   }
   if (!uri) return <View accessibilityLabel={alt} style={{ width: 48, height: 48 }} />;
   return <Picture uri={uri} alt={alt} maxWidth={maxWidth} maxHeight={maxHeight} framed={false} />;
+}
+
+/** The web client's TurnFailed: why the turn failed, and Retry, which sends the message it answered again. */
+function TurnFailed({ error }: { error: string }) {
+  const t = useTheme();
+  const sessionId = useContext(SessionIdContext);
+  const { api } = useProjectNav();
+  const [failed, setFailed] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+  const retry = () => {
+    if (!sessionId) return;
+    setBusy(true);
+    setFailed(null);
+    api.retry(sessionId).catch((e: Error) => setFailed(e.message)).finally(() => setBusy(false));
+  };
+  return (
+    <Banner kind="bad" role="alert">
+      <T style={{ color: bannerText(t, "bad") }}>{failed ? `${error} ${failed}` : error}</T>
+      {sessionId ? <Button size="small" title={TURN_RETRY_LABEL} disabled={busy} onPress={retry} style={{ alignSelf: "flex-start", marginTop: 6 }} /> : null}
+    </Banner>
+  );
 }
 
 /** The files a message carried: images as thumbnails, the rest by name. */
@@ -796,7 +818,7 @@ export const MainTranscript = memo(function MainTranscript({ transcript, status,
       <>
         {asked > 0 ? <Banner kind="warn" role="status">{`Waiting on you: ${asked === 1 ? "a call needs" : `${asked} calls need`} your approval below.`}</Banner> : null}
         {waiting ? <Banner kind="warn">{`Waiting for editor: ${waitingCause ?? "not connected"}. The turn continues when it is back.`}</Banner> : null}
-        {status === "error" && error ? <Banner kind="bad">{error}</Banner> : null}
+        {status === "error" && error ? <TurnFailed error={error} /> : null}
       </>
     ) : null;
   // A thread too short to scroll never reaches its top, so reading the entries before it is a button there.
