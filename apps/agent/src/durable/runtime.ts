@@ -10,13 +10,16 @@
  *
  * A session runs on one runtime at a time. It moves to this one when its
  * route's setting is on and it starts a reply: its conversation so far is
- * written into the harness first (seed). It moves back when the setting is
- * off, from the conversation Studio keeps beside it (s.messages).
+ * written into the harness first (seed), and from then on the harness holds
+ * the only copy of it (#463 L1). The transcript is a projection of the
+ * harness's entries through the `applied` cursor, which sync replays. It
+ * moves back when the setting is off, with its conversation rebuilt from the
+ * harness's entries (history), or from the transcript.
  */
 import * as crypto from "node:crypto";
 import type { TranscriptEntry } from "@ue-mcp-studio/shared";
 import type { AgentHost, ToolExecution } from "../tools.js";
-import type { PendingTool, SessionStore, StoredSession } from "../sessions.js";
+import { transcriptMessages, type PendingTool, type SessionStore, type StoredSession } from "../sessions.js";
 import type { MessageParam } from "../providers.js";
 import type { TokenUsage } from "../usage.js";
 import { isContextOverflow } from "../compaction.js";
@@ -83,6 +86,8 @@ export interface DurableState {
   seeded: boolean;
   /** The spend ledger totals last counted, per harness conversation and provider/model. */
   usage?: Record<string, Record<string, LedgerUsage>>;
+  /** The conversation lives in the harness only: Studio keeps no copy in s.messages, and rebuilds one when the session leaves. Absent: an earlier Studio's session, which still has its copy. */
+  only?: boolean;
 }
 
 const keyOf = (s: StoredSession): string => s.durable!.key;
@@ -214,14 +219,22 @@ export class DurableTurns {
     }
   }
 
-  /** The session moves onto this runtime: its conversation so far (`earlier`) is written into the harness once. */
+  /**
+   * The session moves onto this runtime: its conversation so far (`earlier`)
+   * is written into the harness once. From then on the harness holds the only
+   * copy: s.messages is emptied, the message being sent included, since it goes
+   * to the harness next.
+   */
   private async move(s: StoredSession, earlier: MessageParam[]): Promise<void> {
     s.durable ??= { key: `${s.id}~${crypto.randomUUID()}`, applied: {}, children: {}, seeded: false };
     this.h.store.save(s);
-    if (s.durable.seeded) return;
-    const messages = seedMessages(earlier);
-    if (messages.length) await this.client.call("seed", { sessionId: keyOf(s), messages });
-    s.durable.seeded = true;
+    if (!s.durable.seeded) {
+      const messages = seedMessages(earlier);
+      if (messages.length) await this.client.call("seed", { sessionId: keyOf(s), messages });
+      s.durable.seeded = true;
+    }
+    s.messages = [];
+    s.durable.only = true;
     this.h.store.save(s);
   }
 
@@ -280,12 +293,35 @@ export class DurableTurns {
   }
 
   /**
-   * The session's conversation went on elsewhere, or was cut back (an edited
-   * message, a turn on another runtime): its next reply here starts a new
-   * durable conversation, seeded from what Studio kept.
+   * The session leaves this runtime (a reply on another one), or its
+   * conversation was cut back (an edited message that could not fork): its
+   * next reply here starts a new durable conversation. Studio keeps no copy of
+   * a conversation the harness held alone, so one is rebuilt first, in front
+   * of what s.messages holds now (the message being sent): from the harness's
+   * entries (`from` "harness": tool calls, results and summaries included), or
+   * from the transcript when the harness cannot answer or the conversation was
+   * cut back ("transcript").
    */
-  release(s: StoredSession): void {
+  async release(s: StoredSession, from: "harness" | "transcript"): Promise<void> {
     if (!s.durable) return;
+    if (s.durable.only) {
+      let earlier: MessageParam[] | null = null;
+      if (from === "harness") {
+        try {
+          await this.client.ensure();
+          if (this.client.harness?.features.includes("history")) earlier = (await this.client.call("history", { sessionId: keyOf(s) }, 10_000)) as MessageParam[] | null;
+        } catch (e) {
+          this.h.host.log.warn(`session ${s.id}: its conversation could not be read from the durable harness, so it is rebuilt from the transcript`, e);
+        }
+      }
+      if (!earlier) {
+        // The message being sent is in the transcript already, as its last message from the user: it stays in s.messages only.
+        let upTo = s.transcript.length;
+        if (s.messages.length) for (let i = s.transcript.length - 1; i >= 0; i--) if (s.transcript[i].kind === "user" && !s.transcript[i].parent) { upTo = i; break; }
+        earlier = transcriptMessages(s.transcript.slice(0, upTo));
+      }
+      s.messages = [...earlier, ...s.messages];
+    }
     delete s.durable;
     this.h.store.save(s);
   }
@@ -311,7 +347,8 @@ export class DurableTurns {
       this.h.host.log.warn(`session ${from.id}: forking its durable conversation failed, so the next reply starts from Studio's copy`, e);
     }
     if (!r?.conv) return false;
-    to.durable = { key, applied: { [r.conv]: r.at }, children: {}, seeded: true };
+    // An edit in place keeps its harness-only conversation; a fork's copy has the copy of the transcript rebuilt into its s.messages.
+    to.durable = { key, applied: { [r.conv]: r.at }, children: {}, seeded: true, ...(to === from && from.durable.only ? { only: true } : {}) };
     // A run stopped by the edit ended in the old conversation; the new one has nothing running to wait for.
     if (this.stopping.delete(to.id)) this.stopEnded.get(to.id)?.();
     this.h.store.save(to);
@@ -462,7 +499,8 @@ export class DurableTurns {
       if (e.text) {
         this.h.addEntry(s, { kind: "assistant", text: e.text, at, ...(parent ? { parent } : {}) });
         if (!parent) {
-          mirrorAssistant(s.messages, e.text);
+          // An earlier Studio's session keeps its copy until its next reply here empties it.
+          if (!s.durable.only) mirrorAssistant(s.messages, e.text);
           this.sent.delete(s.id);
           this.thought.delete(s.id);
         }

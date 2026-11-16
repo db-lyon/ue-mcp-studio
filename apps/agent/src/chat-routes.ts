@@ -54,7 +54,7 @@ import { setImageEdge } from "./images.js";
 import type { ActionRunRequest, ApprovalDecision, FlowRunRequest, PlaytestRequest, FeedbackReport, VcsStatus, AttachmentUpload, ModelRoute, SessionUpdate, SignInId, StudioSettings, StudioSettingsUpdate, AccountUsage, StudioAccountResponse } from "@ue-mcp-studio/shared";
 import { MENTION_KINDS, splitActionName, type MentionKind } from "@ue-mcp-studio/shared";
 import { AgentRunner, RESTART_CAUSE_FILE } from "./runner.js";
-import { SessionStore } from "./sessions.js";
+import { SessionStore, hasConversation } from "./sessions.js";
 import { SettingsStore } from "./settings.js";
 import { fetchAccountUsage } from "./account-usage.js";
 import { EndpointStore, registerEndpointRoutes } from "./endpoints.js";
@@ -944,7 +944,7 @@ export function registerChat(api: DaemonExtensionApi, agentVersion = "0.0.0", pa
       const queued = runner.enqueue(s.id, `/compact ${instructions ?? ""}`.trim(), []);
       return { status: 202, body: { sessionId: s.id, queued } };
     }
-    if (s.messages.length === 0) return { status: 409, body: { error: "there is nothing to compact yet" } };
+    if (!hasConversation(s)) return { status: 409, body: { error: "there is nothing to compact yet" } };
     runner.compact(s.id, instructions ?? "").catch((e) => api.log.warn(`compacting session ${s.id} failed`, e));
     return { status: 202, body: { sessionId: s.id } };
   });
@@ -953,7 +953,7 @@ export function registerChat(api: DaemonExtensionApi, agentVersion = "0.0.0", pa
     const s = store.get(req.params.id);
     if (!s) return missing(req.params.id);
     if (s.status === "running" || s.status === "waiting") return { status: 409, body: { error: "a turn is already in progress" } };
-    if (s.messages.length === 0) return { status: 409, body: { error: "there is nothing to retry yet; send a message" } };
+    if (!hasConversation(s)) return { status: 409, body: { error: "there is nothing to retry yet; send a message" } };
     runner.retry(s.id).catch((e) => api.log.warn(`retrying session ${s.id} failed`, e));
     return { status: 202, body: { sessionId: s.id } };
   });

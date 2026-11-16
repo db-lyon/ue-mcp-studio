@@ -363,8 +363,16 @@ function publicContext(s: StoredSession): Record<string, ContextUsage> {
   return out;
 }
 
+/**
+ * Whether the session has a conversation with the model yet: messages Studio
+ * keeps, or, on the durable runtime, one the harness holds alone.
+ */
+export function hasConversation(s: StoredSession): boolean {
+  return s.messages.length > 0 || (!!s.durable?.only && s.transcript.some((t) => t.kind === "user" && !t.parent));
+}
+
 /** The main thread's transcript as messages, for a conversation rebuilt from what the user sees. */
-function transcriptMessages(transcript: readonly TranscriptEntry[]): MessageParam[] {
+export function transcriptMessages(transcript: readonly TranscriptEntry[]): MessageParam[] {
   const out: MessageParam[] = [];
   for (const t of transcript) {
     if (t.parent) continue;
