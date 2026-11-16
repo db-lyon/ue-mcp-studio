@@ -21,6 +21,12 @@ export function nativeTitle(it: ReviewItem): string {
   return it.status === "added" ? "Open the new asset in its editor in Unreal" : it.status === "deleted" ? "Open the deleted version in its editor in Unreal" : "Open Unreal's own diff of before and after";
 }
 
+/** Why an item has no Unreal diff view, in words under it rather than only on hover; null when it has one. */
+export function nativeUnavailable(it: ReviewItem): string | null {
+  if (!it.native || it.native.available) return null;
+  return `No Unreal diff view: ${it.native.reason ?? "Unreal cannot open a diff of this item."}`;
+}
+
 /** What opening Unreal's view of an item did. */
 export function openedText(r: { opened: string; windowTitle?: string }): string {
   return r.opened === "editor" ? "Opened in Unreal, in its asset editor." : r.opened === "external" ? "Opened in your text diff tool." : `Unreal's diff window is open${r.windowTitle ? ` (${r.windowTitle})` : ""}.`;

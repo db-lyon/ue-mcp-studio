@@ -26,6 +26,10 @@ export const listState = (s: Pick<SessionSummary, "status" | "awaiting">): strin
 export const CHAT_INTRO = "Builds Blueprints, materials, levels, Niagara and more through ue-mcp. Also runs commands, edits files and reads the web. Approvals in Settings set what it asks first.";
 /** The session list while the daemon has not answered for a while. */
 export const SESSIONS_SLOW = "Studio is not answering yet. Your sessions are safe.";
+/** A session that could not be read, in place of its transcript; Try again reads it again. */
+export const sessionLoadFailed = (error: string): string => `This session could not be loaded: ${error}`;
+export const SESSION_TRY_AGAIN = "Try again";
+export const SESSION_TRY_AGAIN_LABEL = "Load the session again";
 /** The Queue button's tooltip or hint. */
 export const QUEUE_HINT = "Send when the turn ends";
 

@@ -119,7 +119,7 @@ describe("the turn card", () => {
     expect(within(row("Content/BP_Door.uasset")).getByText("2 changes: Open Angle 0.0 to 90.0; Added Node Branch")).toBeTruthy();
     expect(within(row("Config/DefaultGame.ini")).getByText("1 line added, 1 removed")).toBeTruthy();
     const ini = within(row("Config/DefaultGame.ini")).getByRole("button", { name: "Open in Unreal diff" }) as HTMLButtonElement;
-    expect(ini.disabled).toBe(true);
+    expect(ini.getAttribute("aria-disabled")).toBe("true");
     expect(ini.title).toMatch(/diff view opens assets only/);
     expect((within(row("Content/SM_Box.uasset")).getByRole("button", { name: "Open in Unreal diff" }) as HTMLButtonElement).disabled).toBe(false);
     m.reviewNativeDiff.mockResolvedValue({ opened: "window", windowTitle: "Diff of BP_Door" });
@@ -133,6 +133,18 @@ describe("the turn card", () => {
     card();
     await act(async () => void fireEvent.click(within(row("Content/BP_Door.uasset")).getByRole("button", { name: "Open in Unreal diff" })));
     expect(within(row("Content/BP_Door.uasset")).getByRole("status").textContent).toBe("Unreal has no in-editor diff view for World");
+  });
+
+  it("says in words, not only on hover, why an item has no Unreal diff view: the greyed button opens the item", async () => {
+    m.reviewDiff.mockResolvedValue({ change: { path: "Config/DefaultGame.ini", status: "modified", kind: "config", diff: "@@ -1 +1 @@\n-a\n+b\n" } });
+    card();
+    const ini = row("Config/DefaultGame.ini");
+    const native = within(ini).getByRole("button", { name: "Open in Unreal diff" });
+    expect(native.getAttribute("aria-disabled")).toBe("true");
+    expect(within(ini).queryByText(/No Unreal diff view/)).toBeNull();
+    await act(async () => void fireEvent.click(native));
+    expect(m.reviewNativeDiff).not.toHaveBeenCalled();
+    expect(within(row("Config/DefaultGame.ini")).getByText("No Unreal diff view: Unreal's diff view opens assets only.")).toBeTruthy();
   });
 
   it("opens the diff of a turn's only file with the card, and leaves a longer list closed", async () => {
