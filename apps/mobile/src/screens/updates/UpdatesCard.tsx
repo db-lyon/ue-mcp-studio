@@ -68,7 +68,6 @@ export function UpdatesCard() {
           Updates
         </T>
         <Spacer />
-        {offersWhatsNew(u) ? <Button variant="ghost" title={WHATS_NEW_TITLE} testID="whats-new-open" onPress={() => setNotes(true)} /> : null}
         {!working && steps.length === 0 ? <Button title="Check again" onPress={load} /> : null}
       </View>
       {notes ? <WhatsNewSheet onClose={() => setNotes(false)} /> : null}
@@ -81,6 +80,14 @@ export function UpdatesCard() {
           </Pill>
           {/* The web's title (the check's error) names it for a screen reader. */}
           <Txt tone="muted" label={unchecked && !steps.length ? `${status.line} ${unchecked}` : undefined}>{status.line}</Txt>
+        </View>
+      ) : null}
+      {/* Where the computer's card has Update with What's new under it, right-aligned; a paired phone has no Update, so the link holds that place at the right. */}
+      {offersWhatsNew(u) ? (
+        <View style={{ alignItems: "flex-end" }}>
+          <Txt size={12} weight={500} tone="accentHi" testID="whats-new-open" label={WHATS_NEW_TITLE} onPress={() => setNotes(true)} style={{ paddingVertical: 12, marginVertical: -10 }}>
+            {WHATS_NEW_TITLE}
+          </Txt>
         </View>
       ) : null}
       <Txt size={12} tone="dim" style={{ marginTop: u ? 6 : 0, marginBottom: 12 }}>

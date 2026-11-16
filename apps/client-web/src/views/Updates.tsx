@@ -86,7 +86,6 @@ export function UpdatesCard({ remote = onRemotePage() }: { remote?: boolean } = 
       <div className="row">
         <h2>Updates</h2>
         <span className="spacer" />
-        {offersWhatsNew(u) && <WhatsNewButton />}
         {!working && steps.length === 0 && <button onClick={load}>Check again</button>}
       </div>
       {!u && <p className="muted">Checking</p>}
@@ -95,7 +94,13 @@ export function UpdatesCard({ remote = onRemotePage() }: { remote?: boolean } = 
           <span className={`pill ${status.tone}`}>{status.pill}</span>
           <span className="muted" title={unchecked && !steps.length ? unchecked : undefined}>{status.line}</span>
           <span className="spacer" />
-          {steps.length > 0 && !remote && <button className="primary" disabled={working} onClick={() => u && startUpdate(u)}>Update</button>}
+          {/* Update, with What's new right under it and right-aligned to it: what the update brings, beside the button that brings it. */}
+          {((steps.length > 0 && !remote) || offersWhatsNew(u)) && (
+            <div className="update-actions">
+              {steps.length > 0 && !remote && <button className="primary" disabled={working} onClick={() => u && startUpdate(u)}>Update</button>}
+              {offersWhatsNew(u) && <WhatsNewButton />}
+            </div>
+          )}
         </div>
       )}
       {remote && <p className="dim small update-remote">{REMOTE_UPDATES}</p>}
