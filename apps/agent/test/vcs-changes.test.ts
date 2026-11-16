@@ -54,5 +54,7 @@ describe("a project under git", () => {
     expect((await diffOf(dir, "Content/Map.umap")).reason).toMatch(/binary/);
     expect((await diffOf(dir, "../outside.txt")).reason).toMatch(/Not a path/);
     for (const f of ["..\\outside.txt", "a\\..\\..\\outside.txt", "C:\\Windows\\win.ini", "/etc/hosts"]) expect((await diffOf(dir, f)).reason, f).toMatch(/Not a path/);
-  });
+    // Seven real git processes, each a process start on Windows: the 5 s default is too little while the full suite
+    // keeps every core busy, and the test timed out with nothing wrong. It gets the time real processes take.
+  }, 60_000);
 });

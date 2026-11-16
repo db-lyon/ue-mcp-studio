@@ -108,9 +108,11 @@ describe.skipIf(!browserPath)("the tree grid, laid out in a browser at every car
     page = await browser.newPage({ viewport: { width: 1300, height: 900 } });
   }, 30_000);
 
+  // Closing Chrome on a loaded machine (the full suite, every worker busy) can take longer than vitest's
+  // 10 s hook default, and the hook then failed a run whose tests all passed. Teardown gets the launch's own budget.
   afterAll(async () => {
     await browser?.close();
-  });
+  }, 60_000);
 
   const layoutAt = async (width: number): Promise<Layout> => {
     await page.setContent(`<!doctype html><html><head><style>${css}</style></head><body><div id="card" style="width:${width}px">${markup}</div></body></html>`);

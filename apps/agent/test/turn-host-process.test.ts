@@ -43,6 +43,13 @@ const hostLog = (dataDir: string) => {
   return fs.existsSync(dir) ? fs.readdirSync(dir).filter((n) => n.endsWith(".log")).map((n) => fs.readFileSync(path.join(dir, n), "utf-8")).join("\n") : "";
 };
 
+/**
+ * The host has exited: it logged its own exit (the fixture logs it on
+ * process exit). A pid is no proof either way on a loaded Windows machine,
+ * where a finished process's pid is soon another process's.
+ */
+const hostExited = (dataDir: string) => / exit \d+$/m.test(hostLog(dataDir));
+
 /** A daemon's side, recorded: what it was told, and the calls it was asked to run. */
 function daemon(answer: ((callId: string) => Promise<ToolExecution>) | null) {
   const seen: string[] = [];
@@ -111,7 +118,7 @@ describe("a turn host process", () => {
     // Nothing the first daemon applied comes again; only what followed.
     expect(second.seen).toEqual(["tool result", "the daemon answered: hi from the new daemon"]);
     // Its end applied, the host exits and leaves nothing behind.
-    await until(() => !pidAlive(record.pid), 30_000);
+    await until(() => hostExited(dataDir), 30_000);
     expect(listRecords(dataDir)).toEqual([]);
   }, 60_000);
 
@@ -140,7 +147,7 @@ describe("a turn host process", () => {
     const run = await new TurnHosts({ dataDir, projectDir: os.tmpdir(), version: "2.0.0", script, log }).attach(record, next.cb, 0);
     expect(await run.done, `${said.join("\n")}\nalive ${pidAlive(record.pid)}\n${hostLog(dataDir)}`).toBeNull();
     expect(next.seen).toEqual(["session proc-session", expect.stringMatching(/^running in process \d+$/), "tool_use c1", "tool result", "the daemon answered: answered after the kill"]);
-    // A loaded machine can take a while to let the process go.
-    await until(() => !pidAlive(record.pid), 30_000);
+    await until(() => hostExited(dataDir), 30_000);
+    expect(listRecords(dataDir)).toEqual([]);
   }, 60_000);
 });
