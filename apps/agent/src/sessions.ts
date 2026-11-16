@@ -13,6 +13,7 @@ import type { MessageParam } from "./providers.js";
 import { PendingWrites, writeFileAtomic } from "./atomic-write.js";
 import { modelName } from "./models.js";
 import type { ToolImage } from "./images.js";
+import type { DurableState } from "./durable/runtime.js";
 import { conversationText, estimateMessagesTokens, isCompactedSummary } from "./compaction.js";
 
 /** An agent's context as kept on disk: `messages` is how many of its messages the measurement covers; `sdk`, measured by the Claude sign-in's runtime. */
@@ -106,6 +107,8 @@ export interface StoredSession {
   reviewing?: { before: string; turn: number } | null;
   /** The session's checkpoints, oldest first. */
   timeline?: TimelineMark[];
+  /** The session runs on the durable runtime: where its conversation is in the harness, and what of it was applied. */
+  durable?: DurableState;
 }
 
 /** Whether a call saved a playtest: pie(script_create), or a run of the playtest flow. */
