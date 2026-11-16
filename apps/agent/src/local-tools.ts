@@ -164,7 +164,7 @@ function killTree(child: ChildProcess): void {
 }
 
 /** Run one command in the project folder. Never opens a console window. */
-export function runShell(command: string, cwd: string, timeoutS: number, signal?: AbortSignal, sh: ShellInfo = shell()): Promise<LocalResult> {
+export function runShell(command: string, cwd: string, timeoutS: number, signal?: AbortSignal, sh: ShellInfo = shell(), onOutput?: (text: string) => void): Promise<LocalResult> {
   const timeout = Math.min(Math.max(1, timeoutS), SHELL_TIMEOUT_MAX_S);
   const args = sh.kind === "bash" ? ["-c", command] : ["-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-Command", command];
   return new Promise((resolve) => {
@@ -193,8 +193,15 @@ export function runShell(command: string, cwd: string, timeoutS: number, signal?
       killTree(child);
     };
     signal?.addEventListener("abort", onAbort, { once: true });
-    child.stdout?.setEncoding("utf-8").on("data", (d: string) => out.push(d));
-    child.stderr?.setEncoding("utf-8").on("data", (d: string) => out.push(d));
+    // What the command prints is also shown as it comes, for a long build or cook; the result keeps its usual form.
+    child.stdout?.setEncoding("utf-8").on("data", (d: string) => {
+      out.push(d);
+      onOutput?.(d);
+    });
+    child.stderr?.setEncoding("utf-8").on("data", (d: string) => {
+      out.push(d);
+      onOutput?.(d);
+    });
     const finish = (code: number | null, error?: string) => {
       clearTimeout(timer);
       signal?.removeEventListener("abort", onAbort);
@@ -821,13 +828,13 @@ export function validateLocal(name: LocalToolName, i: Record<string, unknown>): 
   }
 }
 
-export async function runLocal(projectDir: string, name: LocalToolName, input: Record<string, unknown>, signal?: AbortSignal): Promise<LocalResult> {
+export async function runLocal(projectDir: string, name: LocalToolName, input: Record<string, unknown>, signal?: AbortSignal, onOutput?: (text: string) => void): Promise<LocalResult> {
   try {
     switch (name) {
       case "shell": {
         const refused = await guardShellCommand(String(input.command), projectDir);
         if (refused) return fail(refused);
-        return await runShell(String(input.command), projectDir, typeof input.timeout === "number" ? input.timeout : SHELL_TIMEOUT_DEFAULT_S, signal);
+        return await runShell(String(input.command), projectDir, typeof input.timeout === "number" ? input.timeout : SHELL_TIMEOUT_DEFAULT_S, signal, shell(), onOutput);
       }
       case "read_file":
         return await readFile(projectDir, input as { path: string; offset?: number; limit?: number; column?: number });

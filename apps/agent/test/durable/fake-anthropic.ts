@@ -19,6 +19,8 @@ export interface FakeTurn {
   delayMs?: number;
   /** The input tokens the answer reports, to fill the context as a long conversation would. */
   inputTokens?: number;
+  /** Thinking streamed before the answer. */
+  thinking?: string;
 }
 
 export interface FakeAnthropic {
@@ -87,6 +89,13 @@ export async function startFakeAnthropic(script: (req: { toolResults: number; sy
     requests[requests.length - 1].inputTokens = usage.input_tokens;
     await send({ type: "message_start", message: { id: `msg_${id}`, type: "message", role: "assistant", model: body.model, content: [], stop_reason: null, stop_sequence: null, usage } });
     let index = 0;
+    if (turn.thinking) {
+      await send({ type: "content_block_start", index, content_block: { type: "thinking", thinking: "", signature: "" } });
+      for (const part of turn.thinking.match(/.{1,12}/gs) ?? []) await send({ type: "content_block_delta", index, delta: { type: "thinking_delta", thinking: part } });
+      await send({ type: "content_block_delta", index, delta: { type: "signature_delta", signature: "sig" } });
+      await send({ type: "content_block_stop", index });
+      index++;
+    }
     if (turn.text) {
       await send({ type: "content_block_start", index, content_block: { type: "text", text: "" } });
       for (const part of turn.text.match(/.{1,12}/gs) ?? []) await send({ type: "content_block_delta", index, delta: { type: "text_delta", text: part } });

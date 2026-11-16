@@ -136,6 +136,8 @@ export class DurableTurns {
   private readonly running = new Map<string, { sessionId: string; controller: AbortController; executing: boolean }>();
   /** The text of each session's current answer already sent as deltas. */
   private readonly sent = new Map<string, string>();
+  /** The main agent's thinking already published as turn.thinking, per session. */
+  private readonly thought = new Map<string, string>();
   /** Sessions being stopped by the user: their run's end is not a reply ending. */
   private readonly stopping = new Set<string>();
   /** A reply waiting for a stopped run's end before it starts, by session. */
@@ -373,6 +375,13 @@ export class DurableTurns {
         const add = m.text.startsWith(before) ? m.text.slice(before.length) : m.text;
         this.sent.set(s.id, m.text);
         if (add) this.h.host.events.publish("turn.delta", { sessionId: s.id, text: add });
+        if (m.thinking) {
+          // The thinking so far, as what was added; `reset` when a new answer's thinking starts over.
+          const had = this.thought.get(s.id) ?? "";
+          const more = m.thinking.startsWith(had) ? m.thinking.slice(had.length) : m.thinking;
+          this.thought.set(s.id, m.thinking);
+          if (more) this.h.host.events.publish("turn.thinking", { sessionId: s.id, text: more, ...(m.thinking.startsWith(had) ? {} : { reset: true }) });
+        }
         return;
       }
       case "run":
@@ -455,6 +464,7 @@ export class DurableTurns {
         if (!parent) {
           mirrorAssistant(s.messages, e.text);
           this.sent.delete(s.id);
+          this.thought.delete(s.id);
         }
       }
       for (const c of e.toolCalls ?? []) {
@@ -497,6 +507,7 @@ export class DurableTurns {
     const wasReplying = this.h.replying.has(s.id);
     this.h.active.delete(s.id);
     this.sent.delete(s.id);
+    this.thought.delete(s.id);
     if (this.stopping.delete(s.id)) {
       this.h.replying.delete(s.id);
       this.stopEnded.get(s.id)?.();

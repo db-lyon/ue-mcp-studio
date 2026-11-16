@@ -320,7 +320,7 @@ export class DurableEngine {
   /** In memory: sessions and children by conversation, read from the sessions document. */
   private readonly byConv = new Map<string, { sessionId: string; parent: string | null }>();
   /** Conversations watched, with the last entry sent and the live text sent. */
-  private readonly watched = new Map<string, { stop: () => Promise<unknown>; last: string | null; text: string; running: boolean; pumping: Promise<void> | null; again: boolean }>();
+  private readonly watched = new Map<string, { stop: () => Promise<unknown>; last: string | null; text: string; thinking: string; running: boolean; pumping: Promise<void> | null; again: boolean }>();
   /** Foreground agent calls waiting on their subagent, by call id: how to send each to the background. */
   private readonly waiting = new Map<string, () => void>();
   /** Reporters of background subagents running in this process, by call id. */
@@ -713,7 +713,7 @@ export class DurableEngine {
     if (this.watched.has(conv)) return;
     const c = await this.harness.conversation(conv as never, CTX);
     if (!c) return;
-    const w = { stop: async () => undefined as unknown, last: null as string | null, text: "", running: false, pumping: null as Promise<void> | null, again: false };
+    const w = { stop: async () => undefined as unknown, last: null as string | null, text: "", thinking: "", running: false, pumping: null as Promise<void> | null, again: false };
     this.watched.set(conv, w);
     // Entries already there were sent to an earlier daemon or come with its sync.
     const newest = await c.entries({} as never, 1, undefined, CTX);
@@ -740,10 +740,16 @@ export class DurableEngine {
       const msg = (live?.generation as { message?: Record<string, unknown> } | undefined)?.message;
       const content = Array.isArray(msg?.content) ? (msg!.content as Array<Record<string, unknown>>) : [];
       const text = content.filter((x) => x.type === "text").map((x) => String(x.text ?? "")).join("");
-      if (text && text !== w.text) {
+      // The model's thinking so far, where the provider shows it: drawn live, never kept in the transcript.
+      const thinking = content.filter((x) => x.type === "thinking").map((x) => String(x.thinking ?? "")).join("\n\n");
+      if ((text && text !== w.text) || (thinking && thinking !== w.thinking)) {
         w.text = text;
-        this.host.emit({ t: "delta", sessionId: where.sessionId, parent: where.parent, text });
-      } else if (!msg) w.text = "";
+        w.thinking = thinking;
+        this.host.emit({ t: "delta", sessionId: where.sessionId, parent: where.parent, text, ...(thinking ? { thinking } : {}) });
+      } else if (!msg) {
+        w.text = "";
+        w.thinking = "";
+      }
     });
   }
 

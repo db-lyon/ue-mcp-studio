@@ -563,6 +563,18 @@ export interface TurnDeltaEvent {
   sessionId: string;
   text: string;
 }
+/** studio.turn.thinking: the main agent's thinking, as what was added; `reset` when a new answer's thinking starts over. Never kept in the transcript. */
+export interface TurnThinkingEvent {
+  sessionId: string;
+  text: string;
+  reset?: boolean;
+}
+/** studio.tool.output: what a running call has printed since the last one (a shell command's output). */
+export interface ToolOutputEvent {
+  sessionId: string;
+  callId: string;
+  text: string;
+}
 export interface SessionChangedEvent {
   sessionId: string;
   status: TurnStatus;
