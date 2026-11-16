@@ -14,6 +14,8 @@ export default defineConfig({
   resolve: { alias: { "studio-pi-claude-code": path.join(root, "node_modules", "@earendil-works", "pi-claude-code", "src", "provider.ts") } },
   test: {
     env: { STUDIO_USER_HOME: path.join(os.tmpdir(), "studio-test-home") },
+    // jsdom's Web Storage where Node's own (25 and later) would shadow it (vitest.setup.ts).
+    setupFiles: [path.join(root, "vitest.setup.ts")],
     server: { deps: { inline: [/pi-claude-code/] } },
   },
 });
