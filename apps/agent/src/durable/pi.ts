@@ -21,6 +21,11 @@ import { openAICompletionsApi } from "@earendil-works/pi-ai/api/openai-completio
 import { googleGenerativeAIApi } from "@earendil-works/pi-ai/api/google-generative-ai.lazy";
 import { createRegistry, defineDoc, defineExtension, defineTool, GenerationTask, Harness, hook, LiveDoc, ToolTask } from "@earendil-works/pi-durable";
 import { openNodeSqliteStorage } from "@earendil-works/pi-durable/storage/sqlite/node";
+import { createCodemodeExtension } from "@earendil-works/pi-durable/codemode";
+import { CodemodeSandbox, loadQuickJSWasm } from "@earendil-works/pi-codemode";
+import * as fs from "node:fs";
+import * as nodePath from "node:path";
+import { fileURLToPath, pathToFileURL } from "node:url";
 import { NOOP_TELEMETRY_CONTEXT } from "@earendil-works/pi-telemetry";
 import { renderTrace } from "@earendil-works/pi-telemetry/render";
 import { openNodeSqliteDatabase } from "@earendil-works/chord/sqlite/node";
@@ -452,6 +457,30 @@ export function historyOf(entries: ReadonlyArray<{ kind: string; model?: Readonl
   return out;
 }
 
+/** Code mode's tool, as pi-durable names it. */
+const CODEMODE_TOOL = "codemode";
+/** A script may wait on slow editor calls; the sandbox's own default is five minutes. */
+const CODEMODE_TIMEOUT_MS = 30 * 60_000;
+const CODEMODE_MEMORY_BYTES = 256 * 1024 * 1024;
+
+/**
+ * Code mode's sandbox: QuickJS in a worker thread. The agent bundle has no
+ * node_modules, so its worker entry and QuickJS's wasm ship beside the
+ * harness (codemode-worker.js, quickjs.wasm); run from source, the package's
+ * own are used.
+ */
+function codemodeSandbox(): CodemodeSandbox {
+  const here = nodePath.dirname(fileURLToPath(import.meta.url));
+  const worker = nodePath.join(here, "codemode-worker.js");
+  const wasm = nodePath.join(here, "quickjs.wasm");
+  return new CodemodeSandbox({
+    timeoutMs: CODEMODE_TIMEOUT_MS,
+    memoryLimitBytes: CODEMODE_MEMORY_BYTES,
+    ...(fs.existsSync(worker) ? { workerUrl: pathToFileURL(worker) } : {}),
+    ...(fs.existsSync(wasm) ? { wasm: loadQuickJSWasm(wasm) } : {}),
+  });
+}
+
 /** Studio's effort as pi-ai's thinking level: the same five names. */
 const thinkingOf = (effort: string): string => (["low", "medium", "high", "xhigh", "max"].includes(effort) ? effort : "high");
 
@@ -535,7 +564,24 @@ export class DurableEngine {
 
   private reinstall(): void {
     if (!this.factory) return;
-    this.registry.install(this.factory(this.kit(), [...this.tools.values()]));
+    this.studio = this.factory(this.kit(), [...this.tools.values()]);
+    this.registry.install(this.studio);
+  }
+
+  /** Studio's extension as last installed, and code mode's (#463 L4), which conversations select by name. */
+  private studio: ReturnType<ExtensionFactory> | null = null;
+  private codemode: ReturnType<typeof createCodemodeExtension> | null = null;
+
+  /** Code mode, installed once beside Studio's extension; null where its sandbox cannot be made. */
+  private codemodeExtension(): ReturnType<typeof createCodemodeExtension> | null {
+    if (this.codemode) return this.codemode;
+    try {
+      this.codemode = createCodemodeExtension({ sandbox: codemodeSandbox(), models: false });
+      this.registry.install(this.codemode as never);
+    } catch (e) {
+      this.host.log(`code mode is not available: ${e instanceof Error ? e.message : String(e)}`);
+    }
+    return this.codemode;
   }
 
   private kit(): Kit {
@@ -720,9 +766,10 @@ export class DurableEngine {
     this.reinstall();
     const model = await this.routes.ref(spec.route);
     const window = this.routes.window(model.provider, model.modelId);
+    const codemode = spec.codemode ? this.codemodeExtension() : null;
     const registered = new Map<string, unknown>();
     for (const { tool } of this.registry.snapshot().tools()) registered.set((tool as { name: string }).name, tool);
-    const tools = spec.tools.map((t) => registered.get(t.name)).filter(Boolean);
+    const tools = [...spec.tools.map((t) => t.name), ...(codemode ? [CODEMODE_TOOL] : [])].map((n) => registered.get(n)).filter(Boolean);
     const id = String((conv as unknown as { id: unknown }).id);
     const search = spec.search === true;
     if (this.searching.get(id) !== search) {
@@ -737,6 +784,8 @@ export class DurableEngine {
       model,
       thinkingLevel: thinkingOf(spec.effort),
       instructions: spec.system,
+      // Code mode's prompt section only where its tool is offered.
+      ...(this.studio ? { extensions: codemode ? [this.studio, codemode] : [this.studio] } : {}),
       tools,
       // No cap unless a helper's own file sets one: the user's Stop and compaction keep a long run in hand, on every route.
       maxTurns: spec.maxTurns ?? null,

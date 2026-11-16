@@ -101,6 +101,8 @@ export interface AgentSpec {
   maxTurns?: number;
   /** The provider's own web search goes with this conversation's requests (its route has one, and the agent may search). */
   search?: boolean;
+  /** #463 L4: the agent gets Pi Durable's code mode: one script calling its tools many times, only its output in context. A harness without it ignores this. */
+  codemode?: boolean;
 }
 
 /** Content of a user input, in pi-ai's form. */

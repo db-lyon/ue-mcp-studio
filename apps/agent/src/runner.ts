@@ -1249,7 +1249,8 @@ export class AgentRunner {
     const surf = this.surface();
     const text = [withSurface(system(this.o.host.projectDir, this.runsMode(), this.usage(), this.composed()), surf), this.skillLines()].filter(Boolean).join("\n");
     const route = this.durableRoute(this.o.model());
-    return { route, system: text, ...withSearch(route, this.mainTools(surf), true), effort: this.o.effort?.() ?? "high" };
+    // Code mode (#463 L4): one script making many of these calls, with only its output in context.
+    return { route, system: text, ...withSearch(route, this.mainTools(surf), true), effort: this.o.effort?.() ?? "high", codemode: true };
   }
 
   /**
@@ -1363,6 +1364,8 @@ export class AgentRunner {
       ...withSearch(reach, tools, !helper?.allowed || helper.allowed.has("web_search")),
       effort: (helper?.effort as Effort | null) ?? this.subagentEffort(),
       maxTurns: helper?.maxTurns ?? NO_TURN_LIMIT,
+      // Code mode (#463 L4), unless a helper names its own tools: then it gets exactly those.
+      codemode: !helper?.allowed,
     };
   }
 
