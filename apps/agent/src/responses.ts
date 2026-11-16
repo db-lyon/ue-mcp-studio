@@ -9,6 +9,7 @@ import { isSearchRefusal, type ContentBlock, type ModelProvider, type ModelReque
 import { sseLines } from "./openai-compat.js";
 import { openaiEffort, withEffort } from "./effort.js";
 import { openaiUsage, type TokenUsage } from "./usage.js";
+import { fetchRetrying } from "./retry.js";
 
 export const RESPONSES_URL = "https://api.openai.com/v1/responses";
 
@@ -143,7 +144,7 @@ export class ResponsesProvider implements ModelProvider {
   }
 
   private async request(req: ModelRequest, onText: (text: string) => void, signal: AbortSignal): Promise<ModelTurn> {
-    const res = await this.fetchImpl(RESPONSES_URL, {
+    const res = await fetchRetrying(this.fetchImpl, RESPONSES_URL, {
       method: "POST",
       signal,
       headers: { "content-type": "application/json", authorization: `Bearer ${await this.accessToken()}` },

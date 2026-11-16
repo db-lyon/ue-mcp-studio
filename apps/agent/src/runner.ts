@@ -3230,6 +3230,8 @@ ${result}`);
           await this.compactConversation(s, conv, "overflow", Math.max(this.currentContext(s, conv), this.windowFor(conv.model)), controller.signal);
           continue;
         }
+        // A request went through after compacting: a later overflow in a long turn gets its own compaction.
+        overflowed = false;
         if (controller.signal.aborted) return;
         this.count(s, usageTokens(turn.usage), null);
         this.spend(s, turn.usage, conv.model);
@@ -3602,6 +3604,7 @@ ${result}`);
           await this.compactConversation(s, conv, "overflow", Math.max(this.currentContext(s, conv), this.windowFor(model)), signal);
           continue;
         }
+        overflowed = false;
         messages.push({ role: "assistant", content: turn.content } as MessageParam);
         save();
         this.count(s, usageTokens(turn.usage), parent);
