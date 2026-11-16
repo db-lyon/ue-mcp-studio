@@ -54,7 +54,7 @@ import { AGENT_TOOL } from "./tools.js";
 import { SKILL_TOOL, agentTool, skillResult, skillsSection, type NativeHelper, type NativeRun } from "./native-runtime.js";
 import { DurableTurns } from "./durable/runtime.js";
 import type { HarnessClientOptions } from "./durable/client.js";
-import type { AgentSpec, AgentStart, DurableInspection, RouteSpec, ToolDef } from "./durable/protocol.js";
+import type { AgentSpec, AgentStart, DurableInspection, RouteSpec, ToolDef, TraceDetail, TraceFilter, TracePage, TraceSummary } from "./durable/protocol.js";
 
 /** The most of a /action's answer the agent's note carries; the transcript keeps all of it. */
 export const ACTION_NOTE_CHARS = 4000;
@@ -1201,6 +1201,35 @@ export class AgentRunner {
       tasks: seen.tasks.map((t) => ({ ...t, ...(t.sessionId ? { sessionId: studioId(t.sessionId) } : {}) })),
       submissions: seen.submissions.map((s) => ({ ...s, ...(s.sessionId ? { sessionId: studioId(s.sessionId) } : {}) })),
     };
+  }
+
+  /**
+   * The background runtime's recorded traces (its phases and model requests,
+   * kept seven days), newest first, or one trace with every span. Never starts
+   * a runtime: the traces live with it, so none are read while none runs.
+   */
+  async durableTraces(o: { filter?: TraceFilter; traceId?: string }): Promise<({ running: false; note: string }) | ({ running: true } & (TracePage | { trace: TraceDetail | null }))> {
+    const c = this.durable?.client;
+    if (!this.durable?.available() || !c) return { running: false, note: "The durable runtime is not installed with this Studio: update Studio to get it." };
+    if (!c.connected()) return { running: false, note: "No background runtime is running now. It starts with the next reply, and its traces are read through it." };
+    if (!c.harness?.features.includes("traces")) {
+      throw new Error(`The background runtime running now (Studio ${c.harness?.version ?? "unknown"}) is older than this Studio and keeps no traces. It is replaced by this Studio's once no reply is running; ask again after the current replies end.`);
+    }
+    const toKey = (id?: string) => (id ? this.o.store.get(id)?.durable?.key : undefined);
+    const studioId = (key?: string) => (key ? key.split("~")[0] : undefined);
+    const fix = (s: TraceSummary): TraceSummary => (s.sessionId ? { ...s, sessionId: studioId(s.sessionId) } : s);
+    if (o.traceId) {
+      const t = (await c.call("traces", { traceId: o.traceId }, 10_000)) as TraceDetail | null;
+      return { running: true, trace: t ? { ...t, summary: fix(t.summary) } : null };
+    }
+    const filter = { ...o.filter };
+    if (filter.sessionId) {
+      const key = toKey(filter.sessionId);
+      if (!key) return { running: true, traces: [], note: "That session has never run on the durable runtime." };
+      filter.sessionId = key;
+    }
+    const page = (await c.call("traces", { filter }, 10_000)) as TracePage;
+    return { running: true, ...page, traces: page.traces.map(fix) };
   }
 
   /** A model's route on the durable runtime, with the window the context meter shows, so the harness compacts where the meter says. */

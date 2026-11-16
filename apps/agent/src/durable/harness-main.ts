@@ -21,6 +21,7 @@ import {
   logFile,
   recordFile,
   storageFile,
+  telemetryFile,
   type ClientMessage,
   type HarnessLaunch,
   type HarnessMessage,
@@ -79,7 +80,7 @@ export async function runHarness(launch: HarnessLaunch): Promise<{ close(): Prom
       }, { once: true });
       if (daemon) send({ reqId, ...p });
     }),
-  });
+  }, telemetryFile(launch.dataDir));
   engine.install(createStudioExtension as unknown as ExtensionFactory);
 
   const ret = (sock: net.Socket, id: string, work: () => Promise<unknown>): void => {
@@ -130,6 +131,8 @@ export async function runHarness(launch: HarnessLaunch): Promise<{ close(): Prom
         return ret(sock, msg.id, () => engine.fork(msg.from, msg.to, msg.text, msg.fromEnd));
       case "inspect":
         return ret(sock, msg.id, async () => ({ version: launch.version, pid: process.pid, extension: extensionVersion, ...(await engine.inspect()) }));
+      case "traces":
+        return ret(sock, msg.id, () => (msg.traceId ? engine.trace(msg.traceId) : engine.traces(msg.filter)));
       case "res": {
         const p = pending.get(msg.reqId);
         if (!p) return;
@@ -164,7 +167,7 @@ export async function runHarness(launch: HarnessLaunch): Promise<{ close(): Prom
         }
         authed = true;
         clients.add(sock);
-        sendLine(sock, { t: "hello", protocol: DURABLE_PROTOCOL, version: launch.version, pid: process.pid, extension: extensionVersion, features: ["usage", "abortSettles"] } satisfies HarnessMessage);
+        sendLine(sock, { t: "hello", protocol: DURABLE_PROTOCOL, version: launch.version, pid: process.pid, extension: extensionVersion, features: ["usage", "abortSettles", "traces"] } satisfies HarnessMessage);
         if (msg.role === "daemon") {
           daemon = sock;
           lastDaemonAt = Date.now();
