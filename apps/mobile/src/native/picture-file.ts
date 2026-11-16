@@ -23,7 +23,7 @@ function pictures(): Directory {
   return folder;
 }
 
-const EXT: Record<string, string> = { "image/png": "png", "image/jpeg": "jpg", "image/gif": "gif", "image/webp": "webp", "image/bmp": "bmp", "image/svg+xml": "svg" };
+const EXT: Record<string, string> = { "image/png": "png", "image/jpeg": "jpg", "image/gif": "gif", "image/webp": "webp", "image/bmp": "bmp", "image/svg+xml": "svg", "video/mp4": "mp4", "video/webm": "webm", "video/quicktime": "mov", "video/x-m4v": "m4v", "video/ogg": "ogv" };
 
 /** Writes `chunks` to a new file and gives its file:// URI; `progress` hears the bytes written so far after each chunk. */
 export async function keepPicture(chunks: AsyncIterable<Uint8Array>, type: string, progress?: (received: number) => void): Promise<string> {

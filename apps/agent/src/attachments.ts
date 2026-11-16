@@ -47,12 +47,61 @@ export class AttachmentStore {
     if (fs.existsSync(this.dir(from))) fs.cpSync(this.dir(from), this.dir(to), { recursive: true });
   }
 
-  save(sessionId: string, upload: AttachmentUpload): Attachment & { path: string } {
+  /**
+   * One upload: a whole file, or one part of one sent in several. A part that
+   * is not the last is appended to the file being gathered and answers null;
+   * the last keeps the whole file.
+   */
+  save(sessionId: string, upload: AttachmentUpload): (Attachment & { path: string }) | null {
     if (typeof upload?.name !== "string" || typeof upload.data !== "string") throw new Error("body must be { name, type, data (base64) }");
+    if (upload.part !== undefined) return this.savePart(sessionId, upload);
     const bytes = Buffer.from(upload.data, "base64");
     if (bytes.length === 0) throw new Error(`${upload.name} is empty`);
     if (bytes.length > MAX_ATTACHMENT_BYTES) throw new Error(`${upload.name} is larger than ${MAX_ATTACHMENT_BYTES / 1024 / 1024} MB`);
     return this.keep(sessionId, upload.name, typeof upload.type === "string" && upload.type ? upload.type : "application/octet-stream", bytes);
+  }
+
+  private savePart(sessionId: string, upload: AttachmentUpload): (Attachment & { path: string }) | null {
+    const p = upload.part!;
+    if (typeof p.id !== "string" || !/^[\w-]{8,64}$/.test(p.id) || !Number.isInteger(p.index) || p.index < 0 || typeof p.last !== "boolean") {
+      throw new Error("part must be { id, index, last }");
+    }
+    const dir = this.dir(sessionId);
+    fs.mkdirSync(dir, { recursive: true });
+    const gathering = path.join(dir, `${p.id}.part`);
+    const record = path.join(dir, `${p.id}.part.json`);
+    const had = p.index === 0 ? 0 : (() => {
+      try {
+        return (JSON.parse(fs.readFileSync(record, "utf-8")) as { next: number }).next;
+      } catch {
+        return -1;
+      }
+    })();
+    if (p.index === 0) fs.rmSync(gathering, { force: true });
+    else if (had !== p.index) throw new Error(`part ${p.index} of ${upload.name} came out of order; send the file again`);
+    const bytes = Buffer.from(upload.data, "base64");
+    fs.appendFileSync(gathering, bytes);
+    const size = fs.statSync(gathering).size;
+    if (size > MAX_ATTACHMENT_BYTES) {
+      fs.rmSync(gathering, { force: true });
+      fs.rmSync(record, { force: true });
+      throw new Error(`${upload.name} is larger than ${MAX_ATTACHMENT_BYTES / 1024 / 1024} MB`);
+    }
+    if (!p.last) {
+      fs.writeFileSync(record, JSON.stringify({ next: p.index + 1 }));
+      return null;
+    }
+    fs.rmSync(record, { force: true });
+    if (size === 0) {
+      fs.rmSync(gathering, { force: true });
+      throw new Error(`${upload.name} is empty`);
+    }
+    const id = crypto.randomUUID();
+    const a: Attachment = { id, name: safeName(upload.name), type: typeof upload.type === "string" && upload.type ? upload.type : "application/octet-stream", size };
+    const file = path.join(dir, `${id}-${a.name}`);
+    fs.renameSync(gathering, file);
+    fs.writeFileSync(path.join(dir, `${id}.json`), JSON.stringify(a));
+    return { ...a, path: file };
   }
 
   /** Keep bytes as one of the session's files: an upload, or an image a tool showed the model. */

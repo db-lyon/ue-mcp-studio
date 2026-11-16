@@ -11,6 +11,9 @@ import { TurnReviewCard } from "./TurnReview";
 import { FlowCard } from "./FlowCommand";
 import { CompactionMarker } from "./Compaction";
 import { SessionIdContext, attachmentUrl, formatBytes, isImage } from "./attachments";
+import { isVideo, type VideoLimits } from "@ue-mcp-studio/shared";
+import { VIDEO_COMPRESSING_LABEL, VIDEO_COMPRESS_LABEL, VIDEO_OPEN_LABEL, VIDEO_RECHECK_LABEL, forgetVideoLimits, videoLimitsOnce, videoTile } from "@ue-mcp-studio/client-core";
+import { UpgradeAction } from "../views/Upgrade";
 import {
   OUTCOME_LABEL,
   RESULT_PREVIEW_LINES,
@@ -244,12 +247,68 @@ function UserMessage({ entry, at }: { entry: Extract<TranscriptEntry, { kind: "u
   );
 }
 
-/** The files a message carried: images as thumbnails, the rest by name. Each opens the file. */
+/**
+ * A video a message carried: it plays when it fits the account's limit;
+ * otherwise the offer, which compresses it to a copy that plays, opens the
+ * file, or upgrades the plan when that would play it.
+ */
+function SentVideo({ file, sessionId }: { file: Attachment; sessionId: string }) {
+  const [limits, setLimits] = useState<VideoLimits | null>(null);
+  const [copy, setCopy] = useState<Attachment | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [asked, setAsked] = useState(0);
+  useEffect(() => {
+    let alive = true;
+    void videoLimitsOnce(() => api.videoLimits()).then((l) => alive && setLimits(l));
+    return () => {
+      alive = false;
+    };
+  }, [asked]);
+  const recheck = () => {
+    forgetVideoLimits();
+    setAsked((n) => n + 1);
+  };
+  const url = attachmentUrl(sessionId, file.id);
+  if (!limits) return <a className="sent-file" href={url} target="_blank" rel="noreferrer"><span>{file.name} <span className="dim">{formatBytes(file.size)}</span></span></a>;
+  const tile = videoTile(file, limits, copy);
+  if (tile.play) {
+    return <video className="sent-video" src={attachmentUrl(sessionId, tile.play.id)} controls preload="metadata" title={`${file.name}, ${formatBytes(file.size)}`} />;
+  }
+  const compress = async () => {
+    setBusy(true);
+    setError(null);
+    try {
+      setCopy(await api.compressVideo(sessionId, file.id));
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+      forgetVideoLimits();
+    } finally {
+      setBusy(false);
+    }
+  };
+  return (
+    <div className="sent-video-offer">
+      <span>{file.name} <span className="dim">{formatBytes(file.size)}</span></span>
+      <p className="dim">{tile.offer}</p>
+      {error && <p className="error">{error}</p>}
+      <div className="row">
+        {tile.compress && <button className="primary" disabled={busy} onClick={() => void compress()}>{busy ? VIDEO_COMPRESSING_LABEL : VIDEO_COMPRESS_LABEL}</button>}
+        {tile.recheck && <button onClick={recheck}>{VIDEO_RECHECK_LABEL}</button>}
+        <a className="button" href={url} target="_blank" rel="noreferrer">{VIDEO_OPEN_LABEL}</a>
+      </div>
+      {tile.upgrade && <UpgradeAction />}
+    </div>
+  );
+}
+
+/** The files a message carried: images as thumbnails, videos as players, the rest by name. Each opens the file. */
 function SentFiles({ files }: { files: Attachment[] }) {
   const sessionId = useContext(SessionIdContext);
   return (
     <div className="sent-files">
       {files.map((f) => {
+        if (sessionId && isVideo(f)) return <SentVideo key={f.id} file={f} sessionId={sessionId} />;
         const url = sessionId ? attachmentUrl(sessionId, f.id) : undefined;
         return (
           <a key={f.id} className="sent-file" href={url} target="_blank" rel="noreferrer" title={`${f.name}, ${formatBytes(f.size)}`}>

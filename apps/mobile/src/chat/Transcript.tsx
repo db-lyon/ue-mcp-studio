@@ -50,6 +50,8 @@ import { FlowCard } from "./FlowCommand";
 import { CompactionMarker } from "../screens/chat/items";
 import { SessionIdContext, attachmentUrl, formatBytes, isImage } from "./attachments";
 import { useDaemonPicture } from "./daemon-picture";
+import { SentVideo } from "./SentVideo";
+import { isVideo } from "@ue-mcp-studio/shared";
 import { Picture } from "./Picture";
 import { useFollow, useNow } from "./hooks";
 import { AssetAnchorContext, AssetTranscriptContext } from "./asset-links";
@@ -311,6 +313,7 @@ function SentFiles({ files }: { files: Attachment[] }) {
   return (
     <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 6, marginBottom: 6 }}>
       {files.map((f) => {
+        if (sessionId && isVideo(f)) return <SentVideo key={f.id} file={f} sessionId={sessionId} />;
         const url = sessionId ? attachmentUrl(sessionId, f.id) : undefined;
         const image = isImage(f.type) && url;
         return (

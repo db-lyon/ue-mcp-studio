@@ -27,6 +27,7 @@ export * from "./file-viewer.js";
 export * from "./connection.js";
 export * from "./update-run.js";
 export * from "./composer.js";
+export * from "./video-tile.js";
 export * from "./composer-menus.js";
 export * from "./pill-providers.js";
 export * from "./launchers.js";

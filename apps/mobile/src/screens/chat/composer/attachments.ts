@@ -57,7 +57,8 @@ const fromImage = (a: ImageAsset, i: number, stem: string): PickedFile => ({
 /** Photos from the library, a photo taken now, or any file from the phone's files. Empty when the user backs out. */
 export async function pickFiles(from: PickSource): Promise<PickedFile[]> {
   if (from === "images") {
-    const r = await ImagePicker.launchImageLibraryAsync({ mediaTypes: ["images"], allowsMultipleSelection: true, base64: true, quality: 1 });
+    // Videos too: a clip from the gallery is as much a reference as a photo.
+    const r = await ImagePicker.launchImageLibraryAsync({ mediaTypes: ["images", "videos"], allowsMultipleSelection: true, base64: true, quality: 1 });
     if (r.canceled) return [];
     return r.assets.map((a, i) => fromImage(a, i, "photo"));
   }

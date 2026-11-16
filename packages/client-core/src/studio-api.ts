@@ -38,6 +38,7 @@ import type {
   StudioSettingsUpdate,
   TimelineMark,
   TurnReview,
+  VideoLimits,
   VcsChange,
   VcsStatus,
   BillingCheckoutRequest,
@@ -51,6 +52,7 @@ import type {
 import { HttpError, readAll, requestJson, type Transport } from "./transport.js";
 import type { UpdateRun } from "./update-run.js";
 import { projectApi } from "./project-api.js";
+import { uploadInParts } from "./composer.js";
 
 const enc = encodeURIComponent;
 const S = "/v1/ext/studio";
@@ -157,7 +159,10 @@ export function studioApi(t: Transport) {
     saveUpdateRun: (run: UpdateRun | null) => send<unknown>("PUT", `${S}/updates/run`, { run }),
     updatesDeferredNow: () => send<{ ok?: boolean; error?: string }>("POST", `${S}/updates/deferred/now`),
     // The composer: attachments, @-mentions, and the /flow and /action launchers.
-    uploadAttachment: (id: string, upload: AttachmentUpload) => send<Attachment>("POST", `${session(id)}/attachments`, upload),
+    uploadAttachment: (id: string, upload: AttachmentUpload) => uploadInParts((u) => send<unknown>("POST", `${session(id)}/attachments`, u), upload),
+    // Videos in the chat: the size that plays for this account, and a smaller copy of one that does not.
+    videoLimits: () => get<VideoLimits>(`${S}/video`),
+    compressVideo: (id: string, attachmentId: string) => send<Attachment>("POST", `${session(id)}/attachments/${enc(attachmentId)}/compress`),
     searchMentions: (request: MentionSearchRequest, signal?: AbortSignal) => requestJson<MentionSearchResponse>(t, "POST", `${S}/mentions/search`, { json: request, ...(signal ? { signal } : {}) }),
     flows: () => get<{ flows: FlowListing[] }>("/v1/flows"),
     planFlow: (name: string) => get<unknown>(`/v1/flows/${enc(name)}/plan`),

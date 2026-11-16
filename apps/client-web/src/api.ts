@@ -32,6 +32,7 @@ import type {
   SessionSync,
   Attachment,
   AttachmentUpload,
+  VideoLimits,
   SessionSummary,
   VcsChange,
   VcsStatus,
@@ -68,7 +69,7 @@ import type {
   RemoteStatus,
 } from "@ue-mcp-studio/shared";
 import { alive, fromUeMcp, recordDiag } from "./diag";
-import { notificationsOf, threadQuery } from "@ue-mcp-studio/client-core";
+import { notificationsOf, threadQuery, uploadInParts } from "@ue-mcp-studio/client-core";
 import type { AgentThreadPage, Notice, NotifyDelivery, NotifyDevice, ProjectNotifyUpdate } from "@ue-mcp-studio/shared";
 import { agentSettingsOf, catalogOf, contextOf, healthOf, installOf, nativeOf, settingsOf } from "./normalize";
 
@@ -248,7 +249,10 @@ export const api = {
   editMessage: (id: string, index: number, text: string, mode: "rewind" | "fork" = "rewind") =>
     call<{ sessionId: string }>("POST", `/v1/ext/studio/sessions/${encodeURIComponent(id)}/transcript/${index}/edit`, { text, mode }),
   uploadAttachment: (id: string, upload: AttachmentUpload) =>
-    call<Attachment>("POST", `/v1/ext/studio/sessions/${encodeURIComponent(id)}/attachments`, upload),
+    uploadInParts((u) => call<unknown>("POST", `/v1/ext/studio/sessions/${encodeURIComponent(id)}/attachments`, u), upload),
+  videoLimits: () => call<VideoLimits>("GET", "/v1/ext/studio/video"),
+  compressVideo: (id: string, attachmentId: string) =>
+    call<Attachment>("POST", `/v1/ext/studio/sessions/${encodeURIComponent(id)}/attachments/${encodeURIComponent(attachmentId)}/compress`),
   stopSubagent: (id: string, callId: string) =>
     call<void>("POST", `/v1/ext/studio/sessions/${encodeURIComponent(id)}/agents/${encodeURIComponent(callId)}/stop`),
   /** A message written in a subagent's thread: to it while it runs, else to the main agent, naming it (queued behind its reply unless now). */
