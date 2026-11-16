@@ -1,6 +1,6 @@
 import { useState, type Ref } from "react";
 import type { ContextUsage, SessionAgent } from "@ue-mcp-studio/shared";
-import { STATE_LABEL, agentView, describe, formatDuration, isActive, listedSubagents, subagentsLine, tokenCount } from "@ue-mcp-studio/client-core";
+import { STATE_LABEL, agentView, describe, formatDuration, isActive, listedSubagents, resumable, subagentsLine, tokenCount } from "@ue-mcp-studio/client-core";
 import { useNow } from "./hooks";
 
 const EMPTY: ReadonlySet<string> = new Set();
@@ -23,7 +23,7 @@ const EMPTY: ReadonlySet<string> = new Set();
  * (.agents-scroll), and Stop and Dismiss stay outside it at the right, so they
  * never sit over the text.
  */
-export function Threads({ agents, thread, onThread, onStop, seen, dismissed = EMPTY, onDismiss, tokens = {}, context = {}, head = true, listRef }: {
+export function Threads({ agents, thread, onThread, onStop, onResume, seen, dismissed = EMPTY, onDismiss, tokens = {}, context = {}, head = true, listRef }: {
   agents: SessionAgent[];
   /** Whether the list draws its own "Subagents: ..." line; off where the sheet's title already is that line. */
   head?: boolean;
@@ -32,6 +32,8 @@ export function Threads({ agents, thread, onThread, onStop, seen, dismissed = EM
   thread: string | null;
   onThread: (id: string | null) => void;
   onStop: (id: string) => void;
+  /** Continue a subagent that stopped or failed, in its kept conversation. */
+  onResume?: (id: string) => void;
   seen: ReadonlySet<string>;
   dismissed?: ReadonlySet<string>;
   onDismiss?: (ids: string[]) => void;
@@ -83,6 +85,11 @@ export function Threads({ agents, thread, onThread, onStop, seen, dismissed = EM
         {isActive(r.state) && (
           <button className="agents-stop" aria-label={`Stop ${describe(r.call)}`} title="Stop this subagent" onClick={() => onStop(r.call.id)}>
             {"■"}
+          </button>
+        )}
+        {resumable(r.state) && onResume && (
+          <button className="agents-resume" aria-label={`Resume ${describe(r.call)}`} title="Continue this subagent from where it stopped" onClick={() => onResume(r.call.id)}>
+            {"↻"}
           </button>
         )}
         {!isActive(r.state) && onDismiss && (

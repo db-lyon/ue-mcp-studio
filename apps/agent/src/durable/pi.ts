@@ -22,7 +22,7 @@ import { createRegistry, defineDoc, defineExtension, defineTool, GenerationTask,
 import { openNodeSqliteStorage } from "@earendil-works/pi-durable/storage/sqlite/node";
 import { NOOP_TELEMETRY_CONTEXT } from "@earendil-works/pi-telemetry";
 import { createClaudeCodeProvider } from "studio-pi-claude-code";
-import type { AgentSpec, AgentStart, EntryEvent, HarnessMessage, HarnessRequest, RouteSpec, ToolDef, UserContent } from "./protocol.js";
+import type { AgentSpec, AgentStart, DurableInspection, EntryEvent, HarnessMessage, HarnessRequest, RouteSpec, ToolDef, UserContent } from "./protocol.js";
 import { heardNote } from "../subagent-inbox.js";
 
 /** Pi Durable's call context. Studio never cancels through it: a wait it gives up on is raced instead. */
@@ -107,6 +107,28 @@ export interface EngineHost {
 
 const ZERO_COST = { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 };
 
+/** The share of a window Studio compacts at, as the meter says (AUTO_COMPACT_FRACTION in @ue-mcp-studio/shared). */
+export const COMPACT_FRACTION = 0.85;
+/** Pi Durable's own reserve: room for the summary request on a small window. */
+const MIN_RESERVE_TOKENS = 16_384;
+
+/**
+ * The reserve that puts Pi Durable's compaction threshold (the model's window
+ * minus the reserve) at 85% of the window the meter shows. Without it Pi
+ * Durable compacts at the window less 16k tokens, about 98% of a 1M window,
+ * while the meter tells the user 85%. `window`: the model's window as the
+ * harness knows it; `shown`: the window the meter uses, when the daemon sent it.
+ */
+export function reserveFor(window: number, shown?: number): number {
+  const target = Math.floor(Math.min(window, shown && shown > 0 ? shown : window) * COMPACT_FRACTION);
+  return Math.max(MIN_RESERVE_TOKENS, window - target);
+}
+
+/** Pi Durable's background compaction lead: its default, but never more than 5% of the window, so a summary is not placed well before the point the meter shows. */
+export function backgroundFor(window: number): number {
+  return Math.min(32_768, Math.floor(window * 0.05));
+}
+
 /** A pi-ai model for a route: the catalog's own entry when it has one, moved to the route's address. */
 function modelFor(spec: RouteSpec): Record<string, unknown> {
   const catalog = spec.api === "anthropic-messages" ? "anthropic" : spec.api === "google-generative-ai" ? "google" : spec.api.startsWith("openai") ? "openai" : null;
@@ -158,7 +180,19 @@ function apiFor(spec: RouteSpec): Streams {
     : spec.api === "openai-responses" ? openAIResponsesApi()
     : spec.api === "openai-completions" ? openAICompletionsApi()
     : googleGenerativeAIApi();
-  return withHeaders(api as unknown as Streams, spec);
+  return withRetries(withHeaders(api as unknown as Streams, spec));
+}
+
+/**
+ * A passing fault (a 429, a 5xx, an overloaded answer, a dropped connection)
+ * is tried again rather than ending the reply: up to three retries, waiting
+ * as retry-after asks for at most 30 s. A stopped reply's abort is never retried.
+ */
+export const MODEL_RETRIES = { maxRetries: 3, maxRetryDelayMs: 30_000 } as const;
+
+function withRetries(streams: Streams): Streams {
+  const wrap = (fn: (...a: unknown[]) => unknown) => (model: unknown, context: unknown, opts?: unknown) => fn(model, context, { ...MODEL_RETRIES, ...((opts ?? {}) as Record<string, unknown>) });
+  return { stream: wrap(streams.stream) as Streams["stream"], streamSimple: wrap(streams.streamSimple) as Streams["streamSimple"] };
 }
 
 /**
@@ -188,6 +222,16 @@ class RouteModels {
     const c = this.creds.get(route);
     if (!c) throw new Error(`No credential for ${route}: connect it in Studio's settings.`);
     return c;
+  }
+
+  /** The context window a registered model runs with, when the catalog knows the model. */
+  window(provider: string, modelId: string): number | undefined {
+    try {
+      const w = (this.models as unknown as { getModel(p: string, id: string): { contextWindow?: number } | undefined }).getModel(provider, modelId)?.contextWindow;
+      return typeof w === "number" && w > 0 ? w : undefined;
+    } catch {
+      return undefined;
+    }
   }
 
   /** The model reference a conversation runs with, registering its route first. */
@@ -280,6 +324,7 @@ export class DurableEngine {
     private readonly registry: ReturnType<typeof createRegistry>,
     private readonly routes: RouteModels,
     private readonly host: EngineHost,
+    private readonly reports: DurableInspection["reports"],
   ) {}
 
   /** The last tool definitions per agent kind, so a newer extension can be installed over them. */
@@ -300,6 +345,14 @@ export class DurableEngine {
     const routes = new RouteModels(host);
     const registry = createRegistry();
     const storage = await openNodeSqliteStorage(file);
+    // Pi Durable's reports (faulted, interrupted or blocked tasks, hook and tool errors), newest first, for inspect().
+    const reports: DurableInspection["reports"] = [];
+    const onReport = (r: { kind: string; error?: unknown; reason?: string; task?: { id?: unknown } }): void => {
+      const message = r.error instanceof Error ? r.error.message : String(r.error ?? "");
+      host.log(`report ${r.kind}: ${message}`);
+      reports.unshift({ at: new Date().toISOString(), kind: r.kind, ...(r.reason ? { reason: String(r.reason) } : {}), ...(r.task?.id !== undefined ? { task: String(r.task.id) } : {}), message: message.slice(0, 500) });
+      reports.length = Math.min(reports.length, 50);
+    };
     const harness = await Harness.open(storage, {
       models: () => routes.models,
       registry,
@@ -311,9 +364,9 @@ export class DurableEngine {
         // A failed run leaves what was queued behind it to the next input, as Studio's loop does.
         afterFailedRun: "continue",
       },
-      onReport: (r: { kind: string; error?: unknown }) => host.log(`report ${r.kind}: ${r.error instanceof Error ? r.error.message : String(r.error ?? "")}`),
+      onReport,
     } as never, CTX);
-    const engine = new DurableEngine(harness, registry, routes, host);
+    const engine = new DurableEngine(harness, registry, routes, host, reports);
     await engine.load();
     return engine;
   }
@@ -373,6 +426,38 @@ export class DurableEngine {
     for (const [conv, on] of Object.entries(doc.search ?? {})) this.searching.set(conv, on);
   }
 
+  /** Live tasks, unsettled submissions and recent reports, mapped to Studio's sessions. Writes nothing and runs no task code. */
+  async inspect(): Promise<Omit<DurableInspection, "version" | "pid" | "extension">> {
+    type Task = { record: { id: unknown; kind: string; conversationId: unknown; owner?: unknown; background: boolean; abortRequested: boolean }; state: { kind: string; reason?: string; on?: readonly unknown[]; until?: number } };
+    type Sub = { id: unknown; conversationId: unknown; type: string; status: string };
+    const seen = (await this.harness.inspect(CTX)) as unknown as { scheduling: string; tasks: readonly Task[]; submissions: readonly Sub[] };
+    const where = (conv: unknown) => this.byConv.get(String(conv));
+    return {
+      scheduling: seen.scheduling,
+      tasks: seen.tasks.map(({ record: r, state }) => {
+        const w = where(r.conversationId);
+        return {
+          id: String(r.id),
+          kind: r.kind,
+          conversation: String(r.conversationId),
+          ...(w ? { sessionId: w.sessionId, parent: w.parent } : {}),
+          ...(r.owner !== undefined ? { owner: String(r.owner) } : {}),
+          background: r.background,
+          abortRequested: r.abortRequested,
+          state: state.kind,
+          ...(state.reason ? { blocked: state.reason } : {}),
+          ...(state.on ? { on: state.on.map(String) } : {}),
+          ...(state.until !== undefined ? { until: state.until } : {}),
+        };
+      }),
+      submissions: seen.submissions.map((s) => {
+        const w = where(s.conversationId);
+        return { id: String(s.id), conversation: String(s.conversationId), ...(w ? { sessionId: w.sessionId } : {}), type: s.type, status: s.status };
+      }),
+      reports: [...this.reports],
+    };
+  }
+
   /** Start running what the last process left, and the reporters of background subagents. */
   async resume(): Promise<void> {
     this.harness.resume();
@@ -423,6 +508,7 @@ export class DurableEngine {
     // Every tool a conversation names is registered before it is selected.
     this.reinstall();
     const model = await this.routes.ref(spec.route);
+    const window = this.routes.window(model.provider, model.modelId);
     const registered = new Map<string, unknown>();
     for (const { tool } of this.registry.snapshot().tools()) registered.set((tool as { name: string }).name, tool);
     const tools = spec.tools.map((t) => registered.get(t.name)).filter(Boolean);
@@ -443,6 +529,8 @@ export class DurableEngine {
       tools,
       // No cap unless a helper's own file sets one: the user's Stop and compaction keep a long run in hand, on every route.
       maxTurns: spec.maxTurns ?? null,
+      // Compact where the meter says, on this model's window; null leaves Pi Durable's default for a model it cannot size.
+      compaction: window ? { reserveTokens: reserveFor(window, spec.route.contextWindow), backgroundTokens: backgroundFor(Math.min(window, spec.route.contextWindow ?? window)) } : null,
     } as never, CTX);
   }
 
@@ -677,13 +765,19 @@ export class DurableEngine {
   }
 
   /** The subagent's conversation for an agent call: the one an earlier run made, or a new one. */
-  private async childConversation(sessionId: string, callId: string, description: string): Promise<AnyConversation> {
+  private async childConversation(sessionId: string, callId: string, description: string, resumeFrom?: string): Promise<AnyConversation> {
     const id = await this.harness.commit(async (tx) => {
       const d = await (tx as unknown as { doc(t: unknown): Promise<SessionsDoc> }).doc(Sessions);
       const rec = d.sessions[sessionId];
       if (!rec) throw new Error(`no conversation for session ${sessionId}`);
       const had = rec.children[callId];
       if (had) return had.conv;
+      // Resuming a subagent that stopped or failed: the new call goes on in its kept conversation.
+      const from = resumeFrom ? rec.children[resumeFrom] : undefined;
+      if (from) {
+        rec.children[callId] = { conv: from.conv, background: false, reported: false, description };
+        return from.conv;
+      }
       const created = await (tx as unknown as { createConversation(o: unknown): Promise<{ id: string }> }).createConversation({ ownership: { kind: "ownerless" } });
       rec.children[callId] = { conv: String(created.id), background: false, reported: false, description };
       return String(created.id);
@@ -760,7 +854,7 @@ export class DurableEngine {
    * agent as a message when the subagent ends. An aborted call stops it.
    */
   private async runSubagent(sessionId: string, callId: string, start: Extract<AgentStart, { ok: true }>, signal: AbortSignal | undefined): Promise<{ text: string; isError: boolean }> {
-    const conv = await this.childConversation(sessionId, callId, start.description);
+    const conv = await this.childConversation(sessionId, callId, start.description, start.resume);
     const doc = await this.sessions();
     const rec = doc.sessions[sessionId]?.children[callId];
     if (rec?.background) return { text: backgroundText(start.description), isError: false };
@@ -829,7 +923,7 @@ export class DurableEngine {
    */
   async assign(sessionId: string, callId: string, start: Extract<AgentStart, { ok: true }>): Promise<void> {
     await this.mainConversation(sessionId);
-    const conv = await this.childConversation(sessionId, callId, start.description);
+    const conv = await this.childConversation(sessionId, callId, start.description, start.resume);
     const rec = (await this.sessions()).sessions[sessionId]?.children[callId];
     if (rec?.reported) return;
     await this.configure(conv, start.spec, "child");

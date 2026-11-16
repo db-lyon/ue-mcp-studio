@@ -36,6 +36,8 @@ export interface NativeRouteOptions {
   top?: string;
   /** Opens a file with the system's default app; replaced in tests. */
   open?: (abs: string) => void;
+  /** Shows a file in the file manager; revealInFolder by default. */
+  reveal?: (abs: string) => void;
   /** Where reply images' posters are kept; the data folder's posters/ when not given. */
   posters?: string;
 }
@@ -51,6 +53,14 @@ export function openWithSystem(abs: string): void {
     ? ["powershell.exe", ["-NoProfile", "-NonInteractive", "-Command", "Start-Process -LiteralPath $env:STUDIO_OPEN_PATH"]]
     : process.platform === "darwin" ? ["open", [abs]] : ["xdg-open", [abs]];
   spawn(cmd, args as string[], { detached: true, stdio: "ignore", windowsHide: true, env: { ...process.env, STUDIO_OPEN_PATH: abs } }).unref();
+}
+
+/** Show a file selected in the system's file manager; nothing is opened or run. */
+export function revealInFolder(abs: string): void {
+  const [cmd, args] = process.platform === "win32"
+    ? ["explorer.exe", [`/select,${abs}`]]
+    : process.platform === "darwin" ? ["open", ["-R", abs]] : ["xdg-open", [path.dirname(abs)]];
+  spawn(cmd, args, { detached: true, stdio: "ignore", windowsHide: true }).unref();
 }
 
 /** A tool list in Studio's words. */
@@ -171,6 +181,16 @@ export function registerNativeRoutes(api: DaemonExtensionApi, o: NativeRouteOpti
     // The resolved name decides too: a .md link to a program is still a program.
     if (!fs.statSync(r.real).isFile() || !openableInEditor(r.abs) || !openableInEditor(r.real)) return { status: 403, body: { error: `Studio opens text files only, not ${r.shown}.` } };
     (o.open ?? openWithSystem)(r.real);
+    return { status: 204 };
+  });
+
+  // Any file in scope, selected in the file manager: the way on for one Studio cannot show or open (a video, a .uasset, a large image).
+  api.route("POST", "/files/reveal", (req) => {
+    const b = req.body as { path?: unknown; from?: unknown } | undefined;
+    if (typeof b?.path !== "string" || !b.path) return { status: 400, body: { error: "body must be { path: string, from?: string }" } };
+    const r = resolveProjectFile(scope(), b.path, b.from);
+    if (!r.ok) return { status: r.status, body: { error: r.error } };
+    (o.reveal ?? revealInFolder)(r.real);
     return { status: 204 };
   });
 }

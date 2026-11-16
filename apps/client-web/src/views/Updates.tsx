@@ -3,6 +3,7 @@ import { PLUGIN_OUTSIDE, checkFailure, daemonMoves, daemonTarget, pluginOutside,
 import { startUpdate, useRun } from "./UpdateOverlay";
 import { waitingSteps } from "./update-run";
 import { REMOTE_UPDATES, onRemotePage } from "../connection";
+import { WhatsNewButton } from "./WhatsNew";
 
 /** The update check's model lives in client-core, shared with the mobile app. */
 export { checkFailure, daemonMoves, daemonTarget, failureLine, pluginStep, readyLine, studioUpdatesOf, ueMcpUpdateOf, updateSteps, waiting, withFloor, type StudioUpdates, type UeMcpUpdate };
@@ -85,6 +86,7 @@ export function UpdatesCard({ remote = onRemotePage() }: { remote?: boolean } = 
       <div className="row">
         <h2>Updates</h2>
         <span className="spacer" />
+        <WhatsNewButton />
         {!working && steps.length === 0 && <button onClick={load}>Check again</button>}
       </div>
       {!u && <p className="muted">Checking</p>}

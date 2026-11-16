@@ -43,6 +43,7 @@ export async function mobileQaServer(root, { plugins = [] } = {}) {
         { find: /^react-native-svg$/, replacement: mock("svg-web.tsx") },
         { find: /^expo-image-picker$/, replacement: mock("image-picker.ts") },
         { find: /^expo-image$/, replacement: mock("expo-image.tsx") },
+        { find: /^expo-video$/, replacement: mock("expo-video.tsx") },
         { find: /^expo-document-picker$/, replacement: mock("document-picker.ts") },
         { find: /^@ue-mcp-studio\/(remote|client-core|shared|extension-api)$/, replacement: `${root}/packages/$1/src/index.ts` },
       ],

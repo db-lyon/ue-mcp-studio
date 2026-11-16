@@ -315,7 +315,8 @@ export function Chat({ nav, initialSession = null, onSettings, active = true }: 
     const files = attach.ready.map((a) => a.id);
     clearPills();
     setDraft("");
-    attach.clear();
+    // Taken, not cleared: a failed send gives the files back with the text.
+    const taken = attach.take();
     haptic.tap();
     void api.saveDraft(selected, "").catch(() => {});
     if (follow) {
@@ -326,6 +327,7 @@ export function Chat({ nav, initialSession = null, onSettings, active = true }: 
       () => loadDetail(selected),
       (e: Error) => {
         setDraft(text);
+        attach.restore(taken);
         fail(e);
       },
     );
@@ -451,6 +453,10 @@ export function Chat({ nav, initialSession = null, onSettings, active = true }: 
   const stopSubagent = (id: string) => {
     if (selected) void api.stopSubagent(selected, id).catch(fail);
   };
+  // A stopped or failed subagent goes on in its kept conversation, under a new row.
+  const resumeSubagent = (id: string) => {
+    if (selected) void api.resumeSubagent(selected, id).catch(fail);
+  };
 
   const busy = detail?.status === "running" || detail?.status === "waiting";
   useEffect(() => setDiag({ entries: detail ? (Array.isArray(detail.transcript) ? detail.transcript.length : -2) : -1 }), [detail]);
@@ -541,6 +547,7 @@ export function Chat({ nav, initialSession = null, onSettings, active = true }: 
         openThreadId(id);
       }}
       onStop={stopSubagent}
+      onResume={resumeSubagent}
       seen={seen}
       dismissed={dismissed}
       onDismiss={dismiss}

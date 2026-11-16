@@ -139,8 +139,37 @@ export type HarnessRequest =
   | { kind: "credential"; route: string };
 
 export type AgentStart =
-  | { ok: true; spec: AgentSpec; prompt: UserContent; description: string }
+  /** `resume`: the agent call of a subagent that stopped or failed, whose kept conversation this one goes on in. A harness without it starts a new conversation. */
+  | { ok: true; spec: AgentSpec; prompt: UserContent; description: string; resume?: string }
   | { ok: false; text: string; stopped?: boolean };
+
+/** The harness's live work, for diagnostics: what is running, waiting, asleep or blocked, and what it reported lately. */
+export interface DurableInspection {
+  version: string;
+  pid: number;
+  extension: string;
+  scheduling: string;
+  tasks: Array<{
+    id: string;
+    kind: string;
+    conversation: string;
+    /** The Studio session and agent call (null: its main agent) the conversation belongs to, when known. */
+    sessionId?: string;
+    parent?: string | null;
+    owner?: string;
+    background: boolean;
+    abortRequested: boolean;
+    /** running, pending, waiting, sleeping, completing or blocked. */
+    state: string;
+    /** Why it cannot run (blocked), the tasks it waits on (waiting), or when it wakes (sleeping, epoch ms). */
+    blocked?: string;
+    on?: string[];
+    until?: number;
+  }>;
+  submissions: Array<{ id: string; conversation: string; sessionId?: string; type: string; status: string }>;
+  /** The newest reports first, at most 50. */
+  reports: Array<{ at: string; kind: string; reason?: string; task?: string; message: string }>;
+}
 
 /** Client to harness. Requests carry an id answered by ret. */
 export type ClientMessage =
@@ -162,6 +191,8 @@ export type ClientMessage =
   | { t: "assign"; id: string; sessionId: string; callId: string; start: Extract<AgentStart, { ok: true }> }
   /** Protocol 3: one answer from a model on a route, outside any conversation: a flow agent step. Answered with the text. */
   | { t: "complete"; id: string; route: RouteSpec; system: string; prompt: string; effort: Effort }
+  /** What the harness is doing: its live tasks, queued submissions and recent reports. Reads only. An older harness never answers it. */
+  | { t: "inspect"; id: string }
   | { t: "res"; reqId: string; value: unknown }
   /** A daemon-side tool run got past its gate and is about to run. The harness records it before answering go. */
   | { t: "started"; reqId: string };

@@ -57,7 +57,8 @@ const fromImage = (a: ImageAsset, i: number, stem: string): PickedFile => ({
 /** Photos from the library, a photo taken now, or any file from the phone's files. Empty when the user backs out. */
 export async function pickFiles(from: PickSource): Promise<PickedFile[]> {
   if (from === "images") {
-    const r = await ImagePicker.launchImageLibraryAsync({ mediaTypes: ["images"], allowsMultipleSelection: true, base64: true, quality: 1 });
+    // Videos too: a clip from the gallery is as much a reference as a photo.
+    const r = await ImagePicker.launchImageLibraryAsync({ mediaTypes: ["images", "videos"], allowsMultipleSelection: true, base64: true, quality: 1 });
     if (r.canceled) return [];
     return r.assets.map((a, i) => fromImage(a, i, "photo"));
   }
@@ -136,6 +137,13 @@ export function useAttachments(sessionId: string | null) {
 
   const remove = useCallback((key: string) => setFiles((cur) => cur.filter((x) => x.key !== key)), []);
   const clear = useCallback(() => setFiles([]), []);
+  /** The web client's take and restore: a failed send gives its files back with the text. */
+  const take = useCallback((): PendingFile[] => {
+    const all = live.current;
+    setFiles([]);
+    return all;
+  }, []);
+  const restore = useCallback((list: PendingFile[]) => setFiles((cur) => [...list, ...cur.filter((f) => !list.some((x) => x.key === f.key))]), []);
 
   // Another session starts with nothing attached.
   useEffect(() => clear, [sessionId, clear]);
@@ -145,6 +153,8 @@ export function useAttachments(sessionId: string | null) {
     add,
     remove,
     clear,
+    take,
+    restore,
     uploading: files.some((f) => f.state === "uploading"),
     ready: files.flatMap((f) => (f.state === "ready" && f.attachment ? [f.attachment] : [])),
   };

@@ -32,6 +32,7 @@ import type {
   SessionSync,
   Attachment,
   AttachmentUpload,
+  VideoLimits,
   SessionSummary,
   VcsChange,
   VcsStatus,
@@ -68,7 +69,8 @@ import type {
   RemoteStatus,
 } from "@ue-mcp-studio/shared";
 import { alive, fromUeMcp, recordDiag } from "./diag";
-import { notificationsOf, threadQuery } from "@ue-mcp-studio/client-core";
+import { notificationsOf, threadQuery, uploadInParts } from "@ue-mcp-studio/client-core";
+import { FILE_REVEAL_PATH } from "@ue-mcp-studio/shared";
 import type { AgentThreadPage, Notice, NotifyDelivery, NotifyDevice, ProjectNotifyUpdate } from "@ue-mcp-studio/shared";
 import { agentSettingsOf, catalogOf, contextOf, healthOf, installOf, nativeOf, settingsOf } from "./normalize";
 
@@ -248,9 +250,17 @@ export const api = {
   editMessage: (id: string, index: number, text: string, mode: "rewind" | "fork" = "rewind") =>
     call<{ sessionId: string }>("POST", `/v1/ext/studio/sessions/${encodeURIComponent(id)}/transcript/${index}/edit`, { text, mode }),
   uploadAttachment: (id: string, upload: AttachmentUpload) =>
-    call<Attachment>("POST", `/v1/ext/studio/sessions/${encodeURIComponent(id)}/attachments`, upload),
+    uploadInParts((u) => call<unknown>("POST", `/v1/ext/studio/sessions/${encodeURIComponent(id)}/attachments`, u), upload),
+  videoLimits: () => call<VideoLimits>("GET", "/v1/ext/studio/video"),
+  compressVideo: (id: string, attachmentId: string) =>
+    call<Attachment>("POST", `/v1/ext/studio/sessions/${encodeURIComponent(id)}/attachments/${encodeURIComponent(attachmentId)}/compress`),
+  openVideoOnComputer: (id: string, attachmentId: string) =>
+    call<void>("POST", `/v1/ext/studio/sessions/${encodeURIComponent(id)}/attachments/${encodeURIComponent(attachmentId)}/open`),
   stopSubagent: (id: string, callId: string) =>
     call<void>("POST", `/v1/ext/studio/sessions/${encodeURIComponent(id)}/agents/${encodeURIComponent(callId)}/stop`),
+  /** Resume a subagent that stopped or failed: it goes on in its kept conversation under a new agent call. */
+  resumeSubagent: (id: string, callId: string) =>
+    call<{ callId: string }>("POST", `/v1/ext/studio/sessions/${encodeURIComponent(id)}/agents/${encodeURIComponent(callId)}/resume`),
   /** A message written in a subagent's thread: to it while it runs, else to the main agent, naming it (queued behind its reply unless now). */
   messageSubagent: (id: string, callId: string, text: string, attachments: string[] = [], now = false) =>
     call<{ sessionId: string; to: "subagent" | "queue" | "main" }>("POST", `/v1/ext/studio/sessions/${encodeURIComponent(id)}/agents/${encodeURIComponent(callId)}/messages`, now ? { text, attachments, now } : { text, attachments }),
@@ -321,6 +331,7 @@ export const api = {
     call<FileReadResponse>("GET", `/v1/ext/studio/files/read?path=${encodeURIComponent(path)}${from ? `&from=${encodeURIComponent(from)}` : ""}`),
   /** Open a text file in the computer's editor; the paired browser is refused it. */
   openFile: (path: string, from?: string) => call<void>("POST", "/v1/ext/studio/files/open", from ? { path, from } : { path }),
+  revealFile: (path: string, from?: string) => call<void>("POST", FILE_REVEAL_PATH, from ? { path, from } : { path }),
   contextStrategy: () => call<unknown>("GET", "/v1/ext/studio/context-strategy").then(contextOf),
   saveContextStrategy: (strategy: ContextStrategy) => call<unknown>("PUT", "/v1/ext/studio/context-strategy", { strategy }).then(contextOf),
   feedbackEnvironment: () => call<{ body: string }>("GET", "/v1/ext/studio/feedback/environment"),

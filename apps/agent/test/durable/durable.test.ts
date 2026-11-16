@@ -268,6 +268,61 @@ describe("durable runtime", () => {
     expect(rig.store.get(s.id)!.status).not.toBe("running");
   }, 60_000);
 
+  it("resumes a stopped subagent in its kept conversation, from the list and through the agent tool", async () => {
+    let lastSub = "";
+    fake = await startFakeAnthropic(({ toolResults, system, userText }) => {
+      if (system.includes("You are a subagent")) {
+        lastSub = userText;
+        if (userText.includes("The user resumed you") || userText.includes("carry on with the door")) return { text: "Report: the door is done." };
+        return toolResults === 0 ? { tool: { name: "ue_mcp", input: { action: "call", category: "level", method: "build_door", args: {} } } } : { text: "unused" };
+      }
+      // The main agent resumes the second subagent by its call id.
+      return toolResults === 0 ? { tool: { name: "agent", input: { description: "Door again", prompt: "carry on with the door", resume: resumeTarget } } } : { text: "Resumed it." };
+    });
+    let resumeTarget = "";
+    rig = durableRunner({ projectDir: path.join(dir, "project"), dataDir: path.join(dir, "data"), base: fake.base, start });
+    rig.host.callMs = 60_000;
+    const s = rig.store.create("t");
+
+    // From the list: a subagent stopped mid-call goes on in its own conversation under a new call.
+    const first = rig.runner.assignSubagent(s.id, "Build the door", "Build the door in the level.");
+    await until(() => editorCalls(path.join(dir, "data")).length === 1, 30_000, "the first call");
+    expect(rig.runner.stopSubagent(s.id, first.callId)).toBe(true);
+    expect((await first.done).stopped).toBe(true);
+    rig.host.callMs = 0;
+    const again = rig.runner.resumeSubagent(s.id, first.callId);
+    expect(await again.done).toMatchObject({ text: "Report: the door is done.", isError: false });
+    // The same conversation: what it was first told and the call it made are in the request that resumed it.
+    expect(lastSub).toContain("Build the door in the level.");
+    expect(lastSub).toContain("build_door");
+    const entry = transcript(rig.store, s.id).find((e) => e.kind === "tool" && e.call.id === again.callId);
+    expect(entry?.kind === "tool" && entry.call.input).toMatchObject({ resume: first.callId });
+
+    // Through the agent tool: the main agent names the call to resume.
+    rig.host.callMs = 60_000;
+    const second = rig.runner.assignSubagent(s.id, "Build the gate", "Build the gate in the level.");
+    await until(() => editorCalls(path.join(dir, "data")).length === 2, 30_000, "the second call");
+    rig.runner.stopSubagent(s.id, second.callId);
+    await second.done;
+    rig.host.callMs = 0;
+    resumeTarget = second.callId;
+    await rig.runner.send(s.id, "resume the gate subagent");
+    await until(() => rig.store.get(s.id)!.status === "idle", 40_000, "the turn to end");
+    const agent = transcript(rig.store, s.id).find((e) => e.kind === "tool" && e.call.name === "agent" && (e.call.input as { resume?: string }).resume === second.callId && !e.call.id.startsWith("studio_"));
+    expect(agent?.kind === "tool" && agent.call.result).toContain("Report: the door is done.");
+    expect(lastSub).toContain("Build the gate in the level.");
+  }, 120_000);
+
+  it("refuses to resume a subagent that is running, unknown, or from before the durable runtime", async () => {
+    fake = await startFakeAnthropic(() => ({ text: "ok" }));
+    rig = durableRunner({ projectDir: path.join(dir, "project"), dataDir: path.join(dir, "data"), base: fake.base, start });
+    const s = rig.store.create("t");
+    expect(() => rig.runner.resumeSubagent(s.id, "nope")).toThrow(/no subagent nope/);
+    s.transcript.push({ kind: "tool", call: { id: "old", name: "agent", input: { description: "Old", prompt: "x" }, outcome: "error", startedAt: new Date().toISOString() } });
+    rig.store.save(s);
+    expect(() => rig.runner.resumeSubagent(s.id, "old")).toThrow(/not kept/);
+  }, 30_000);
+
   it("runs a helper on its own vendor's model, on that model's route", async () => {
     fake = await startFakeAnthropic(({ toolResults, system }) => {
       if (system.includes("You are a subagent")) return { text: "Report from the reviewer." };

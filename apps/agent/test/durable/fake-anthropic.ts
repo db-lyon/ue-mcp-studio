@@ -33,6 +33,10 @@ export interface FakeTurn {
   delayMs?: number;
   /** The tokens the answer reports; 100 + tool results in and 20 out when not given. */
   usage?: { input: number; output: number };
+  /** The input tokens the answer reports, to fill the context as a long conversation would. */
+  inputTokens?: number;
+  /** Answer with this HTTP error instead, as an overloaded or failing provider does. */
+  status?: number;
 }
 
 /** One request as the model got it. */
@@ -115,6 +119,11 @@ export async function startFakeAnthropic(script: (req: FakeScriptRequest) => Fak
       return;
     }
     if (dropped.signal.aborted) return;
+    if (turn.status) {
+      res.writeHead(turn.status, { "content-type": "application/json", "retry-after": "0" });
+      res.end(JSON.stringify({ type: "error", error: { type: turn.status === 529 ? "overloaded_error" : "api_error", message: "busy" } }));
+      return;
+    }
     // On the Claude runtime Studio's tools are MCP tools of the server "studio".
     const named = (t: FakeToolCall): FakeToolCall => {
       if (tools.includes(t.name)) return t;
@@ -131,7 +140,7 @@ export async function startFakeAnthropic(script: (req: FakeScriptRequest) => Fak
       await new Promise((r) => setTimeout(r, pace));
     };
     const id = ++seq;
-    const usage = { input_tokens: turn.usage?.input ?? 100 + n, output_tokens: turn.usage ? 0 : 1, cache_creation_input_tokens: 0, cache_read_input_tokens: 0 };
+    const usage = { input_tokens: turn.usage?.input ?? turn.inputTokens ?? 100 + n, output_tokens: turn.usage ? 0 : 1, cache_creation_input_tokens: 0, cache_read_input_tokens: 0 };
     await send({ type: "message_start", message: { id: `msg_${id}`, type: "message", role: "assistant", model: body.model, content: [], stop_reason: null, stop_sequence: null, usage } });
     let index = 0;
     if (turn.text) {

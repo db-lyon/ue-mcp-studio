@@ -812,6 +812,10 @@ button.small-button { padding: 0 4px; height: auto; font-size: inherit; }
 .composer .agents-dismiss { height: 22px; }
 .agents-row:hover .agents-dismiss, .agents-dismiss:focus-visible { opacity: 1; }
 .agents-dismiss:hover:not(:disabled) { color: var(--text); background: var(--panel-3); border-color: transparent; }
+/* Resume is the way on from a stopped or failed subagent: always shown, not only on hover. */
+.agents-resume { width: 22px; height: 22px; margin-right: 4px; padding: 0; display: grid; place-items: center; font-size: 13px; color: var(--accent); background: transparent; border-color: transparent; }
+.composer .agents-resume { height: 22px; }
+.agents-resume:hover:not(:disabled) { background: var(--panel-3); border-color: transparent; }
 .agents-fold-row { display: flex; align-items: center; gap: 6px; }
 .agents-fold-row .agents-fold { flex: 1; }
 .agents-clear { margin-left: auto; margin-right: 4px; padding: 2px 6px; }
@@ -874,6 +878,10 @@ button.small-button { padding: 0 4px; height: auto; font-size: inherit; }
 .sent-files { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 6px; }
 .sent-file { display: inline-flex; align-items: center; max-width: 100%; padding: 3px 8px; border: 1px solid var(--accent-line); border-radius: 6px; color: var(--text); font-size: 12px; text-decoration: none; }
 .sent-file img { display: block; max-width: 220px; max-height: 160px; margin: -3px -8px; border-radius: 6px; }
+.sent-video { display: block; max-width: min(100%, 360px); max-height: 240px; border: 1px solid var(--accent-line); border-radius: 6px; background: #000; }
+.sent-video-offer { display: flex; flex-direction: column; gap: 6px; max-width: 360px; padding: 8px 10px; border: 1px solid var(--accent-line); border-radius: 6px; font-size: 12px; }
+.sent-video-offer p { margin: 0; }
+.sent-video-offer .row { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
 
 /* Source control in the top bar */
 .chip.vcs { max-width: 360px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -973,6 +981,8 @@ pre.diff .hunk { color: var(--accent-hi); display: block; }
 .file-viewer-error { font: 400 12px/1.3 var(--sans); }
 .file-viewer-body { flex: 1; min-height: 0; overflow: auto; }
 .file-viewer-note { margin: 0; }
+.file-viewer-note .row { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+.file-viewer-image { display: block; max-width: 100%; height: auto; margin: 0 auto; }
 .file-lines { margin: 0; font: 12px/1.55 var(--mono); color: var(--text); }
 .file-line { display: grid; grid-template-columns: 4.5em 1fr; }
 .file-line.current { background: var(--accent-wash); }
@@ -981,6 +991,17 @@ pre.diff .hunk { color: var(--accent-hi); display: block; }
 
 /* Feedback: a report for Studio's tracker. */
 .overlay-card.feedback { width: min(580px, 100%); }
+/* What's new: an accordion per part, each release's notes under its version, in the Updates card's type. */
+.overlay-card.whats-new { width: min(680px, 100%); max-height: min(86vh, 100%); gap: 10px; }
+.whats-new-part { border-top: 1px solid var(--line); padding-top: 8px; }
+.whats-new-part > summary { cursor: pointer; padding: 2px 0 6px; color: var(--text); }
+.whats-new-part > summary strong { font-weight: 600; }
+.whats-new-entry { margin: 4px 0 12px; }
+.whats-new-version { gap: 8px; margin-bottom: 4px; }
+.whats-new-version h3 { margin: 0; font: 600 13px/1.4 var(--mono); color: var(--text); }
+.whats-new-notes { font-size: 13px; overflow-wrap: anywhere; }
+.whats-new-notes h1, .whats-new-notes h2, .whats-new-notes h3, .whats-new-notes h4 { margin: 10px 0 6px; font-size: 13px; font-weight: 600; color: var(--text); }
+.whats-new-error .row { gap: 10px; margin-top: 8px; }
 .overlay-card.feedback input:not([type="checkbox"]), .overlay-card.feedback textarea { width: 100%; box-sizing: border-box; }
 .overlay-card.feedback textarea { resize: vertical; min-height: 120px; font: inherit; }
 .feedback-kind { gap: 6px; }
@@ -2063,8 +2084,6 @@ fieldset.remote-readonly[disabled] > :not(.remote-readonly-note) { opacity: 0.7;
 
 /* The script path stands alone, so its reach is the full 44 pixels. */
 @media (pointer: coarse) { .qa-script-path .asset-link::after { inset: -13px -2px; } }
-
-}
 
 /* The divider between the transcript and the message box. The composer's top border is the line;
    its dark background fills from the line down. A bare bar sits centred in the 12 pixel gap

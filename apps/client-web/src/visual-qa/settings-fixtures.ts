@@ -86,6 +86,23 @@ const NOTIFY_STATE = {
 
 const page = (title: string, section: string, o: Partial<Scenario> = {}): Scenario => ({ title, hash: `#/settings/${section}`, index: { playtests: [], listed: true }, height: 2600, ...o });
 
+/** GET /whats-new: Studio moved from beta.24 to beta.26 with beta.27 waiting, and the plugin's notes unread. */
+const WHATS_NEW = {
+  channel: "beta",
+  components: [
+    {
+      part: "studio", name: "Studio", installed: "0.1.24-beta.26", previous: "0.1.24-beta.24", more: 0, releasesUrl: "https://github.com/db-lyon/ue-mcp-studio/releases",
+      entries: [
+        { version: "0.1.24-beta.27", available: true, publishedAt: "2026-11-15T10:00:00Z", url: "https://github.com/db-lyon/ue-mcp-studio/releases/tag/v0.1.24-beta.27", body: "- The composer keeps a draft per session.\n- Settings shows **What's new** for every part." },
+        { version: "0.1.24-beta.26", available: false, publishedAt: "2026-11-14T10:00:00Z", url: "https://github.com/db-lyon/ue-mcp-studio/releases/tag/v0.1.24-beta.26", body: "## Fixes\n\n- A long reply no longer jumps while it streams.\n- `Check again` reads the channel you chose." },
+        { version: "0.1.24-beta.25", available: false, publishedAt: "2026-11-13T10:00:00Z", url: "https://github.com/db-lyon/ue-mcp-studio/releases/tag/v0.1.24-beta.25", body: "" },
+      ],
+    },
+    { part: "plugin", name: "Editor plugin (UE_MCP_Studio)", installed: "0.1.4", previous: null, entries: [], more: 0, error: "GitHub is limiting requests right now", releasesUrl: "https://github.com/db-lyon/ue-mcp-studio-plugin/releases" },
+    { part: "bridge", name: "Bridge plugin (UE_MCP_Bridge)", installed: "1.4.11-beta.4", previous: null, entries: [], more: 0, releasesUrl: "https://github.com/db-lyon/ue-mcp/releases" },
+  ],
+};
+
 /**
  * What Studio 0.1.23 and an older ue-mcp answer, which the newest UI bundle on
  * the machine reads when the daemon serves it beside them (#151): no usage,
@@ -185,6 +202,10 @@ export const SETTINGS_SCENARIOS: Record<string, Scenario> = {
     focus: ".yaml-editor textarea",
   }),
   "settings-general": page("General: themes and updates", "general"),
+  "settings-whats-new": page("General with What's new open: Studio's notes from the version before the last update, an update available marked, and the editor plugin's notes that could not be read with Retry and the release page", "general", {
+    get: (p) => (p === "/v1/ext/studio/whats-new" ? WHATS_NEW : undefined),
+    click: ".whats-new-open",
+  }),
   "settings-notifications": page("Notifications in Studio's window on a paid plan: this device's choices, every event at its default, one muted session", "notifications", {
     studioWindow: true,
     get: notifyGet(NOTIFY_STATE),

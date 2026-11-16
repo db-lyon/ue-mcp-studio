@@ -40,8 +40,10 @@
  * studio.tool.queued, studio.approval.requested and studio.approval.resolved.
  */
 import { registerVersionNotice } from "./version-notice.js";
+import { registerWhatsNew } from "./whats-new.js";
 import { readDiscovery, type DaemonExtensionApi } from "ue-mcp/daemon";
 import { registerQueueRoutes } from "./queue-routes.js";
+import { registerVideoRoutes } from "./video-routes.js";
 import { PlaytestFlow } from "./playtest-flow.js";
 import { FlowCaller, offersStepApproval, type FlowStepHost } from "./flow-run.js";
 
@@ -347,7 +349,7 @@ export function registerChat(api: DaemonExtensionApi, agentVersion = "0.0.0", pa
       },
     },
   });
-  registerDurableRoutes(api, { harness: () => runner.durableHarness() });
+  registerDurableRoutes(api, { harness: () => runner.durableHarness(), inspect: () => runner.durableInspect() });
   const unregisterSteps = offersStepApproval(stepHost) ? stepHost.flows!.approveSteps((r) => runner.approveFlowStep(r)) : () => {};
   // Flow agent steps, such as the playtest flow's draft, run on the model picked here, on its route, in the durable harness.
   const unregisterModel = registerFlowModel(api as ModelHost, {
@@ -483,7 +485,16 @@ export function registerChat(api: DaemonExtensionApi, agentVersion = "0.0.0", pa
     if (!r.ok) return { status: 500, body: { error: r.error } };
     return { status: r.started ? 202 : 200, body: r };
   };
-  api.route("GET", "/updates", async () => ({ body: { ...(await updater.check()), deferred: updates.steps(), failure: updater.lastFailure() } }));
+  // What's new: each part's release notes since the version installed before its last update.
+  const recordVersions = registerWhatsNew(api, {
+    dataDir: api.dataDir,
+    installed: () => ({ studio: agentVersion, plugin: updater.installedPlugin()?.version ?? null, bridge: updater.bridgeVersion(), ueMcp: api.version }),
+    channel: () => readChannel(),
+  });
+  api.route("GET", "/updates", async () => {
+    recordVersions();
+    return { body: { ...(await updater.check()), deferred: updates.steps(), failure: updater.lastFailure() } };
+  });
   // Stable or beta, for every project: Update follows it for Studio and the editor plugin.
   api.route("PUT", "/updates/channel", (req) => {
     const channel = (req.body as { channel?: unknown } | undefined)?.channel;
@@ -676,7 +687,10 @@ export function registerChat(api: DaemonExtensionApi, agentVersion = "0.0.0", pa
   api.route("POST", "/sessions/:id/attachments", (req) => {
     if (!store.get(req.params.id)) return missing(req.params.id);
     try {
-      const { path: _path, ...a } = attachments.save(req.params.id, req.body as AttachmentUpload);
+      const saved = attachments.save(req.params.id, req.body as AttachmentUpload);
+      // A part of a file sent in several: taken, the file still coming.
+      if (!saved) return { status: 202, body: { received: true } };
+      const { path: _path, ...a } = saved;
       return { status: 201, body: a };
     } catch (e) {
       return bad(e instanceof Error ? e.message : String(e));
@@ -687,6 +701,16 @@ export function registerChat(api: DaemonExtensionApi, agentVersion = "0.0.0", pa
     const a = attachments.get(req.params.id, req.params.aid);
     if (!a) return { status: 404, body: { error: "no such attachment" } };
     return { headers: { "content-type": a.type, "content-disposition": `inline; filename="${a.name.replace(/"/g, "")}"` }, body: fs.readFileSync(a.path) };
+  });
+  // Videos in the chat: the size that plays for this account, and a smaller copy of one that does not.
+  registerVideoRoutes(api, {
+    attachments,
+    usage: async () => {
+      const token = await account.token();
+      if (!token) return null;
+      const res = await fetchAccountUsage(settings.gatewayUrl(), token, fetch, AbortSignal.timeout(10_000));
+      return res.ok ? ((await res.json()) as AccountUsage) : null;
+    },
   });
   api.route("PUT", "/sessions/:id/draft", (req) => {
     const s = store.get(req.params.id);
@@ -832,6 +856,15 @@ export function registerChat(api: DaemonExtensionApi, agentVersion = "0.0.0", pa
   api.route("POST", "/sessions/:id/agents/:callId/stop", (req) => {
     if (!store.get(req.params.id)) return missing(req.params.id);
     return runner.stopSubagent(req.params.id, req.params.callId) ? { status: 204 } : { status: 404, body: { error: `no running subagent ${req.params.callId}` } };
+  });
+  // Resume a subagent that stopped or failed: it goes on in its kept conversation under a new agent call.
+  api.route("POST", "/sessions/:id/agents/:callId/resume", (req) => {
+    if (!store.get(req.params.id)) return missing(req.params.id);
+    try {
+      return { status: 202, body: { callId: runner.resumeSubagent(req.params.id, req.params.callId).callId } };
+    } catch (e) {
+      return { status: 409, body: { error: e instanceof Error ? e.message : String(e) } };
+    }
   });
   // A message written in a subagent's thread. A running subagent reads it at its next step, and nothing
   // stops: not it, not the main agent, not the other subagents. One that has finished cannot read it: it

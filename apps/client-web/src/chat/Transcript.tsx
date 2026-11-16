@@ -11,6 +11,9 @@ import { TurnReviewCard } from "./TurnReview";
 import { FlowCard } from "./FlowCommand";
 import { CompactionMarker } from "./Compaction";
 import { SessionIdContext, attachmentUrl, formatBytes, isImage } from "./attachments";
+import { isVideo, type VideoLimits } from "@ue-mcp-studio/shared";
+import { VIDEO_COMPRESSING_LABEL, VIDEO_COMPRESS_LABEL, VIDEO_LIMITS_UNKNOWN, VIDEO_OPENED_ON_COMPUTER, VIDEO_OPEN_ON_COMPUTER_LABEL, VIDEO_RECHECK_LABEL, forgetVideoLimits, videoLimitsOnce, videoTile } from "@ue-mcp-studio/client-core";
+import { onRemotePage } from "../connection";
 import {
   OUTCOME_LABEL,
   RESULT_PREVIEW_LINES,
@@ -244,12 +247,73 @@ function UserMessage({ entry, at }: { entry: Extract<TranscriptEntry, { kind: "u
   );
 }
 
-/** The files a message carried: images as thumbnails, the rest by name. Each opens the file. */
+/**
+ * A video a message carried: on the computer it always plays; through the
+ * relay it plays when it fits the plan's relay limit, otherwise the offer:
+ * a smaller copy made on the computer, or the original played there.
+ */
+function SentVideo({ file, sessionId }: { file: Attachment; sessionId: string }) {
+  const [limits, setLimits] = useState<VideoLimits | null>(null);
+  const [copy, setCopy] = useState<Attachment | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [note, setNote] = useState<string | null>(null);
+  const [asked, setAsked] = useState(0);
+  const remote = onRemotePage();
+  useEffect(() => {
+    let alive = true;
+    void videoLimitsOnce(() => api.videoLimits()).then((l) => alive && setLimits(l));
+    return () => {
+      alive = false;
+    };
+  }, [asked]);
+  const recheck = () => {
+    forgetVideoLimits();
+    setAsked((n) => n + 1);
+  };
+  if (!limits && remote) return <span className="sent-file"><span>{file.name} <span className="dim">{formatBytes(file.size)}</span></span></span>;
+  const tile = videoTile(file, limits ?? VIDEO_LIMITS_UNKNOWN, copy, remote);
+  if (tile.play) {
+    return <video className="sent-video" src={attachmentUrl(sessionId, tile.play.id)} controls preload="metadata" title={`${file.name}, ${formatBytes(file.size)}`} />;
+  }
+  const compress = async () => {
+    setBusy(true);
+    setError(null);
+    try {
+      setCopy(await api.compressVideo(sessionId, file.id));
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+      forgetVideoLimits();
+    } finally {
+      setBusy(false);
+    }
+  };
+  const openOnComputer = () => {
+    setError(null);
+    api.openVideoOnComputer(sessionId, file.id).then(() => setNote(VIDEO_OPENED_ON_COMPUTER), (e: Error) => setError(e.message));
+  };
+  return (
+    <div className="sent-video-offer">
+      <span>{file.name} <span className="dim">{formatBytes(file.size)}</span></span>
+      <p className="dim">{tile.offer}</p>
+      {error && <p className="error">{error}</p>}
+      {note && <p className="dim">{note}</p>}
+      <div className="row">
+        {tile.compress && <button className="primary" disabled={busy} onClick={() => void compress()}>{busy ? VIDEO_COMPRESSING_LABEL : VIDEO_COMPRESS_LABEL}</button>}
+        {tile.recheck && <button onClick={recheck}>{VIDEO_RECHECK_LABEL}</button>}
+        {tile.openOnComputer && <button onClick={openOnComputer}>{VIDEO_OPEN_ON_COMPUTER_LABEL}</button>}
+      </div>
+    </div>
+  );
+}
+
+/** The files a message carried: images as thumbnails, videos as players, the rest by name. Each opens the file. */
 function SentFiles({ files }: { files: Attachment[] }) {
   const sessionId = useContext(SessionIdContext);
   return (
     <div className="sent-files">
       {files.map((f) => {
+        if (sessionId && isVideo(f)) return <SentVideo key={f.id} file={f} sessionId={sessionId} />;
         const url = sessionId ? attachmentUrl(sessionId, f.id) : undefined;
         return (
           <a key={f.id} className="sent-file" href={url} target="_blank" rel="noreferrer" title={`${f.name}, ${formatBytes(f.size)}`}>

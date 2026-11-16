@@ -76,7 +76,16 @@ export function routeSpec(o: {
   }
 }
 
-export function registerDurableRoutes(api: DaemonExtensionApi, o: { harness: () => { available: boolean; connected: boolean; version: string | null; pid: number | null } }): void {
+export function registerDurableRoutes(api: DaemonExtensionApi, o: { harness: () => { available: boolean; connected: boolean; version: string | null; pid: number | null }; inspect?: () => Promise<unknown> }): void {
   const all = Object.fromEntries(DURABLE_ROUTES.map((r) => [r, true])) as Record<DurableRoute, true>;
   api.route("GET", "/runtime", () => ({ body: { durable: all, routes: DURABLE_ROUTES, defaults: [...DURABLE_ROUTES], harness: o.harness() } }));
+  // What the background runtime is doing: live tasks (running, waiting, asleep or blocked), queued messages, recent reports.
+  api.route("GET", "/runtime/inspect", async () => {
+    if (!o.inspect) return { status: 404, body: { error: "This Studio cannot inspect its runtime." } };
+    try {
+      return { body: await o.inspect() };
+    } catch (e) {
+      return { status: 503, body: { error: e instanceof Error ? e.message : String(e) } };
+    }
+  });
 }

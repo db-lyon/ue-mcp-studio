@@ -85,6 +85,9 @@ export class FileViewer {
   }
 }
 
+/** Under a file the viewer cannot show, on a paired device: where it can still be reached. */
+export const FILE_REFUSED_REMOTE = "On the computer, Studio can show this file in its folder. From here, ask the agent about it: it can read or convert the file.";
+
 /** A file's text as numbered lines; a final newline adds no empty line. */
 export function fileLines(text: string): string[] {
   return text.replace(/\r\n?/g, "\n").replace(/\n$/, "").split("\n");

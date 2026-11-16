@@ -38,6 +38,7 @@ import type {
   StudioSettingsUpdate,
   TimelineMark,
   TurnReview,
+  VideoLimits,
   VcsChange,
   VcsStatus,
   BillingCheckoutRequest,
@@ -51,6 +52,7 @@ import type {
 import { HttpError, readAll, requestJson, type Transport } from "./transport.js";
 import type { UpdateRun } from "./update-run.js";
 import { projectApi } from "./project-api.js";
+import { uploadInParts } from "./composer.js";
 
 const enc = encodeURIComponent;
 const S = "/v1/ext/studio";
@@ -100,6 +102,8 @@ export function studioApi(t: Transport) {
     dismissAgents: (id: string, ids: string[]) => send<{ dismissed: string[] }>("POST", `${session(id)}/dismissed`, { ids }),
     editMessage: (id: string, index: number, text: string, mode: "rewind" | "fork" = "rewind") => send<{ sessionId: string }>("POST", `${session(id)}/transcript/${index}/edit`, { text, mode }),
     stopSubagent: (id: string, callId: string) => send<void>("POST", `${session(id)}/agents/${enc(callId)}/stop`),
+    /** Resume a subagent that stopped or failed: it goes on in its kept conversation under a new agent call. */
+    resumeSubagent: (id: string, callId: string) => send<{ callId: string }>("POST", `${session(id)}/agents/${enc(callId)}/resume`),
     /** A message written in a subagent's thread: to it while it runs, else to the main agent, naming it (queued behind its reply unless now). */
     messageSubagent: (id: string, callId: string, text: string, attachments: string[] = [], now = false) =>
       send<{ sessionId: string; to: "subagent" | "queue" | "main" }>("POST", `${session(id)}/agents/${enc(callId)}/messages`, now ? { text, attachments, now } : { text, attachments }),
@@ -157,7 +161,11 @@ export function studioApi(t: Transport) {
     saveUpdateRun: (run: UpdateRun | null) => send<unknown>("PUT", `${S}/updates/run`, { run }),
     updatesDeferredNow: () => send<{ ok?: boolean; error?: string }>("POST", `${S}/updates/deferred/now`),
     // The composer: attachments, @-mentions, and the /flow and /action launchers.
-    uploadAttachment: (id: string, upload: AttachmentUpload) => send<Attachment>("POST", `${session(id)}/attachments`, upload),
+    uploadAttachment: (id: string, upload: AttachmentUpload) => uploadInParts((u) => send<unknown>("POST", `${session(id)}/attachments`, u), upload),
+    // Videos in the chat: the size that plays for this account, and a smaller copy of one that does not.
+    videoLimits: () => get<VideoLimits>(`${S}/video`),
+    compressVideo: (id: string, attachmentId: string) => send<Attachment>("POST", `${session(id)}/attachments/${enc(attachmentId)}/compress`),
+    openVideoOnComputer: (id: string, attachmentId: string) => send<unknown>("POST", `${session(id)}/attachments/${enc(attachmentId)}/open`),
     searchMentions: (request: MentionSearchRequest, signal?: AbortSignal) => requestJson<MentionSearchResponse>(t, "POST", `${S}/mentions/search`, { json: request, ...(signal ? { signal } : {}) }),
     flows: () => get<{ flows: FlowListing[] }>("/v1/flows"),
     planFlow: (name: string) => get<unknown>(`/v1/flows/${enc(name)}/plan`),
