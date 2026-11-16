@@ -56,7 +56,6 @@ import { SessionStore } from "./sessions.js";
 import { SettingsStore } from "./settings.js";
 import { fetchAccountUsage } from "./account-usage.js";
 import { EndpointStore, registerEndpointRoutes } from "./endpoints.js";
-import { providerFor } from "./providers.js";
 import { DEFAULT_PLAN_MODELS, ModelCatalogSource, firstRunnable, pickRoute, type SignInCoverage } from "./models.js";
 import { knownWindow } from "./context-windows.js";
 import { registerNotifications, type NotifySession } from "./notify.js";
@@ -179,16 +178,6 @@ export function registerChat(api: DaemonExtensionApi, agentVersion = "0.0.0", pa
     const id = endpointIdOf(vendor);
     return id === null ? null : endpoints.get(id)?.name ?? id;
   };
-  /** What every provider is made with: the sign-ins' tokens and each endpoint's address and key. */
-  const providerContext = () => ({
-    accountToken: accountToken(),
-    agentVersion,
-    chatgptToken: () => chatgpt.accessToken(),
-    endpoint: (id: string) => {
-      const e = endpoints.get(id);
-      return e ? { baseUrl: e.baseUrl, key: endpoints.key(id) } : null;
-    },
-  });
   // Who is signed in to Claude comes from the runtime's own `auth status`.
   /** When the Claude login was last asked: the model list waits for it only when that is a minute old. */
   let claudeCheckedAt = 0;
@@ -285,7 +274,7 @@ export function registerChat(api: DaemonExtensionApi, agentVersion = "0.0.0", pa
       const r = KEY_PROVIDER_IDS.includes(wants.vendor as KeyProviderId) ? routeOf(wants.vendor as KeyProviderId, wants.model) : null;
       if (!r) return { ...base, note: `Its file names ${a.model}, which nothing on this machine runs; it runs on the main agent's model.` };
       // A model only the Claude sign-in reaches runs as a session of its own in that runtime, as any subagent there does.
-      return { ...base, run: { model: wants.model, vendor: wants.vendor, route: r, provider: () => providerFor(settings, r, providerContext(), wants.vendor as KeyProviderId) } };
+      return { ...base, run: { model: wants.model, vendor: wants.vendor, route: r } };
     });
     const run: NativeRun = { convention, loadout: l, composed: composeNative(l), helpers, skills: l.skills, sdkLoads: route() === "claude" };
     nativeCache = { at: Date.now(), key, run };
@@ -360,13 +349,11 @@ export function registerChat(api: DaemonExtensionApi, agentVersion = "0.0.0", pa
   });
   registerDurableRoutes(api, { harness: () => runner.durableHarness() });
   const unregisterSteps = offersStepApproval(stepHost) ? stepHost.flows!.approveSteps((r) => runner.approveFlowStep(r)) : () => {};
-  // Flow agent steps, such as the playtest flow's draft, run on the model picked here, on its route.
+  // Flow agent steps, such as the playtest flow's draft, run on the model picked here, on its route, in the durable harness.
   const unregisterModel = registerFlowModel(api as ModelHost, {
-    projectDir: api.projectDir,
     model: () => settings.model(),
     effort: () => settings.effort(),
-    subscription: () => route() === "claude",
-    provider: () => providerFor(settings, route(), providerContext()),
+    complete: (system, prompt, effort, signal) => runner.complete(system, prompt, effort, signal),
   });
   // A playtest's card hands it to a subagent the runner starts beside the session's turns.
   qa.setAssigner({ assign: (sid, description, prompt) => runner.assignSubagent(sid, description, prompt), stop: (sid, callId) => runner.stopSubagent(sid, callId) });

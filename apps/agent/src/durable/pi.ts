@@ -530,6 +530,28 @@ export class DurableEngine {
     await conv.compact(instructions || undefined, CTX);
   }
 
+  /**
+   * One answer from a model on a route, outside any conversation and with no
+   * tools: a flow agent step. Nothing is stored; the same route catalog and
+   * credentials as every conversation's.
+   */
+  async complete(spec: RouteSpec, system: string, prompt: string, effort: string): Promise<string> {
+    const ref = await this.routes.ref(spec);
+    const models = this.routes.models as unknown as {
+      getModel(provider: string, id: string): unknown;
+      completeSimple(model: unknown, context: unknown, options?: unknown): Promise<{ content: Array<{ type: string; text?: string }>; stopReason?: string; errorMessage?: string }>;
+    };
+    const model = models.getModel(ref.provider, ref.modelId);
+    if (!model) throw new Error(`No model ${spec.model} on ${spec.route}.`);
+    const msg = await models.completeSimple(
+      model,
+      { systemPrompt: system, messages: [{ role: "user", content: [{ type: "text", text: prompt }], timestamp: Date.now() }] },
+      { reasoning: thinkingOf(effort), sessionId: "flow" },
+    );
+    if (msg.stopReason === "error" || msg.stopReason === "aborted") throw new Error(msg.errorMessage || "The model request failed.");
+    return msg.content.filter((c) => c.type === "text").map((c) => c.text ?? "").join("");
+  }
+
   /** Send the session's entries after the given ones, then its live state. */
   async sync(sessionId: string, after: Record<string, string>): Promise<void> {
     const doc = await this.sessions();

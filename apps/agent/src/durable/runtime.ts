@@ -14,13 +14,13 @@
  * off, from the conversation Studio keeps beside it (s.messages).
  */
 import * as crypto from "node:crypto";
-import type { TranscriptEntry } from "@ue-mcp-studio/shared";
+import type { Effort, TranscriptEntry } from "@ue-mcp-studio/shared";
 import type { AgentHost, ToolExecution } from "../tools.js";
 import type { PendingTool, SessionStore, StoredSession } from "../sessions.js";
-import type { MessageParam } from "../providers.js";
+import type { MessageParam } from "../messages.js";
 import type { TokenUsage } from "../usage.js";
 import { HarnessClient, type HarnessClientOptions } from "./client.js";
-import type { AgentSpec, AgentStart, EntryEvent, HarnessMessage, HarnessRequest, UserContent } from "./protocol.js";
+import { COMPLETE_PROTOCOL, type AgentSpec, type AgentStart, type EntryEvent, type HarnessMessage, type HarnessRequest, type RouteSpec, type UserContent } from "./protocol.js";
 
 /** What the runtime needs of AgentRunner: the paths every route goes through. */
 export interface DurableHooks {
@@ -186,6 +186,19 @@ export class DurableTurns {
    * False, with nothing sent, when the running harness is older than the
    * message: the subagent then runs on Studio's loop.
    */
+  /**
+   * One answer from a model on a route, outside any session: a flow agent
+   * step. A harness started by a Studio from before protocol 3 cannot answer
+   * one; it exits once idle, and the next daemon starts the current one.
+   */
+  async complete(route: RouteSpec, system: string, prompt: string, effort: Effort): Promise<string> {
+    await this.client.ensure();
+    if ((this.client.harness?.protocol ?? 1) < COMPLETE_PROTOCOL) {
+      throw new Error("The running durable harness predates flow agent steps. It takes them once it restarts, after its current work.");
+    }
+    return String(await this.client.call("complete", { route, system, prompt, effort }));
+  }
+
   async assign(s: StoredSession, callId: string, start: Extract<AgentStart, { ok: true }>): Promise<boolean> {
     await this.client.ensure();
     if ((this.client.harness?.protocol ?? 1) < 2) return false;

@@ -2,7 +2,6 @@
 import { describe, expect, it } from "vitest";
 import { AGENT_TOOL } from "../src/tools.js";
 import { agentTool, modelOf, skillResult, toolsFor } from "../src/native-runtime.js";
-import { toolOptions } from "../src/subscription.js";
 
 describe("tools a subagent file allows", () => {
   it("maps Claude Code names, Gemini names and wildcards, and MCP names for ue-mcp", () => {
@@ -15,13 +14,6 @@ describe("tools a subagent file allows", () => {
   it("gives every tool when the file names none, less the shell when Codex turns it off", () => {
     expect(toolsFor({ tools: null, noShell: false }).allowed).toBeNull();
     expect(toolsFor({ tools: ["*"], noShell: true }).allowed!.has("shell")).toBe(false);
-  });
-
-  it("narrow a helper's session on the Claude sign-in to the same tools, in the runtime's names", () => {
-    const o = toolOptions({ agent: false, allowed: ["read_file", "web_search"], skills: false });
-    expect(o.allowedTools).toEqual(["mcp__studio__read_file", "WebSearch"]);
-    expect(o.tools).toEqual(["WebSearch"]);
-    expect(toolOptions({ agent: false, allowed: ["ue_mcp", "editor_restart"], editor: ["level"], skills: false }).allowedTools).toEqual(["mcp__studio__level", "mcp__studio__editor_restart"]);
   });
 });
 

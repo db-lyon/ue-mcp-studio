@@ -7,8 +7,9 @@ import { CLAUDE_SIGN_IN_AVAILABLE } from "@ue-mcp-studio/shared";
 import { patchClaudeCodeStream } from "./pi-claude-code-patch.mjs";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
-// The Claude runtime the subscription route fetches must match the bundled SDK.
-const sdkVersion = JSON.parse(fs.readFileSync(path.join(root, "apps", "agent", "node_modules", "@anthropic-ai", "claude-agent-sdk", "package.json"), "utf-8")).version;
+// The Claude runtime the Claude sign-in fetches, as the agent's package.json pins it.
+const sdkVersion = JSON.parse(fs.readFileSync(path.join(root, "apps", "agent", "package.json"), "utf-8")).claudeRuntime;
+if (!/^\d+\.\d+\.\d+/.test(sdkVersion ?? "")) throw new Error("apps/agent/package.json pins no claudeRuntime");
 fs.rmSync(path.join(root, "apps", "agent", "dist"), { recursive: true, force: true });
 const result = await build({
   entryPoints: {
@@ -37,7 +38,7 @@ const result = await build({
   legalComments: "none",
   // Some dependencies still call require(); give the ESM bundle one.
   banner: { js: "import { createRequire as __cr } from 'node:module'; const require = __cr(import.meta.url);" },
-  // With the Claude sign-in off, the Agent SDK is left out of the bundle.
+  // The Claude runtime's version, and whether this build offers the Claude sign-in.
   define: { __CLAUDE_SDK_VERSION__: JSON.stringify(sdkVersion), __CLAUDE_SIGN_IN__: JSON.stringify(CLAUDE_SIGN_IN_AVAILABLE) },
   logLevel: "warning",
   metafile: true,

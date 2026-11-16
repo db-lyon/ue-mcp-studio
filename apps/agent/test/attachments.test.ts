@@ -3,7 +3,6 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { describe, expect, it } from "vitest";
 import { AttachmentStore, contentFor, safeName } from "../src/attachments.js";
-import { toChatRequest } from "../src/openai-compat.js";
 import { pngBytes } from "./image-fixtures.js";
 
 const store = () => new AttachmentStore(fs.mkdtempSync(path.join(os.tmpdir(), "studio-att-")));
@@ -44,13 +43,5 @@ describe("attachments", () => {
     expect(only).toHaveLength(1);
     expect((only[0] as { text: string }).text).toContain(fbx.path);
     expect((only[0] as { text: string }).text).toMatch(/import it into the project with ue-mcp/);
-  });
-
-  it("sends an image to an OpenAI-compatible model as a data URL beside the text", () => {
-    const req = toChatRequest({
-      sessionId: "s", model: "m", system: [{ type: "text", text: "sys" }], tools: [],
-      messages: [{ role: "user", content: [{ type: "text", text: "look" }, { type: "image", source: { type: "base64", media_type: "image/png", data: "AAA" } }] } as never],
-    });
-    expect(req.messages[1]).toEqual({ role: "user", content: [{ type: "text", text: "look" }, { type: "image_url", image_url: { url: "data:image/png;base64,AAA" } }] });
   });
 });

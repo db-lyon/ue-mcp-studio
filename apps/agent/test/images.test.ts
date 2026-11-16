@@ -1,6 +1,6 @@
 /**
  * Images the model is shown: read from disk or an editor call, sized for
- * every provider, and carried through each provider's request format.
+ * every provider, and carried in the tool result.
  */
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import * as fs from "node:fs";
@@ -11,9 +11,6 @@ import type { ActionResult } from "ue-mcp/daemon";
 import { MAX_IMAGE_BYTES, MAX_IMAGE_EDGE, decodeImage, downscale, fitSize, imageEdge, prepareImage, setImageEdge, sniffImage, toolResultContent } from "../src/images.js";
 import { readFile } from "../src/local-tools.js";
 import { resultImages } from "../src/tools.js";
-import { toChatRequest } from "../src/openai-compat.js";
-import { toResponsesRequest } from "../src/responses.js";
-import { requestBody, type MessageParam } from "../src/providers.js";
 import { gifBytes, jpegBytes, pngBytes } from "./image-fixtures.js";
 
 let dir: string;
@@ -168,39 +165,12 @@ describe("images an editor call wrote", () => {
   });
 });
 
-describe("every provider's request", () => {
-  const img = { mediaType: "image/png", data: pngBytes(2, 2).toString("base64"), width: 2, height: 2 };
-  const messages: MessageParam[] = [
-    { role: "user", content: "look at the shot" },
-    { role: "assistant", content: [{ type: "tool_use", id: "t1", name: "read_file", input: { path: "a.png" } }] },
-    { role: "user", content: [{ type: "tool_result", tool_use_id: "t1", content: toolResultContent("a.png: PNG image", [img]) as never }] },
-  ];
-  const req = { sessionId: "s", model: "m", system: [{ type: "text" as const, text: "sys" }], tools: [], messages };
-
-  it("Messages (Anthropic key, gateway): the image sits in the tool result", () => {
-    const body = requestBody({ ...req, model: "claude-opus-5-5" });
-    const tr = (body.messages[2].content as Array<{ content: Array<{ type: string; source?: { media_type: string } }> }>)[0].content;
-    expect(tr.map((b) => b.type)).toEqual(["text", "image"]);
-    expect(tr[1].source?.media_type).toBe("image/png");
-  });
-
-  it("Chat Completions (OpenAI and Google keys): the tool message has the text, a user message after it the image", () => {
-    const msgs = toChatRequest(req).messages as Array<{ role: string; content: unknown }>;
-    const at = msgs.findIndex((m) => m.role === "tool");
-    expect(msgs[at].content).toBe("a.png: PNG image");
-    const next = msgs[at + 1].content as Array<{ type: string; image_url?: { url: string } }>;
-    expect(msgs[at + 1].role).toBe("user");
-    expect(next.map((p) => p.type)).toEqual(["text", "image_url"]);
-    expect(next[1].image_url?.url).toBe(`data:image/png;base64,${img.data}`);
-  });
-
-  it("Responses (ChatGPT sign-in): the output has the text, an input image follows it", () => {
-    const input = toResponsesRequest(req).input as Array<{ type?: string; role?: string; output?: string; content?: Array<{ type: string; image_url?: string }> }>;
-    const out = input.findIndex((i) => i.type === "function_call_output");
-    expect(input[out].output).toBe("a.png: PNG image");
-    expect(input[out + 1].role).toBe("user");
-    expect(input[out + 1].content!.map((p) => p.type)).toEqual(["input_text", "input_image"]);
-    expect(input[out + 1].content![1].image_url).toBe(`data:image/png;base64,${img.data}`);
+describe("a tool result with an image", () => {
+  it("carries the text, then the image, in the Messages format Studio keeps; pi-ai converts it for each route", () => {
+    const img = { mediaType: "image/png", data: pngBytes(2, 2).toString("base64"), width: 2, height: 2 };
+    const content = toolResultContent("a.png: PNG image", [img]) as unknown as Array<{ type: string; source?: { media_type: string } }>;
+    expect(content.map((b) => b.type)).toEqual(["text", "image"]);
+    expect(content[1].source?.media_type).toBe("image/png");
   });
 });
 

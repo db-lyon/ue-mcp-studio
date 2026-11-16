@@ -9,7 +9,7 @@ import * as fs from "node:fs";
 import * as path from "node:path";
 import { COMPACTED_PREFIX, deriveSession, type ContextUsage, type SessionSpend } from "@ue-mcp-studio/shared";
 import type { TurnFacts, ApprovalRequest, QueuedMessage, SessionDetail, SessionSummary, TimelineMark, TouchedItem, TranscriptEntry, TurnStatus } from "@ue-mcp-studio/shared";
-import type { MessageParam } from "./providers.js";
+import type { MessageParam } from "./messages.js";
 import { PendingWrites, writeFileAtomic } from "./atomic-write.js";
 import { modelName } from "./models.js";
 import type { ToolImage } from "./images.js";

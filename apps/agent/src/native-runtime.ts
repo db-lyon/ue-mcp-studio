@@ -133,12 +133,8 @@ export interface NativeHelper {
   maxTurns: number | null;
   /** The level as written, sent when the model takes it. */
   effort: string | null;
-  /**
-   * The model it runs on and how, when not the main agent's: a provider for
-   * Studio's loop, or route "claude" for a session of its own on the Claude
-   * sign-in's runtime (whose provider is not called).
-   */
-  run?: { provider: () => import("./providers.js").ModelProvider; model: string; vendor: string; route: string };
+  /** The model it runs on, and that model's vendor and route, when not the main agent's: the harness runs it on that route. */
+  run?: { model: string; vendor: string; route: string };
   /** Its file says it runs in the background: its agent call answers at once, and its report comes later as a message. */
   background?: boolean;
   /** Why it runs on another model than its file names, for the view. */

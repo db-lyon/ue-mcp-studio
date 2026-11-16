@@ -4,8 +4,6 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { ChatGptAuth, ChatGptSignInFlow, TOKEN_URL, chatgptModels } from "../src/chatgpt.js";
-import { readResponsesStream, toResponsesRequest } from "../src/responses.js";
-import { TOOLS } from "../src/tools.js";
 
 const b64url = (b: Buffer | string) => Buffer.from(b).toString("base64").replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
 const { privateKey, publicKey } = crypto.generateKeyPairSync("rsa", { modulusLength: 2048 });
@@ -152,55 +150,5 @@ describe("Sign in with ChatGPT", () => {
       { slug: "gpt-6-luna", display_name: "GPT-6 Luna", visibility: "list" },
     ] }))) as unknown as typeof fetch;
     expect(await chatgptModels("t", fetchImpl)).toEqual([{ id: "gpt-6.1-sol", name: "GPT-6.1 Sol" }, { id: "gpt-6-luna", name: "GPT-6 Luna" }]);
-  });
-});
-
-describe("the Responses API", () => {
-  it("sends the conversation as input items, tool results as function call outputs, never stored", () => {
-    const req = toResponsesRequest({
-      sessionId: "s", model: "gpt-6.1-sol", system: [{ type: "text", text: "sys" }], tools: TOOLS,
-      messages: [
-        { role: "user", content: [{ type: "image", source: { type: "base64", media_type: "image/png", data: "AAA" } }, { type: "text", text: "look" }] },
-        { role: "assistant", content: [{ type: "text", text: "Checking." }, { type: "tool_use", id: "c1", name: "ue_mcp", input: { action: "search", query: "x" } }] },
-        { role: "user", content: [{ type: "tool_result", tool_use_id: "c1", content: "found" }] },
-      ] as never,
-    });
-    expect(req).toMatchObject({ model: "gpt-6.1-sol", instructions: "sys", store: false, stream: true });
-    expect(req.input).toEqual([
-      { role: "user", content: [{ type: "input_image", image_url: "data:image/png;base64,AAA" }, { type: "input_text", text: "look" }] },
-      { role: "assistant", content: [{ type: "output_text", text: "Checking." }] },
-      { type: "function_call", call_id: "c1", name: "ue_mcp", arguments: '{"action":"search","query":"x"}' },
-      { type: "function_call_output", call_id: "c1", output: "found" },
-    ]);
-    expect((req.tools as Array<{ type: string; name: string }>).map((t) => t.name)).toEqual(["ue_mcp", "editor_restart", "shell", "read_file", "write_file", "edit_file", "glob", "grep", "web_fetch", "agent"]);
-    // OpenAI's own web search goes along when the route offers it.
-    const withSearch = toResponsesRequest({ sessionId: "s", model: "gpt-6.1-sol", system: [], tools: TOOLS, messages: [] }, true);
-    expect((withSearch.tools as Array<{ type: string }>).at(-1)).toEqual({ type: "web_search" });
-  });
-
-  const stream = async function* (events: unknown[]) {
-    for (const e of events) yield `data: ${JSON.stringify(e)}`;
-  };
-
-  it("folds text and function calls, and counts the turn only when it completes", async () => {
-    const seen: string[] = [];
-    const turn = await readResponsesStream(stream([
-      { type: "response.output_text.delta", delta: "Look" },
-      { type: "response.output_item.done", item: { type: "message", content: [{ type: "output_text", text: "Looking." }] } },
-      { type: "response.output_item.done", item: { type: "function_call", call_id: "c9", name: "ue_mcp", arguments: '{"action":"search"}' } },
-      { type: "response.completed", response: {} },
-    ]), (t) => seen.push(t));
-    expect(seen).toEqual(["Look"]);
-    expect(turn.stopReason).toBe("tool_use");
-    expect(turn.content).toEqual([
-      { type: "text", text: "Looking.", citations: null },
-      { type: "tool_use", id: "c9", name: "ue_mcp", input: { action: "search" } },
-    ]);
-  });
-
-  it("says when the plan's limit is reached, and refuses a stream that never completes", async () => {
-    await expect(readResponsesStream(stream([{ type: "response.failed", response: { error: { code: "subscription_sharing_usage_limit_exceeded" } } }]), () => {}))
-      .rejects.toThrow(/usage limit is reached/);
-    await expect(readResponsesStream(stream([{ type: "response.output_text.delta", delta: "Hal" }]), () => {})).rejects.toThrow(/ended before it completed/);
   });
 });

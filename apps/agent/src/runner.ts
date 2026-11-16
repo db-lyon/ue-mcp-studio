@@ -17,7 +17,7 @@ import * as crypto from "node:crypto";
 import * as fs from "node:fs";
 import { DEFAULT_USAGE, type ApprovalDecision, type ApprovalKind, type Approvals, type ApprovalRequest, type Effort, type PlaytestRunsMode, type TranscriptEntry, type UsageSettings } from "@ue-mcp-studio/shared";
 import { EMPTY_TOTALS, requestCost } from "@ue-mcp-studio/shared";
-import type { MessageParam } from "./providers.js";
+import type { MessageParam } from "./messages.js";
 import { promptTokens, usageTokens, type TokenUsage } from "./usage.js";
 import { DEFAULT_SESSION_TITLE, SessionStore, type PendingTool, type StoredContext, type StoredSession } from "./sessions.js";
 import type { QueuedMessage, ReplyImageInfo } from "@ue-mcp-studio/shared";
@@ -767,6 +767,22 @@ export class AgentRunner {
     this.o.store.save(s);
     this.durable!.reattach(s);
     this.o.host.log.info(`session ${s.id}: on the durable runtime, taken over from the harness`);
+  }
+
+  /**
+   * One answer from the selected model on its route, outside any session: a
+   * flow agent step. The harness answers it; an abort stops waiting for it.
+   */
+  async complete(system: string, prompt: string, effort: Effort, signal?: AbortSignal): Promise<string> {
+    const model = this.o.model();
+    if (!this.durable?.available()) throw new Error("This Studio build has no durable harness to run the model in. Reinstall Studio.");
+    if (!this.o.durable?.route()) throw new Error(`Nothing on this computer runs ${modelName(model)}. Pick another model, or connect its provider.`);
+    if (signal?.aborted) throw new Error("Stopped before the model answered.");
+    const answer = this.durable.complete(this.o.durable.routeSpec(model), system, prompt, effort);
+    if (!signal) return answer;
+    const r = await unlessAborted(answer, signal);
+    if (r === null) throw new Error("Stopped before the model answered.");
+    return r;
   }
 
   /** The durable harness as GET /runtime shows it. */

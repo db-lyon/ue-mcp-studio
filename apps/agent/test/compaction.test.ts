@@ -11,7 +11,7 @@ import * as path from "node:path";
 import type { ActionResult, EditorStatus } from "ue-mcp/daemon";
 import { AgentRunner } from "../src/runner.js";
 import { SessionStore } from "../src/sessions.js";
-import type { MessageParam } from "../src/providers.js";
+import type { MessageParam } from "../src/messages.js";
 import { knownWindow, listedWindow, rememberWindow } from "../src/context-windows.js";
 import { compactedMessages, conversationText, estimateMessagesTokens, isCompactedSummary, isContextOverflow, summaryRequest } from "../src/compaction.js";
 
