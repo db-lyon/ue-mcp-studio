@@ -88,6 +88,12 @@ export class FileViewer {
 /** Under a file the viewer cannot show, on a paired device: where it can still be reached. */
 export const FILE_REFUSED_REMOTE = "On the computer, Studio can show this file in its folder. From here, ask the agent about it: it can read or convert the file.";
 
+/** Why a paired device has no Open in editor: the editor opens on the computer, and the file's text is what it can take. */
+export const OPEN_IN_EDITOR_REMOTE = "Open in editor works from Studio on the computer.";
+
+/** A truncated file's text is only what was read, and says so beside the way to take it. */
+export const rawFileNote = (truncated: boolean): string => (truncated ? "This copy is the part shown, not the whole file." : "This copy is the whole file.");
+
 /** A file's text as numbered lines; a final newline adds no empty line. */
 export function fileLines(text: string): string[] {
   return text.replace(/\r\n?/g, "\n").replace(/\n$/, "").split("\n");

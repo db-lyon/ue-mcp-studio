@@ -69,6 +69,9 @@ describe("the file viewer on the phone", () => {
     expect(within(viewer).getByText("Source/Door.cpp:3")).toBeTruthy();
     expect(within(viewer).getByTestId("file-line-current").textContent).toBe("3void ADoor::Open()");
     expect(within(viewer).queryByRole("button", { name: "Open in editor" })).toBeNull();
+    // It says why, and offers the file's text instead.
+    expect(within(viewer).getByText("Open in editor works from Studio on the computer.")).toBeTruthy();
+    expect(within(viewer).getByRole("button", { name: "Share the text" })).toBeTruthy();
   });
 
   it("says what the agent said when the file is missing", async () => {
