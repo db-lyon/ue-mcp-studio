@@ -7,6 +7,7 @@
  */
 import { useEffect, useState } from "react";
 import { View } from "react-native";
+import { AskComputer } from "../../views/AskComputer";
 import { REMOTE_CHANGE_NOTE, notThere } from "@ue-mcp-studio/client-core";
 import { accountSignedInAs, DEFAULT_ROUTE_ORDER, KEY_PROVIDER_IDS, OFFERED_SIGN_INS, PROVIDERS, routesInOrder, type CustomEndpoint, type ModelCatalog, type ProviderId, type RouteOrder, type SignInId, type StudioSettings } from "@ue-mcp-studio/shared";
 import { Banner, Button, Card, Dot, bannerText, font, T, useTheme } from "../../ui";
@@ -171,6 +172,7 @@ function ProviderRow({ provider, settings }: { provider: ProviderId; settings: S
             {REMOTE_CHANGE_NOTE}
           </Txt>
         ) : null}
+        {signIn && !connected ? <AskComputer what="models" /> : null}
       </View>
       {connected && provider === "studio" && settings.account?.via === "ue-mcp-login" ? (
         <Txt size={12} tone="dim" style={{ alignSelf: "center" }}>

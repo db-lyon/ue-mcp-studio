@@ -34,9 +34,9 @@ describe("the Studio version notice (ue-mcp#1619)", () => {
     expect(screen.getByText("Updating")).toBeTruthy();
   });
 
-  it("in a paired browser says what changed with no buttons", () => {
+  it("in a paired browser says what changed, with only a way to ask the computer", () => {
     render(<VersionNoticeLine notice={{ installed: "0.1.25", current: "0.1.23" } as never} onUpdate={() => {}} onKeep={() => {}} busy={null} error={null} remote />);
-    expect(screen.queryAllByRole("button")).toEqual([]);
+    expect(screen.getAllByRole("button").map((b) => b.textContent)).toEqual(["Ask the computer to update"]);
     expect(screen.getByRole("status").textContent).toContain("Updates run from Studio on the computer.");
   });
 

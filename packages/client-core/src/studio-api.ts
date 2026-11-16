@@ -160,7 +160,9 @@ export function studioApi(t: Transport) {
     editor: (op: "start" | "stop" | "restart" | "rebuild") => send<Record<string, unknown>>("POST", `/v1/editor/${op}`),
     refusal: () => get<StudioRefusal>(`${S}/refusal`),
     saveUpdateRun: (run: UpdateRun | null) => send<unknown>("PUT", `${S}/updates/run`, { run }),
-    updatesDeferredNow: () => send<{ ok?: boolean; error?: string }>("POST", `${S}/updates/deferred/now`),
+    /** A paired device asks the computer for a change it may not make itself (an update, plugins, a model key). */
+    askComputer: (what: "update" | "plugins" | "models") => send<{ ok: true }>("POST", `${S}/remote-asks`, { what }),
+    updatesDeferredNow:() => send<{ ok?: boolean; error?: string }>("POST", `${S}/updates/deferred/now`),
     // The composer: attachments, @-mentions, and the /flow and /action launchers.
     uploadAttachment: (id: string, upload: AttachmentUpload) => uploadInParts((u) => send<unknown>("POST", `${session(id)}/attachments`, u), upload),
     // Videos in the chat: the size that plays for this account, and a smaller copy of one that does not.

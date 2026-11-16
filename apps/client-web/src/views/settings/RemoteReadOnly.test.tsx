@@ -32,7 +32,8 @@ describe("settings a paired browser may only read", () => {
     win.__studioRemotePage = true;
     render(<><KeyForm provider="anthropic" onSaved={() => {}} /><SignInForm id="chatgpt" onDone={() => {}} /></>);
     expect(screen.getAllByText(REMOTE_CHANGE_NOTE)).toHaveLength(2);
-    expect(screen.queryByRole("button")).toBeNull();
+    // The only button is the request to the computer, which makes the change there.
+    expect(screen.getAllByRole("button").map((b) => b.textContent)).toEqual(["Ask the computer to set this up", "Ask the computer to set this up"]);
     expect(document.querySelector("input")).toBeNull();
     expect(fetch).not.toHaveBeenCalled();
   });

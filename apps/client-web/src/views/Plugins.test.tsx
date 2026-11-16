@@ -9,6 +9,7 @@ const m = vi.hoisted(() => ({
   updatePlugin: vi.fn(),
   uninstallPlugin: vi.fn(),
   shutdownDaemon: vi.fn(),
+  askComputer: vi.fn(),
 }));
 vi.mock("../api", async () => {
   class ApiError extends Error {
@@ -97,6 +98,31 @@ describe("the Plugins tab", () => {
     m.pluginCatalog.mockRejectedValue(new ApiError(404, "Not Found"));
     render(<PluginsView daemon={daemon} />);
     await waitFor(() => expect(screen.getByText(/needs ue-mcp 1.4.0-beta.2 or later/)).toBeTruthy());
+    // The way on: update ue-mcp from here.
+    expect(screen.getByRole("button", { name: "Update ue-mcp" })).toBeTruthy();
+  });
+
+  it("in a paired browser, an old ue-mcp offers to ask the computer to update it", async () => {
+    m.plugins.mockRejectedValue(new ApiError(404, "Not Found"));
+    m.pluginCatalog.mockRejectedValue(new ApiError(404, "Not Found"));
+    m.askComputer.mockResolvedValue({ ok: true });
+    render(<PluginsView daemon={daemon} remote />);
+    fireEvent.click(await screen.findByRole("button", { name: "Ask the computer to update" }));
+    await waitFor(() => expect(m.askComputer).toHaveBeenCalledWith("update"));
+    expect(await screen.findByText(/It shows on the computer/)).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "Update ue-mcp" })).toBeNull();
+  });
+});
+
+describe("a plugin change from a paired browser", () => {
+  it("is asked of the computer, which makes it; a failed ask says so", async () => {
+    m.plugins.mockResolvedValue({ plugins: [] });
+    m.pluginCatalog.mockResolvedValue({ plugins: catalog });
+    m.askComputer.mockRejectedValueOnce(new Error("offline"));
+    render(<PluginsView daemon={daemon} remote />);
+    fireEvent.click(await screen.findByRole("button", { name: "Ask the computer to change plugins" }));
+    expect(await screen.findByText(/The computer was not asked: offline/)).toBeTruthy();
+    expect(m.askComputer).toHaveBeenCalledWith("plugins");
   });
 });
 

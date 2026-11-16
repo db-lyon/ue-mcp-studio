@@ -216,7 +216,7 @@ function Studio({ daemon, initial, onBack, device }: { daemon: ReturnType<typeof
           </View>
         ) : null}
       </View>
-      <UpdateRunner streaming={daemon.streaming} events={daemon.events} />
+      <UpdateRunner streaming={daemon.streaming} events={daemon.events} onReload={() => daemon.refresh()} />
       <NavDrawer
         open={drawer}
         onClose={() => setDrawer(false)}

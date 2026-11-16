@@ -13,6 +13,8 @@ const m = vi.hoisted(() => ({
   setRemote: vi.fn(),
   pairRemote: vi.fn(),
   remoteApprovals: vi.fn(),
+  remoteAsks: vi.fn(async () => ({ asks: [] })),
+  clearRemoteAsk: vi.fn(),
   decideRemoteApproval: vi.fn(),
   remoteBrowsers: vi.fn(),
   revokeRemoteBrowser: vi.fn(),

@@ -5,9 +5,9 @@
  * a link named. System back returns to the file before, then closes.
  */
 import { useMemo, useRef, useSyncExternalStore, type ReactNode } from "react";
-import { Modal, Pressable, ScrollView, StyleSheet, Text, View, type ScrollViewInstance, type ViewStyle } from "react-native";
-import { FILE_REFUSED_REMOTE, FileViewer, fileLines, fileLinkTitle, type FileView } from "@ue-mcp-studio/client-core";
-import { projectImageType, projectImageUrl } from "@ue-mcp-studio/shared";
+import { Modal, Pressable, ScrollView, Share, StyleSheet, Text, View, type ScrollViewInstance, type ViewStyle } from "react-native";
+import { FILE_REFUSED_REMOTE, FileViewer, OPEN_IN_EDITOR_REMOTE, fileLines, fileLinkTitle, rawFileNote, type FileView } from "@ue-mcp-studio/client-core";
+import { openableInEditor, projectImageType, projectImageUrl } from "@ue-mcp-studio/shared";
 import { useDaemonPicture } from "./daemon-picture";
 import { Picture } from "./Picture";
 import { useBack } from "../back";
@@ -83,6 +83,14 @@ function FileBody({ view }: { view: FileView }) {
   if (view.status === "error") return <FileRefused view={view} />;
   const { file } = view;
   return (
+    <>
+    {openableInEditor(file.path) ? (
+      <View style={{ gap: 6, alignItems: "flex-start", marginBottom: 6 }}>
+        <Text style={s.note}>{OPEN_IN_EDITOR_REMOTE}</Text>
+        <Button title="Share the text" onPress={() => void Share.share({ message: file.text })} />
+        <Text style={s.note}>{rawFileNote(!!file.truncated)}</Text>
+      </View>
+    ) : null}
     <ScrollView ref={scroll} style={s.body} testID="file-viewer-body">
       {view.markdown ? (
         <FileFromContext.Provider value={file.path}>
@@ -93,6 +101,7 @@ function FileBody({ view }: { view: FileView }) {
       )}
       {file.truncated ? <Text style={s.note}>{`Showing the first ${Math.round(file.text.length / 1024)} KB of ${Math.round(file.size / 1024)} KB.`}</Text> : null}
     </ScrollView>
+    </>
   );
 }
 

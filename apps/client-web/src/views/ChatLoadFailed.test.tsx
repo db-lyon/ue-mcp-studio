@@ -31,6 +31,19 @@ afterEach(() => {
   window.location.hash = "";
 });
 
+describe("an action that failed", () => {
+  it("shows the error with Retry, which runs the action again, and Dismiss", async () => {
+    window.location.hash = "";
+    m.sessions.mockRejectedValueOnce(new Error("the computer answered 503"));
+    render(<ChatView daemon={daemon} />);
+    expect(await screen.findByText("the computer answered 503")).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Dismiss" })).toBeTruthy();
+    await act(async () => void fireEvent.click(screen.getByRole("button", { name: "Retry" })));
+    expect(m.sessions).toHaveBeenCalledTimes(2);
+    expect(screen.queryByText("the computer answered 503")).toBeNull();
+  });
+});
+
 describe("a session that could not be loaded", () => {
   it("says why in place of the skeleton, and Try again reads it again", async () => {
     m.session.mockRejectedValueOnce(new Error("the computer answered 500"));

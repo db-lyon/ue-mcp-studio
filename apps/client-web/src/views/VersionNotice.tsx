@@ -8,6 +8,7 @@ import { useEffect, useState } from "react";
 import { api, notThere, type StudioVersionNotice } from "../api";
 import type { DaemonState } from "../state";
 import { REMOTE_UPDATES, onRemotePage } from "../connection";
+import { AskComputer } from "./remote/AskComputer";
 
 /** How often the notice is read again: another project can install a version at any time. */
 export const NOTICE_POLL_MS = 5 * 60_000;
@@ -26,7 +27,7 @@ export function VersionNoticeLine({ notice, onUpdate, onKeep, busy, error, remot
       <span className="editor-banner-text">
         Studio {notice.installed} is installed on this computer. This project uses {notice.current}.
         {error && <span className="dim"> {error}</span>}
-        {remote && <span className="dim"> {REMOTE_UPDATES}</span>}
+        {remote && <span className="dim"> {REMOTE_UPDATES} <AskComputer what="update" /></span>}
       </span>
       {!remote && <>
       <button className="primary" disabled={busy !== null} onClick={onUpdate}>{busy === "update" ? "Updating" : "Update this project"}</button>

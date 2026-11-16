@@ -105,6 +105,23 @@ export interface RemoteApproval {
   project: string;
 }
 
+/**
+ * What a paired device may ask the computer to do for it. Updates, plugin
+ * changes, model keys and sign-ins stay refused to a paired device, so it sends
+ * a request instead: POST /remote-asks { what }. The computer shows it with a
+ * way to open the screen that does it, and the owner decides there. Pending
+ * ones: GET /remote/asks (computer only); dismissed with DELETE /remote/asks/:what.
+ * Event studio.remote.ask { what, at, project } when one arrives.
+ */
+export const REMOTE_ASK_KINDS = ["update", "plugins", "models"] as const;
+export type RemoteAskKind = (typeof REMOTE_ASK_KINDS)[number];
+export interface RemoteAsk {
+  what: RemoteAskKind;
+  /** Epoch ms of the latest ask. */
+  at: number;
+  project: string;
+}
+
 /** Idle times, in minutes, after which a whole-client PIN lock closes a paired browser again. */
 export const REMOTE_LOCK_IDLE_CHOICES: readonly number[] = [5, 15, 60];
 export const REMOTE_LOCK_IDLE_DEFAULT = 15;

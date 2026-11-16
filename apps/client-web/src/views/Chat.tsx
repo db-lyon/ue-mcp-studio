@@ -104,11 +104,13 @@ export function ChatView({ daemon, nav, active = true, onSettings }: {
   const [selected, setSelected] = useState<string | null>(() => readLocation().session);
   const [detail, setDetail] = useState<SessionDetail | null>(null);
   const [draft, setDraft] = useState("");
-  const [error, setError] = useState<string | null>(null);
+  /** What failed, with the action to run again when there is one. */
+  const [error, setError] = useState<{ message: string; retry?: () => void } | null>(null);
   /** Why the open session's last read failed: in place of the transcript when there is none yet, with Try again. */
   const [detailError, setDetailError] = useState<string | null>(null);
-  /** An action that failed. A session deleted meanwhile is not an error: the list drops it. */
-  const fail = (e: Error) => (sessionGone(e) ? undefined : setError(e.message));
+  /** An action that failed, and the way to run it again. A session deleted meanwhile is not an error: the list drops it. */
+  const failWith = (retry?: () => void) => (e: Error) => (sessionGone(e) ? undefined : setError({ message: e.message, retry }));
+  const fail = failWith();
   const seenEvent = useRef(0);
   const streamed = useRef("");
   const [streaming, setStreaming] = useState("");
@@ -162,7 +164,7 @@ export function ChatView({ daemon, nav, active = true, onSettings }: {
     setSlow(false);
     // A session the location names but that is gone (deleted elsewhere) is not opened.
     setSelected((cur) => (cur && !r.sessions.some((x) => x.id === cur) ? null : cur));
-  }, fail);
+  }, (e: Error) => failWith(() => void loadList())(e));
   // Only what changed since the last answer, one request at a time however many events ask.
   const detailLoader = useMemo(() => new DetailLoader(
     (id, have) => api.sessionSync(id, have),
@@ -265,7 +267,7 @@ export function ChatView({ daemon, nav, active = true, onSettings }: {
     if (prompt) await api.saveDraft(d.id, prompt);
     void loadList();
     setSelected(d.id);
-  }).catch(fail);
+  }).catch((e: Error) => failWith(() => void create(prompt))(e));
 
   const [sent, setSent] = useState(0);
   const canSend = !!selected && !disconnected && !attach.uploading && (draft.trim().length > 0 || attach.ready.length > 0);
@@ -289,9 +291,12 @@ export function ChatView({ daemon, nav, active = true, onSettings }: {
     }, (e: Error) => {
       setDraft(text);
       attach.restore(taken);
-      setError(e.message);
+      // The text and files are back in the composer, so Retry sends what is there again.
+      setError({ message: e.message, retry: () => dispatchAgain.current?.(how, follow) });
     });
   };
+  const dispatchAgain = useRef<typeof dispatch | undefined>(undefined);
+  dispatchAgain.current = dispatch;
   // /remote and /rc: offered only where remoteSurface says, and answered here, never as a turn.
   const remote = useRemoteAvailable(false);
   // Listed in the menu only where Settings lists remote control; typed, it also answers any signed-in account without a paid plan.
@@ -371,7 +376,7 @@ export function ChatView({ daemon, nav, active = true, onSettings }: {
     if (!selected) return;
     const id = selected;
     setSent((n) => n + 1);
-    api.compact(id, instructions).then(() => loadDetail(id), fail);
+    api.compact(id, instructions).then(() => loadDetail(id), (e: Error) => failWith(() => compactNow(instructions))(e));
   };
   const catalog = useCatalog(settings);
   const nameOf = (id: string): string => {
@@ -399,7 +404,7 @@ export function ChatView({ daemon, nav, active = true, onSettings }: {
         void loadList();
         setSelected(r.sessionId);
       } else void loadDetail(selected);
-    }, fail);
+    }, (e: Error) => failWith(() => editMessage(index, text, mode))(e));
   }, [selected]);
   const queueCall = (p: Promise<unknown>) => void p.then(() => {
     if (selected) void loadDetail(selected);
@@ -437,11 +442,11 @@ export function ChatView({ daemon, nav, active = true, onSettings }: {
     if (id) markSeen(id);
   }, [markSeen]);
   const stopSubagent = (id: string) => {
-    if (selected) void api.stopSubagent(selected, id).catch(fail);
+    if (selected) void api.stopSubagent(selected, id).catch((e: Error) => failWith(() => stopSubagent(id))(e));
   };
   // A stopped or failed subagent goes on in its kept conversation, under a new row.
   const resumeSubagent = (id: string) => {
-    if (selected) void api.resumeSubagent(selected, id).catch(fail);
+    if (selected) void api.resumeSubagent(selected, id).catch((e: Error) => failWith(() => resumeSubagent(id))(e));
   };
 
   const busy = detail?.status === "running" || detail?.status === "waiting";
@@ -451,10 +456,10 @@ export function ChatView({ daemon, nav, active = true, onSettings }: {
   const playtest = useMemo(() => (detail && !disconnected
     ? {
         busy,
-        run: (request: PlaytestRequest) => {
+        run: function run(request: PlaytestRequest): void {
           setThread(null);
           setSent((n) => n + 1);
-          api.playtest(detail.id, request).then(() => loadDetail(detail.id), fail);
+          api.playtest(detail.id, request).then(() => loadDetail(detail.id), (e: Error) => failWith(() => run(request))(e));
         },
       }
     : null), [detail?.id, disconnected, busy]);
@@ -585,7 +590,13 @@ export function ChatView({ daemon, nav, active = true, onSettings }: {
             onStop={stopSubagent}
           />
         )}
-        {error && <div className="banner bad" onClick={() => setError(null)}>{error}</div>}
+        {error && (
+          <div className="banner bad banner-actions" role="alert">
+            <span className="banner-text" onClick={() => setError(null)}>{error.message}</span>
+            {error.retry && <button onClick={() => { const again = error.retry; setError(null); again?.(); }}>Retry</button>}
+            <button className="ghost" onClick={() => setError(null)}>Dismiss</button>
+          </div>
+        )}
         {detail && detailError && <div className="banner bad" onClick={() => setDetailError(null)}>{detailError}</div>}
         {!detail && selected && (detailError ? (
           <div className="session-load-failed" role="alert">

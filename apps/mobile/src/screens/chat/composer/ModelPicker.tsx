@@ -28,6 +28,7 @@ import { Banner, Sheet, font, labelFont, useSheetInsets, useStyles, useTheme, ty
 import { useAnchor, type Anchor } from "../../../ui/anchor";
 import { atMost, useBarTier } from "./barTier";
 import { REMOTE_CHANGE_NOTE } from "../../../views/settings/RemoteReadOnly";
+import { AskComputer } from "../../../views/AskComputer";
 
 export { runsVia, viaName, VIA_LABEL };
 
@@ -330,7 +331,12 @@ export function SignInForm(_props: { id: SignInId; primary?: boolean; onDone: ()
 function RemoteNote() {
   const t = useTheme();
   const s = useStyles(styles);
-  return <Text style={[s.small, { color: t.c.dim }]}>{REMOTE_CHANGE_NOTE}</Text>;
+  return (
+    <>
+      <Text style={[s.small, { color: t.c.dim }]}>{REMOTE_CHANGE_NOTE}</Text>
+      <AskComputer what="models" />
+    </>
+  );
 }
 
 /** Why the Claude row has no sign-in button. */

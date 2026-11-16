@@ -32,9 +32,14 @@ export const resetRunForTests = (): void => setRun(null);
 /** How long a restart may take before the panel says what to do if it never reloads. */
 const SLOW_MS = 90_000;
 
-export function UpdateRunner({ streaming, events }: { streaming: boolean; events: DaemonEvent[] }) {
+export function UpdateRunner({ streaming, events, onReload }: { streaming: boolean; events: DaemonEvent[]; onReload?: () => void }) {
   const run = useRun();
   const [slow, setSlow] = useState(false);
+  // Hide keeps the update running; a new run, or a stop that needs a decision, shows the screen again.
+  const [hidden, setHidden] = useState(false);
+  useEffect(() => {
+    if (!run || run.error) setHidden(false);
+  }, [run === null, !!run?.error]);
 
   const last = events[events.length - 1];
   useEffect(() => {
@@ -61,8 +66,25 @@ export function UpdateRunner({ streaming, events }: { streaming: boolean; events
   }, [run?.summary]);
 
   if (run && waitingSteps(run).length > 0) return <><UpdateWaiting run={run} />{overlay}</>;
-  if (run && !escalated) return <UpdateScreen run={run} slow={slow} onClose={() => setRun(null)} />;
+  if (run && !escalated && hidden && !run.error && run.summary === undefined) return <><UpdateHidden run={run} onShow={() => setHidden(false)} onReload={onReload} />{overlay}</>;
+  if (run && !escalated) return <UpdateScreen run={run} slow={slow} onClose={() => setRun(null)} onHide={() => setHidden(true)} onReload={onReload} />;
   return overlay;
+}
+
+/** The update still runs; this is all that is left of its screen while it is hidden. */
+export function UpdateHidden({ run, onShow, onReload }: { run: UpdateRun; onShow: () => void; onReload?: () => void }) {
+  const t = useTheme();
+  const insets = useInsets();
+  const active = run.steps.find((s) => s.state === "active");
+  return (
+    <Banner kind="warn" role="status" style={{ flexDirection: "row", flexWrap: "wrap", alignItems: "center", gap: 10, marginTop: 0, marginLeft: 6 + insets.left, marginRight: 6 + insets.right, marginBottom: 6 + insets.bottom }}>
+      <T style={{ flexGrow: 1, flexShrink: 1, flexBasis: 220, minWidth: 0, color: t.c.warnText }}>
+        <T weight={700} lh={t.editor ? 1.5 : 1.55} style={{ color: t.c.warnText }}>Updating.</T> {active ? `${STEP_NAME[active.key]}${run.detail ? `: ${run.detail}` : ""}` : "Still running."} It keeps going in the background.
+      </T>
+      {onReload ? <Button title="Reload now" variant="ghost" onPress={onReload} /> : null}
+      <Button title="Show" variant="primary" onPress={onShow} />
+    </Banner>
+  );
 }
 
 /** Restart now: the agent ends the turns in progress and runs the waiting steps. */
@@ -98,7 +120,7 @@ export function UpdateWaiting({ run }: { run: UpdateRun }) {
   );
 }
 
-export function UpdateScreen({ run, slow, onClose }: { run: UpdateRun; slow: boolean; onClose: () => void }) {
+export function UpdateScreen({ run, slow, onClose, onHide, onReload }: { run: UpdateRun; slow: boolean; onClose: () => void; onHide?: () => void; onReload?: () => void }) {
   const t = useTheme();
   const s = useStyles(styles);
   const insets = useInsets();
@@ -146,6 +168,13 @@ export function UpdateScreen({ run, slow, onClose }: { run: UpdateRun; slow: boo
         {finished && run.summary ? <T style={[s.small, { color: t.c.muted }]}>{run.summary}</T> : null}
         {/* The way on from a phone: the update runs again from Studio on the computer. */}
         {failed ? <T style={[s.smallFlat, { color: t.c.dim }]}>{UPDATE_RETRY_ON_COMPUTER}</T> : null}
+        {!finished && !failed && (onHide || onReload) ? (
+          <Row style={{ marginVertical: 6 }}>
+            <Spacer />
+            {onReload ? <Button title="Reload now" variant="ghost" onPress={onReload} /> : null}
+            {onHide ? <Button title="Hide" variant="default" onPress={onHide} /> : null}
+          </Row>
+        ) : null}
         {finished || failed ? (
           <Row style={{ marginVertical: 6 }}>
             <Spacer />

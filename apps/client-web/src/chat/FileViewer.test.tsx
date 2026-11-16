@@ -111,5 +111,8 @@ describe("the file viewer", () => {
     const again = await reply("[Decisions](.wiki/Decisions.md)");
     await click(within(again).getByRole("button", { name: "Decisions" }));
     expect(within(screen.getByRole("dialog")).queryByRole("button", { name: "Open in editor" })).toBeNull();
+    // It says why, and offers the file's text instead.
+    expect(within(screen.getByRole("dialog")).getByText("Open in editor works from Studio on the computer.")).toBeTruthy();
+    expect(within(screen.getByRole("dialog")).getByRole("button", { name: "Save a copy" })).toBeTruthy();
   });
 });

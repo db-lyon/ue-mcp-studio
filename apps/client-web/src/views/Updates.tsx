@@ -4,6 +4,7 @@ import { startUpdate, useRun } from "./UpdateOverlay";
 import { waitingSteps } from "./update-run";
 import { REMOTE_UPDATES, onRemotePage } from "../connection";
 import { WhatsNewButton } from "./WhatsNew";
+import { AskComputer } from "./remote/AskComputer";
 
 /** The update check's model lives in client-core, shared with the mobile app. */
 export { checkFailure, daemonMoves, daemonTarget, failureLine, pluginStep, readyLine, studioUpdatesOf, ueMcpUpdateOf, updateSteps, waiting, withFloor, type StudioUpdates, type UeMcpUpdate };
@@ -103,7 +104,7 @@ export function UpdatesCard({ remote = onRemotePage() }: { remote?: boolean } = 
           )}
         </div>
       )}
-      {remote && <p className="dim small update-remote">{REMOTE_UPDATES}</p>}
+      {remote && <p className="dim small update-remote">{REMOTE_UPDATES} {steps.length > 0 && <AskComputer what="update" />}</p>}
       {stopped && !working && <div className="banner bad small update-error" role="alert">The last update stopped: {stopped}</div>}
       {!stopped && !working && failureLine(u?.studio) && <div className="banner bad small update-error" role="alert">{failureLine(u?.studio)}</div>}
       {u?.studio && (

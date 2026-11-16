@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState, useSyncExternalStore, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import { openableInEditor, projectImageType, projectImageUrl } from "@ue-mcp-studio/shared";
-import { FILE_REFUSED_REMOTE, FileViewer, fileLines, fileLinkTitle, type FileView } from "@ue-mcp-studio/client-core";
+import { FILE_REFUSED_REMOTE, FileViewer, OPEN_IN_EDITOR_REMOTE, fileLines, fileLinkTitle, rawFileNote, type FileView } from "@ue-mcp-studio/client-core";
 import { api } from "../api";
 import { onRemotePage } from "../connection";
 import { FileFromContext, FileViewerContext } from "./FileLink";
@@ -40,6 +40,7 @@ export function FileViewerPanel({ viewer }: { viewer: FileViewer }) {
           {canGoBack && <button className="ghost" onClick={() => viewer.back()}>Back</button>}
           <span className="file-viewer-path" title={fileLinkTitle(shown, view.request.line)}>{fileLinkTitle(shown, view.request.line)}</span>
           {view.status === "ready" && !onRemotePage() && openableInEditor(view.file.path) && <OpenInEditor path={view.file.path} />}
+          {view.status === "ready" && onRemotePage() && openableInEditor(view.file.path) && <RawFile file={view.file} />}
           <button className="ghost" onClick={() => viewer.close()}>Close</button>
         </div>
         <FileBody view={view} />
@@ -115,6 +116,27 @@ function NumberedLines({ text, line }: { text: string; line?: number }) {
         </div>
       ))}
     </pre>
+  );
+}
+
+/**
+ * On a paired browser, in place of Open in editor, which opens on the computer:
+ * says so, and saves the file's text here.
+ */
+export function RawFile({ file }: { file: { path: string; text: string; truncated?: boolean } }) {
+  const save = () => {
+    const url = URL.createObjectURL(new Blob([file.text], { type: "text/plain" }));
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = file.path.split("/").pop() || "file.txt";
+    a.click();
+    URL.revokeObjectURL(url);
+  };
+  return (
+    <>
+      <span className="dim small" title={OPEN_IN_EDITOR_REMOTE}>{OPEN_IN_EDITOR_REMOTE}</span>
+      <button className="ghost" onClick={save} title={rawFileNote(!!file.truncated)}>Save a copy</button>
+    </>
   );
 }
 

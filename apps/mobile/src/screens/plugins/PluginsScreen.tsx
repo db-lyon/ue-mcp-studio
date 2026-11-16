@@ -11,6 +11,7 @@ import { Banner, Button, Card, Input, labelFont, Markdown, NavBarBacking, Pill, 
 import { CardLabel, Span, Txt, pageScroll } from "../settings/controls";
 import { useSettingsApi } from "../settings/hooks";
 import type { DaemonState } from "../../state";
+import { AskComputer } from "../../views/AskComputer";
 
 export function PluginsScreen({ daemon }: { daemon: DaemonState }) {
   const api = useSettingsApi();
@@ -51,6 +52,7 @@ export function PluginsScreen({ daemon }: { daemon: DaemonState }) {
             <Txt tone="muted" style={{ marginBottom: para }}>
               Managing plugins here needs ue-mcp 1.4.0-beta.2 or later. Until then: <Span mono size={t.base.size * 0.8125} tone="muted">npx ue-mcp plugin install &lt;name&gt;</Span> in the project folder.
             </Txt>
+            <AskComputer what="update" />
           </Card>
         </ScrollView>
         <NavBarBacking />
@@ -71,6 +73,7 @@ export function PluginsScreen({ daemon }: { daemon: DaemonState }) {
       ) : null}
       <Banner style={{ marginTop: para }}>
         <Txt>{REMOTE_PLUGINS_NOTE}</Txt>
+        <AskComputer what="plugins" />
       </Banner>
 
       <Card>

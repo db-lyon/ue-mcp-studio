@@ -85,6 +85,19 @@ function sharedNoun(files: Array<{ mimeType: string }>): string {
   return files[0].mimeType.startsWith("image/") ? "shared image" : "shared file";
 }
 
+/** A failed action: what happened, Retry when the action can run again, and Dismiss. */
+function ErrorBar({ error, onDismiss, style }: { error: { message: string; retry?: () => void }; onDismiss: () => void; style?: object }) {
+  return (
+    <Banner kind="bad" role="alert" style={[{ flexDirection: "row", flexWrap: "wrap", alignItems: "center", gap: 10 }, style]}>
+      <Pressable accessibilityRole="button" accessibilityLabel={error.message} onPress={onDismiss} style={{ flexGrow: 1, flexShrink: 1, flexBasis: 200, minWidth: 0 }}>
+        <T>{error.message}</T>
+      </Pressable>
+      {error.retry ? <Button title="Retry" onPress={() => { const again = error.retry; onDismiss(); again?.(); }} /> : null}
+      <Button title="Dismiss" variant="ghost" onPress={onDismiss} />
+    </Banner>
+  );
+}
+
 export function Chat({ nav, initialSession = null, onSettings, active = true }: {
   /** The shell asked for a session, or for the list (null); `n` counts the asks. */
   nav?: { session: string | null; n: number };
@@ -115,7 +128,8 @@ export function Chat({ nav, initialSession = null, onSettings, active = true }: 
   const [cardsH, setCardsH] = useState(0);
   const [detail, setDetail] = useState<SessionDetail | null>(null);
   const [draft, setDraft] = useState("");
-  const [error, setError] = useState<string | null>(null);
+  /** What failed, with the action to run again when there is one. */
+  const [error, setError] = useState<{ message: string; retry?: () => void } | null>(null);
   /** The open session could not be read, for a reason other than ue-mcp being away: said where its transcript goes. */
   const [detailError, setDetailError] = useState<string | null>(null);
   /** Reads that failed because ue-mcp was away, counted: each schedules the next try. Zero once one succeeds. */
@@ -124,7 +138,8 @@ export function Chat({ nav, initialSession = null, onSettings, active = true }: 
   const [pulling, setPulling] = useState(false);
   /** An action that failed: ue-mcp being away is said plainly, never as the relay's own words. */
   // A session deleted meanwhile is not an error: the list drops it and the next read closes it.
-  const fail = useCallback((e: Error) => (sessionGone(e) ? undefined : setError(unreachable(e) ? NOT_ANSWERING : e.message)), []);
+  const failWith = useCallback((retry?: () => void) => (e: Error) => (sessionGone(e) ? undefined : setError({ message: unreachable(e) ? NOT_ANSWERING : e.message, retry })), []);
+  const fail = useMemo(() => failWith(), [failWith]);
   const streamed = useRef("");
   const [streaming, setStreaming] = useState("");
   /** The open session's thinking and running call's output so far, from the event stream. */
@@ -161,7 +176,7 @@ export function Chat({ nav, initialSession = null, onSettings, active = true }: 
           setMissed(0);
         },
         // ue-mcp away: the connection line says so, and the list is read again when it answers.
-        (e: Error) => (unreachable(e) ? setMissed((n) => n + 1) : setError(e.message)),
+        (e: Error) => (unreachable(e) ? setMissed((n) => n + 1) : setError({ message: e.message })),
       ),
     [api, project.device.id],
   );
@@ -308,7 +323,7 @@ export function Chat({ nav, initialSession = null, onSettings, active = true }: 
         void loadList();
         setSelected(d.id);
       })
-      .catch(fail);
+      .catch((e: Error) => failWith(() => void create(prompt))(e));
 
   // Files or text another app shared: into the open session's message, or a banner until one is picked.
   const pendingShare = shared.files.length > 0 || !!shared.text;
@@ -341,10 +356,13 @@ export function Chat({ nav, initialSession = null, onSettings, active = true }: 
       (e: Error) => {
         setDraft(text);
         attach.restore(taken);
-        fail(e);
+        // The text and files are back in the composer, so Retry sends what is there again.
+        failWith(() => dispatchAgain.current?.(how, follow))(e);
       },
     );
   };
+  const dispatchAgain = useRef<typeof dispatch | undefined>(undefined);
+  dispatchAgain.current = dispatch;
   /** A /flow or /action message being run: its form, above the composer. */
   const [flowAsk, setFlowAsk] = useState<string | null>(null);
   const [actionAsk, setActionAsk] = useState<string | null>(null);
@@ -407,7 +425,7 @@ export function Chat({ nav, initialSession = null, onSettings, active = true }: 
     if (!selected) return;
     const id = selected;
     setSent((n) => n + 1);
-    api.compact(id, instructions).then(() => loadDetail(id), fail);
+    api.compact(id, instructions).then(() => loadDetail(id), (e: Error) => failWith(() => compactNow(instructions))(e));
   };
   const catalog = useCatalog(settings);
   const nameOf = (id: string): string => {
@@ -438,7 +456,7 @@ export function Chat({ nav, initialSession = null, onSettings, active = true }: 
             setSelected(r.sessionId);
           } else void loadDetail(selected);
         },
-        fail,
+        (e: Error) => failWith(() => editMessage(index, text, mode))(e),
       );
     },
     [selected, api, loadList, loadDetail],
@@ -460,11 +478,11 @@ export function Chat({ nav, initialSession = null, onSettings, active = true }: 
     [markSeen],
   );
   const stopSubagent = (id: string) => {
-    if (selected) void api.stopSubagent(selected, id).catch(fail);
+    if (selected) void api.stopSubagent(selected, id).catch((e: Error) => failWith(() => stopSubagent(id))(e));
   };
   // A stopped or failed subagent goes on in its kept conversation, under a new row.
   const resumeSubagent = (id: string) => {
-    if (selected) void api.resumeSubagent(selected, id).catch(fail);
+    if (selected) void api.resumeSubagent(selected, id).catch((e: Error) => failWith(() => resumeSubagent(id))(e));
   };
 
   const busy = detail?.status === "running" || detail?.status === "waiting";
@@ -477,10 +495,10 @@ export function Chat({ nav, initialSession = null, onSettings, active = true }: 
       detail && !disconnected
         ? {
             busy,
-            run: (request: PlaytestRequest) => {
+            run: function run(request: PlaytestRequest): void {
               setThread(null);
               setSent((n) => n + 1);
-              api.playtest(detail.id, request).then(() => loadDetail(detail.id), fail);
+              api.playtest(detail.id, request).then(() => loadDetail(detail.id), (e: Error) => failWith(() => run(request))(e));
             },
           }
         : null,
@@ -603,11 +621,7 @@ export function Chat({ nav, initialSession = null, onSettings, active = true }: 
               <Button title="Discard" variant="ghost" label={`Discard the ${sharedNoun(shared.files)}`} onPress={() => shared.consume()} />
             </View>
           ) : null}
-          {error ? (
-            <Pressable accessibilityRole="button" accessibilityLabel={error} onPress={() => setError(null)}>
-              <Banner kind="bad" role="alert">{error}</Banner>
-            </Pressable>
-          ) : null}
+          {error ? <ErrorBar error={error} onDismiss={() => setError(null)} /> : null}
           {!listed ? slow ? <T style={[small(t), { color: t.c.dim, marginVertical: 12 }]}>{SESSIONS_SLOW}</T> : <SessionRowsLoading /> : null}
           {live.map((s) => (
             <SessionRow key={s.id} s={s} selected={s.id === selected} onOpen={() => setSelected(s.id)} onChanged={changed} />
@@ -665,11 +679,7 @@ export function Chat({ nav, initialSession = null, onSettings, active = true }: 
           />
         ) : null}
         {selected && diagOpen ? <DiagStrip /> : null}
-        {error ? (
-          <Pressable accessibilityRole="button" accessibilityLabel={error} onPress={() => setError(null)}>
-            <Banner kind="bad" role="alert" style={bannerBox}>{error}</Banner>
-          </Pressable>
-        ) : null}
+        {error ? <ErrorBar error={error} onDismiss={() => setError(null)} style={bannerBox} /> : null}
         {!detail && selected ? (
           detailError ? (
             <View accessibilityRole="alert" style={{ flex: 1, padding: 14, gap: 10 }}>

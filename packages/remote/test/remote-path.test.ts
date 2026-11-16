@@ -97,6 +97,12 @@ describe("remotePath", () => {
     ]) expect(remotePath(m, p), `${m} ${p}`).toBeNull();
   });
 
+  it("lets a paired browser ask the computer for a change, but never read or clear the asks", () => {
+    expect(remotePath("POST", "/v1/ext/studio/remote-asks")).toBe("/v1/ext/studio/remote-asks");
+    expect(remotePath("GET", "/v1/ext/studio/remote/asks")).toBeNull();
+    expect(remotePath("DELETE", "/v1/ext/studio/remote/asks/update")).toBeNull();
+  });
+
   it("lets a paired browser read the plugins and the catalog, and nothing that changes them", () => {
     expect(remotePath("GET", "/v1/plugins")).toBe("/v1/plugins");
     expect(remotePath("GET", "/v1/plugins/catalog")).toBe("/v1/plugins/catalog");

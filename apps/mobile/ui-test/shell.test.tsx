@@ -11,6 +11,7 @@ import { RemoteLock } from "../src/views/remote/RemoteLock";
 import { ConnectionOverlay, useConnection } from "../src/views/ConnectionOverlay";
 import { RefusalPending, RefusedScreen } from "../src/views/Refused";
 import { VersionNotice } from "../src/views/VersionNotice";
+import { AskComputer } from "../src/views/AskComputer";
 import { DrawerTool, NavDrawer, useDrawerClose } from "../src/views/NavDrawer";
 import { EditorBanner } from "../src/views/EditorBanner";
 import { DialogBanner } from "../src/views/DialogBanner";
@@ -375,6 +376,19 @@ describe("an update run on the computer", () => {
     expect(screen.getByText(/Restarting now stops every turn in progress/)).toBeTruthy();
   });
 
+  it("Hide keeps the update running behind a banner, Show brings the screen back, Reload now asks again", () => {
+    const run = { steps: [{ key: "plugin", state: "active" }], target: null, at: Date.now() };
+    const reload = vi.fn();
+    renderInProject(<UpdateRunner streaming events={[{ id: 1, type: "studio.update.run", at: "", data: { run } }]} onReload={reload} />);
+    fireEvent.click(screen.getByText("Reload now"));
+    expect(reload).toHaveBeenCalledTimes(1);
+    fireEvent.click(screen.getByText("Hide"));
+    expect(screen.queryByText("Updating")).toBeNull();
+    expect(screen.getByText(/keeps going in the background/)).toBeTruthy();
+    fireEvent.click(screen.getByText("Show"));
+    expect(screen.getByText("Updating")).toBeTruthy();
+  });
+
   it("keeps the banner's 10px under a stopped update's reason, above Close, as the web's .banner does", () => {
     const run = { steps: [{ key: "plugin", state: "failed" }], target: null, at: Date.now(), error: "The editor plugin did not install." };
     renderInProject(<UpdateRunner streaming events={[{ id: 1, type: "studio.update.run", at: "", data: { run } }]} />);
@@ -383,6 +397,18 @@ describe("an update run on the computer", () => {
     expect(screen.getByText("Close")).toBeTruthy();
     // The way on from a phone, which never runs the update itself.
     expect(screen.getByText("To try again, choose Update in Studio on the computer.")).toBeTruthy();
+  });
+});
+
+describe("a change the phone may not make", () => {
+  it("is asked of the computer, with the answer said", async () => {
+    const api = fakeApi();
+    (api as unknown as { askComputer: ReturnType<typeof vi.fn> }).askComputer = vi.fn().mockResolvedValue({ ok: true });
+    renderInProject(<AskComputer what="plugins" />, api);
+    fireEvent.click(screen.getByText("Ask the computer to change plugins"));
+    await settle();
+    expect((api as unknown as { askComputer: ReturnType<typeof vi.fn> }).askComputer).toHaveBeenCalledWith("plugins");
+    expect(screen.getByText(/It shows on the computer/)).toBeTruthy();
   });
 });
 
