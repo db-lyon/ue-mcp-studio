@@ -1,16 +1,11 @@
 /**
  * What's new: the release notes of each part Studio keeps current (Studio,
- * the editor plugin, the bridge plugin and ue-mcp), for the versions the last
- * update brought and any update waiting, on the user's channel.
+ * the editor plugin, the bridge plugin and ue-mcp) for the releases newer
+ * than the installed one on the user's channel: what Update would bring.
  *
  * Each part's notes are its GitHub releases, the same repositories the
  * updater reads its manifests from. They are cached in the project's data
  * folder for an hour, and a cached copy answers when GitHub cannot.
- *
- * "The last update" is seen rather than told: every read compares each
- * installed version with the one recorded, and a change moves the recorded
- * one to `previous`. So the notes cover previous (exclusive) to installed
- * (inclusive), whichever way the part was updated.
  */
 import * as fs from "node:fs";
 import * as path from "node:path";
@@ -34,6 +29,11 @@ export const WHATS_NEW_NAMES: Record<WhatsNewPart, string> = {
 
 /** How long a repository's releases are kept before GitHub is asked again. */
 export const NOTES_TTL_MS = 3600_000;
+/** A cached list missing a version the caller needs is read again once it is this old. */
+export const MISSING_RETRY_MS = 60_000;
+/** GitHub's page size, and how many pages one read may take (other release tags share the list). */
+const PAGE_SIZE = 100;
+const MAX_PAGES = 3;
 /** The most releases one part lists; the rest are counted in `more`. */
 export const MAX_ENTRIES = 20;
 
@@ -47,12 +47,6 @@ export interface Release {
   publishedAt: string | null;
 }
 
-export interface VersionRecord {
-  current: string | null;
-  previous: string | null;
-}
-
-export const VERSIONS_FILE = "whats-new-versions.json";
 export const NOTES_CACHE_FILE = "release-notes.json";
 
 function readJson<T>(file: string): T | null {
@@ -68,30 +62,8 @@ function writeJson(file: string, value: unknown): void {
     fs.mkdirSync(path.dirname(file), { recursive: true });
     fs.writeFileSync(file, JSON.stringify(value));
   } catch {
-    // A record that cannot be kept only makes the next read show less.
+    // A cache that cannot be kept only means GitHub is asked again.
   }
-}
-
-/**
- * Compare each installed version with the one recorded; a part whose version
- * changed keeps the recorded one as `previous`. Returns the record after it.
- */
-export function recordVersions(file: string, installed: Record<WhatsNewPart, string | null>): Record<WhatsNewPart, VersionRecord> {
-  const old = readJson<Partial<Record<WhatsNewPart, VersionRecord>>>(file) ?? {};
-  const next = {} as Record<WhatsNewPart, VersionRecord>;
-  let changed = false;
-  for (const part of WHATS_NEW_PARTS) {
-    const was = old[part] ?? { current: null, previous: null };
-    const now = installed[part];
-    if (!now || now === was.current) {
-      next[part] = { current: was.current ?? null, previous: was.previous ?? null };
-      continue;
-    }
-    next[part] = { current: now, previous: was.current ?? null };
-    changed = true;
-  }
-  if (changed) writeJson(file, next);
-  return next;
 }
 
 /** A release body without the YAML front matter some release tooling leaves at its top. */
@@ -100,24 +72,19 @@ export function noteBody(body: string | null | undefined): string {
 }
 
 /**
- * The releases to show for one part, newest first: every release newer than
- * installed (marked available), then those after `previous` up to and
- * including installed, or installed alone when previous is unknown. Stable
- * leaves out prereleases other than the installed one.
+ * The releases to show for one part, newest first: only those newer than the
+ * installed one. Stable leaves out prereleases.
  */
-export function selectNotes(releases: Release[], o: { installed: string; previous: string | null; channel: "stable" | "beta"; max?: number }): { entries: WhatsNewEntry[]; more: number } {
+export function selectNotes(releases: Release[], o: { installed: string; channel: "stable" | "beta"; max?: number }): { entries: WhatsNewEntry[]; more: number } {
   const max = o.max ?? MAX_ENTRIES;
-  const since = o.previous && VERSION.test(o.previous) && isNewer(o.installed, o.previous) ? o.previous : null;
   const seen = new Set<string>();
   const picked: WhatsNewEntry[] = [];
   for (const r of releases) {
     if (!VERSION.test(r.version) || seen.has(r.version)) continue;
-    if (o.channel === "stable" && (r.prerelease || r.version.includes("-")) && r.version !== o.installed) continue;
-    const available = isNewer(r.version, o.installed);
-    const brought = r.version === o.installed || (!!since && isNewer(r.version, since) && !isNewer(r.version, o.installed));
-    if (!available && !brought) continue;
+    if (o.channel === "stable" && (r.prerelease || r.version.includes("-"))) continue;
+    if (!isNewer(r.version, o.installed)) continue;
     seen.add(r.version);
-    picked.push({ version: r.version, body: noteBody(r.body), url: r.url, publishedAt: r.publishedAt, available });
+    picked.push({ version: r.version, body: noteBody(r.body), url: r.url, publishedAt: r.publishedAt, available: true });
   }
   picked.sort((a, b) => (isNewer(a.version, b.version) ? -1 : isNewer(b.version, a.version) ? 1 : 0));
   return { entries: picked.slice(0, max), more: Math.max(0, picked.length - max) };
@@ -136,12 +103,19 @@ export class ReleaseNotes {
     private readonly ttl = NOTES_TTL_MS,
   ) {}
 
-  releases(repo: string, refresh = false): Promise<{ releases: Release[]; error?: string }> {
+  /**
+   * `need`: versions the caller looks for (the installed one, the previous one).
+   * A cached list that lacks one was read before that release existed, so it is
+   * read again once it is a minute old, whatever the hour says.
+   */
+  releases(repo: string, refresh = false, need: string[] = []): Promise<{ releases: Release[]; error?: string }> {
     const cached = (readJson<Cache>(this.cacheFile) ?? {})[repo];
-    if (!refresh && cached && this.now() - cached.at < this.ttl) return Promise.resolve({ releases: cached.releases });
+    const age = cached ? this.now() - cached.at : Infinity;
+    const complete = !!cached && need.every((v) => cached.releases.some((r) => r.version === v));
+    if (!refresh && cached && age < this.ttl && (complete || age < MISSING_RETRY_MS)) return Promise.resolve({ releases: cached.releases });
     let p = this.inflight.get(repo);
     if (!p) {
-      p = this.fetchRepo(repo).then(
+      p = this.fetchRepo(repo, need).then(
         (releases) => {
           const cache = readJson<Cache>(this.cacheFile) ?? {};
           cache[repo] = { at: this.now(), releases };
@@ -158,15 +132,26 @@ export class ReleaseNotes {
     return p;
   }
 
-  private async fetchRepo(repo: string): Promise<Release[]> {
-    const res = await this.fetchImpl(`https://api.github.com/repos/${repo}/releases?per_page=100`, {
+  /** Up to MAX_PAGES pages, stopping once every needed version is in or GitHub has no more. */
+  private async fetchRepo(repo: string, need: string[]): Promise<Release[]> {
+    const out: Release[] = [];
+    for (let page = 1; page <= MAX_PAGES; page++) {
+      const { releases, full } = await this.fetchPage(repo, page);
+      out.push(...releases);
+      if (!full || need.every((v) => out.some((r) => r.version === v))) break;
+    }
+    return out;
+  }
+
+  private async fetchPage(repo: string, page: number): Promise<{ releases: Release[]; full: boolean }> {
+    const res = await this.fetchImpl(`https://api.github.com/repos/${repo}/releases?per_page=${PAGE_SIZE}&page=${page}`, {
       headers: { accept: "application/vnd.github+json" },
       signal: AbortSignal.timeout(10_000),
     });
     if (!res.ok) throw new Error(res.status === 403 || res.status === 429 ? "GitHub is limiting requests right now" : `GitHub answered ${res.status}`);
     const list = (await res.json()) as Array<{ tag_name?: string; draft?: boolean; prerelease?: boolean; body?: string | null; html_url?: string; published_at?: string | null }>;
     if (!Array.isArray(list)) throw new Error("GitHub's answer was not a list of releases");
-    return list
+    const releases = list
       .filter((r) => !r.draft && typeof r.tag_name === "string")
       .map((r) => ({
         version: r.tag_name!.replace(/^v/, ""),
@@ -175,6 +160,7 @@ export class ReleaseNotes {
         url: r.html_url ?? `https://github.com/${repo}/releases/tag/${r.tag_name}`,
         publishedAt: r.published_at ?? null,
       }));
+    return { releases, full: list.length >= PAGE_SIZE };
   }
 }
 
@@ -189,34 +175,33 @@ export interface WhatsNewDeps {
 export async function whatsNew(deps: WhatsNewDeps, refresh = false): Promise<WhatsNew> {
   const notes = deps.notes ?? new ReleaseNotes(path.join(deps.dataDir, NOTES_CACHE_FILE));
   const installed = deps.installed();
-  const record = recordVersions(path.join(deps.dataDir, VERSIONS_FILE), installed);
   const channel = deps.channel();
   const components: WhatsNewComponent[] = [];
+  // What each repository's list must hold: every installed version there (the bridge and ue-mcp share one).
+  // A list without it was read before that release existed, so it cannot say what is newer.
+  const need = new Map<string, Set<string>>();
+  for (const part of WHATS_NEW_PARTS) {
+    const set = need.get(WHATS_NEW_REPOS[part]) ?? new Set<string>();
+    const v = installed[part];
+    if (v && VERSION.test(v)) set.add(v);
+    need.set(WHATS_NEW_REPOS[part], set);
+  }
   await Promise.all(
     WHATS_NEW_PARTS.map(async (part) => {
       const version = installed[part];
       if (!version || !VERSION.test(version)) return;
       const repo = WHATS_NEW_REPOS[part];
-      const r = await notes.releases(repo, refresh);
-      const base: WhatsNewComponent = { part, name: WHATS_NEW_NAMES[part], installed: version, previous: record[part].previous, entries: [], more: 0, releasesUrl: `https://github.com/${repo}/releases` };
-      components.push(r.error ? { ...base, error: r.error } : { ...base, ...selectNotes(r.releases, { installed: version, previous: record[part].previous, channel }) });
+      const r = await notes.releases(repo, refresh, [...(need.get(repo) ?? [])]);
+      const base: WhatsNewComponent = { part, name: WHATS_NEW_NAMES[part], installed: version, entries: [], more: 0, releasesUrl: `https://github.com/${repo}/releases` };
+      components.push(r.error ? { ...base, error: r.error } : { ...base, ...selectNotes(r.releases, { installed: version, channel }) });
     }),
   );
   components.sort((a, b) => WHATS_NEW_PARTS.indexOf(a.part) - WHATS_NEW_PARTS.indexOf(b.part));
   return { channel, components };
 }
 
-/** GET /whats-new, ?refresh=1 to ask GitHub again. Also records the installed versions now, so an update is seen even if the dialog is never opened. */
-export function registerWhatsNew(api: Pick<DaemonExtensionApi, "route">, deps: WhatsNewDeps): () => void {
+/** GET /whats-new, ?refresh=1 to ask GitHub again. */
+export function registerWhatsNew(api: Pick<DaemonExtensionApi, "route">, deps: WhatsNewDeps): void {
   const notes = deps.notes ?? new ReleaseNotes(path.join(deps.dataDir, NOTES_CACHE_FILE));
-  const record = () => {
-    try {
-      recordVersions(path.join(deps.dataDir, VERSIONS_FILE), deps.installed());
-    } catch {
-      // Recorded on the next read.
-    }
-  };
-  record();
   api.route("GET", "/whats-new", async (req) => ({ body: await whatsNew({ ...deps, notes }, req.query.refresh === "1" || req.query.refresh === "true") }));
-  return record;
 }
