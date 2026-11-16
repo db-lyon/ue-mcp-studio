@@ -42,6 +42,8 @@
 import { registerVersionNotice } from "./version-notice.js";
 import { readDiscovery, type DaemonExtensionApi } from "ue-mcp/daemon";
 import { registerQueueRoutes } from "./queue-routes.js";
+import { registerVideoRoutes } from "./video-routes.js";
+import { RemotePlanCheck } from "./remote/plan.js";
 import { PlaytestFlow } from "./playtest-flow.js";
 import { FlowCaller, offersStepApproval, type FlowStepHost } from "./flow-run.js";
 
@@ -705,7 +707,10 @@ export function registerChat(api: DaemonExtensionApi, agentVersion = "0.0.0", pa
   api.route("POST", "/sessions/:id/attachments", (req) => {
     if (!store.get(req.params.id)) return missing(req.params.id);
     try {
-      const { path: _path, ...a } = attachments.save(req.params.id, req.body as AttachmentUpload);
+      const saved = attachments.save(req.params.id, req.body as AttachmentUpload);
+      // A part of a file sent in several: taken, the file still coming.
+      if (!saved) return { status: 202, body: { received: true } };
+      const { path: _path, ...a } = saved;
       return { status: 201, body: a };
     } catch (e) {
       return bad(e instanceof Error ? e.message : String(e));
@@ -717,6 +722,9 @@ export function registerChat(api: DaemonExtensionApi, agentVersion = "0.0.0", pa
     if (!a) return { status: 404, body: { error: "no such attachment" } };
     return { headers: { "content-type": a.type, "content-disposition": `inline; filename="${a.name.replace(/"/g, "")}"` }, body: fs.readFileSync(a.path) };
   });
+  // Videos in the chat: the size that plays for this account, and a smaller copy of one that does not.
+  const paidPlan = new RemotePlanCheck({ token: () => account.token(), gatewayUrl: () => settings.gatewayUrl() });
+  registerVideoRoutes(api, { attachments, paid: () => paidPlan.available() });
   api.route("PUT", "/sessions/:id/draft", (req) => {
     const s = store.get(req.params.id);
     if (!s) return missing(req.params.id);

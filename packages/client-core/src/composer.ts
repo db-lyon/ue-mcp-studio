@@ -3,6 +3,7 @@
  * message box's height, and how a file waiting to be sent is described.
  * Shared by the web client's composer and the mobile app's.
  */
+import { ATTACHMENT_PART_BYTES, type Attachment, type AttachmentUpload } from "@ue-mcp-studio/shared";
 
 /**
  * How much of the composer bar fits, widest first. Send and Stop never change;
@@ -139,6 +140,25 @@ export const isImage = (type: string): boolean => /^image\/(png|jpeg|gif|webp)$/
 export function formatBytes(n: number): string {
   if (n < 1024 * 1024) return `${Math.max(1, Math.round(n / 1024))} KB`;
   return `${(n / 1024 / 1024).toFixed(1)} MB`;
+}
+
+/**
+ * Send one file through `post` (POST .../attachments): whole when it fits one
+ * request, else in parts of ATTACHMENT_PART_BYTES, so a paired device whose
+ * request bodies are capped still sends a large video. Answers the attachment
+ * the last part made.
+ */
+export async function uploadInParts(post: (upload: AttachmentUpload) => Promise<unknown>, upload: AttachmentUpload): Promise<Attachment> {
+  // Whole base64 quads only, so each part decodes on its own.
+  const chars = Math.floor(ATTACHMENT_PART_BYTES / 3) * 4;
+  if (upload.data.length <= chars) return (await post(upload)) as Attachment;
+  const id = `u${Date.now().toString(36)}${Math.random().toString(36).slice(2, 10)}`;
+  const count = Math.ceil(upload.data.length / chars);
+  let last: unknown = null;
+  for (let index = 0; index < count; index++) {
+    last = await post({ ...upload, data: upload.data.slice(index * chars, (index + 1) * chars), part: { id, index, last: index === count - 1 } });
+  }
+  return last as Attachment;
 }
 
 /** The largest file the agent accepts; matches MAX_ATTACHMENT_BYTES there. */

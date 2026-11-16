@@ -343,7 +343,17 @@ export interface AttachmentUpload {
   name: string;
   type: string;
   data: string;
+  /**
+   * One part of a file sent in several, in order: a paired device's request
+   * body is capped (MAX_REQUEST_BYTES), so a larger file goes up in parts.
+   * Every part but the last answers 202 with no attachment; the last answers
+   * with the whole file's.
+   */
+  part?: { id: string; index: number; last: boolean };
 }
+
+/** The most raw bytes one upload part carries: within MAX_REQUEST_BYTES once base64 and JSON. */
+export const ATTACHMENT_PART_BYTES = 4 * 1024 * 1024;
 
 /** What became of a message the user wrote in a subagent's thread. */
 export type MessageDelivery = "waiting" | "read" | "main";
@@ -995,3 +1005,4 @@ export * from "./mentions.js";
 export * from "./context.js";
 export * from "./notifications.js";
 export * from "./files.js";
+export * from "./video.js";
