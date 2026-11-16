@@ -216,6 +216,9 @@ const declinedText = (name: string): string =>
 type GateResult = null | { declined: string } | { stopped: true };
 
 /** What the model is told when the user edits an earlier message and the conversation after it is gone. */
+/** What a subagent the user resumes is told, in its own kept conversation. */
+export const RESUME_PROMPT = "The user resumed you after you stopped. Read back the state of what you were working on, then carry on with your task from where you stopped, and finish with your report.";
+
 export const REWOUND_NOTE = "The user edited an earlier message, so the conversation was cut back to it and continues from the edited message below. "
   + "Nothing done after it in the earlier version was undone: assets, levels and files it changed stay changed. Read their current state before relying on it.";
 
@@ -1146,6 +1149,11 @@ export class AgentRunner {
       helper = n?.helpers.find((h) => h.name === input.helper) ?? null;
       if (!helper) return { ok: false, text: `No helper named ${input.helper}. The project's helpers are: ${(n?.helpers ?? []).map((h) => h.name).join(", ") || "none"}.` };
     }
+    const resume = typeof input.resume === "string" && input.resume.trim() ? input.resume.trim() : null;
+    if (resume) {
+      const why = this.notResumable(s, resume);
+      if (why) return { ok: false, text: why };
+    }
     let run = this.runs.get(id);
     if (!run) {
       if (s.turn) s.turn.agents = (s.turn.agents ?? 0) + 1;
@@ -1173,7 +1181,37 @@ export class AgentRunner {
       description: describeCall(input),
       spec: this.durableSubagentSpec(helper, false),
       prompt: [{ type: "text", text: prompt }, ...(told.length ? [{ type: "text" as const, text: toSubagent(told) }] : [])],
+      ...(resume ? { resume } : {}),
     };
+  }
+
+  /**
+   * Why a subagent cannot be resumed, or null when it can: its agent call is
+   * one of this session's, it ran on the durable runtime (its conversation is
+   * kept in the harness), and it has ended without finishing its task.
+   */
+  private notResumable(s: StoredSession, callId: string): string | null {
+    const entry = s.transcript.find((t) => t.kind === "tool" && t.call.id === callId && t.call.name === "agent");
+    if (entry?.kind !== "tool") return `There is no subagent ${callId} in this session to resume.`;
+    if (entry.call.outcome === "pending" || this.runs.has(callId)) return `The subagent ${callId} is still running: message it instead.`;
+    if (!s.durable) return `The subagent ${callId} ran before this conversation moved to the durable runtime, so its conversation is not kept. Start a new subagent with what it reported.`;
+    return null;
+  }
+
+  /**
+   * The user's Resume on a subagent that stopped or failed, from the
+   * subagents list: a new agent call under the same description goes on in
+   * its kept conversation, beside the session's turns as one the user
+   * assigned, and its report becomes a note for the agent's next turn.
+   * Returns why it cannot, as an Error.
+   */
+  resumeSubagent(sessionId: string, callId: string): { callId: string; done: Promise<{ text: string; isError: boolean; stopped?: boolean }> } {
+    const s = this.require(sessionId);
+    const why = this.notResumable(s, callId);
+    if (why) throw new Error(why);
+    const entry = s.transcript.find((t) => t.kind === "tool" && t.call.id === callId);
+    const description = describeCall(entry?.kind === "tool" ? entry.call.input : null);
+    return this.assignSubagent(sessionId, description, RESUME_PROMPT, callId);
   }
 
   /**
@@ -2464,10 +2502,18 @@ ${result}`);
    * be idle or busy. stopSubagent stops it. Its report is kept for the agent's
    * next turn as a note. Resolves with the call id; `done` with its result.
    */
-  assignSubagent(sessionId: string, description: string, prompt: string): { callId: string; done: Promise<{ text: string; isError: boolean; stopped?: boolean }> } {
+  assignSubagent(sessionId: string, description: string, prompt: string, resume?: string): { callId: string; done: Promise<{ text: string; isError: boolean; stopped?: boolean }> } {
     const s = this.require(sessionId);
     const callId = `studio_${crypto.randomUUID().replace(/-/g, "")}`;
-    const input = { description, prompt };
+    const input = { description, prompt, ...(resume ? { resume } : {}) };
+    // A resumed subagent's conversation is in the harness: with none to run it, it says so instead of starting afresh.
+    if (resume && !(this.durable && this.o.durable?.route() && this.durable.available())) {
+      this.addEntry(s, { kind: "tool", call: { id: callId, name: "agent", input, outcome: "pending", startedAt: now() } });
+      const run = this.newRun(s, callId, input, true);
+      const done = run.call.then((r) => this.assignedEnded(s, callId, input, r));
+      this.durableAgentEnded(s, callId, { text: "The subagent could not resume: the durable runtime is not available here. Reinstall Studio, or start a new subagent with what it reported.", isError: true, stopped: false }, true);
+      return { callId, done };
+    }
     this.addEntry(s, { kind: "tool", call: { id: callId, name: "agent", input, outcome: "pending", startedAt: now() } });
     const run = this.newRun(s, callId, input, true);
     const done = run.call.then((r) => this.assignedEnded(s, callId, input, r));
@@ -2486,7 +2532,7 @@ ${result}`);
         this.durableAgentEnded(s, callId, { text: `The subagent could not start: ${e instanceof Error ? e.message : String(e)}`, isError: true, stopped: false }, true);
         return { callId, done };
       }
-      void this.durable.assign(s, callId, { ok: true, spec, description, prompt: [{ type: "text", text: prompt }] }).then(
+      void this.durable.assign(s, callId, { ok: true, spec, description, prompt: [{ type: "text", text: prompt }], ...(resume ? { resume } : {}) }).then(
         (sent) => {
           if (sent) return;
           // The running harness predates assigned subagents: this one runs on Studio's loop.

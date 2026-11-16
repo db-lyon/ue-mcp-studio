@@ -251,6 +251,9 @@ export const api = {
     call<Attachment>("POST", `/v1/ext/studio/sessions/${encodeURIComponent(id)}/attachments`, upload),
   stopSubagent: (id: string, callId: string) =>
     call<void>("POST", `/v1/ext/studio/sessions/${encodeURIComponent(id)}/agents/${encodeURIComponent(callId)}/stop`),
+  /** Resume a subagent that stopped or failed: it goes on in its kept conversation under a new agent call. */
+  resumeSubagent: (id: string, callId: string) =>
+    call<{ callId: string }>("POST", `/v1/ext/studio/sessions/${encodeURIComponent(id)}/agents/${encodeURIComponent(callId)}/resume`),
   /** A message written in a subagent's thread: to it while it runs, else to the main agent, naming it (queued behind its reply unless now). */
   messageSubagent: (id: string, callId: string, text: string, attachments: string[] = [], now = false) =>
     call<{ sessionId: string; to: "subagent" | "queue" | "main" }>("POST", `/v1/ext/studio/sessions/${encodeURIComponent(id)}/agents/${encodeURIComponent(callId)}/messages`, now ? { text, attachments, now } : { text, attachments }),

@@ -69,6 +69,18 @@ describe("the thread list", () => {
     expect(screen.getAllByText("new")).toHaveLength(2);
   });
 
+  it("offers Resume on a failed or stopped subagent, always shown, and never on a running or done one", () => {
+    const onResume = vi.fn();
+    renderThreads({ onResume });
+    fireEvent.click(screen.getByRole("button", { name: /Finished \(3\)/ }));
+    fireEvent.click(screen.getByLabelText("Resume Task c"));
+    expect(onResume).toHaveBeenCalledWith("c");
+    fireEvent.click(screen.getByLabelText("Resume Task d"));
+    expect(onResume).toHaveBeenCalledWith("d");
+    expect(screen.queryByLabelText("Resume Task a")).toBeNull();
+    expect(screen.queryByLabelText("Resume Task b")).toBeNull();
+  });
+
   it("leaves the main agent's numbers to the context meter when there are no subagents", () => {
     renderThreads({ transcript: [], tokens: { main: 3_200 } });
     expect(document.querySelector(".agents-bar")).toBeNull();

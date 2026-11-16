@@ -862,6 +862,15 @@ export function registerChat(api: DaemonExtensionApi, agentVersion = "0.0.0", pa
     if (!store.get(req.params.id)) return missing(req.params.id);
     return runner.stopSubagent(req.params.id, req.params.callId) ? { status: 204 } : { status: 404, body: { error: `no running subagent ${req.params.callId}` } };
   });
+  // Resume a subagent that stopped or failed: it goes on in its kept conversation under a new agent call.
+  api.route("POST", "/sessions/:id/agents/:callId/resume", (req) => {
+    if (!store.get(req.params.id)) return missing(req.params.id);
+    try {
+      return { status: 202, body: { callId: runner.resumeSubagent(req.params.id, req.params.callId).callId } };
+    } catch (e) {
+      return { status: 409, body: { error: e instanceof Error ? e.message : String(e) } };
+    }
+  });
   // A message written in a subagent's thread. A running subagent reads it at its next step, and nothing
   // stops: not it, not the main agent, not the other subagents. One that has finished cannot read it: it
   // goes to the main agent instead (queued behind a running reply unless now: true), saying whose thread it came from.

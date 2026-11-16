@@ -137,7 +137,8 @@ export type HarnessRequest =
   | { kind: "credential"; route: string };
 
 export type AgentStart =
-  | { ok: true; spec: AgentSpec; prompt: UserContent; description: string }
+  /** `resume`: the agent call of a subagent that stopped or failed, whose kept conversation this one goes on in. A harness without it starts a new conversation. */
+  | { ok: true; spec: AgentSpec; prompt: UserContent; description: string; resume?: string }
   | { ok: false; text: string; stopped?: boolean };
 
 /** Client to harness. Requests carry an id answered by ret. */

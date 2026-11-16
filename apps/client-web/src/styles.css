@@ -812,6 +812,10 @@ button.small-button { padding: 0 4px; height: auto; font-size: inherit; }
 .composer .agents-dismiss { height: 22px; }
 .agents-row:hover .agents-dismiss, .agents-dismiss:focus-visible { opacity: 1; }
 .agents-dismiss:hover:not(:disabled) { color: var(--text); background: var(--panel-3); border-color: transparent; }
+/* Resume is the way on from a stopped or failed subagent: always shown, not only on hover. */
+.agents-resume { width: 22px; height: 22px; margin-right: 4px; padding: 0; display: grid; place-items: center; font-size: 13px; color: var(--accent); background: transparent; border-color: transparent; }
+.composer .agents-resume { height: 22px; }
+.agents-resume:hover:not(:disabled) { background: var(--panel-3); border-color: transparent; }
 .agents-fold-row { display: flex; align-items: center; gap: 6px; }
 .agents-fold-row .agents-fold { flex: 1; }
 .agents-clear { margin-left: auto; margin-right: 4px; padding: 2px 6px; }

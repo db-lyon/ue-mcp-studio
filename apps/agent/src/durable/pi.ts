@@ -648,13 +648,19 @@ export class DurableEngine {
   }
 
   /** The subagent's conversation for an agent call: the one an earlier run made, or a new one. */
-  private async childConversation(sessionId: string, callId: string, description: string): Promise<AnyConversation> {
+  private async childConversation(sessionId: string, callId: string, description: string, resumeFrom?: string): Promise<AnyConversation> {
     const id = await this.harness.commit(async (tx) => {
       const d = await (tx as unknown as { doc(t: unknown): Promise<SessionsDoc> }).doc(Sessions);
       const rec = d.sessions[sessionId];
       if (!rec) throw new Error(`no conversation for session ${sessionId}`);
       const had = rec.children[callId];
       if (had) return had.conv;
+      // Resuming a subagent that stopped or failed: the new call goes on in its kept conversation.
+      const from = resumeFrom ? rec.children[resumeFrom] : undefined;
+      if (from) {
+        rec.children[callId] = { conv: from.conv, background: false, reported: false, description };
+        return from.conv;
+      }
       const created = await (tx as unknown as { createConversation(o: unknown): Promise<{ id: string }> }).createConversation({ ownership: { kind: "ownerless" } });
       rec.children[callId] = { conv: String(created.id), background: false, reported: false, description };
       return String(created.id);
@@ -731,7 +737,7 @@ export class DurableEngine {
    * agent as a message when the subagent ends. An aborted call stops it.
    */
   private async runSubagent(sessionId: string, callId: string, start: Extract<AgentStart, { ok: true }>, signal: AbortSignal | undefined): Promise<{ text: string; isError: boolean }> {
-    const conv = await this.childConversation(sessionId, callId, start.description);
+    const conv = await this.childConversation(sessionId, callId, start.description, start.resume);
     const doc = await this.sessions();
     const rec = doc.sessions[sessionId]?.children[callId];
     if (rec?.background) return { text: backgroundText(start.description), isError: false };
@@ -776,7 +782,7 @@ export class DurableEngine {
    */
   async assign(sessionId: string, callId: string, start: Extract<AgentStart, { ok: true }>): Promise<void> {
     await this.mainConversation(sessionId);
-    const conv = await this.childConversation(sessionId, callId, start.description);
+    const conv = await this.childConversation(sessionId, callId, start.description, start.resume);
     const rec = (await this.sessions()).sessions[sessionId]?.children[callId];
     if (rec?.reported) return;
     await this.configure(conv, start.spec, "child");

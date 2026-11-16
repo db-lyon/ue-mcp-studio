@@ -20,7 +20,7 @@
 import { useState } from "react";
 import { Pressable, ScrollView, View } from "react-native";
 import type { ContextUsage, SessionAgent } from "@ue-mcp-studio/shared";
-import { STATE_LABEL, agentView, describe, formatDuration, isActive, listedSubagents, subagentsLine, tokenCount, type AgentState } from "@ue-mcp-studio/client-core";
+import { STATE_LABEL, agentView, describe, formatDuration, isActive, listedSubagents, resumable, subagentsLine, tokenCount, type AgentState } from "@ue-mcp-studio/client-core";
 import { font, T, useTheme } from "../ui";
 import { useNow } from "./hooks";
 import { stateColors } from "./ChatHeader";
@@ -28,13 +28,15 @@ import { buttonText, small } from "./styles";
 
 const EMPTY: ReadonlySet<string> = new Set();
 
-export function Threads({ agents, thread, onThread, onStop, seen, dismissed = EMPTY, onDismiss, tokens = {}, context = {}, head = true }: {
+export function Threads({ agents, thread, onThread, onStop, onResume, seen, dismissed = EMPTY, onDismiss, tokens = {}, context = {}, head = true }: {
   agents: SessionAgent[];
   /** Whether the list draws its own "Subagents: ..." line; off in the sheet, whose title already is that line. */
   head?: boolean;
   thread: string | null;
   onThread: (id: string | null) => void;
   onStop: (id: string) => void;
+  /** Continue a subagent that stopped or failed, in its kept conversation. */
+  onResume?: (id: string) => void;
   seen: ReadonlySet<string>;
   dismissed?: ReadonlySet<string>;
   onDismiss?: (ids: string[]) => void;
@@ -118,6 +120,7 @@ export function Threads({ agents, thread, onThread, onStop, seen, dismissed = EM
           </>
         ))}
         {isActive(r.state) ? iconButton(`Stop ${describe(r.call)}`, "■", 9, () => onStop(r.call.id)) : null}
+        {resumable(r.state) && onResume ? iconButton(`Resume ${describe(r.call)}`, "↻", 15, () => onResume(r.call.id)) : null}
         {!isActive(r.state) && onDismiss ? iconButton(`Dismiss ${describe(r.call)}`, "×", 13, () => onDismiss([r.call.id])) : null}
       </>,
       r.call.id,

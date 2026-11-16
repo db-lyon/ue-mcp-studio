@@ -424,6 +424,10 @@ export function ChatView({ daemon, nav, active = true, onSettings }: {
   const stopSubagent = (id: string) => {
     if (selected) void api.stopSubagent(selected, id).catch(fail);
   };
+  // A stopped or failed subagent goes on in its kept conversation, under a new row.
+  const resumeSubagent = (id: string) => {
+    if (selected) void api.resumeSubagent(selected, id).catch(fail);
+  };
 
   const busy = detail?.status === "running" || detail?.status === "waiting";
   // The calls waiting for approval, so the thread a call waits in says it waits on the user.
@@ -521,6 +525,7 @@ export function ChatView({ daemon, nav, active = true, onSettings }: {
         openThreadId(id);
       }}
       onStop={stopSubagent}
+      onResume={resumeSubagent}
       seen={seen}
       dismissed={dismissed}
       onDismiss={dismiss}
