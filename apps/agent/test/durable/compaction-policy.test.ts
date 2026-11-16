@@ -98,6 +98,31 @@ describe("durable compaction threshold", () => {
     expect(t.some((e) => e.kind === "compaction")).toBe(true);
   }, 60_000);
 
+  it("counts the compaction summary's spend in the session's totals, from Pi Durable's ledger", async () => {
+    await threeTurns(100_000, 90_000);
+    const s = rig.store.all()[0];
+    const sent = fake.requests.reduce((n, r) => n + (r.inputTokens ?? 0), 0);
+    // Three replies and one summary request: the summary has no transcript entry, and its tokens count all the same.
+    expect(fake.requests).toHaveLength(4);
+    await until(() => rig.store.get(s.id)!.totals?.input === sent, 10_000, "the ledger to be counted");
+    expect(rig.store.get(s.id)!.totals?.requests).toBe(3);
+  }, 60_000);
+
+  it("counts spend from the entries with a harness from an older Studio, which sends no ledger", async () => {
+    fake = await startFakeAnthropic(() => ({ text: "Hi." }));
+    rig = durableRunner({ projectDir: path.join(dir, "project"), dataDir: path.join(dir, "data"), base: fake.base, start: async (launch) => {
+      harness = await runHarness(launch);
+    } });
+    const client = (rig.runner as unknown as { durable: { client: { ensure(): Promise<unknown>; harness: { features: string[] } | null } } }).durable.client;
+    await client.ensure();
+    client.harness!.features = [];
+    const s = rig.store.create("t");
+    await rig.runner.send(s.id, "hello");
+    await until(() => rig.store.get(s.id)!.status === "idle", 30_000, "the turn");
+    expect(rig.store.get(s.id)!.totals?.input).toBe(fake.requests[0].inputTokens);
+    expect(rig.store.get(s.id)!.totals?.requests).toBe(1);
+  }, 60_000);
+
   it("leaves one below it alone", async () => {
     const t = await threeTurns(100_000, 70_000);
     expect(t.some((e) => e.kind === "compaction")).toBe(false);

@@ -24,8 +24,8 @@ export interface FakeTurn {
 export interface FakeAnthropic {
   base: string;
   /** `serverTools`: the types of the tools that run on the provider's side, such as its web search. */
-  /** `userText`: the request's messages as JSON. */
-  requests: Array<{ model: string; tools: string[]; serverTools: string[]; toolResults: number; system: string; userText: string }>;
+  /** `userText`: the request's messages as JSON; `inputTokens`: the input tokens its answer reported. */
+  requests: Array<{ model: string; tools: string[]; serverTools: string[]; toolResults: number; system: string; userText: string; inputTokens?: number }>;
   close(): Promise<void>;
 }
 
@@ -84,6 +84,7 @@ export async function startFakeAnthropic(script: (req: { toolResults: number; sy
     };
     const id = ++seq;
     const usage = { input_tokens: turn.inputTokens ?? 100 + n, output_tokens: 1, cache_creation_input_tokens: 0, cache_read_input_tokens: 0 };
+    requests[requests.length - 1].inputTokens = usage.input_tokens;
     await send({ type: "message_start", message: { id: `msg_${id}`, type: "message", role: "assistant", model: body.model, content: [], stop_reason: null, stop_sequence: null, usage } });
     let index = 0;
     if (turn.text) {
