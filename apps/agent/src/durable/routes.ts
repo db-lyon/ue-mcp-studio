@@ -14,7 +14,7 @@ import * as path from "node:path";
 import type { DaemonExtensionApi } from "ue-mcp/daemon";
 import { GATEWAY_CLIENT_HEADER, GATEWAY_CLIENT_PREFIX, GATEWAY_SESSION_HEADER, endpointIdOf, type ModelRoute, type VendorId } from "@ue-mcp-studio/shared";
 import { writeFileAtomic } from "../atomic-write.js";
-import type { RouteSpec } from "./protocol.js";
+import type { RouteSpec, TraceFilter } from "./protocol.js";
 
 /** The routes the setting names: the gateway, each key, the two sign-ins and custom endpoints. */
 export const DURABLE_ROUTES = ["studio", "key:anthropic", "key:openai", "key:google", "chatgpt", "endpoint", "claude"] as const;
@@ -118,7 +118,39 @@ export function routeSpec(o: {
   }
 }
 
-export function registerDurableRoutes(api: DaemonExtensionApi, o: { setting: DurableSetting; harness: () => { available: boolean; connected: boolean; version: string | null; pid: number | null }; inspect?: () => Promise<unknown> }): void {
+/** A traces query string as a filter: unknown or malformed values are left out, a limit is clamped to 1..100. */
+export function traceFilterOf(q: Record<string, string | undefined>): TraceFilter {
+  const f: TraceFilter = {};
+  if (q.name) f.name = q.name;
+  if (q.errors === "1" || q.errors === "true") f.errors = true;
+  if (q.session) f.sessionId = q.session;
+  if (q.since && Number.isFinite(Number(q.since))) f.since = Number(q.since);
+  if (q.limit && Number.isFinite(Number(q.limit))) f.limit = Math.max(1, Math.min(100, Math.floor(Number(q.limit))));
+  if (q.cursor) f.cursor = q.cursor;
+  return f;
+}
+
+export function registerDurableRoutes(api: DaemonExtensionApi, o: { setting: DurableSetting; harness: () => { available: boolean; connected: boolean; version: string | null; pid: number | null }; inspect?: () => Promise<unknown>; traces?: (o: { filter?: TraceFilter; traceId?: string }) => Promise<unknown> }): void {
+  // The background runtime's traces, newest first: ?name=pi.ai.request&errors=1&session=<id>&since=<epoch ms>&limit=20&cursor=...
+  api.route("GET", "/runtime/traces", async (req) => {
+    if (!o.traces) return { status: 404, body: { error: "This Studio keeps no runtime traces." } };
+    try {
+      return { body: await o.traces({ filter: traceFilterOf((req.query ?? {}) as Record<string, string | undefined>) }) };
+    } catch (e) {
+      return { status: 503, body: { error: e instanceof Error ? e.message : String(e) } };
+    }
+  });
+  // One trace with every span, and the spans as an indented tree.
+  api.route("GET", "/runtime/traces/:id", async (req) => {
+    if (!o.traces) return { status: 404, body: { error: "This Studio keeps no runtime traces." } };
+    try {
+      const seen = (await o.traces({ traceId: req.params.id })) as { running: boolean; trace?: unknown };
+      if (seen.running && !seen.trace) return { status: 404, body: { error: `No trace ${req.params.id}: traces are kept seven days.` } };
+      return { body: seen };
+    } catch (e) {
+      return { status: 503, body: { error: e instanceof Error ? e.message : String(e) } };
+    }
+  });
   api.route("GET", "/runtime", () => ({ body: { durable: o.setting.read(), routes: DURABLE_ROUTES, defaults: o.setting.defaultsOn(), harness: o.harness() } }));
   // What the background runtime is doing: live tasks (running, waiting, asleep or blocked), queued messages, recent reports.
   api.route("GET", "/runtime/inspect", async () => {

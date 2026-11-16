@@ -31,6 +31,8 @@ export const storageFile = (dataDir: string): string => path.join(durableDir(dat
 export const recordFile = (dataDir: string): string => path.join(durableDir(dataDir), "harness.json");
 export const launchFile = (dataDir: string): string => path.join(durableDir(dataDir), "harness.launch.json");
 export const logFile = (dataDir: string): string => path.join(durableDir(dataDir), "harness.log");
+/** The harness's traces (Pi Durable and pi-ai spans and metrics), kept seven days. */
+export const telemetryFile = (dataDir: string): string => path.join(durableDir(dataDir), "telemetry.sqlite");
 
 /** The harness's socket: one per project data folder. */
 export function harnessSocket(dataDir: string): string {
@@ -169,6 +171,56 @@ export interface DurableInspection {
   reports: Array<{ at: string; kind: string; reason?: string; task?: string; message: string }>;
 }
 
+/** Which traces to list: the newest first. */
+export interface TraceFilter {
+  /** The name of a trace's first span, such as pi.ai.request. */
+  name?: string;
+  /** Only traces with a failed span. */
+  errors?: boolean;
+  /** Only traces with a span for this Studio session's conversations. */
+  sessionId?: string;
+  /** Traces that started at or after this time (epoch ms). */
+  since?: number;
+  /** At most this many, 1 to 100 (20 when absent). */
+  limit?: number;
+  /** The `cursor` of the page before, with the same filter. */
+  cursor?: string;
+}
+
+/** A trace in a list: its first span, how long it ran, and its tokens and cost when it made model requests. */
+export interface TraceSummary {
+  traceId: string;
+  name: string;
+  /** Epoch ms. */
+  startedAt: number;
+  durationMs: number;
+  spans: number;
+  errors: number;
+  /** The first failed span's error. */
+  error?: string;
+  conversation?: string;
+  sessionId?: string;
+  parent?: string | null;
+  model?: string;
+  tokens?: { input: number; output: number; cacheRead: number; cacheWrite: number };
+  cost?: number;
+}
+
+export interface TracePage {
+  traces: TraceSummary[];
+  /** More traces past these: pass it back to read the next page. */
+  cursor?: string;
+  /** Why no traces are kept, when they are not (the store could not be opened). */
+  note?: string;
+}
+
+/** One trace with every span, and the spans as an indented tree. */
+export interface TraceDetail {
+  summary: TraceSummary;
+  spans: Array<{ id: string; parentId?: string; name: string; startedAt: number; durationMs: number; status: "ok" | "error"; error?: string; attributes: Record<string, unknown>; events: Array<{ name: string; atMs: number; attributes: Record<string, unknown> }> }>;
+  rendered: string;
+}
+
 /** One ledger bucket's totals, in pi-ai's usage counters. */
 export interface LedgerUsage {
   input: number;
@@ -198,6 +250,8 @@ export type ClientMessage =
   | { t: "assign"; id: string; sessionId: string; callId: string; start: Extract<AgentStart, { ok: true }> }
   /** What the harness is doing: its live tasks, queued submissions and recent reports. Reads only. An older harness never answers it. */
   | { t: "inspect"; id: string }
+  /** The harness's traces, newest first (answers a TracePage), or one trace with its spans (a TraceDetail or null). Reads only. An older harness never answers it. */
+  | { t: "traces"; id: string; filter?: TraceFilter; traceId?: string }
   /** An edited message or a fork: conversation `to` goes on from just before the message in `from`. Answers { conv, at } or null. An older harness never answers it. */
   | { t: "fork"; id: string; from: string; to: string; text: string; fromEnd: number }
   | { t: "res"; reqId: string; value: unknown }

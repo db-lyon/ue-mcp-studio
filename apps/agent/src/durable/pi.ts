@@ -21,8 +21,77 @@ import { googleGenerativeAIApi } from "@earendil-works/pi-ai/api/google-generati
 import { createRegistry, defineDoc, defineExtension, defineTool, GenerationTask, Harness, hook, LiveDoc } from "@earendil-works/pi-durable";
 import { openNodeSqliteStorage } from "@earendil-works/pi-durable/storage/sqlite/node";
 import { NOOP_TELEMETRY_CONTEXT } from "@earendil-works/pi-telemetry";
+import { renderTrace } from "@earendil-works/pi-telemetry/render";
+import { openNodeSqliteDatabase } from "@earendil-works/chord/sqlite/node";
+import { createSqliteTelemetry } from "@earendil-works/chord/telemetry-sqlite";
 import { createClaudeCodeProvider } from "studio-pi-claude-code";
-import type { AgentSpec, AgentStart, DurableInspection, EntryEvent, LedgerUsage, HarnessMessage, HarnessRequest, RouteSpec, ToolDef, UserContent } from "./protocol.js";
+import type { AgentSpec, AgentStart, DurableInspection, EntryEvent, LedgerUsage, HarnessMessage, HarnessRequest, RouteSpec, ToolDef, TraceDetail, TraceFilter, TracePage, TraceSummary, UserContent } from "./protocol.js";
+
+type Telemetry = Awaited<ReturnType<typeof createSqliteTelemetry>>;
+type Trace = NonNullable<Awaited<ReturnType<Telemetry["getTrace"]>>>;
+
+/** The harness's trace store: Pi Durable's phases and pi-ai's requests, buffered and written every second, kept seven days. */
+interface TraceStore {
+  telemetry: Telemetry;
+  close(): Promise<void>;
+}
+
+async function openTraceStore(file: string): Promise<TraceStore> {
+  const db = await openNodeSqliteDatabase(file);
+  try {
+    const telemetry = await createSqliteTelemetry(db);
+    return {
+      telemetry,
+      close: async () => {
+        await telemetry.close().catch(() => undefined);
+        await db.close();
+      },
+    };
+  } catch (e) {
+    await db.close().catch(() => undefined);
+    throw e;
+  }
+}
+
+const num = (v: unknown): number => (typeof v === "number" && Number.isFinite(v) ? v : 0);
+
+/** A trace as a list shows it: its first span, its length, its failures, and what its model requests used. */
+export function summarizeTrace(t: Trace, where: (conv: string) => { sessionId: string; parent: string | null } | undefined): TraceSummary {
+  const spans = [...t.spans].sort((a, b) => a.startedMs - b.startedMs || a.id.localeCompare(b.id));
+  const first = spans[0];
+  const failed = spans.filter((s) => s.status.status === "error");
+  const firstError = failed[0]?.status;
+  const convAttr = spans.map((s) => s.attributes["conversation.id"]).find((v) => v !== undefined);
+  const conversation = convAttr !== undefined ? String(convAttr) : undefined;
+  const w = conversation ? where(conversation) : undefined;
+  const requests = spans.filter((s) => s.name === "pi.ai.request" || s.name === "pi.ai.poll");
+  const model = requests.map((s) => s.attributes.model).find((v) => typeof v === "string") as string | undefined;
+  const used = requests.filter((s) => s.attributes["usage.input"] !== undefined || s.attributes["usage.output"] !== undefined);
+  const end = Math.max(...spans.map((s) => s.endedMs));
+  return {
+    traceId: t.traceId,
+    name: first?.name ?? "",
+    startedAt: Math.round(first?.startedMs ?? 0),
+    durationMs: first ? Math.round((end - first.startedMs) * 1000) / 1000 : 0,
+    spans: spans.length,
+    errors: failed.length,
+    ...(firstError && firstError.status === "error" && firstError.error ? { error: `${firstError.error.name}: ${firstError.error.message}`.slice(0, 500) } : {}),
+    ...(conversation ? { conversation } : {}),
+    ...(w ? { sessionId: w.sessionId, parent: w.parent } : {}),
+    ...(model ? { model } : {}),
+    ...(used.length
+      ? {
+          tokens: {
+            input: used.reduce((n, s) => n + num(s.attributes["usage.input"]), 0),
+            output: used.reduce((n, s) => n + num(s.attributes["usage.output"]), 0),
+            cacheRead: used.reduce((n, s) => n + num(s.attributes["usage.cache_read"]), 0),
+            cacheWrite: used.reduce((n, s) => n + num(s.attributes["usage.cache_write"]), 0),
+          },
+          cost: used.reduce((n, s) => n + num(s.attributes["cost.total"]), 0),
+        }
+      : {}),
+  };
+}
 
 /** Pi Durable's call context. Studio never cancels through it: a wait it gives up on is raced instead. */
 type Ctx = Parameters<typeof Harness.open>[2];
@@ -312,6 +381,8 @@ export class DurableEngine {
     private readonly routes: RouteModels,
     private readonly host: EngineHost,
     private readonly reports: DurableInspection["reports"],
+    private readonly traceStore: TraceStore | null,
+    private readonly traceNote: string | undefined,
   ) {}
 
   /** The last tool definitions per agent kind, so a newer extension can be installed over them. */
@@ -326,10 +397,21 @@ export class DurableEngine {
   /** Reporters of background subagents running in this process, by call id. */
   private readonly reporters = new Set<string>();
 
-  static async open(file: string, host: EngineHost): Promise<DurableEngine> {
+  /** `traces`: the trace store's file; without one, or when it cannot be opened, the harness records nothing and runs as before. */
+  static async open(file: string, host: EngineHost, traces?: string): Promise<DurableEngine> {
     const routes = new RouteModels(host);
     const registry = createRegistry();
     const storage = await openNodeSqliteStorage(file);
+    let traceStore: TraceStore | null = null;
+    let traceNote: string | undefined = traces ? undefined : "This runtime keeps no traces.";
+    if (traces) {
+      try {
+        traceStore = await openTraceStore(traces);
+      } catch (e) {
+        traceNote = `The trace store could not be opened, so this runtime keeps no traces: ${e instanceof Error ? e.message : String(e)}`;
+        host.log(traceNote);
+      }
+    }
     // Pi Durable's reports (faulted, interrupted or blocked tasks, hook and tool errors), newest first, for inspect().
     const reports: DurableInspection["reports"] = [];
     const onReport = (r: { kind: string; error?: unknown; reason?: string; task?: { id?: unknown } }): void => {
@@ -350,8 +432,12 @@ export class DurableEngine {
         afterFailedRun: "continue",
       },
       onReport,
-    } as never, CTX);
-    const engine = new DurableEngine(harness, registry, routes, host, reports);
+      ...(traceStore ? { telemetry: traceStore.telemetry } : {}),
+    } as never, CTX).catch(async (e: unknown) => {
+      await traceStore?.close().catch(() => undefined);
+      throw e;
+    });
+    const engine = new DurableEngine(harness, registry, routes, host, reports, traceStore, traceNote);
     await engine.load();
     return engine;
   }
@@ -464,6 +550,58 @@ export class DurableEngine {
   async close(): Promise<void> {
     for (const w of this.watched.values()) await w.stop().catch(() => undefined);
     await this.harness.close(CTX);
+    // After the harness: its last spans settle as it closes, and close drains them.
+    await this.traceStore?.close().catch((e: unknown) => this.host.log(`trace store close failed: ${e instanceof Error ? e.message : String(e)}`));
+  }
+
+  /** The recorded traces, newest first, or one trace with every span. Writes nothing; what is still buffered is written first. */
+  async traces(filter: TraceFilter = {}): Promise<TracePage> {
+    const store = this.traceStore?.telemetry;
+    if (!store) return { traces: [], ...(this.traceNote ? { note: this.traceNote } : {}) };
+    await store.flush().catch(() => undefined);
+    const limit = Math.max(1, Math.min(100, Math.floor(filter.limit ?? 20)));
+    const where = (conv: string) => this.byConv.get(conv);
+    const mine = filter.sessionId ? (s: TraceSummary) => s.sessionId === filter.sessionId : () => true;
+    const out: TraceSummary[] = [];
+    let cursor = filter.cursor;
+    // A session filter is applied to each page read: read on until the page is full or the store has no more, at most 20 pages a call.
+    for (let pages = 0; pages < 20; pages++) {
+      const page = await store.findTraces({
+        ...(filter.name ? { name: filter.name } : {}),
+        ...(filter.errors ? { errors: true as const } : {}),
+        ...(filter.since !== undefined ? { startMin: filter.since } : {}),
+        limit,
+        ...(cursor ? { cursor } : {}),
+      });
+      out.push(...page.traces.map((t) => summarizeTrace(t, where)).filter(mine));
+      cursor = page.cursor;
+      if (!cursor || out.length >= limit) break;
+    }
+    return { traces: out, ...(cursor ? { cursor } : {}) };
+  }
+
+  async trace(traceId: string): Promise<TraceDetail | null> {
+    const store = this.traceStore?.telemetry;
+    if (!store) return null;
+    await store.flush().catch(() => undefined);
+    const t = await store.getTrace(traceId);
+    if (!t) return null;
+    const spans = [...t.spans].sort((a, b) => a.startedMs - b.startedMs || a.id.localeCompare(b.id));
+    return {
+      summary: summarizeTrace(t, (conv) => this.byConv.get(conv)),
+      spans: spans.map((s) => ({
+        id: s.id,
+        ...(s.parentId ? { parentId: s.parentId } : {}),
+        name: s.name,
+        startedAt: Math.round(s.startedMs),
+        durationMs: Math.round((s.endedMs - s.startedMs) * 1000) / 1000,
+        status: s.status.status,
+        ...(s.status.status === "error" && s.status.error ? { error: `${s.status.error.name}: ${s.status.error.message}` } : {}),
+        attributes: { ...s.attributes },
+        events: s.events.map((e) => ({ name: e.name, atMs: e.timeMs, attributes: { ...e.attributes } })),
+      })),
+      rendered: renderTrace(spans),
+    };
   }
 
   /** The session's main conversation, made on first use. */
