@@ -148,6 +148,8 @@ export class SessionStore {
   private readonly cache = new Map<string, StoredSession>();
   /** Saves Windows refused (another process had the file open): kept in memory and written again. */
   private readonly writes: PendingWrites;
+  /** Told of every save and delete, for the clients' watch of each session (session-ops.ts). */
+  onChange?: (id: string, deleted: boolean) => void;
 
   constructor(dataDir: string, log: (msg: string, e?: unknown) => void = (msg, e) => console.warn(`[studio] ${msg}`, e ?? "")) {
     this.writes = new PendingWrites({ log });
@@ -220,6 +222,11 @@ export class SessionStore {
     // touch: false is bookkeeping, such as the crash flag, which must not move the session up the list (#144).
     if (opts.touch !== false) s.updatedAt = new Date().toISOString();
     this.cache.set(s.id, s);
+    try {
+      this.onChange?.(s.id, false);
+    } catch {
+      // A watcher's failure never stops a save.
+    }
     const file = path.join(this.dir, `${s.id}.json`);
     if (SessionStore.isBlank(s)) {
       this.writes.forget(file);
@@ -318,6 +325,11 @@ ${text}` }] } as MessageParam,
 
   delete(id: string): boolean {
     const had = this.cache.delete(id);
+    try {
+      this.onChange?.(id, true);
+    } catch {
+      // As for a save.
+    }
     const file = path.join(this.dir, `${id}.json`);
     this.writes.forget(file);
     if (!fs.existsSync(file)) return had;

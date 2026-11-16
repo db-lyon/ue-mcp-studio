@@ -94,12 +94,27 @@ export function pageStart(transcript: readonly TranscriptEntry[], end: number, t
  * unreadable), only a page of it when it asks for one, else the entries that
  * differ from what it holds.
  */
-export function syncOf(detail: SessionDetail, have: string | undefined, page: SyncPage = {}): SessionSync {
-  const { transcript, subagents, ...whole } = detail;
-  // The derived state (subagents, working line, compacting, live playtests) goes with every answer, whole, page or delta.
-  const rest = subagents ? { ...whole, subagents: subagents.map((a) => ({ ...a, call: leanCall(a.call), ...(a.step ? { step: leanCall(a.step) } : {}) })) } : whole;
+/** The detail without its transcript, as every answer sends it: the derived state (subagents, working line, compacting, live playtests) included, lean. */
+export function headOf(detail: SessionDetail): Omit<SessionDetail, "transcript"> {
+  const { transcript: _t, subagents, ...whole } = detail;
+  return subagents ? { ...whole, subagents: subagents.map((a) => ({ ...a, call: leanCall(a.call), ...(a.step ? { step: leanCall(a.step) } : {}) })) } : whole;
+}
+
+/** The transcript as sent, and each entry's hash. */
+export function leanTranscript(transcript: readonly TranscriptEntry[]): { lean: TranscriptEntry[]; hashes: number[] } {
   const lean = transcript.map(leanEntry);
-  const hashes = lean.map((e) => hash(JSON.stringify(e)));
+  return { lean, hashes: lean.map((e) => hash(JSON.stringify(e))) };
+}
+
+export function syncOf(detail: SessionDetail, have: string | undefined, page: SyncPage = {}, opsSeq?: number): SessionSync {
+  const sync = syncBody(detail, have, page);
+  return opsSeq === undefined ? sync : { ...sync, opsSeq };
+}
+
+function syncBody(detail: SessionDetail, have: string | undefined, page: SyncPage): SessionSync {
+  const { transcript } = detail;
+  const rest = headOf(detail);
+  const { lean, hashes } = leanTranscript(transcript);
   const held = have === undefined ? null : decodeHashes(have);
   if (!held && page.tail !== undefined && page.tail > 0) {
     const end = Math.min(lean.length, Math.max(0, page.before ?? lean.length));

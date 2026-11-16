@@ -8,7 +8,7 @@
 import { useBack } from "../back";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Animated, AppState, Pressable, RefreshControl, ScrollView, useWindowDimensions, View } from "react-native";
-import { SLASH_COMMANDS, contextView, parseSlashCommand, type ActionRunRequest, type FlowRunRequest, type PlaytestRequest, type SessionDetail, type SessionSummary, type StudioSettings } from "@ue-mcp-studio/shared";
+import { SLASH_COMMANDS, contextView, parseSlashCommand, type ActionRunRequest, type FlowRunRequest, type PlaytestRequest, type SessionDetail, type SessionOps, type SessionSummary, type StudioSettings } from "@ue-mcp-studio/shared";
 import { NO_LIVE, applyLive, type LiveParts } from "@ue-mcp-studio/client-core";
 import { CHAT_INTRO, DetailLoader, SESSIONS_SLOW, SESSION_TRY_AGAIN, SESSION_TRY_AGAIN_LABEL, sessionLoadFailed, chatPane, composerPlaceholder, composerQueues, composerTarget, listedSubagents, sessionGone, subagentsLine, subagentsOf, subagentsPress, toMainFromThread, unreachable } from "@ue-mcp-studio/client-core";
 import { useProjectNav } from "../nav";
@@ -305,13 +305,20 @@ export function Chat({ nav, initialSession = null, onSettings, active = true }: 
           setStreaming(streamed.current);
           return;
         }
+        if (e.type === "studio.session.ops") {
+          // The session's watch: the change itself, applied in place; a gap reads the session again.
+          if (!detailLoader.ops(e.data as unknown as SessionOps)) void loadDetail(cur);
+          return;
+        }
         if (e.type === "studio.transcript.added") {
           streamed.current = "";
           setStreaming("");
         }
+        // Followed through its watch, the change comes as an op; a status change still reads it, as a safety net.
+        if (detailLoader.following(cur) && e.type !== "studio.session.changed") return;
         void loadDetail(cur);
       }),
-    [project, loadList, loadSettings, loadDetail],
+    [project, loadList, loadSettings, loadDetail, detailLoader],
   );
 
   // An example prompt lands as the new session's saved draft, so it is in the composer when the session opens.

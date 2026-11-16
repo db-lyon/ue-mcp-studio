@@ -37,7 +37,8 @@
  *
  * Progress arrives on the daemon's event stream as studio.session.changed,
  * studio.transcript.added, studio.turn.delta, studio.turn.thinking, studio.tool.output, studio.tool.finished,
- * studio.tool.queued, studio.approval.requested and studio.approval.resolved.
+ * studio.tool.queued, studio.approval.requested and studio.approval.resolved. A client that read a
+ * session (whose sync answer carries opsSeq) follows it through studio.session.ops (session-ops.ts).
  */
 import { registerVersionNotice } from "./version-notice.js";
 import { registerWhatsNew } from "./whats-new.js";
@@ -73,6 +74,7 @@ import { issueBody, submitFeedback, validate, type Environment } from "./feedbac
 import * as fs from "node:fs";
 import * as path from "node:path";
 import { resultOf, syncOf, threadOf } from "./session-delta.js";
+import { SessionWatch } from "./session-ops.js";
 import { ClaudeLoginCheck, claudeHome, claudeLogin, refreshClaudeLogin, studioClaudeHome } from "./claude-auth.js";
 import { deleteTranscripts, restoreTranscripts } from "./claude-sessions.js";
 import { ChatGptAuth, ChatGptSignInFlow, chatgptModels } from "./chatgpt.js";
@@ -663,6 +665,12 @@ export function registerChat(api: DaemonExtensionApi, agentVersion = "0.0.0", pa
   } catch (e) {
     api.log.warn("could not copy Claude conversations into Claude Code's home", e);
   }
+  // The clients' watch of each session: every saved change as one studio.session.ops event, which the relay carries too.
+  const watch = new SessionWatch((id) => {
+    const s = store.get(id);
+    return s ? SessionStore.detail(s, (callId) => runner.canMessage(s, callId)) : null;
+  }, (ops) => api.events.publish("session.ops", ops as unknown as Record<string, unknown>));
+  store.onChange = (id, deleted) => (deleted ? watch.forget(id) : watch.changed(id));
   api.route("GET", "/sessions", () => ({ body: { sessions: store.all().map(SessionStore.summary) } }));
   api.route("POST", "/sessions", () => ({ status: 201, body: SessionStore.detail(store.blank()) }));
   api.route("GET", "/sessions/:id", (req) => {
@@ -671,7 +679,7 @@ export function registerChat(api: DaemonExtensionApi, agentVersion = "0.0.0", pa
     const detail = SessionStore.detail(s, (callId) => runner.canMessage(s, callId));
     if (req.query.sync === undefined) return { body: detail };
     const count = (v: unknown) => (typeof v === "string" && /^\d+$/.test(v) ? Number(v) : undefined);
-    return { body: syncOf(detail, typeof req.query.have === "string" ? req.query.have : undefined, { tail: count(req.query.tail), before: count(req.query.before) }) };
+    return { body: syncOf(detail, typeof req.query.have === "string" ? req.query.have : undefined, { tail: count(req.query.tail), before: count(req.query.before) }, watch.seq(s.id)) };
   });
   // One subagent's own entries, a page at a time, whatever part of the main transcript the client holds.
   api.route("GET", "/sessions/:id/agents/:callId", (req) => {
@@ -1052,6 +1060,7 @@ export function registerChat(api: DaemonExtensionApi, agentVersion = "0.0.0", pa
       unregisterSteps();
       dialogs.dispose();
       qa.dispose();
+      watch.dispose();
       runner.dispose();
       // A save Windows refused earlier gets one more try before the daemon goes.
       store.flush();

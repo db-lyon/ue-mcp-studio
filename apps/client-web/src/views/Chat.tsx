@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { ACCOUNT_NAME, ACCOUNT_SIGN_IN_GITHUB, REMOTE_SIGN_IN, REMOTE_COMMAND, REMOTE_COMMAND_REPLY, REMOTE_ON_COMPUTER, SLASH_COMMANDS, REMOTE_PLAN_OFFERED, contextView, isLocalCommand, parseSlashCommand, remoteCommand, remoteShown, type ActionRunRequest, type FlowRunRequest, type PlaytestRequest, type SessionDetail, type SessionSummary, type StudioSettings } from "@ue-mcp-studio/shared";
+import { ACCOUNT_NAME, ACCOUNT_SIGN_IN_GITHUB, REMOTE_SIGN_IN, REMOTE_COMMAND, REMOTE_COMMAND_REPLY, REMOTE_ON_COMPUTER, SLASH_COMMANDS, REMOTE_PLAN_OFFERED, contextView, isLocalCommand, parseSlashCommand, remoteCommand, remoteShown, type ActionRunRequest, type FlowRunRequest, type PlaytestRequest, type SessionDetail, type SessionOps, type SessionSummary, type StudioSettings } from "@ue-mcp-studio/shared";
 import { api } from "../api";
 import { useRemoteAvailable } from "./settings/remote-available";
 import { REMOTE_NOW_ON, UpgradeAction } from "./Upgrade";
@@ -251,9 +251,13 @@ export function ChatView({ daemon, nav, active = true, onSettings }: {
         streamed.current += String(e.data.text ?? "");
       } else if (e.type === "studio.turn.thinking" || e.type === "studio.tool.output") {
         // Drawn from the live parts; nothing to read again.
+      } else if (e.type === "studio.session.ops") {
+        // The session's watch: the change itself, applied in place; a gap reads the session again.
+        if (!detailLoader.ops(e.data as unknown as SessionOps)) refetch = true;
       } else {
         if (e.type === "studio.transcript.added") streamed.current = "";
-        refetch = true;
+        // Followed through its watch, the change comes as an op; a status change still reads it, as a safety net.
+        if (!detailLoader.following(selected ?? "") || e.type === "studio.session.changed") refetch = true;
       }
     }
     setStreaming(streamed.current);

@@ -504,6 +504,26 @@ export interface SessionSync extends Omit<SessionDetail, "transcript"> {
   /** With `tail`: how many entries the whole transcript has. */
   total?: number;
   changed?: { length: number; entries: Array<[number, TranscriptEntry]> };
+  /** The session's op (studio.session.ops) this answer is current with; absent from a daemon that sends no ops. */
+  opsSeq?: number;
+}
+
+/**
+ * studio.session.ops: what one saved change of a session did, in order per
+ * session. A client holding the answer of op `seq - 1` (or newer) applies it:
+ * the transcript is cut or grown to `length`, each changed entry is set at its
+ * index (as the sync sends it, with its hash), and each changed top-level
+ * field of the detail is set (`removed`: fields no longer present). `resync`:
+ * the change was too large to send; read the session again.
+ */
+export interface SessionOps {
+  sessionId: string;
+  seq: number;
+  length: number;
+  entries: Array<[number, TranscriptEntry, number]>;
+  head?: Partial<Omit<SessionDetail, "transcript">>;
+  removed?: string[];
+  resync?: true;
 }
 
 /**

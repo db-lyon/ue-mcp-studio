@@ -6,7 +6,7 @@
  * `tail` holds only the newest entries at first and reads older ones a page at
  * a time on `older`.
  */
-import type { AgentThreadPage, SessionDetail, SessionSync, TranscriptEntry } from "@ue-mcp-studio/shared";
+import type { AgentThreadPage, SessionDetail, SessionOps, SessionSync, TranscriptEntry } from "@ue-mcp-studio/shared";
 
 /** The held transcript's offset: the index of its first entry in the session's transcript. */
 const fromOf = (d: SessionDetail | null): number => d?.from ?? 0;
@@ -140,8 +140,89 @@ export function sessionGone(e: unknown): boolean {
   return status === 404 && e instanceof Error && /^no session\b/.test(e.message);
 }
 
+const B64 = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_";
+
+/** The sync's entry hashes (four bytes each, base64url) as numbers; null when unreadable. */
+export function decodeHashList(s: string): number[] | null {
+  const bytes: number[] = [];
+  let bits = 0;
+  let acc = 0;
+  for (const ch of s) {
+    const v = B64.indexOf(ch);
+    if (v < 0) return null;
+    acc = (acc << 6) | v;
+    bits += 6;
+    if (bits >= 8) {
+      bits -= 8;
+      bytes.push((acc >> bits) & 0xff);
+    }
+  }
+  if (bytes.length % 4 !== 0) return null;
+  const out: number[] = [];
+  for (let i = 0; i < bytes.length; i += 4) out.push(((bytes[i] << 24) | (bytes[i + 1] << 16) | (bytes[i + 2] << 8) | bytes[i + 3]) >>> 0);
+  return out;
+}
+
+export function encodeHashList(hs: readonly number[]): string {
+  const bytes: number[] = [];
+  for (const h of hs) bytes.push((h >>> 24) & 0xff, (h >>> 16) & 0xff, (h >>> 8) & 0xff, h & 0xff);
+  let out = "";
+  for (let i = 0; i < bytes.length; i += 3) {
+    const n = (bytes[i] << 16) | ((bytes[i + 1] ?? 0) << 8) | (bytes[i + 2] ?? 0);
+    const chars = i + 2 < bytes.length ? 4 : i + 1 < bytes.length ? 3 : 2;
+    for (let k = 0; k < chars; k++) out += B64[(n >> (18 - 6 * k)) & 63];
+  }
+  return out;
+}
+
+/**
+ * The held detail with one op of the session's watch applied (#463 L2):
+ * null when it cannot be (the transcript was cut back past the held page),
+ * and the session is read again.
+ */
+export function applyOps(detail: SessionDetail, hashes: number[] | null, ops: SessionOps): { detail: SessionDetail; hashes: number[] | null } | null {
+  const start = fromOf(detail);
+  if (ops.length < start) return null;
+  const transcript = detail.transcript.slice(0, ops.length - start);
+  // Grown past what is held: the gap is filled by the entries the op carries (every new one is among them).
+  const nextHashes = hashes ? hashes.slice(0, ops.length) : null;
+  for (const [i, e, h] of ops.entries) {
+    if (nextHashes) nextHashes[i] = h;
+    if (i >= start) transcript[i - start] = e;
+  }
+  for (let i = 0; i < transcript.length; i++) if (transcript[i] === undefined) return null;
+  const out = { ...detail, ...(ops.head ?? {}), transcript } as SessionDetail & Record<string, unknown>;
+  for (const k of ops.removed ?? []) delete out[k];
+  if (start) out.from = start;
+  return { detail: out, hashes: nextHashes };
+}
+
 export class DetailLoader {
-  private held: { id: string; hashes: string | undefined; detail: SessionDetail } | null = null;
+  private held: { id: string; hashes: string | undefined; detail: SessionDetail; opsSeq?: number } | null = null;
+
+  /** Whether the open session is followed through its watch (the daemon sends ops): events about it need no read. */
+  following(id: string): boolean {
+    return this.held?.id === id && this.held.opsSeq !== undefined && !this.running;
+  }
+
+  /**
+   * One op of a session's watch. True when it is in hand (applied, or already
+   * held); false when the session must be read instead (a gap, a cut-back past
+   * the held page, `resync`, or nothing held for it), which the caller does
+   * with load().
+   */
+  ops(o: SessionOps): boolean {
+    const held = this.held;
+    if (!held || held.id !== o.sessionId || held.opsSeq === undefined || this.running) return false;
+    if (o.seq <= held.opsSeq) return true;
+    if (o.seq !== held.opsSeq + 1 || o.resync) return false;
+    const next = applyOps(held.detail, held.hashes !== undefined ? decodeHashList(held.hashes) : null, o);
+    if (!next) return false;
+    const detail = this.readable(held.id, next.detail);
+    this.held = { id: held.id, detail, opsSeq: o.seq, hashes: next.hashes ? encodeHashList(next.hashes) : undefined };
+    this.apply(detail);
+    return true;
+  }
   private running: Promise<void> | null = null;
   private wanted: string | null = null;
   private wantOlder: string | null = null;
@@ -212,7 +293,7 @@ export class DetailLoader {
           this.wanted ??= id;
           continue;
         }
-        this.held = { id, hashes: "hashes" in sync ? sync.hashes : undefined, detail };
+        this.held = { id, hashes: "hashes" in sync ? sync.hashes : undefined, detail, ...("opsSeq" in sync && typeof sync.opsSeq === "number" ? { opsSeq: sync.opsSeq } : {}) };
         this.apply(detail);
         // A page with too little of the main thread to draw reads the one before it.
         if (tail && wantsOlder(detail, Math.min(tail, MIN_MAIN_ENTRIES))) this.wantOlder ??= id;
