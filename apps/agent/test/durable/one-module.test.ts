@@ -1,7 +1,8 @@
 /**
  * Pi Durable, pi-ai and pi-claude-code are reached through one module,
  * durable/pi.ts, at exact versions: an API change upstream touches that file
- * alone, and the daemon's bundle never loads them.
+ * alone. The daemon reaches pi-ai only for Sign in with ChatGPT, through
+ * pi-auth.ts, and never loads Pi Durable or pi-claude-code.
  */
 import { describe, expect, it } from "vitest";
 import * as fs from "node:fs";
@@ -13,11 +14,14 @@ const files = (dir: string): string[] => fs.readdirSync(dir, { withFileTypes: tr
 const imports = (file: string): string[] => [...fs.readFileSync(file, "utf-8").matchAll(/^\s*import\s+(?!type\b)[^;]*?from\s+"([^"]+)"/gms)].map((m) => m[1]);
 
 describe("the durable runtime's dependencies", () => {
-  it("imports Pi Durable, pi-ai and pi-claude-code only in durable/pi.ts", () => {
+  it("imports Pi Durable, pi-ai and pi-claude-code only in durable/pi.ts, and pi-ai's ChatGPT sign-in only in pi-auth.ts", () => {
+    const rel = (f: string) => path.relative(src, f).replace(/\\/g, "/");
     const offenders = files(src)
-      .filter((f) => path.relative(src, f).replace(/\\/g, "/") !== "durable/pi.ts")
+      .filter((f) => !["durable/pi.ts", "pi-auth.ts"].includes(rel(f)))
       .filter((f) => imports(f).some((m) => m.startsWith("@earendil-works/") || m === "studio-pi-claude-code"));
     expect(offenders.map((f) => path.relative(src, f))).toEqual([]);
+    // The daemon's door takes pi-ai alone: never Pi Durable, its telemetry or pi-claude-code.
+    expect(imports(path.join(src, "pi-auth.ts")).filter((m) => !/^@earendil-works\/pi-ai(\/|$)/.test(m))).toEqual([]);
   });
 
   it("pins exact versions", () => {
