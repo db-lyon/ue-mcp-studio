@@ -27,7 +27,7 @@ import {
   type HarnessRecord,
   type HarnessRequest,
 } from "./protocol.js";
-import { onLines, sendLine, writeJsonAtomic } from "../turn-host-protocol.js";
+import { onLines, sendLine, writeJsonAtomic } from "./ipc.js";
 
 /** How long the harness stays with no daemon connected and nothing to run. */
 const IDLE_EXIT_MS = 10 * 60_000;

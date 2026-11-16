@@ -88,8 +88,6 @@ fs.writeFileSync(path.join(ext, "package.json"), JSON.stringify({
   ueMcpExtension: agentPkg.ueMcpExtension,
 }, null, 2) + "\n");
 fs.copyFileSync(path.join(ROOT, "apps", "agent", "dist", "index.js"), path.join(ext, "dist", "index.js"));
-// The process a Claude sign-in turn runs in, which the extension starts beside itself.
-fs.copyFileSync(path.join(ROOT, "apps", "agent", "dist", "turn-host.js"), path.join(ext, "dist", "turn-host.js"));
 // The durable harness, the extension a running harness takes over from an older Studio, and the helper its Claude provider starts.
 for (const f of ["durable-harness.js", "durable-extension.js", "inert-mcp.mjs"]) fs.copyFileSync(path.join(ROOT, "apps", "agent", "dist", f), path.join(ext, "dist", f));
 fs.copyFileSync(path.join(ROOT, "apps", "agent", "dist", "keys.json"), path.join(ext, "dist", "keys.json"));

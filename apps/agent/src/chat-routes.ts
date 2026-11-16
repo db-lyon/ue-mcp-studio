@@ -94,7 +94,6 @@ import { projectStrategy, registerComposerRoutes } from "./composer-routes.js";
 import { registerNativeRoutes } from "./native-routes.js";
 import { ContextSurfaces, contextApiOf } from "./context-surface.js";
 import { fullModelName, modelName } from "./models.js";
-import { TurnHosts } from "./hosted-turn.js";
 import { durableRouteOf, forgetRouteSetting, registerDurableRoutes, routeSpec } from "./durable/routes.js";
 import { ensureRuntime } from "./runtime.js";
 import { userHome } from "./instructions.js";
@@ -309,13 +308,11 @@ export function registerChat(api: DaemonExtensionApi, agentVersion = "0.0.0", pa
     dialogs,
     qa,
     store,
-    provider: () => providerFor(settings, route(), providerContext()),
     model: () => settings.model(),
     effort: () => settings.effort(),
     usage: () => settings.usage(),
     surfaces,
     subagentModel: () => settings.subagentModel(),
-    subscription: () => route() === "claude",
     ready: () => (signInsRead ? null : signInsReady),
     // A key names its vendor, since model names no longer do.
     route: () => {
@@ -333,14 +330,6 @@ export function registerChat(api: DaemonExtensionApi, agentVersion = "0.0.0", pa
     flows: new FlowCaller({ endpoint, subscribe: (listener) => api.events.subscribe((e) => listener(e)) }),
     flowStepApproval: () => offersStepApproval(stepHost),
     contextWindow: knownWindow,
-    // Claude sign-in turns run in host processes beside the bundle, so an update installs while they run.
-    turnHosts: new TurnHosts({
-      dataDir: api.dataDir,
-      projectDir: api.projectDir,
-      version: agentVersion,
-      script: packageDir ? path.join(packageDir, "dist", "turn-host.js") : null,
-      log: api.log,
-    }),
     durable: {
       route: durableRoute,
       routeSpec: (model, on) => {
@@ -434,8 +423,6 @@ export function registerChat(api: DaemonExtensionApi, agentVersion = "0.0.0", pa
     dataDir: api.dataDir,
     busy: () => runner.activeSessions().length > 0,
     pinned: () => runner.pinnedSessions().length > 0,
-    // A Studio update also waits for turns in a turn host: the Studio after the cutover cannot take them over.
-    hosted: () => runner.hostedSessions().length > 0,
     interruptTurns: () => {
       for (const id of runner.activeSessions()) runner.interrupt(id, { by: "studio", why: "the user chose Restart now to install an update" });
     },

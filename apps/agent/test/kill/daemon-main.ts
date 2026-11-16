@@ -1,12 +1,9 @@
 /**
  * A stand-in daemon for the kill tests: Studio's AgentRunner on a fake editor
- * host, on one runtime, with a small HTTP control so the test in another
- * process can drive it and read what a client would see. The test kills this
- * process at its kill points and starts it again on the same data folder.
- *
- * Runtimes: "loop" (Studio's own loop on the Anthropic SDK), "hosts" (the
- * Claude sign-in's turn hosts, the Claude runtime pointed at the stand-in
- * API), "durable" (the durable harness, the bundled one in its own process).
+ * host, on the durable runtime (the bundled harness in its own process), with
+ * a small HTTP control so the test in another process can drive it and read
+ * what a client would see. The test kills this process at its kill points and
+ * starts it again on the same data folder.
  *
  * node daemon.mjs <config.json>
  */
@@ -14,22 +11,20 @@ import * as fs from "node:fs";
 import * as http from "node:http";
 import * as path from "node:path";
 import type { AddressInfo } from "node:net";
-import Anthropic from "@anthropic-ai/sdk";
-import { AgentRunner, type RunnerOptions } from "../../src/runner.js";
+import { AgentRunner } from "../../src/runner.js";
 import { SessionStore } from "../../src/sessions.js";
-import { AnthropicProvider } from "../../src/providers.js";
-import { TurnHosts } from "../../src/hosted-turn.js";
 import { syncOf } from "../../src/session-delta.js";
 import { FakeHost } from "../durable/helpers.js";
 import { routeSpec } from "../../src/durable/routes.js";
 
 export interface DaemonConfig {
-  runtime: "loop" | "hosts" | "durable";
+  /** Always "durable": the only runtime there is. */
+  runtime: "durable";
   dataDir: string;
   projectDir: string;
   base: string;
   version: string;
-  /** dist/ of the built agent: the harness, its extension and the turn host. */
+  /** dist/ of the built agent: the harness and its extension. */
   dist: string;
   callMs: number;
   ask: boolean;
@@ -44,35 +39,24 @@ const log = (m: string) => fs.appendFileSync(path.join(config.dataDir, "daemon.l
 host.log = { info: (m: string) => log(m), warn: (m: string, e?: unknown) => log(`WARN ${m} ${e instanceof Error ? e.message : String(e ?? "")}`) };
 const store = new SessionStore(config.dataDir);
 
-const base: RunnerOptions = {
+const runner = new AgentRunner({
   host,
   store,
-  model: () => "claude-sonnet-5-5",
+  model: () => config.claude?.model ?? "claude-sonnet-5-5",
   askBeforeChanges: () => config.ask,
-  provider: () => new AnthropicProvider("test-key", new Anthropic({ apiKey: "test-key", baseURL: config.base })),
-};
-const runner = new AgentRunner(
-  config.runtime === "durable" ? {
-    ...base,
-    ...(config.claude ? { model: () => config.claude!.model } : {}),
-    durable: {
-      route: () => (config.claude ? "claude" : "key:anthropic"),
-      routeSpec: (model) => (config.claude
-        // The route as Studio ships it, with the provider's own web search.
-        ? routeSpec({ route: "claude", model, vendor: "anthropic", gatewayUrl: "", agentVersion: config.version, endpoint: () => null })
-        : { route: "key:anthropic", provider: "anthropic", api: "anthropic-messages", model, baseUrl: config.base, auth: "apiKey" }),
-      credential: async () => "test-key",
-      harness: {
-        dataDir: config.dataDir, projectDir: config.projectDir, version: config.version, script: path.join(config.dist, "durable-harness.js"), extensionFile: path.join(config.dist, "durable-extension.js"),
-        ...(config.claude ? { claudeCommand: async () => config.claude!.command } : {}),
-      },
+  durable: {
+    route: () => (config.claude ? "claude" : "key:anthropic"),
+    routeSpec: (model) => (config.claude
+      // The route as Studio ships it, with the provider's own web search.
+      ? routeSpec({ route: "claude", model, vendor: "anthropic", gatewayUrl: "", agentVersion: config.version, endpoint: () => null })
+      : { route: "key:anthropic", provider: "anthropic", api: "anthropic-messages", model, baseUrl: config.base, auth: "apiKey" }),
+    credential: async () => "test-key",
+    harness: {
+      dataDir: config.dataDir, projectDir: config.projectDir, version: config.version, script: path.join(config.dist, "durable-harness.js"), extensionFile: path.join(config.dist, "durable-extension.js"),
+      ...(config.claude ? { claudeCommand: async () => config.claude!.command } : {}),
     },
-  } : config.runtime === "hosts" ? {
-    ...base,
-    subscription: () => true,
-    turnHosts: new TurnHosts({ dataDir: config.dataDir, projectDir: config.projectDir, version: config.version, script: path.join(config.dist, "turn-host.js"), log: host.log }),
-  } : base,
-);
+  },
+});
 runner.recover();
 
 const json = (res: http.ServerResponse, status: number, body: unknown) => {

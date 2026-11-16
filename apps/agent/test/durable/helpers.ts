@@ -89,9 +89,6 @@ export function durableRunner(o: {
   const runner = new AgentRunner({
     host,
     store,
-    provider: () => {
-      throw new Error("the durable runtime does not use Studio's providers");
-    },
     model: () => "claude-opus-5-5",
     askBeforeChanges: () => false,
     ...o.extra,

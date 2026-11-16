@@ -1,13 +1,13 @@
 /**
- * The agent loop, and how a turn survives the editor going away.
+ * Studio's sessions over the durable runtime, and how a turn survives the
+ * editor going away.
  *
- * A turn is model call, tool calls, model call, until the model stops asking
- * for tools. It pauses at the tool-call boundary when the editor is down, and
- * resumes on its own when the editor is back. A call that was running when
- * the editor died has an unknown outcome: it is never run again blindly. On
- * reattach the runner reports what it can establish from disk and tells the
- * model to read the state back. After a crash, every change the session made
- * and never saved is listed as lost before the model continues.
+ * Every conversation, the main agent's and each subagent's, runs in the
+ * durable harness (durable/). Its tool calls come back here: a call that needs
+ * the editor waits while it is down, and goes on when it is back. A call that
+ * was running when the editor died has an unknown outcome: it is never run
+ * again blindly. After a crash, every change the session made and never saved
+ * is listed as lost before the model continues.
  *
  * A command or a file change waits for the user to allow it (gate), unless the
  * setting is off or the user allowed that kind for the session. The request
@@ -15,27 +15,22 @@
  */
 import * as crypto from "node:crypto";
 import * as fs from "node:fs";
-import * as path from "node:path";
 import { DEFAULT_USAGE, type ApprovalDecision, type ApprovalKind, type Approvals, type ApprovalRequest, type Effort, type PlaytestRunsMode, type TranscriptEntry, type UsageSettings } from "@ue-mcp-studio/shared";
-import { AUTO_COMPACT_FRACTION, EMPTY_TOTALS, contextTokens, contextWindowOf, estimateTokens, requestCost, type CompactionRecord } from "@ue-mcp-studio/shared";
-import type { ContentBlock, ModelProvider, ModelTurn, MessageParam, WebSearchRecord } from "./providers.js";
+import { EMPTY_TOTALS, requestCost } from "@ue-mcp-studio/shared";
+import type { MessageParam } from "./providers.js";
 import { promptTokens, usageTokens, type TokenUsage } from "./usage.js";
 import { DEFAULT_SESSION_TITLE, SessionStore, type PendingTool, type StoredContext, type StoredSession } from "./sessions.js";
-import { compactedMessages, conversationText, estimateMessagesTokens, isCompactedSummary, isContextOverflow, summaryInstruction, summaryRequest } from "./compaction.js";
 import type { QueuedMessage, ReplyImageInfo } from "@ue-mcp-studio/shared";
 import type { CardEntry, CardPost } from "@ue-mcp-studio/extension-api";
 import type { BusyTracker } from "./busy.js";
 import type { DialogBroker } from "./dialogs.js";
 import type { QaBroker } from "./qa.js";
-import { TOOLS, WORK_TOOLS, editorConnected, executeTool, forModel, packageFile, validateInput, verifyUnknown, type AgentHost, type ToolExecution } from "./tools.js";
+import { WORK_TOOLS, editorConnected, executeTool, packageFile, validateInput, type AgentHost, type ToolExecution } from "./tools.js";
 import type Anthropic from "@anthropic-ai/sdk";
 import { approvalFor, localToolDefinitions, shell } from "./local-tools.js";
 import { WEB_SEARCH_TOOL } from "./web-search.js";
 import { callInsideProject } from "./project-scope.js";
 import { MICRO_LINE, microSurface, withSurface, type EditorSurface } from "./context-surface.js";
-
-/** Set by the release bundle: false leaves the Agent SDK out of it. Unset in development and tests. */
-declare const __CLAUDE_SIGN_IN__: boolean | undefined;
 import { modelName } from "./models.js";
 import { AttachmentStore, contentFor } from "./attachments.js";
 import { keptName, toolResultContent } from "./images.js";
@@ -43,10 +38,7 @@ import { USER_SENT, USER_STOP, interruptedResult, interruptionLine, interruption
 import { actionCommandText, flowCommandText, flowValue, parseActionArgs, parseFlowArgs, parseSlashCommand, splitActionName, type ActionRunRequest, type Attachment, type FlowRunRequest, type PlaytestRequest } from "@ue-mcp-studio/shared";
 import { applyStepEvent, type FlowCaller } from "./flow-run.js";
 import { QUEUED_STOP, SubagentSlots } from "./subagent-slots.js";
-import { REPLY_SHOWN, REPLY_TOOL, REPLY_TOOL_NAME, SUBAGENT_MESSAGES_LINE, SubagentInbox, aboutNote, heardNote, toSubagent, unreadNote } from "./subagent-inbox.js";
-import type { LiveTurn } from "./subscription.js";
-import { DETACHED, type HostedCallbacks, type HostedResult, type HostedRun, type TurnHosts } from "./hosted-turn.js";
-import { REPLY_PROTOCOL, STUDIO_SUBAGENTS_PROTOCOL, type TurnHostRecord, type TurnSpec } from "./turn-host-protocol.js";
+import { REPLY_SHOWN, REPLY_TOOL, SUBAGENT_MESSAGES_LINE, SubagentInbox, aboutNote, toSubagent } from "./subagent-inbox.js";
 import { playtestParams, playtestTurnParams, type PlaytestFlow } from "./playtest-flow.js";
 import { NOTHING, conditionalFor, pathsOf, type Composed } from "./instructions.js";
 import { NO_EFFECTS, SESSION_KEY, approvalKind, editorPreview, flowStepCall, flowStepKind, type ActionEffects } from "./approval-kind.js";
@@ -90,10 +82,6 @@ export function playtestRunsLine(mode: PlaytestRunsMode): string {
     ? "Starting playtests is set to Automatic in Settings > Approvals & review: you may start a playtest yourself with pie.script_run (wait: true, start_pie: true when PIE is not running) when the user wants it run, then report the summary and the results_path. Its card goes live."
     : "Starting playtests is set to Manual in Settings > Approvals & review: only the user starts a playtest, with Start playtest or Assign to subagent on its card. Never call pie.script_run or pie.script_replay; Studio refuses them. Create or update the script, tell the user it is on the card, and end your turn. If the user wants you to run playtests yourself, tell them to set Starting playtests to Automatic.";
 }
-
-/** The SDK's options for the surface: ue-mcp's projected tools in place of ue_mcp, on Lean and Full. */
-const sdkEditor = (s: EditorSurface) =>
-  s.strategy === "micro" ? {} : { editor: { tools: s.projected.map(({ name, description, inputSchema, category }) => ({ name, description, inputSchema, category })), canon: s.canon } };
 
 const WORK = [
   MICRO_LINE,
@@ -171,9 +159,8 @@ export const backgroundReport = (description: string, callId: string, r: AgentRe
 /**
  * One subagent the session runs, on any route: started by the main agent's
  * agent call, or by the user from the chat (assigned). Its conversation runs
- * on the route's engine (Studio's loop, or a Claude sign-in session of its
- * own), and every path that steers it (stop, background, limits, messages,
- * its report) goes through here.
+ * in the durable harness, and every path that steers it (stop, background,
+ * limits, messages, its report) goes through here.
  */
 interface AgentRun {
   sessionId: string;
@@ -190,23 +177,13 @@ interface AgentRun {
   answer: (a: AgentAnswer) => void;
   /** Undoes what ties it to the main agent's reply (following its Stop), when it goes to the background. */
   detach: Array<() => void>;
-  /** Streams the user's message into its conversation (a Claude sign-in session); null where it reads its inbox (Studio's loop) or has not started. */
+  /** Streams the user's message into its conversation in the harness; null until it has started, when the message waits in its inbox. */
   say: ((text: string) => Promise<boolean>) | null;
-  /** The turn host its conversation runs in, when it runs in one. */
-  hosted: HostedRun | null;
   /** What the user wrote to it from its thread, which its result names so the main agent knows where an instruction came from. */
   told: string[];
-  /**
-   * It has Studio's reply tool and says when it reads the user's message, so
-   * each message's delivery is tracked: Studio's loop, and a Claude sign-in
-   * session in a host of REPLY_PROTOCOL or later. A subagent in an older host
-   * is told to answer in text, and its messages carry no delivery.
-   */
+  /** It has Studio's reply tool and says when it reads the user's message, so each message's delivery is tracked. */
   replies: boolean;
 }
-
-/** Turn host session key of a subagent's conversation. */
-const agentHostKey = (sessionId: string, callId: string): string => `${sessionId}#${callId}`;
 
 /** What the model is told when the user declines a call. */
 const declinedText = (name: string): string =>
@@ -239,7 +216,6 @@ const RESTART_CAUSE_TTL_MS = 10 * 60_000;
 export interface RunnerOptions {
   host: AgentHost;
   store: SessionStore;
-  provider: () => ModelProvider;
   model: () => string;
   /** How long the model reasons; high when not given. */
   effort?: () => Effort;
@@ -248,16 +224,10 @@ export interface RunnerOptions {
   /** The model subagents run on; the main model when not given. */
   subagentModel?: () => string;
   /**
-   * The model is reached through the Claude sign-in's runtime (subscription.ts)
-   * rather than a provider's API: each conversation step, the main agent's
-   * reply or one subagent, runs there. Orchestration is Studio's either way.
-   */
-  subscription?: () => boolean;
-  /**
    * While the sign-ins are still being read after the daemon starts: a promise
    * that settles once they are (or a time limit passes); null once they are.
-   * Until then `subscription` and the provider cannot tell a signed-in route
-   * from a signed-out one, so a turn that starts or resumes waits for it.
+   * Until then the route cannot tell a signed-in sign-in from a signed-out
+   * one, so a reply that starts waits for it.
    */
   ready?: () => Promise<void> | null;
   /** How the model is reached for this turn: a sign-in or a key, by name. */
@@ -294,22 +264,14 @@ export interface RunnerOptions {
   flowStepApproval?: () => boolean;
   /** A model's context window as the vendor's model list gave it, when it did. */
   contextWindow?: (model: string) => number | undefined;
-  /**
-   * Runs Claude sign-in conversation steps (the main agent's replies and each
-   * subagent) in host processes that outlive this daemon, so an update or a
-   * daemon restart does not end them. Without it, or when a host cannot start,
-   * a step runs in the daemon.
-   */
-  turnHosts?: TurnHosts;
   /** What each project image a reply's text shows is (size, type, frames), sent with the reply; none when not given. */
   replyImages?: (text: string) => Record<string, ReplyImageInfo> | undefined;
   /**
-   * The durable runtime (durable/): conversations in a long-lived harness
-   * process, selected per route by a setting that is off by default. Without
-   * it, or with the current route's setting off, a session runs as before.
+   * The durable runtime (durable/): every conversation runs in a long-lived
+   * harness process. Without it a reply fails, saying so.
    */
   durable?: {
-    /** The current route's key when its setting selects the durable runtime; null when it is off. */
+    /** The current route's key; null when nothing on this computer runs the selected model. */
     route(): string | null;
     /**
      * How a conversation reaches `model`: on the current route, or on `on`,
@@ -321,34 +283,6 @@ export interface RunnerOptions {
     harness: Omit<HarnessClientOptions, "onMessage" | "onConnection" | "log">;
   };
 }
-
-/** Where a Claude sign-in reply's own bookkeeping stands; kept with the session while it runs in a host. */
-interface TurnTrack {
-  /** The last host event applied. */
-  seq: number;
-  /** The main agent's message the next block of the same id merges into. */
-  lastId: string | null;
-  /** Compatibility (a host before protocol 3): the runtime's own agent calls running in the background. */
-  background: string[];
-}
-
-/** A conversation compaction can rewrite: the main agent's, or one subagent's. */
-interface Conversation {
-  /** null for the main agent, else the subagent's agent call id. */
-  agent: string | null;
-  /** Rewritten in place. */
-  messages: MessageParam[];
-  model: string;
-  /** What the system prompt and the tools take, before any message. */
-  overhead: number;
-  /** Ask the model for the summary. */
-  summarize: (messages: MessageParam[], signal: AbortSignal) => Promise<{ text: string; usage?: TokenUsage }>;
-}
-
-type CompactionEntry = Extract<TranscriptEntry, { kind: "compaction" }>;
-
-const textOf = (content: ContentBlock[]): string =>
-  content.filter((b): b is Extract<ContentBlock, { type: "text" }> => b.type === "text").map((b) => b.text).join("");
 
 const now = (): string => new Date().toISOString();
 
@@ -468,24 +402,16 @@ export class AgentRunner {
   private readonly active = new Map<string, AbortController>();
   /** Sessions whose main agent is replying now (as opposed to idle while its subagents work). */
   private readonly replying = new Set<string>();
-  /** The main agent's reply on the Claude sign-in while it runs, by session: what a message mid-reply is streamed into. */
-  private readonly live = new Map<string, LiveTurn>();
-  /** Replies running in a host process, by session: a daemon restart leaves them running. */
-  private readonly hosted = new Map<string, HostedRun>();
   /** Every subagent running or waiting to start, by its agent call id, on every route. */
   private readonly runs = new Map<string, AgentRun>();
   /** How many subagents run at once, by session: one queue for every agent call of the session. */
   private readonly slots = new Map<string, SubagentSlots>();
-  /** What waits for the main agent's next step while its turn runs (the user's messages, background reports), by session. */
-  private readonly mainInbox = new Map<string, unknown[][]>();
   /** Each running subagent's stop, by its agent call id, so one can be stopped without the turn. */
   private readonly subagents = new Map<string, () => void>();
-  /** What the user sent running subagents on Studio's loop, until each reads it before its next model call. */
+  /** What the user sent a subagent before its conversation started in the harness, until it starts with it. */
   private readonly inbox = new SubagentInbox();
   /** Agent calls marked waiting to start before their transcript entry arrived. */
   private readonly queuedEarly = new Set<string>();
-  /** Compatibility: replies in a turn host from before protocol 3, which runs the runtime's own subagents, by session. */
-  private readonly legacy = new Map<string, LiveTurn>();
   /** The daemon is going down: subagents left running are the next daemon's. */
   private disposed = false;
   /** Calls waiting for the user, by approval id, with how to answer each. */
@@ -513,8 +439,8 @@ export class AgentRunner {
       addEntry: (s, e) => this.addEntry(s, e),
       recordOutcome: (s, p, outcome) => this.recordOutcome(s, p, outcome),
       setStatus: (s, status, cause) => this.setStatus(s, status, cause),
-      // A subagent the user assigned makes the user's own calls, as on Studio's loop.
-      runTool: (s, c, id, name, input, onStart, parent) => this.subscriptionTool(s, c, id, name, input, !!parent && !!this.runs.get(parent)?.assigned, onStart),
+      // A subagent the user assigned makes the user's own calls.
+      runTool: (s, c, id, name, input, onStart, parent) => this.runTool(s, c, id, name, input, !!parent && !!this.runs.get(parent)?.assigned, onStart),
       lostCall: (s, id, name, input) => this.lostCall(s, id, name, input),
       replyToUser: (s, id, input) => this.replyToUser(s, id, input),
       skill: (name) => skillResult(this.native()?.skills ?? [], name),
@@ -558,11 +484,8 @@ export class AgentRunner {
         }
       } else if (e.type === "editor.connected") {
         // With the editor back, what the crash lost is listed at once, not on the session's next message.
+        // A call waiting for the editor goes on by itself (waitForEditor); the harness holds the rest of the turn.
         for (const s of o.store.all()) if (s.crashed && this.busy(s)) this.reconcileCrash(s);
-        this.resumeAll();
-      } else if (e.type === "studio.busy.changed" && e.data.failure && !e.data.operation) {
-        // The restart or rebuild ended without the editor: nothing will bring it back, so stop waiting for it.
-        this.resumeAll();
       }
     });
   }
@@ -638,19 +561,6 @@ export class AgentRunner {
     return agentTool(AGENT_TOOL, (this.native()?.helpers ?? []).map((h) => ({ name: h.name, description: h.description })));
   }
 
-  /** What Studio adds to the SDK's prompt from the project's files: nothing when the SDK reads them itself. */
-  private sdkComposed(): Composed {
-    const n = this.native();
-    return n?.sdkLoads ? NOTHING : this.composed();
-  }
-
-  /** The SDK options that load the project's own Claude Code instructions and skills; none while they are off. */
-  private sdkNative(): { native?: { settingSources: Array<"user" | "project" | "local">; skills: boolean } } {
-    const n = this.native();
-    if (!n?.sdkLoads) return {};
-    return { native: { settingSources: ["user", "project", "local"], skills: n.skills.length > 0 } };
-  }
-
   /** The skills line of a prompt, when the project has skills. */
   private skillLines(): string | null {
     const n = this.native();
@@ -662,9 +572,8 @@ export class AgentRunner {
    * a subfolder's AGENTS.md once the agent works there, a rule whose globs
    * match a file it read or changed. Each once per conversation.
    */
-  private withInstructions(conversation: string, name: string, input: Record<string, unknown>, exec: ToolExecution, sdk = false): ToolExecution {
-    // On the Claude sign-in the SDK loads a subfolder's files itself when the agent works there.
-    const c = sdk ? this.sdkComposed() : this.composed();
+  private withInstructions(conversation: string, name: string, input: Record<string, unknown>, exec: ToolExecution): ToolExecution {
+    const c = this.composed();
     if (c.conditional.length === 0) return exec;
     let sent = this.instructionsSent.get(conversation);
     if (!sent) this.instructionsSent.set(conversation, (sent = new Set()));
@@ -687,11 +596,6 @@ export class AgentRunner {
     const t = (s.tokens ??= {});
     const key = agent ?? "main";
     t[key] = (t[key] ?? 0) + tokens;
-  }
-
-  /** A model's context window: the vendor's listed one when the catalog has it, else what Studio knows of the model. */
-  private windowFor(model: string): number {
-    return contextWindowOf(model, this.o.contextWindow?.(model)).tokens;
   }
 
   /** Add a request's tokens to the session's totals. `request`: count it as a request (the SDK reports one several times). */
@@ -719,243 +623,43 @@ export class AgentRunner {
     this.changed(s, agent);
   }
 
-  /**
-   * How much of the window a conversation would take if sent now: the last
-   * measurement and an estimate of what was added since; an estimate of all
-   * of it when no request on this route has measured it.
-   */
-  private currentContext(s: StoredSession, c: Conversation): number {
-    const m = s.context?.[c.agent ?? "main"];
-    if (m && !m.sdk && m.messages !== undefined && m.messages <= c.messages.length) return contextTokens(m) + estimateMessagesTokens(c.messages.slice(m.messages));
-    return c.overhead + estimateMessagesTokens(c.messages);
-  }
-
-  /** The main agent's conversation, with what its requests send besides the messages. */
-  private mainConversation(s: StoredSession, surf = this.surface()) {
-    const model = this.o.model();
-    const sys: Array<{ type: "text"; text: string }> = [{ type: "text", text: [withSurface(system(this.o.host.projectDir, this.runsMode(), this.usage(), this.composed()), surf), this.skillLines()].filter(Boolean).join("\n") }];
-    const tools = this.mainTools(surf);
-    const effort = this.o.effort?.();
-    const conv: Conversation & { system: typeof sys; tools: typeof tools; effort: typeof effort } = {
-      agent: null,
-      messages: s.messages,
-      model,
-      overhead: estimateTokens(sys[0].text + JSON.stringify(tools)),
-      system: sys,
-      tools,
-      effort,
-      summarize: async (messages, signal) => {
-        const t = await this.o.provider().run({ sessionId: s.id, model, effort, system: sys, tools, messages }, () => {}, signal);
-        return { text: textOf(t.content), usage: t.usage };
-      },
-    };
-    return conv;
-  }
-
-  /** Compact a conversation that has reached the share of its window Studio compacts at. */
-  private async autoCompact(s: StoredSession, c: Conversation, signal: AbortSignal): Promise<void> {
-    const used = this.currentContext(s, c);
-    if (used < this.windowFor(c.model) * AUTO_COMPACT_FRACTION) return;
-    // Nothing since the last compaction: a summary of a summary frees nothing.
-    if (c.messages.length <= 2 && isCompactedSummary(c.messages[0])) return;
-    await this.compactConversation(s, c, "auto", used, signal);
-  }
-
-  /**
-   * Replace a conversation with the model's summary of it, and mark where in
-   * the transcript. When the summary cannot be had, the oldest part goes and
-   * the most recent part is kept as text. Returns false when it was stopped.
-   */
-  private async compactConversation(s: StoredSession, c: Conversation, trigger: CompactionRecord["trigger"], before: number, signal: AbortSignal, instructions?: string): Promise<boolean> {
-    const started = Date.now();
-    const entry: CompactionEntry = { kind: "compaction", at: now(), trigger, state: "running", before, model: modelName(c.model), ...(instructions ? { instructions } : {}), ...(c.agent ? { parent: c.agent } : {}) };
-    this.addEntry(s, entry);
-    const window = this.windowFor(c.model);
-    let summary = "";
-    let error: string | undefined;
-    try {
-      // Past the window even the request for a summary would be refused: its most recent part goes as text instead.
-      const req = before < window * 0.95
-        ? summaryRequest(c.messages, instructions)
-        : summaryRequest([{ role: "user", content: [{ type: "text", text: `[Studio] The conversation so far, as text:\n\n${conversationText(c.messages, Math.floor(window * 0.6 * 4))}` }] } as MessageParam], instructions);
-      const r = await c.summarize(req, signal);
-      summary = r.text.trim();
-      if (r.usage) {
-        this.count(s, usageTokens(r.usage), c.agent);
-        this.spend(s, r.usage, c.model);
-      }
-    } catch (e) {
-      error = e instanceof Error ? e.message : String(e);
-    }
-    if (signal.aborted) {
-      Object.assign(entry, { state: "failed", error: "Stopped before the summary was written. Nothing was compacted.", ms: Date.now() - started });
-      this.changed(s, c.agent);
-      return false;
-    }
-    let method: "summary" | "truncated" = "summary";
-    if (!summary) {
-      method = "truncated";
-      summary = `The summary could not be written, so the earliest part of the conversation was left out. Its most recent part, as text:\n\n${conversationText(c.messages, Math.floor(window * 0.25 * 4))}`;
-    }
-    const next = compactedMessages(c.messages, summary, before);
-    c.messages.splice(0, c.messages.length, ...next);
-    const after = c.overhead + estimateMessagesTokens(next);
-    Object.assign(entry, { state: "done", after, summary, method, ms: Date.now() - started, ...(method === "truncated" && error ? { error } : {}) });
-    (s.context ??= {})[c.agent ?? "main"] = { input: after, cached: 0, output: 0, model: c.model, at: now(), estimated: true, messages: next.length };
-    this.changed(s, c.agent);
-    return true;
-  }
-
   /** Save the session and tell the client an entry or a context changed in place. */
   private changed(s: StoredSession, agent: string | null): void {
     this.o.store.save(s);
     this.o.host.events.publish("context.changed", { sessionId: s.id, agent: agent ?? "main" });
   }
 
-  /** What /compact asked the Claude sign-in's runtime to keep, by session, until its compaction lands. */
-  private readonly pendingCompact = new Map<string, string>();
-
   /**
-   * Compact now and /compact: summarise the conversation so far, the
-   * transcript untouched. On the Claude sign-in its runtime compacts its own
-   * session; elsewhere Studio does. Refused while a turn runs.
+   * Compact now and /compact: the harness summarises the conversation so far,
+   * the transcript untouched, as it does on its own near the window. Refused
+   * while a turn runs, and before the session's first reply on the durable
+   * runtime, which is when its conversation moves into the harness.
    */
   async compact(sessionId: string, instructions = ""): Promise<void> {
     const s = this.require(sessionId);
     if (this.busy(s)) throw new Error("a turn is in progress; compact when it ends");
     if (s.messages.length === 0) throw new Error("there is nothing to compact yet");
-    // On the durable runtime the harness compacts the conversation, as it does on its own near the window.
-    if (this.durable?.owns(s) && this.o.durable?.route()) return this.durable.compact(s, instructions.trim());
-    const onClaude = !!this.o.subscription?.();
-    const asked = instructions.trim();
-    s.error = null;
-    // On the Claude sign-in with its session up to date, its runtime compacts it, as Claude Code's /compact does.
-    if (onClaude && s.sdkSession && !s.offClaude) {
-      this.pendingCompact.set(s.id, asked);
-      this.setStatus(s, "running", null);
-      return this.runSubscription(s.id, [{ type: "text", text: asked ? `/compact ${asked}` : "/compact" }]);
-    }
-    const controller = new AbortController();
-    this.active.set(s.id, controller);
-    this.setStatus(s, "running", null);
-    try {
-      const c: Conversation = onClaude ? this.claudeConversation(s) : this.mainConversation(s);
-      await this.compactConversation(s, c, "manual", this.currentContext(s, c), controller.signal, asked || undefined);
-      if (controller.signal.aborted) return;
-      // The Claude session has not seen the summary: the next turn there starts from it.
-      if (s.sdkSession) s.offClaude = true;
-      this.setStatus(s, "idle", null);
-    } catch (e) {
-      if (controller.signal.aborted) return;
-      s.error = e instanceof Error ? e.message : String(e);
-      this.setStatus(s, "error", null);
-    } finally {
-      if (this.active.get(s.id) === controller) this.active.delete(s.id);
-    }
-  }
-
-  /** The conversation on the Claude sign-in when its runtime has no session to compact: summarised by one answer on the sign-in. */
-  private claudeConversation(s: StoredSession): Conversation {
-    const model = this.o.model();
-    return {
-      agent: null,
-      messages: s.messages,
-      model,
-      overhead: 0,
-      summarize: async (messages, signal) => {
-        const sdk = typeof __CLAUDE_SIGN_IN__ === "undefined" || __CLAUDE_SIGN_IN__ ? await import("./subscription.js") : null;
-        if (!sdk) throw new Error("This Studio build does not include the Claude sign-in.");
-        const r = await sdk.runSubscriptionCompletion({
-          projectDir: this.o.host.projectDir,
-          model,
-          effort: "medium",
-          system: "You summarise a conversation between a user and an agent that works in an Unreal Engine project.",
-          prompt: `${conversationText(messages, 400_000)}\n\n${summaryInstruction(this.pendingCompact.get(s.id))}`,
-          signal,
-        });
-        if ("error" in r) throw new Error(r.error);
-        return { text: r.text };
-      },
-    };
-  }
-
-  /** A summary the Claude sign-in's runtime reported before its compaction marker arrived, by session. */
-  private readonly runtimeSummary = new Map<string, string>();
-
-  /**
-   * The Claude sign-in's runtime compacting the main conversation: a marker
-   * goes up when it starts, and says how far it got when it ends. Its summary
-   * comes by a hook, before or after the end.
-   */
-  private runtimeCompacted(s: StoredSession, model: string, e: { started?: boolean; trigger?: "auto" | "manual"; before?: number; after?: number; summary?: string; failed?: string }): void {
-    const runtime = (t: TranscriptEntry): t is CompactionEntry => t.kind === "compaction" && !t.parent && t.method === "runtime";
-    const open = [...s.transcript].reverse().find((t): t is CompactionEntry => runtime(t) && t.state === "running");
-    const asked = this.pendingCompact.get(s.id);
-    const fresh = (): CompactionEntry => {
-      const x: CompactionEntry = { kind: "compaction", at: now(), trigger: e.trigger ?? (this.pendingCompact.has(s.id) ? "manual" : "auto"), state: "running", before: e.before ?? (s.context?.main ? contextTokens(s.context.main) : 0), method: "runtime", model: modelName(model), ...(asked ? { instructions: asked } : {}) };
-      this.addEntry(s, x);
-      return x;
-    };
-    if (e.started) {
-      if (!open) fresh();
-      return;
-    }
-    if (e.summary !== undefined) {
-      const target = open ?? [...s.transcript].reverse().find((t): t is CompactionEntry => runtime(t) && t.state === "done" && !t.summary);
-      if (!target) {
-        this.runtimeSummary.set(s.id, e.summary);
-        return;
-      }
-      target.summary = e.summary;
-      this.changed(s, null);
-      return;
-    }
-    const entry = open ?? fresh();
-    if (e.trigger) entry.trigger = e.trigger;
-    if (e.before) entry.before = e.before;
-    if (e.failed) Object.assign(entry, { state: "failed", error: e.failed });
-    else {
-      const summary = this.runtimeSummary.get(s.id);
-      Object.assign(entry, { state: "done", ms: Date.now() - Date.parse(entry.at), ...(e.after !== undefined ? { after: e.after } : {}), ...(summary !== undefined && !entry.summary ? { summary } : {}) });
-      const main = s.context?.main;
-      if (main && e.after !== undefined) s.context!.main = { ...main, input: e.after, cached: 0, output: 0, at: now() };
-    }
-    this.runtimeSummary.delete(s.id);
-    this.pendingCompact.delete(s.id);
-    this.changed(s, null);
+    if (!this.durable?.owns(s) || !this.o.durable?.route()) throw new Error("this conversation moves to the durable runtime with its next message; compact after that");
+    return this.durable.compact(s, instructions.trim());
   }
 
   /**
-   * The daemon is going down. A turn running in a host goes on there, and the
-   * next daemon reattaches to it. Every other turn on the SDK route ends here,
-   * saying so. An API turn resumes in the next daemon.
+   * The daemon is going down. A session on the durable runtime goes on in the
+   * harness, and the next daemon takes it over. A /flow or /action running in
+   * this daemon ends here.
    */
   dispose(): void {
     // What this daemon's subagents do from here is the next daemon's to apply: nothing of theirs is saved here.
     this.disposed = true;
     this.unsubscribe();
-    for (const [id, run] of [...this.hosted]) {
-      run.detach();
-      this.active.delete(id);
-      this.o.host.log.info(`session ${id}: the turn goes on in its host process ${run.host}`);
-    }
-    this.hosted.clear();
-    // A subagent in a host goes on there too, and the next daemon reattaches to it.
-    const kept = new Set<string>();
-    for (const run of this.runs.values()) {
-      if (!run.hosted) continue;
-      run.hosted.detach();
-      kept.add(run.callId);
-      this.o.host.log.info(`session ${run.sessionId}: subagent ${run.callId} goes on in its host process ${run.hosted.host}`);
-    }
     const cause: Interruption = { by: "studio", why: this.restartCause(false) ?? "Studio's daemon shut down" };
     // A session on the durable runtime goes on in the harness: its calls waiting on this daemon go to the next one.
     this.durable?.dispose();
+    // Anything else running here (a /flow, a /action) ends with the daemon.
     for (const [id, c] of [...this.active]) {
       const s = this.o.store.get(id);
       if (s && this.durable?.owns(s)) continue;
-      if (this.o.subscription?.()) this.interrupt(id, cause, kept);
-      else c.abort(cause);
+      c.abort(cause);
     }
   }
 
@@ -991,27 +695,6 @@ export class AgentRunner {
       // A session on the durable runtime went on in the harness: this daemon takes over where it is.
       if (s.durable && this.durable) {
         this.recoverDurable(s);
-        continue;
-      }
-      // Read before the subagents are taken over, which marks each one as working in the background.
-      const replyEnded = this.replyHadEnded(s);
-      // Subagents first: one whose conversation runs in a host is taken over; one that ran in the previous daemon ends here.
-      const kept = this.recoverAgents(s, why);
-      // A turn running in its own process outlived the previous daemon: this one takes it over.
-      if (this.reattach(s)) continue;
-      // Only subagents outlived it: the main agent is free beside them, and their reports wake it.
-      if (kept.size > 0 && !s.pending?.some((p) => p.state !== "done")) {
-        if (s.status === "running" || s.status === "waiting") {
-          if (replyEnded) {
-            // The main agent's reply had ended before the restart: nothing of it was cut off, so it says nothing.
-            if (s.status !== "running") this.setStatus(s, "running", null);
-            this.refreshFree(s);
-            this.o.host.log.info(`session ${s.id}: the main agent is free beside ${kept.size} subagent(s) that went on through the restart`);
-          } else {
-            const asked = new Set((s.approvals ?? []).filter((a) => !a.parent).map((a) => a.toolUseId));
-            this.endTurn(s, { by: "studio", why }, asked, kept);
-          }
-        }
         continue;
       }
       // A /playtest's flow answered the previous daemon, if anyone: its card says it was cut off, and Retry runs it again.
@@ -1050,35 +733,12 @@ export class AgentRunner {
         this.o.store.save(s);
       }
       if (s.status !== "running" && s.status !== "waiting") continue;
-      if (this.o.subscription?.()) {
-        // The runtime cannot pick up a reply a restart cut off: end it, saying what was cut off and by what.
-        this.endTurn(s, { by: "studio", why }, asked, kept);
-        continue;
-      }
-      for (const p of s.pending ?? []) if (p.state === "running") p.state = "unknown";
-      s.status = "waiting";
-      s.waitingCause = s.waitingCause ?? why.replace(/^Studio's daemon/, "the daemon");
-      this.o.store.save(s);
-    }
-    this.resumeAll();
-  }
-
-  /**
-   * Whether the main agent's reply had ended before the restart, leaving only
-   * subagents in the background: it was free beside them, and nothing of its
-   * own (no call, no agent call it waited on) was open.
-   */
-  private replyHadEnded(s: StoredSession): boolean {
-    if (!s.mainFree || (s.status !== "running" && s.status !== "waiting")) return false;
-    if (s.pending?.some((p) => p.state !== "done")) return false;
-    return !s.transcript.some((t) => t.kind === "tool" && !t.parent && t.call.outcome === "pending" && !(t.call.name === "agent" && s.agentRuns?.[t.call.id]?.background));
-  }
-
-  resumeAll(): void {
-    for (const s of this.o.store.all()) {
-      // A durable session's calls wait for the editor in the harness's requests, not in a turn loop here.
-      if (this.durable?.owns(s)) continue;
-      if (s.status === "waiting" && !this.active.has(s.id)) void this.runTurn(s.id);
+      // A turn from before every route ran on the durable runtime (Studio's loop or a turn host) cannot be picked up:
+      // it ends, saying what was cut off and by what, and the next message carries the whole conversation into the harness.
+      // Its subagents ran there too, and are cut off with it.
+      delete s.agentRuns;
+      delete s.hostTurn;
+      this.endTurn(s, { by: "studio", why }, asked);
     }
   }
 
@@ -1222,7 +882,7 @@ export class AgentRunner {
       this.deliver(s, id, unread.length, "main");
       this.addEntry(s, { kind: "note", text: `"${run?.description ?? "The subagent"}" ended before it read your message, so it went to the main agent.`, at: now() });
     }
-    // One the user assigned: its call, its calls left running and its note for the agent's next turn are assignedEnded's, as on Studio's loop.
+    // One the user assigned: its call, its calls left running and its note for the agent's next turn are assignedEnded's.
     if (run?.assigned) {
       run.answer({ text: r.text, isError: r.isError, ...(r.stopped ? { stopped: true } : {}) });
       this.o.store.save(s);
@@ -1295,8 +955,9 @@ export class AgentRunner {
 
   /**
    * The main agent replies to `content` (the user's message, or what waited
-   * for it meanwhile) on the session's route: Studio's loop over a provider's
-   * API, or the Claude sign-in's runtime, which keeps a session of its own.
+   * for it meanwhile). Every route runs in the durable harness; a session
+   * saved before the cutover starts its conversation there from what Studio
+   * kept, at this reply.
    */
   private async reply(s: StoredSession, content: unknown[]): Promise<void> {
     s.messages.push({ role: "user", content } as MessageParam);
@@ -1305,31 +966,12 @@ export class AgentRunner {
     // Just after the daemon started, as when a subagent's report wakes the main agent: the route is known once the sign-ins are read.
     const wait = this.o.ready?.();
     if (wait) await wait.catch(() => {});
-    const onClaude = !!this.o.subscription?.();
-    const rewound = !!s.rewound;
     s.rewound = false;
     s.model = this.o.model();
     s.route = this.o.route?.() ?? null;
-    // The route's setting selects the durable runtime: the reply runs in the harness, whatever the route.
-    if (this.durable && this.o.durable?.route() && this.durable.available()) return this.durable.reply(s, content);
-    // Back on another runtime: a later move to the durable one starts its conversation again from what Studio kept.
-    if (s.durable) this.durable?.release(s);
-    if (onClaude) {
-      // The runtime's session has not seen the turns that ran on other routes: a new one starts, carrying the whole conversation.
-      const earlier = s.messages.slice(0, -1);
-      if (earlier.length > 0 && (!s.sdkSession || s.offClaude)) {
-        if (s.sdkSession) s.sdkPast = [...(s.sdkPast ?? []), s.sdkSession];
-        s.sdkSession = null;
-        s.offClaude = false;
-        // After an edit the model only changed sessions, not the user: nothing to tell them.
-        if (!rewound) this.addEntry(s, { kind: "note", text: `On ${modelName(s.model)} via your Claude sign-in from here, with the whole conversation so far.`, at: now() });
-        return this.runSubscription(s.id, [{ type: "text", text: carryOver(earlier) }, ...content]);
-      }
-      return this.runSubscription(s.id, content);
-    }
-    // The runtime's session misses this turn: a later turn on the Claude sign-in carries the whole session again.
-    if (s.sdkSession) s.offClaude = true;
-    await this.runTurn(s.id);
+    if (!this.durable?.available()) return this.replyEnded(s, "This Studio build has no durable harness to run the conversation in. Reinstall Studio.");
+    if (!this.o.durable?.route()) return this.replyEnded(s, `Nothing on this computer runs ${modelName(s.model)}. Pick another model, or connect its provider.`);
+    return this.durable.reply(s, content);
   }
 
   /** The card of a /playtest whose flow is still running, if there is one. */
@@ -1582,134 +1224,6 @@ ${result}`);
     }
   }
 
-  /** The Agent SDK module, or null in a build without the Claude sign-in (a dynamic import the bundler drops, and the SDK with it). */
-  private async claudeSdk(): Promise<typeof import("./subscription.js") | null> {
-    return typeof __CLAUDE_SIGN_IN__ === "undefined" || __CLAUDE_SIGN_IN__ ? await import("./subscription.js") : null;
-  }
-
-  /**
-   * Run one conversation step on the Claude sign-in: in a host process, where
-   * it outlives this daemon, or in the daemon where none can start. `key`
-   * names its host (the session, or the session and a subagent's call).
-   */
-  private async claudeStep(key: string, spec: TurnSpec, cb: HostedCallbacks, onHosted: (run: HostedRun) => void): Promise<HostedResult> {
-    const sdk = await this.claudeSdk();
-    if (!sdk) return "This Studio build does not include the Claude sign-in.";
-    const hosts = this.o.turnHosts;
-    if (hosts?.available() && !cb.signal.aborted) {
-      try {
-        const run = await hosts.start(key, spec, cb);
-        onHosted(run);
-        this.o.host.log.info(`${key}: runs in host process ${run.host}`);
-        return await run.done;
-      } catch (e) {
-        this.o.host.log.warn(`${key}: no turn host could start, so it runs in the daemon and updates wait for it`, e);
-      }
-    }
-    if (cb.signal.aborted) return null;
-    return sdk.runSubscriptionTurn({ ...spec, ...cb } as Parameters<typeof sdk.runSubscriptionTurn>[0]);
-  }
-
-  /** The main agent's reply on the Claude sign-in: its runtime runs the step, and every tool call (the agent tool too) comes back to Studio. */
-  private async runSubscription(id: string, prompt: unknown[]): Promise<void> {
-    const controller = new AbortController();
-    this.active.set(id, controller);
-    this.replying.add(id);
-    const s = this.require(id);
-    const track: TurnTrack = { seq: 0, lastId: null, background: [] };
-    let result: HostedResult = null;
-    let hosted: HostedRun | null = null;
-    try {
-      const usage = this.usage();
-      const surface = this.surface();
-      const agent = this.agentDefinition() as Anthropic.Beta.BetaTool | null;
-      const spec: TurnSpec = {
-        projectDir: this.o.host.projectDir,
-        model: this.o.model(),
-        effort: this.o.effort?.() ?? "high",
-        // The SDK reads the project's own files itself: Studio adds none of their text.
-        system: withSurface(system(this.o.host.projectDir, this.runsMode(), usage, this.sdkComposed()), surface),
-        ...(agent ? { agentTool: { description: agent.description ?? "", inputSchema: agent.input_schema as Record<string, unknown> } } : {}),
-        ...this.sdkNative(),
-        ...sdkEditor(surface),
-        prompt,
-        resume: s.sdkSession ?? null,
-      };
-      const cb = this.turnCallbacks(s, controller, track);
-      result = await this.claudeStep(s.id, spec, cb, (run) => {
-        hosted = run;
-        this.hosted.set(s.id, run);
-        s.hostTurn = track;
-        this.o.store.save(s);
-      });
-    } catch (e) {
-      result = e instanceof Error ? e.message : String(e);
-    } finally {
-      this.releaseSubscription(s, controller, result, hosted);
-    }
-  }
-
-  /**
-   * Take over a turn a host process ran through the previous daemon's restart:
-   * what it did meanwhile is applied from its journal, calls still waiting are
-   * run here (one that had started is reported with an unknown outcome), and
-   * the turn carries on. False when the session has no host.
-   */
-  private reattach(s: StoredSession): boolean {
-    const hosts = this.o.turnHosts;
-    const record = hosts?.recordFor(s.id);
-    if (!hosts || !record) return false;
-    // An approval only the previous daemon could show: its call is sent again by the host, and asks again here.
-    if (s.approvals?.length) s.approvals = [];
-    const controller = new AbortController();
-    this.active.set(s.id, controller);
-    this.replying.add(s.id);
-    const track: TurnTrack = { seq: s.hostTurn?.seq ?? 0, lastId: s.hostTurn?.lastId ?? null, background: [...(s.hostTurn?.background ?? [])] };
-    s.hostTurn = track;
-    this.o.store.save(s);
-    // Compatibility: a host from before protocol 3 runs the runtime's own subagents, and reports them as it always did.
-    const legacy = (record.protocol ?? 1) < STUDIO_SUBAGENTS_PROTOCOL;
-    const cb = legacy ? this.legacyTurnCallbacks(s, controller, track) : this.turnCallbacks(s, controller, track);
-    let result: HostedResult = null;
-    let hosted: HostedRun | null = null;
-    void (async () => {
-      try {
-        const run = await hosts.attach(record, cb, track.seq);
-        hosted = run;
-        this.hosted.set(s.id, run);
-        this.o.host.log.info(`session ${s.id}: reattached to the turn in host process ${run.host} (Studio ${record.version}${legacy ? ", with the runtime's own subagents" : ""})`);
-        result = await run.done;
-      } catch (e) {
-        result = e instanceof Error ? e.message : String(e);
-      } finally {
-        this.releaseSubscription(s, controller, result, hosted);
-      }
-    })().catch((e) => this.o.host.log.warn(`session ${s.id}: reattaching to its turn host failed`, e));
-    return true;
-  }
-
-  /**
-   * A reply on the Claude sign-in ended, or this daemon let go of a hosted one
-   * (DETACHED: it goes on in its host, and the next daemon takes it over from
-   * what is saved). Calls it left unanswered end; then the turn goes on as on
-   * every route (replyEnded). Nothing more when it was stopped.
-   */
-  private releaseSubscription(s: StoredSession, controller: AbortController, result: HostedResult, hosted: HostedRun | null): void {
-    const id = s.id;
-    if (this.active.get(id) === controller) this.active.delete(id);
-    if (hosted && this.hosted.get(id) === hosted) this.hosted.delete(id);
-    this.legacy.delete(id);
-    if (result === DETACHED) return;
-    if (s.hostTurn) {
-      delete s.hostTurn;
-      this.o.store.save(s);
-    }
-    if (controller.signal.aborted) return;
-    // A call the reply ended without answering never finishes now; a subagent still working goes on.
-    this.endCalls(s, () => "The turn ended before this call returned a result.", "error", undefined, this.liveRunCalls(s.id));
-    this.replyEnded(s, result);
-  }
-
   /** A call an earlier daemon was running when it went down: never run again, its outcome unknown. */
   private async lostCall(s: StoredSession, toolId: string, name: string, input: Record<string, unknown>): Promise<ToolExecution> {
     const text = "Studio's daemon restarted while this call was running, so whether it took effect is unknown. Read the current state back before repeating it.";
@@ -1718,195 +1232,15 @@ ${result}`);
   }
 
   /**
-   * How the main agent's reply on the Claude sign-in reports to this session,
-   * in the daemon or from a host. Every tool call comes back through runTool,
-   * Studio's agent tool among them, and records its own outcome.
+   * One call into Studio's tools from a conversation in the durable harness:
+   * the main agent's or a subagent's (the harness runs agent calls itself,
+   * through agentStart). `onStart`: it got past its approval and runs now;
+   * false from it means the harness went away first. `detached`: a subagent
+   * the user assigned, whose calls are the user's own.
    */
-  private turnCallbacks(s: StoredSession, controller: AbortController, track: TurnTrack): HostedCallbacks {
-    let mine: LiveTurn | null = null;
-    return {
-      signal: controller.signal,
-      onTokens: (n) => this.count(s, n, null),
-      onUsage: ({ usage: u, growth, first, model }) => {
-        this.spend(s, growth, model, first);
-        this.measure(s, null, u, model, { sdk: true });
-      },
-      onCompaction: (e) => this.runtimeCompacted(s, this.o.model(), e),
-      onContextWindow: ({ window, compactAt }) => {
-        const main = s.context?.main;
-        if (!main) return;
-        s.context!.main = { ...main, window, ...(compactAt ? { compactAt } : {}) };
-        this.changed(s, null);
-      },
-      onSession: (sid) => {
-        s.sdkSession = sid;
-        this.o.store.save(s);
-      },
-      onDelta: (text) => this.o.host.events.publish("turn.delta", { sessionId: s.id, text }),
-      onAssistant: (mid, blocks) => {
-        const last = s.messages[s.messages.length - 1];
-        if (mid === track.lastId && last?.role === "assistant" && Array.isArray(last.content)) (last.content as ContentBlock[]).push(...blocks);
-        else s.messages.push({ role: "assistant", content: blocks } as MessageParam);
-        track.lastId = mid;
-        for (const b of blocks) {
-          if (b.type === "text" && b.text) this.addEntry(s, { kind: "assistant", text: b.text, at: now() });
-          if (b.type === "tool_use") this.addEntry(s, { kind: "tool", call: { id: b.id, name: b.name, input: b.input, outcome: "pending", startedAt: now() } });
-        }
-        this.o.store.save(s);
-      },
-      onToolResults: (content) => {
-        s.messages.push({ role: "user", content } as MessageParam);
-        track.lastId = null;
-        // Studio's tools record their outcome as they run; the runtime's own (web search, skills) only here.
-        // An agent call whose subagent went on in the background stays open until that subagent ends.
-        for (const b of content as Array<{ type?: string; tool_use_id?: string; content?: unknown; is_error?: boolean }>) {
-          if (b.type !== "tool_result" || !b.tool_use_id || this.runs.has(b.tool_use_id)) continue;
-          const entry = s.transcript.find((t) => t.kind === "tool" && t.call.id === b.tool_use_id);
-          if (entry?.kind !== "tool" || entry.call.outcome !== "pending") continue;
-          const text = typeof b.content === "string" ? b.content : Array.isArray(b.content) ? b.content.map((c: { text?: string }) => c.text ?? "").join("") : "";
-          this.recordOutcome(s, { id: b.tool_use_id, name: entry.call.name, input: {}, state: "done", result: text, isError: !!b.is_error }, b.is_error ? "error" : "done");
-        }
-        this.o.store.save(s);
-      },
-      runTool: (toolId, name, input, onStart) => this.subscriptionTool(s, controller, toolId, name, input, false, onStart),
-      // An agent call sent again after a restart waits on the subagent this daemon took over; any other is lost.
-      lostTool: (toolId, name, input) => (name === "agent" && this.runs.has(toolId) ? this.subscriptionTool(s, controller, toolId, name, input) : this.lostCall(s, toolId, name, input)),
-      // Kept before the event is applied, so the save it makes holds both.
-      onSeq: (seq) => void (track.seq = seq),
-      onLive: (live) => {
-        if (live) {
-          mine = live;
-          this.live.set(s.id, live);
-          // What waited for the main agent while its reply started goes in now.
-          this.flushMainInbox(s);
-        } else if (this.live.get(s.id) === mine) this.live.delete(s.id);
-      },
-      onInputClosed: (why) => this.o.host.log.info(`session ${s.id}: the reply takes no more messages: ${why}`),
-    };
-  }
-
-  /**
-   * Compatibility: how a reply in a turn host from before protocol 3 reports.
-   * Such a host runs the runtime's own subagents, so their lifecycle comes as
-   * task events, a background subagent's call is answered with a placeholder,
-   * and the main agent can be idle beside them (free). Kept only so a turn an
-   * older Studio started keeps working through this daemon until it ends;
-   * remove with STUDIO_SUBAGENTS_PROTOCOL.
-   */
-  private legacyTurnCallbacks(s: StoredSession, controller: AbortController, track: TurnTrack): HostedCallbacks {
-    return {
-        signal: controller.signal,
-        onTokens: (n, parent) => this.count(s, n, parent),
-        onUsage: ({ usage: u, growth, first, model, parent }) => {
-          this.spend(s, growth, model, first);
-          this.measure(s, parent, u, model, { sdk: true });
-        },
-        onCompaction: (e) => this.runtimeCompacted(s, this.o.model(), e),
-        onContextWindow: ({ window, compactAt }) => {
-          const main = s.context?.main;
-          if (!main) return;
-          s.context!.main = { ...main, window, ...(compactAt ? { compactAt } : {}) };
-          this.changed(s, null);
-        },
-        onSession: (sid) => {
-          s.sdkSession = sid;
-          this.o.store.save(s);
-        },
-        onDelta: (text) => this.o.host.events.publish("turn.delta", { sessionId: s.id, text }),
-        onAssistant: (mid, blocks, parent) => {
-          // A subagent's messages are its own conversation: only the main agent's mirror into the session's.
-          if (!parent) {
-            const last = s.messages[s.messages.length - 1];
-            if (mid === track.lastId && last?.role === "assistant" && Array.isArray(last.content)) (last.content as ContentBlock[]).push(...blocks);
-            else s.messages.push({ role: "assistant", content: blocks } as MessageParam);
-            track.lastId = mid;
-          }
-          const tag = parent ? { parent } : {};
-          for (const b of blocks) {
-            if (b.type === "text" && b.text) this.addEntry(s, { kind: "assistant", text: b.text, at: now(), ...tag });
-            if (b.type === "tool_use") {
-              this.addEntry(s, { kind: "tool", call: { id: b.id, name: b.name, input: b.input, outcome: "pending", startedAt: now() }, ...tag });
-            }
-          }
-          this.o.store.save(s);
-        },
-        onToolResults: (content, parent) => {
-          if (!parent) {
-            s.messages.push({ role: "user", content } as MessageParam);
-            track.lastId = null;
-          }
-          // Studio's own tools record their outcome as they run; an agent call's result arrives only here.
-          for (const b of content as Array<{ type?: string; tool_use_id?: string; content?: unknown; is_error?: boolean }>) {
-            if (b.type !== "tool_result" || !b.tool_use_id) continue;
-            const entry = s.transcript.find((t) => t.kind === "tool" && t.call.id === b.tool_use_id);
-            if (entry?.kind !== "tool" || entry.call.outcome !== "pending" || track.background.includes(b.tool_use_id)) continue;
-            const text = typeof b.content === "string" ? b.content
-              : Array.isArray(b.content) ? b.content.map((c: { text?: string }) => c.text ?? "").join("") : "";
-            // A subagent moved to the background answers its call with a placeholder; its real result is its task report.
-            if (this.subagents.has(b.tool_use_id) && /in the background/i.test(text)) {
-              track.background.push(b.tool_use_id);
-              continue;
-            }
-            this.recordOutcome(s, { id: b.tool_use_id, name: entry.call.name, input: {}, state: "done", result: text, isError: !!b.is_error }, b.is_error ? "error" : "done");
-          }
-          this.o.store.save(s);
-        },
-        onTask: (toolUseId, status, detail) => {
-          if (status === "started") {
-            if (detail.background && !track.background.includes(toolUseId)) track.background.push(toolUseId);
-            return;
-          }
-          // A subagent that ended cannot be waiting on the user any more.
-          this.dropApprovals(s.id, toolUseId);
-          const entry = s.transcript.find((t) => t.kind === "tool" && t.call.id === toolUseId);
-          if (entry?.kind !== "tool" || entry.call.outcome !== "pending") return;
-          const failed = status !== "completed";
-          const result = detail.summary || (status === "stopped" ? "Stopped by the user." : "");
-          this.recordOutcome(s, { id: toolUseId, name: entry.call.name, input: {}, state: "done", result, isError: failed }, status === "stopped" ? "stopped" : failed ? "error" : "done");
-        },
-        onStopper: (callId, stop) => {
-          if (stop) this.subagents.set(callId, () => void stop());
-          else this.subagents.delete(callId);
-        },
-        onQueued: (callId, cancel) => this.markQueued(s, callId, cancel && (() => {
-          cancel();
-          this.recordOutcome(s, { id: callId, name: "agent", input: {}, state: "done", result: QUEUED_STOP, isError: true }, "stopped");
-        })),
-        runTool: (toolId, name, input, onStart) => this.subscriptionTool(s, controller, toolId, name, input, false, onStart),
-        lostTool: (toolId, name, input) => this.lostCall(s, toolId, name, input),
-        // Kept before the event is applied, so the save it makes holds both.
-        onSeq: (seq) => void (track.seq = seq),
-        onLive: (live) => {
-          if (live) this.legacy.set(s.id, live);
-          else this.legacy.delete(s.id);
-        },
-        onInputClosed: (why) => this.o.host.log.info(`session ${s.id}: the turn takes no more messages: ${why}`),
-        onFree: (free) => {
-          s.mainFree = free;
-          this.o.store.save(s);
-          this.o.host.events.publish("session.changed", { sessionId: s.id, status: s.status, waitingCause: s.waitingCause });
-          // What the user queued while the main agent worked goes to it now, beside the running subagents.
-          if (free && s.queue?.length) setTimeout(() => this.tellQueued(s.id), 0);
-        },
-    };
-  }
-
-  /**
-   * One call into Studio's tools from a conversation on the Claude sign-in:
-   * the main agent's reply or a subagent's. An agent call starts the subagent
-   * the same way Studio's loop does (agentCall). `onStart`: it got past its
-   * approval, or its subagent got its slot, and runs now. `detached`: a
-   * subagent the user assigned, whose calls are the user's own.
-   */
-  private async subscriptionTool(s: StoredSession, controller: AbortController, toolId: string, name: string, input: Record<string, unknown>, detached = false, onStart?: () => void | Promise<boolean>): Promise<ToolExecution> {
-    // The turn ended while the binary was still asking: nothing runs after a stop.
+  private async runTool(s: StoredSession, controller: AbortController, toolId: string, name: string, input: Record<string, unknown>, detached = false, onStart?: () => void | Promise<boolean>): Promise<ToolExecution> {
+    // The turn ended while the harness was still asking: nothing runs after a stop.
     if (controller.signal.aborted) return { text: interruptedResult({ name, input }, this.causeOf(controller), false), isError: true, outcome: "error", touched: [], saved: [] };
-    if (name === "agent") {
-      const r = await this.agentCall(s, toolId, input, controller.signal, onStart);
-      // A Stop answered the call already; one that went on in the background stays open until its subagent ends.
-      if (!controller.signal.aborted && !r.background) this.recordOutcome(s, { id: toolId, name, input, state: "done", result: r.text, isError: r.isError }, r.stopped ? "stopped" : r.isError ? "error" : "done");
-      return { text: r.text, isError: r.isError, outcome: r.isError ? "error" : "done", touched: [], saved: [] };
-    }
     // A subagent's call also ends when the user stops that subagent.
     const owner = s.transcript.find((t) => t.kind === "tool" && t.call.id === toolId)?.parent;
     const sub = owner ? this.subagentAbort(owner).signal : null;
@@ -1938,7 +1272,7 @@ ${result}`);
     if (name === "editor_restart" && !exec.isError) exec = await this.editorBack(s, exec, controller.signal);
     if (controller.signal.aborted) return exec;
     this.markSaved(s, exec.saved);
-    if (!exec.isError) exec = this.withInstructions(owner ?? s.id, name, input, exec, true);
+    if (!exec.isError) exec = this.withInstructions(owner ?? s.id, name, input, exec);
     const p: PendingTool = { id: toolId, name, input, state: "done", result: exec.text, isError: exec.isError, ...(exec.images ? { images: exec.images } : {}) };
     this.recordOutcome(s, p, exec.outcome);
     // A subagent the user assigned runs beside the session's turns, not as one.
@@ -2015,9 +1349,6 @@ ${result}`);
    * over, a Stop ends them too. The same on every route.
    */
   stopKeepsSubagents(sessionId: string): boolean {
-    const old = this.legacy.get(sessionId);
-    const s = this.o.store.get(sessionId);
-    if (old && s) return ((old.background?.() ?? 0) > 0 || this.legacySubagents(s) > 0) && !old.free?.();
     return this.replying.has(sessionId) && this.runsOf(sessionId).length > 0;
   }
 
@@ -2032,12 +1363,7 @@ ${result}`);
   /** The user's Stop. Unanswered tool calls are answered as stopped so the conversation stays valid. */
   stop(sessionId: string): void {
     // With subagents working, Stop ends only the main agent's reply; a second Stop, with it idle, ends them too.
-    const old = this.legacy.get(sessionId);
-    if (old && this.stopKeepsSubagents(sessionId)) {
-      void this.legacyStopMain(sessionId, old).catch((e) => this.o.host.log.warn(`stopping the main agent in session ${sessionId} failed`, e));
-      return;
-    }
-    if (!old && this.stopKeepsSubagents(sessionId)) {
+    if (this.stopKeepsSubagents(sessionId)) {
       this.stopReply(this.require(sessionId), USER_STOP);
       return;
     }
@@ -2051,16 +1377,11 @@ ${result}`);
 
   /** Subagents are running, and a Stop or a sent message leaves them running. */
   keepsSubagents(sessionId: string): boolean {
-    const old = this.legacy.get(sessionId);
-    const s = this.o.store.get(sessionId);
-    if (old && s) return (old.background?.() ?? 0) > 0 || this.legacySubagents(s) > 0;
     return this.runsOf(sessionId).length > 0;
   }
 
   /** The main agent takes a message now: it waits only on its subagents, or its reply ended while they work on. */
   mainFree(sessionId: string): boolean {
-    const old = this.legacy.get(sessionId);
-    if (old) return !!old.free?.();
     const s = this.o.store.get(sessionId);
     return !!s && this.mainFreeNow(s);
   }
@@ -2083,7 +1404,6 @@ ${result}`);
 
   /** Keep the session's mainFree as mainFreeNow says, and tell the clients when it changes. A free main agent takes what is queued. */
   private refreshFree(s: StoredSession): void {
-    if (this.legacy.has(s.id)) return;
     const free = this.mainFreeNow(s);
     if (!!s.mainFree === free) return;
     s.mainFree = free;
@@ -2142,82 +1462,20 @@ ${result}`);
   private oneToBackground(s: StoredSession, run: AgentRun, note: string): void {
     run.background = true;
     for (const d of run.detach.splice(0)) d();
-    // On Studio's loop the call is answered in the same step, so a Stop that follows finds it answered.
-    const p = s.pending?.find((x) => x.id === run.callId);
-    if (p && p.state !== "done") Object.assign(p, { state: "done", result: note, isError: false });
     this.keepRun(s, run);
     run.answer({ text: note, isError: false, background: true });
   }
 
   /**
-   * Hand the main agent something while its turn runs: a background
-   * subagent's report, or the user's message once its subagents went on in
-   * the background. A replying main agent reads it at its next step (Studio's
-   * loop before its next model call, the Claude sign-in streamed into its
-   * reply); a free one starts a new reply with it. Outside a turn, text waits
-   * as a note for the next one.
-   */
-  private tellMain(s: StoredSession, content: unknown[]): void {
-    if (!this.busy(s)) {
-      for (const b of content as Array<{ type?: string; text?: string }>) if (b.type === "text" && b.text) s.notes.push(b.text.replace(/^\[Studio\] /, ""));
-      this.o.store.save(s);
-      return;
-    }
-    let box = this.mainInbox.get(s.id);
-    if (!box) this.mainInbox.set(s.id, (box = []));
-    box.push(content);
-    if (this.replying.has(s.id)) this.flushMainInbox(s);
-    else this.startReply(s);
-  }
-
-  /** On the Claude sign-in, stream what waits for the main agent into its running reply. Studio's loop takes it before its next model call. */
-  private flushMainInbox(s: StoredSession): void {
-    const live = this.live.get(s.id);
-    const box = this.mainInbox.get(s.id);
-    if (!live || !box?.length) return;
-    const next = box.shift()!;
-    void Promise.resolve(live.say(next)).catch(() => false).then((said) => {
-      if (said) {
-        s.messages.push({ role: "user", content: next } as MessageParam);
-        this.o.store.save(s);
-        this.flushMainInbox(s);
-        return;
-      }
-      // The reply takes no more input: it goes first again, and the next reply starts with it.
-      box.unshift(next);
-    });
-  }
-
-  /** What waits for the main agent, taken once. */
-  private takeMainInbox(s: StoredSession): unknown[] {
-    const box = this.mainInbox.get(s.id) ?? [];
-    this.mainInbox.delete(s.id);
-    return box.flat();
-  }
-
-  /** A free main agent replies to what waits for it, on the session's route. */
-  private startReply(s: StoredSession): void {
-    const content = this.takeMainInbox(s);
-    if (!content.length) return;
-    if (s.status !== "running") this.setStatus(s, "running", null);
-    void this.reply(s, content).catch((e) => this.o.host.log.warn(`a reply in session ${s.id} failed`, e));
-  }
-
-  /**
-   * The main agent's reply ended on its own, on any route. What waited for it
-   * meanwhile starts the next reply; with subagents still working it is free
-   * beside them, and their reports wake it; otherwise the turn is over.
-   * `error`: why the reply failed.
+   * The main agent's reply ended on its own. With subagents still working it
+   * is free beside them, and the harness wakes it with their reports;
+   * otherwise the turn is over. `error`: why the reply failed.
    */
   private replyEnded(s: StoredSession, error: string | null): void {
     this.replying.delete(s.id);
     if (error) {
       s.error = error;
       this.setStatus(s, "error", null);
-      return;
-    }
-    if (this.mainInbox.get(s.id)?.length) {
-      this.startReply(s);
       return;
     }
     if (this.runsOf(s.id).length > 0) {
@@ -2228,56 +1486,21 @@ ${result}`);
     this.setStatus(s, "idle", null);
   }
 
-  /** Compatibility: Stop on a legacy host's turn interrupts the main agent's reply only. Its own open calls end as stopped; the subagents' calls go on. */
-  private async legacyStopMain(sessionId: string, live: LiveTurn): Promise<void> {
-    // Foreground subagents and commands would end with the reply: they move to the background first.
-    const kept = await (live.keep?.() ?? Promise.resolve(false));
-    if (kept) this.o.host.log.info(`session ${sessionId}: moved foreground tasks to the background before stopping the main agent's reply`);
-    await live.interrupt();
-    const s = this.require(sessionId);
-    for (const t of s.transcript) {
-      if (t.kind !== "tool" || t.parent || t.call.outcome !== "pending" || t.call.queued || this.subagents.has(t.call.id)) continue;
-      this.recordOutcome(s, { id: t.call.id, name: t.call.name, input: (t.call.input ?? {}) as Record<string, unknown>, state: "done", result: "Stopped by the user.", isError: true }, "stopped");
-    }
-    this.o.store.save(s);
-  }
-
-  /** Compatibility: the agent calls a legacy host's runtime runs as its own subagents, still working. */
-  private legacySubagents(s: StoredSession): number {
-    return s.transcript.filter((t) => t.kind === "tool" && !t.parent && t.call.outcome === "pending" && this.subagents.has(t.call.id)).length;
-  }
-
   /**
    * Hand the user's message to the main agent while its subagents work, inside
-   * the same turn, on any route: when it waits only on them they go on in the
-   * background and it reads the message at its next step; when its reply had
-   * ended, a new reply starts with it. False when the main agent cannot take
-   * one now.
+   * the same turn: they go on in the background and the harness steers the
+   * message into the main agent's run, or starts a new reply with it when its
+   * reply had ended. False when the main agent cannot take one now.
    */
   private async tell(s: StoredSession, text: string, attachments: Array<Attachment & { path: string }>, about?: string): Promise<boolean> {
-    const old = this.legacy.get(s.id);
-    if (!old && !this.mainFreeNow(s)) return false;
+    if (!this.mainFreeNow(s) || !this.durable?.owns(s)) return false;
     const content: unknown[] = [];
     for (const note of [...s.notes, ...this.aboutNotes(s, about)]) content.push({ type: "text", text: `[Studio] ${note}` });
     for (const a of attachments) content.push(...(await contentFor(a)));
     if (text.trim()) content.push({ type: "text", text });
-    const durable = !old && !!this.durable?.owns(s);
-    if (old) {
-      // Compatibility: a legacy host's main agent takes it straight into its turn.
-      if (!(await old.say(content))) return false;
-      s.messages.push({ role: "user", content } as MessageParam);
-    } else if (durable) {
-      // On the durable runtime its subagents go on in the background and the harness steers the message into the main agent's run.
-      if (this.replying.has(s.id)) this.toBackground(s);
-      if (!(await this.durable!.tell(s, content))) return false;
-      addUserContent(s.messages, content);
-    } else {
-      if (!this.mainFreeNow(s)) return false;
-      if (this.replying.has(s.id)) this.toBackground(s);
-      let box = this.mainInbox.get(s.id);
-      if (!box) this.mainInbox.set(s.id, (box = []));
-      box.push(content);
-    }
+    if (this.replying.has(s.id)) this.toBackground(s);
+    if (!(await this.durable.tell(s, content))) return false;
+    addUserContent(s.messages, content);
     s.notes.splice(0);
     s.transcript.push({
       kind: "user",
@@ -2288,10 +1511,6 @@ ${result}`);
     s.draft = "";
     this.o.store.save(s);
     this.o.host.events.publish("session.changed", { sessionId: s.id, status: s.status, waitingCause: s.waitingCause });
-    if (!old && !durable) {
-      if (this.replying.has(s.id)) this.flushMainInbox(s);
-      else this.startReply(s);
-    }
     return true;
   }
 
@@ -2324,35 +1543,18 @@ ${result}`);
   }
 
   /**
-   * The sessions whose work a daemon restart would end: a reply not running in
-   * a host process, or a subagent not running in one (one still waiting to
-   * start counts). A free main agent beside hosted subagents does not pin.
+   * The sessions whose work a daemon restart would end. A conversation goes on
+   * in the harness, so only a tool call running in this daemon pins its
+   * session, and anything else running here: a /flow or a /action.
    */
   pinnedSessions(): string[] {
     const ids = new Set<string>();
-    const durable = new Set<string>();
     for (const s of this.o.store.all()) {
-      if (!this.durable?.owns(s)) continue;
-      // Its conversation goes on in the harness: only a tool call running in this daemon would be cut off.
-      durable.add(s.id);
-      if (this.durable.pinned(s.id)) ids.add(s.id);
+      if (this.durable?.owns(s)) {
+        if (this.durable.pinned(s.id)) ids.add(s.id);
+      } else if (this.active.has(s.id)) ids.add(s.id);
     }
-    for (const id of this.activeSessions()) {
-      if (durable.has(id)) continue;
-      const runs = this.runsOf(id, true);
-      if (this.replying.has(id) ? !this.hosted.has(id) : runs.length === 0) ids.add(id);
-    }
-    for (const r of this.runs.values()) if (!r.hosted && !durable.has(r.sessionId)) ids.add(r.sessionId);
     return [...ids];
-  }
-
-  /**
-   * The sessions with a conversation in a turn host, the main agent's or a
-   * subagent's. A Studio update waits for them: the release after the cutover
-   * has no turn hosts to take them over.
-   */
-  hostedSessions(): string[] {
-    return this.o.turnHosts?.running() ?? [];
   }
 
   /**
@@ -2369,7 +1571,6 @@ ${result}`);
     this.active.get(s.id)?.abort(cause);
     this.active.delete(s.id);
     this.replying.delete(s.id);
-    this.mainInbox.delete(s.id);
     this.slots.get(s.id)?.cancelAll();
     // Its subagents, running or in the background, stop with it; the calls they leave are answered below.
     for (const run of this.runsOf(s.id)) {
@@ -2462,34 +1663,26 @@ ${result}`);
     this.addEntry(s, { kind: "tool", call: { id: callId, name: "agent", input, outcome: "pending", startedAt: now() } });
     const run = this.newRun(s, callId, input, true);
     const done = run.call.then((r) => this.assignedEnded(s, callId, input, r));
-    const onLoop = () => {
-      run.done = this.runSubagent(s, { id: callId, name: "agent", input, state: "running" }, null, run);
-      this.settleRun(s, run);
-    };
-    // The route's setting selects the durable runtime: the subagent runs in the harness, as an agent call's does.
-    if (this.durable && this.o.durable?.route() && this.durable.available()) {
-      run.say = this.durable.sayTo(s, callId);
-      this.subagents.set(callId, () => this.durable!.stopChild(s, callId));
-      let spec: AgentSpec;
-      try {
-        spec = this.durableSubagentSpec(null, true);
-      } catch (e) {
-        this.durableAgentEnded(s, callId, { text: `The subagent could not start: ${e instanceof Error ? e.message : String(e)}`, isError: true, stopped: false }, true);
-        return { callId, done };
-      }
-      void this.durable.assign(s, callId, { ok: true, spec, description, prompt: [{ type: "text", text: prompt }] }).then(
-        (sent) => {
-          if (sent) return;
-          // The running harness predates assigned subagents: this one runs on Studio's loop.
-          this.subagents.delete(callId);
-          run.say = null;
-          onLoop();
-        },
-        (e: unknown) => this.durableAgentEnded(s, callId, { text: `The subagent could not start: ${e instanceof Error ? e.message : String(e)}`, isError: true, stopped: false }, true),
-      );
+    const failed = (why: string) => this.durableAgentEnded(s, callId, { text: `The subagent could not start: ${why}`, isError: true, stopped: false }, true);
+    if (!this.durable?.available() || !this.o.durable?.route()) {
+      failed(!this.durable?.available() ? "this Studio build has no durable harness to run it in." : `nothing on this computer runs ${modelName(this.o.model())}.`);
       return { callId, done };
     }
-    onLoop();
+    // It runs in the harness, as an agent call's subagent does.
+    run.say = this.durable.sayTo(s, callId);
+    this.subagents.set(callId, () => this.durable!.stopChild(s, callId));
+    let spec: AgentSpec;
+    try {
+      spec = this.durableSubagentSpec(null, true);
+    } catch (e) {
+      failed(e instanceof Error ? e.message : String(e));
+      return { callId, done };
+    }
+    void this.durable.assign(s, callId, { ok: true, spec, description, prompt: [{ type: "text", text: prompt }] }).then(
+      // A harness started by a Studio from before protocol 2 cannot take it, and Studio's loop is gone to run it instead.
+      (sent) => void (sent || failed("the running durable harness predates assigned subagents. It takes them once it restarts with the project.")),
+      (e: unknown) => failed(e instanceof Error ? e.message : String(e)),
+    );
     return { callId, done };
   }
 
@@ -2524,7 +1717,6 @@ ${result}`);
       },
       detach: [],
       say: null,
-      hosted: null,
       told: [],
       replies: true,
     };
@@ -2533,112 +1725,11 @@ ${result}`);
     return run;
   }
 
-  /** Save what a restart needs of a running subagent (agentRuns): `seq` its host's last event, `messages` its conversation on Studio's loop. */
-  private keepRun(s: StoredSession, run: AgentRun, seq?: number, messages?: MessageParam[]): void {
+  /** Save what a restart needs of a running subagent (agentRuns): the harness keeps its conversation, Studio how it is steered. */
+  private keepRun(s: StoredSession, run: AgentRun): void {
     if (this.disposed) return;
-    const was = s.agentRuns?.[run.callId];
-    const at = seq ?? was?.seq;
-    const conv = messages ?? was?.messages;
-    (s.agentRuns ??= {})[run.callId] = { background: run.background, assigned: run.assigned, ...(at !== undefined ? { seq: at } : {}), ...(conv ? { messages: conv } : {}), ...(run.told.length ? { told: [...run.told] } : {}) };
+    (s.agentRuns ??= {})[run.callId] = { background: run.background, assigned: run.assigned, ...(run.told.length ? { told: [...run.told] } : {}) };
     this.o.store.save(s);
-  }
-
-  /**
-   * When a subagent ends, on any route: what the user sent it that it never
-   * read goes with its report, and the report answers its agent call, or
-   * reaches the main agent as a message when the call was answered already
-   * (it went on in the background).
-   */
-  private settleRun(s: StoredSession, run: AgentRun): void {
-    void run.done.catch((e: unknown) => ({ text: `The subagent failed: ${e instanceof Error ? e.message : String(e)}`, isError: true })).then((r: AgentResult & { detached?: true }) => {
-      // This daemon let go of it: it goes on in its host, or resumes from its saved conversation, in the next daemon.
-      if (r.detached || this.disposed) return;
-      this.runs.delete(run.callId);
-      this.subagents.delete(run.callId);
-      this.subagentStops.delete(run.callId);
-      this.dropApprovals(s.id, run.callId);
-      if (s.agentRuns?.[run.callId]) {
-        delete s.agentRuns[run.callId];
-        this.o.store.save(s);
-      }
-      const left = this.inbox.drain(run.callId);
-      // What it never read: still in its inbox (Studio's loop), or streamed in and never taken in (the Claude sign-in).
-      const pending = run.replies ? this.waiting(s, run.callId).map((e) => e.text) : [];
-      const unread = [...pending, ...left.filter((t) => !pending.includes(t))];
-      this.deliver(s, run.callId, unread.length, "main");
-      let result: AgentResult = { text: r.text, isError: r.isError, ...(r.stopped ? { stopped: true } : {}) };
-      // What it read from the user goes with its result: the main agent never saw it, and would otherwise distrust a report that acts on it.
-      const read = run.told.filter((t) => !unread.includes(t));
-      if (read.length) result = { ...result, text: `${result.text}\n\n[Studio] ${heardNote(read)}` };
-      if (unread.length) {
-        this.addEntry(s, { kind: "note", text: `"${run.description}" ended before it read your message, so it went to the main agent.`, at: now() });
-        result = { ...result, text: `${result.text}\n\n[Studio] ${unreadNote(run.description, unread)}` };
-      }
-      if (run.background && !run.assigned) this.reportToMain(s, run, result);
-      else run.answer(result);
-      this.refreshFree(s);
-      // The last subagent of a free main agent ended without a report to give it (stopped): the turn is over.
-      if (!run.assigned && this.busy(s) && !this.replying.has(s.id) && !this.active.has(s.id) && this.runsOf(s.id).length === 0 && !this.mainInbox.get(s.id)?.length && !this.legacy.has(s.id)) this.setStatus(s, "idle", null);
-    });
-  }
-
-  /** A subagent that went on in the background ended: its call shows its report, and the main agent is told. */
-  private reportToMain(s: StoredSession, run: AgentRun, r: AgentResult): void {
-    const entry = s.transcript.find((t) => t.kind === "tool" && t.call.id === run.callId);
-    // A Stop answered it already.
-    if (entry?.kind !== "tool" || entry.call.outcome !== "pending") return;
-    this.recordOutcome(s, { id: run.callId, name: "agent", input: (entry.call.input ?? {}) as Record<string, unknown>, state: "done", result: r.text, isError: r.isError }, r.stopped ? "stopped" : r.isError ? "error" : "done");
-    const note = backgroundReport(run.description, run.callId, r);
-    // One the user stopped wakes nobody: the main agent hears of it with the next message.
-    if (r.stopped) {
-      s.notes.push(note);
-      this.o.store.save(s);
-      return;
-    }
-    this.tellMain(s, [{ type: "text", text: `[Studio] ${note}` }]);
-  }
-
-  /**
-   * One of the main agent's agent calls, on any route: its subagent waits for
-   * a slot (Settings > Agents, subagents at once, one queue per session),
-   * runs as its own conversation on the route's engine, and answers the call
-   * with its report. When the user writes to the main agent meanwhile, or
-   * stops only its reply, the subagent goes on in the background (toBackground).
-   * A call for a subagent this daemon already runs (sent again after a
-   * restart) waits on that one. `onStart`: it got its slot and starts now.
-   */
-  private agentCall(s: StoredSession, id: string, input: Record<string, unknown>, turnSignal: AbortSignal, onStart?: () => void): Promise<AgentAnswer> {
-    const existing = this.runs.get(id);
-    if (existing) {
-      // Taken over after a restart: its call waits on it again, unless it went on in the background.
-      if (existing.background) return Promise.resolve({ text: backgroundNote(existing.description), isError: false, background: true });
-      return existing.call;
-    }
-    if (s.turn) s.turn.agents = (s.turn.agents ?? 0) + 1;
-    const run = this.newRun(s, id, input, false);
-    const slots = this.slotsFor(s.id);
-    // Stop cancels it while it waits; once in the background, only stopping it, or everything, does.
-    const cancel = () => slots.cancel(id);
-    turnSignal.addEventListener("abort", cancel, { once: true });
-    run.detach.push(() => turnSignal.removeEventListener("abort", cancel));
-    run.done = (async (): Promise<AgentResult> => {
-      const started = await slots.acquire(id, () => this.markQueued(s, id, () => slots.cancel(id)));
-      turnSignal.removeEventListener("abort", cancel);
-      if (!started) return { text: QUEUED_STOP, isError: true, stopped: true };
-      this.markQueued(s, id, null);
-      onStart?.();
-      try {
-        return await this.runSubagent(s, { id, name: "agent", input, state: "running" }, run.background ? null : turnSignal, run);
-      } finally {
-        slots.release(id);
-      }
-    })();
-    this.settleRun(s, run);
-    // A helper whose file says it runs in the background answers its call at once, on every route.
-    const helper = typeof input.helper === "string" ? this.native()?.helpers.find((h) => h.name === input.helper) : undefined;
-    if (helper?.background) this.oneToBackground(s, run, `The ${helper.name} helper runs in the background, as its file says. Its report comes to you in a later message when it ends.`);
-    this.refreshFree(s);
-    return run.call;
   }
 
   /** The session's queue of subagents, with the limit as it is set when the queue is empty. */
@@ -2646,83 +1737,6 @@ ${result}`);
     let sl = this.slots.get(sessionId);
     if (!sl || (sl.counts.running === 0 && sl.counts.waiting === 0)) this.slots.set(sessionId, (sl = new SubagentSlots(this.usage().subagentsPerTurn)));
     return sl;
-  }
-
-  /**
-   * After a restart: each subagent the previous daemon ran. One whose
-   * conversation runs in a turn host is taken over and goes on; one that ran
-   * in the previous daemon is cut off, and when it was in the background the
-   * main agent is told. A foreground one a reattaching reply waits on is left
-   * to that reply's call. Returns the agent calls that go on.
-   */
-  private recoverAgents(s: StoredSession, why: string): Set<string> {
-    const kept = new Set<string>();
-    const runs = s.agentRuns ?? {};
-    const mainHost = !!this.o.turnHosts?.recordFor(s.id);
-    for (const t of s.transcript) {
-      if (t.kind !== "tool" || t.call.name !== "agent" || t.parent || t.call.outcome !== "pending") continue;
-      const id = t.call.id;
-      const saved = runs[id];
-      const awaited = !!s.pending?.some((p) => p.id === id && p.state !== "done");
-      // A subagent on Studio's loop resumes from its saved conversation: in the background, or under the agent call its main agent's step waits on.
-      if (saved?.messages) {
-        this.resumeAgent(s, t.call.input as Record<string, unknown>, id, { ...saved, background: saved.background || (!saved.assigned && !awaited) });
-        kept.add(id);
-        continue;
-      }
-      // Studio's loop answers its own pending calls, and cuts off a subagent it lost there.
-      if (awaited) continue;
-      const record = this.o.turnHosts?.recordFor(agentHostKey(s.id, id)) ?? null;
-      // A foreground one whose reply did not outlive the daemon has nobody waiting on its call: it reports as from the background.
-      if (saved && record && this.reattachAgent(s, t.call.input as Record<string, unknown>, id, { ...saved, background: saved.background || (!saved.assigned && !mainHost) }, record)) {
-        kept.add(id);
-        continue;
-      }
-      // A reply that comes back asks for it again: started anew, or with an unknown outcome.
-      if (saved && !saved.background && !saved.assigned && mainHost) continue;
-      // Compatibility: a legacy host's own subagent, which that host still reports.
-      if (!saved && !id.startsWith("studio_") && mainHost) continue;
-      const cut = `The subagent was cut off (${why}) before it reported.`;
-      this.endCalls(s, () => cut, "unknown", id);
-      this.recordOutcome(s, { id, name: "agent", input: {}, state: "done", result: cut, isError: true }, "unknown");
-      if (saved?.background) s.notes.push(`The subagent "${describeCall(t.call.input)}" (agent call ${id}), which kept working in the background, ${cut.slice(4)} Read back the state of what it was working on before redoing any of it.`);
-    }
-    if (s.agentRuns) {
-      for (const id of Object.keys(s.agentRuns)) if (!kept.has(id)) delete s.agentRuns[id];
-      this.o.store.save(s);
-    }
-    return kept;
-  }
-
-  /** Resume a subagent of Studio's loop from the conversation the previous daemon saved. */
-  private resumeAgent(s: StoredSession, input: Record<string, unknown>, id: string, saved: { background: boolean; assigned: boolean; messages?: MessageParam[]; told?: string[] }): void {
-    const run = this.newRun(s, id, input, saved.assigned);
-    run.background = saved.background;
-    run.told = [...(saved.told ?? [])];
-    // What the user wrote to it that its saved conversation does not hold yet waits for its next step again.
-    const had = JSON.stringify(saved.messages ?? []);
-    for (const t of run.told) if (!had.includes(JSON.stringify(t).slice(1, -1))) this.inbox.push(id, t);
-    this.keepRun(s, run, undefined, saved.messages);
-    // It takes a slot again, so the limit holds across the restart.
-    void this.slotsFor(s.id).acquire(id);
-    run.done = this.runSubagent(s, { id, name: "agent", input, state: "running" }, null, run, { messages: saved.messages! }).finally(() => this.slots.get(s.id)?.release(id));
-    this.settleRun(s, run);
-    if (saved.assigned) void run.call.then((r) => this.assignedEnded(s, id, input, r));
-    this.o.host.log.info(`session ${s.id}: resumed subagent ${id} from its saved conversation${saved.background ? " (in the background)" : ""}`);
-  }
-
-  /** Take over a subagent whose conversation outlived the previous daemon in a turn host. */
-  private reattachAgent(s: StoredSession, input: Record<string, unknown>, id: string, saved: { background: boolean; assigned: boolean; seq?: number; told?: string[] }, record: TurnHostRecord): boolean {
-    if (!this.o.turnHosts) return false;
-    const run = this.newRun(s, id, input, saved.assigned);
-    run.background = saved.background;
-    run.told = [...(saved.told ?? [])];
-    this.keepRun(s, run, saved.seq ?? 0);
-    run.done = this.runSubagent(s, { id, name: "agent", input, state: "running" }, null, run, { record, from: saved.seq ?? 0 });
-    this.settleRun(s, run);
-    if (saved.assigned) void run.call.then((r) => this.assignedEnded(s, id, input, r));
-    this.o.host.log.info(`session ${s.id}: took over subagent ${id} in its host process ${record.host}${saved.background ? " (in the background)" : ""}`);
-    return true;
   }
 
   /**
@@ -2827,15 +1841,6 @@ ${result}`);
     for (const w of [...this.waitingApprovals.values()]) if (w.sessionId === sessionId && w.parent === parent) w.answer("stopped");
   }
 
-  /** A provider's own web searches, as finished calls in the transcript. */
-  private recordSearches(s: StoredSession, searches: WebSearchRecord[] | undefined, parent?: string): void {
-    for (const w of searches ?? []) {
-      const result = w.error ? `The search failed: ${w.error}` : w.results.map((r) => `${r.title}\n${r.url}`).join("\n\n") || "No results.";
-      const at = now();
-      this.addEntry(s, { kind: "tool", call: { id: w.id, name: "web_search", input: { query: w.query }, outcome: w.error ? "error" : "done", result, startedAt: at, endedAt: at }, ...(parent ? { parent } : {}) });
-    }
-  }
-
   private require(id: string): StoredSession {
     const s = this.o.store.get(id);
     if (!s) throw new Error(`no session ${id}`);
@@ -2917,15 +1922,6 @@ ${result}`);
   /** Stop the running turn, as Stop does, and send this message now, ahead of the queue. */
   async sendNow(sessionId: string, text: string, attachments: Array<Attachment & { path: string }> = [], about?: string): Promise<void> {
     const s = this.require(sessionId);
-    const old = this.legacy.get(s.id);
-    if (old && ((old.background?.() ?? 0) > 0 || this.legacySubagents(s) > 0)) {
-      // Compatibility, a legacy host's turn: foreground subagents move to the background first, then only the main agent's reply stops.
-      const free = !!old.free?.();
-      if (!free) await this.legacyStopMain(s.id, old);
-      if (await this.tell(s, text, attachments, about)) return;
-      this.queueFirst(s, text, attachments, about);
-      return;
-    }
     const subagents = this.runsOf(s.id).length;
     if (subagents > 0 && this.busy(s)) {
       // A message never ends a subagent, on any route. They go on in the background; when the main agent is
@@ -2947,9 +1943,8 @@ ${result}`);
   /**
    * The user's message to a running subagent, written in its thread, on any
    * route. It shows in that thread now and goes into the subagent's own
-   * conversation as a user message, read at its next step: Studio's loop adds
-   * it before the subagent's next model call; a subagent on the Claude
-   * sign-in has it streamed into its own session. Nothing is stopped, the
+   * conversation in the harness as a user message, read at its next step;
+   * one that has not started yet starts with it. Nothing is stopped, the
    * main agent never sees it, and other subagents go on. False when that
    * subagent is not running (it finished, was stopped, or there is none).
    */
@@ -2998,7 +1993,6 @@ ${result}`);
   canMessage(s: StoredSession, callId: string): boolean {
     const entry = s.transcript.find((t) => t.kind === "tool" && t.call.id === callId);
     if (entry?.kind !== "tool" || entry.call.name !== "agent" || entry.call.outcome !== "pending") return false;
-    // A legacy host's own subagents cannot take one: the message goes to the main agent, saying whose thread it was.
     return this.runs.has(callId);
   }
 
@@ -3118,509 +2112,6 @@ ${result}`);
     this.o.host.events.publish("transcript.added", { sessionId: s.id, entry: entry as unknown as Record<string, unknown> });
     // A call of the main agent's own while its subagents work: it is working, not waiting on them.
     if (entry.kind === "tool" && !entry.parent && this.runs.size > 0) this.refreshFree(s);
-  }
-
-  private async runTurn(id: string): Promise<void> {
-    if (this.active.has(id)) return;
-    const owned = this.o.store.get(id);
-    if (owned && this.durable?.owns(owned)) return;
-    const controller = new AbortController();
-    this.active.set(id, controller);
-    const s = this.require(id);
-    const wait = this.o.ready?.();
-    if (wait) await wait.catch(() => {});
-    if (controller.signal.aborted) {
-      if (this.active.get(id) === controller) this.active.delete(id);
-      return;
-    }
-    if (this.o.subscription?.()) {
-      // The runtime cannot pick up a reply a restart cut off; its session continues from the next message.
-      this.active.delete(id);
-      s.error = "The turn was interrupted. Send the next message to continue.";
-      this.setStatus(s, "error", null);
-      return;
-    }
-    this.replying.add(id);
-    let overflowed = false;
-    try {
-      for (;;) {
-        if (controller.signal.aborted) return;
-
-        if (s.pending) {
-          const paused = await this.answerPending(s, controller.signal);
-          if (paused || controller.signal.aborted) return;
-        }
-
-        if (s.status !== "running") this.setStatus(s, "running", null);
-        // What came for the main agent meanwhile (the user's message, a background subagent's report) joins before its next model call.
-        const told = this.takeMainInbox(s);
-        if (told.length) addUserContent(s.messages, told);
-        // One surface for the whole request: its tools, its prompt line and how its calls read back.
-        const surf = this.surface();
-        const conv = this.mainConversation(s, surf);
-        // Near the window, the conversation is summarised before the request goes.
-        await this.autoCompact(s, conv, controller.signal);
-        if (controller.signal.aborted) return;
-        let turn: ModelTurn;
-        try {
-          turn = await this.o.provider().run(
-            { sessionId: s.id, model: conv.model, effort: conv.effort, system: conv.system, tools: conv.tools, messages: s.messages },
-            (text) => this.o.host.events.publish("turn.delta", { sessionId: s.id, text }),
-            controller.signal,
-          );
-        } catch (e) {
-          // Refused as too long, as on a model with a smaller window than the last: compact, then send once more.
-          if (controller.signal.aborted || overflowed || !isContextOverflow(e)) throw e;
-          overflowed = true;
-          await this.compactConversation(s, conv, "overflow", Math.max(this.currentContext(s, conv), this.windowFor(conv.model)), controller.signal);
-          continue;
-        }
-        if (controller.signal.aborted) return;
-        this.count(s, usageTokens(turn.usage), null);
-        this.spend(s, turn.usage, conv.model);
-        if (controller.signal.aborted) return;
-
-        s.messages.push({ role: "assistant", content: turn.content } as MessageParam);
-        this.measure(s, null, turn.usage, conv.model, { messages: s.messages.length });
-        this.recordSearches(s, turn.searches);
-        const text = turn.content.filter((b): b is Extract<ContentBlock, { type: "text" }> => b.type === "text").map((b) => b.text).join("");
-        if (text) this.addEntry(s, { kind: "assistant", text, at: now() });
-
-        if (turn.stopReason === "refusal") {
-          this.replyEnded(s, `The model declined: ${turn.refusal ?? "no reason given"}`);
-          return;
-        }
-        // A long server-side step (a web search) paused the turn: send it back to go on.
-        if (turn.stopReason === "pause_turn") continue;
-        const uses = turn.content.filter((b): b is Extract<ContentBlock, { type: "tool_use" }> => b.type === "tool_use");
-        if (turn.stopReason !== "tool_use" || uses.length === 0) {
-          // Something came for it while it wrote this: it replies again rather than end.
-          if (this.mainInbox.get(s.id)?.length) continue;
-          this.replyEnded(s, null);
-          return;
-        }
-        // A projected category call is kept as the ue_mcp call it is; the model's own block stays in the conversation.
-        s.pending = uses.map((u) => {
-          const c = surf.canon(u.name, (u.input ?? {}) as Record<string, unknown>);
-          return { id: u.id, name: c.name, input: c.input, state: "queued" as const };
-        });
-        for (const p of s.pending) {
-          this.addEntry(s, { kind: "tool", call: { id: p.id, name: p.name, input: p.input, outcome: "pending", startedAt: now() } });
-        }
-      }
-    } catch (e) {
-      if (controller.signal.aborted) return;
-      this.replyEnded(s, e instanceof Error ? e.message : String(e));
-    } finally {
-      if (this.active.get(id) === controller) this.active.delete(id);
-    }
-  }
-
-  /**
-   * Answer every pending tool call, in order. Returns true when the turn
-   * paused for the editor and must wait for it to come back.
-   */
-  private async answerPending(s: StoredSession, signal: AbortSignal): Promise<boolean> {
-    const pending = s.pending!;
-    // Subagents run at the same time, before the calls the main agent makes itself, the same way on every route (agentCall).
-    const queued = pending.filter((p) => p.name === "agent" && p.state === "queued");
-    if (queued.length > 0) {
-      await Promise.all(queued.map(async (p) => {
-        const r = await this.agentCall(s, p.id, p.input, signal, () => {
-          p.state = "running";
-          this.o.store.save(s);
-        });
-        // A Stop of everything answered the call already.
-        if (signal.aborted && !r.background) return;
-        p.state = "done";
-        p.result = r.text;
-        p.isError = r.isError;
-        // One that went on in the background stays open until it ends, and then reports to the main agent.
-        if (r.background) this.o.store.save(s);
-        else this.recordOutcome(s, p, r.stopped ? "stopped" : r.isError ? "error" : "done");
-      }));
-      if (signal.aborted) return true;
-    }
-    for (const p of pending) {
-      if (signal.aborted) return true;
-      if (p.state === "done") continue;
-
-      // A subagent resumed after a restart: its call waits on it again.
-      if (p.name === "agent" && this.runs.has(p.id)) {
-        const r = await this.agentCall(s, p.id, p.input, signal);
-        if (signal.aborted && !r.background) return true;
-        Object.assign(p, { state: "done", result: r.text, isError: r.isError });
-        if (r.background) this.o.store.save(s);
-        else this.recordOutcome(s, p, r.stopped ? "stopped" : r.isError ? "error" : "done");
-        continue;
-      }
-      if (p.state === "unknown" && p.name === "agent") {
-        p.state = "done";
-        p.result = `The subagent was cut off (${s.waitingCause ?? this.lastCause}) before it reported. Read back the state of what it was working on before redoing any of it.`;
-        p.isError = true;
-        this.recordOutcome(s, p, "unknown");
-        continue;
-      }
-
-      if (p.state === "unknown") {
-        if (!editorConnected(this.o.host)) return this.pause(s);
-        p.state = "done";
-        p.result = verifyUnknown(this.o.host, p.input, s.waitingCause ?? this.lastCause);
-        p.isError = true;
-        this.recordOutcome(s, p, "unknown");
-        continue;
-      }
-
-      const needsEditor = p.name === "ue_mcp" && p.input.action === "call";
-      // Paused only while a restart or rebuild will bring the editor back; otherwise the call gets the daemon's own answer.
-      if (needsEditor && !editorConnected(this.o.host) && this.operating()) return this.pause(s);
-
-      // Waiting for the user leaves the call queued, so a daemon restart asks again rather than guessing.
-      const gate = await this.gate(s, p.id, p.name, p.input, signal);
-      if (gate && "stopped" in gate) return true;
-      if (gate) {
-        p.state = "done";
-        p.result = gate.declined;
-        p.isError = true;
-        this.recordOutcome(s, p, "declined");
-        continue;
-      }
-
-      if (p.name === "skill") {
-        const r = skillResult(this.native()?.skills ?? [], p.input.name);
-        p.state = "done";
-        p.result = r.text;
-        p.isError = r.isError;
-        this.recordOutcome(s, p, r.isError ? "error" : "done");
-        continue;
-      }
-      p.state = "running";
-      this.o.store.save(s);
-      const exec = await this.execute(this.hostFor(s.id), p.name, p.input, signal);
-      if (signal.aborted) {
-        // Stopped while the editor worked: the stop already answered this call.
-        this.mergeExec(s, exec, exec.outcome !== "unknown");
-        this.o.store.save(s);
-        return true;
-      }
-      if (exec.outcome === "unknown") {
-        p.state = "unknown";
-        this.mergeExec(s, exec, false);
-        this.o.store.save(s);
-        return this.pause(s);
-      }
-      p.state = "done";
-      const shown = exec.isError ? exec : this.withInstructions(s.id, p.name, p.input, exec);
-      p.result = shown.text;
-      if (shown.modelText !== undefined) p.modelResult = shown.modelText;
-      p.isError = exec.isError;
-      if (exec.images) p.images = exec.images;
-      this.mergeExec(s, exec, true);
-      this.markSaved(s, exec.saved);
-      this.recordOutcome(s, p, exec.outcome);
-      if (p.name === "editor_restart" && !exec.isError && !editorConnected(this.o.host) && this.operating()) {
-        // The restart returned; wait for the editor to reattach before the model continues.
-        // Bounded: the busy tracker ends the wait for it to attach, and that resumes this turn.
-        this.flushPending(s);
-        return this.pause(s);
-      }
-    }
-    this.flushPending(s);
-    return false;
-  }
-
-  /**
-   * One subagent, on any route: its own conversation with the work tools only
-   * (no agent tool), on the subagent model or its helper's. Its steps go into
-   * the session's transcript under the agent call, and its final report is
-   * its result. Studio's loop runs it over a provider's API; on the Claude
-   * sign-in it is a session of its own in that runtime, in a turn host where
-   * one can start. `follow`: the main agent's reply, whose Stop it follows
-   * until it goes to the background. `attach`: a host it already runs in,
-   * taken over after a restart.
-   */
-  private async runSubagent(s: StoredSession, call: PendingTool, follow: AbortSignal | null, run: AgentRun, attach?: { record: TurnHostRecord; from: number } | { messages: MessageParam[] }): Promise<AgentResult & { detached?: true }> {
-    const prompt = call.input.prompt;
-    if (typeof prompt !== "string" || !prompt.trim()) return { text: "Invalid input: agent needs prompt", isError: true };
-    const n = this.native();
-    let helper: NativeHelper | null = null;
-    if (typeof call.input.helper === "string") {
-      helper = n?.helpers.find((h) => h.name === call.input.helper) ?? null;
-      if (!helper) return { text: `No helper named ${call.input.helper}. The project's helpers are: ${(n?.helpers ?? []).map((h) => h.name).join(", ") || "none"}.`, isError: true };
-    }
-    const own = new AbortController();
-    let byTurn = false;
-    if (follow) {
-      const f = () => {
-        byTurn = true;
-        own.abort();
-      };
-      if (follow.aborted) f();
-      else {
-        follow.addEventListener("abort", f);
-        run.detach.push(() => follow.removeEventListener("abort", f));
-      }
-    }
-    this.subagents.set(call.id, () => own.abort());
-    this.subagentAbort(call.id).signal.addEventListener("abort", () => own.abort(), { once: true });
-    const stopped = (): AgentResult => (byTurn
-      ? { text: "Stopped by the user.", isError: true }
-      : { text: "The user stopped this subagent before it finished. Do not redo its task unless the user asks.", isError: true, stopped: true });
-    // On the Claude sign-in the subagent is a session of that runtime, as is a helper whose model only the sign-in runs.
-    // One resumed from its saved conversation goes on where it ran, on Studio's loop.
-    const resume = attach && "messages" in attach ? attach.messages : undefined;
-    const host = attach && "record" in attach ? attach : undefined;
-    // One taken over in its turn host is a Claude sign-in session whatever the route reads as now (the sign-ins may not be read yet).
-    const onClaude = !!host || (!resume && (helper?.run ? helper.run.route === "claude" : !!this.o.subscription?.()));
-    try {
-      return onClaude
-        ? await this.claudeSubagent(s, call, prompt, helper, own, run, stopped, host)
-        : await this.loopSubagent(s, call, prompt, helper, own.signal, run, stopped, resume);
-    } catch (e) {
-      if (own.signal.aborted) return stopped();
-      return { text: `The subagent failed: ${e instanceof Error ? e.message : String(e)}`, isError: true };
-    } finally {
-      for (const d of run.detach.splice(0)) d();
-    }
-  }
-
-  /** A subagent as a session of its own on the Claude sign-in's runtime, every tool call coming back to Studio. */
-  private async claudeSubagent(s: StoredSession, call: PendingTool, prompt: string, helper: NativeHelper | null, own: AbortController, run: AgentRun, stopped: () => AgentResult, attach?: { record: TurnHostRecord; from: number }): Promise<AgentResult & { detached?: true }> {
-    const surface = this.surface();
-    const projectDir = this.o.host.projectDir;
-    // Its runs are the user's when the user assigned it: the brief says to start one.
-    const base = withSurface(subagentSystem(projectDir, run.assigned ? "automatic" : this.runsMode(), this.sdkComposed()), surface);
-    // What the user wrote to it before its session started goes with its task, read with it.
-    const told = this.inbox.drain(call.id);
-    if (!attach) this.deliver(s, call.id, told.length, "read");
-    // A host an older Studio started has no reply tool and never says when it read a message.
-    run.replies = !attach || attach.record.protocol >= REPLY_PROTOCOL;
-    const spec: TurnSpec = {
-      projectDir,
-      model: helper?.run?.model ?? this.subagentModel(),
-      effort: (helper?.effort as Effort | null) ?? this.subagentEffort(),
-      system: [base, helper ? `You are the project's ${helper.name} helper. Its own instructions follow.\n\n${helper.prompt}` : null].filter(Boolean).join("\n\n"),
-      ...(helper?.allowed ? { allowed: [...helper.allowed] } : {}),
-      ...(helper?.maxTurns ? { maxTurns: helper.maxTurns } : {}),
-      ...this.sdkNative(),
-      ...sdkEditor(surface),
-      prompt: [{ type: "text", text: prompt }, ...(told.length ? [{ type: "text", text: toSubagent(told) }] : [])],
-      resume: null,
-      reply: true,
-    };
-    let report = "";
-    const cb: HostedCallbacks = {
-      signal: own.signal,
-      onTokens: (n) => this.count(s, n, call.id),
-      onUsage: ({ usage: u, growth, first, model }) => {
-        this.spend(s, growth, model, first);
-        this.measure(s, call.id, u, model, { sdk: true });
-      },
-      onSession: () => {},
-      onDelta: () => {},
-      onAssistant: (_mid, blocks) => {
-        for (const b of blocks) {
-          if (b.type === "text" && b.text) {
-            report = b.text;
-            this.addEntry(s, { kind: "assistant", text: b.text, at: now(), parent: call.id });
-          }
-          // Its reply to the user shows as its words when the call runs, not as a step.
-          if (b.type === "tool_use" && b.name !== REPLY_TOOL_NAME && !s.transcript.some((t) => t.kind === "tool" && t.call.id === b.id)) {
-            this.addEntry(s, { kind: "tool", call: { id: b.id, name: b.name, input: b.input, outcome: "pending", startedAt: now() }, parent: call.id });
-          }
-        }
-      },
-      onHeard: (n) => this.deliver(s, call.id, n, "read"),
-      // Studio's tools record their outcome as they run; the runtime's own (web search) only here.
-      onToolResults: (content) => {
-        for (const b of content as Array<{ type?: string; tool_use_id?: string; content?: unknown; is_error?: boolean }>) {
-          if (b.type !== "tool_result" || !b.tool_use_id) continue;
-          const entry = s.transcript.find((t) => t.kind === "tool" && t.call.id === b.tool_use_id);
-          if (entry?.kind !== "tool" || entry.call.outcome !== "pending") continue;
-          const text = typeof b.content === "string" ? b.content : Array.isArray(b.content) ? b.content.map((c: { text?: string }) => c.text ?? "").join("") : "";
-          this.recordOutcome(s, { id: b.tool_use_id, name: entry.call.name, input: {}, state: "done", result: text, isError: !!b.is_error }, b.is_error ? "error" : "done");
-        }
-      },
-      runTool: (toolId, name, input, onStart) => (name === REPLY_TOOL_NAME
-        ? Promise.resolve(this.replyToUser(s, call.id, input))
-        : this.subscriptionTool(s, own, toolId, name, input, run.assigned, onStart)),
-      // A reply the previous daemon was showing changes nothing in the project: it is answered as shown, not lost.
-      lostTool: (toolId, name, input) => (name === REPLY_TOOL_NAME ? Promise.resolve({ text: REPLY_SHOWN, isError: false, outcome: "done" as const, touched: [], saved: [] }) : this.lostCall(s, toolId, name, input)),
-      onSeq: (seq) => this.keepRun(s, run, seq),
-      onLive: (live) => {
-        if (!live) {
-          run.say = null;
-          return;
-        }
-        // The user's message to it is streamed into its own session's input.
-        run.say = async (text) => Promise.resolve(live.say([{ type: "text", text: toSubagent([text], run.replies) }])).catch(() => false);
-        const later = this.inbox.drain(call.id);
-        if (later.length) void live.say([{ type: "text", text: toSubagent(later, run.replies) }]);
-      },
-      onInputClosed: () => {},
-    };
-    let result: HostedResult;
-    if (attach && this.o.turnHosts) {
-      const hosted = await this.o.turnHosts.attach(attach.record, cb, attach.from);
-      run.hosted = hosted;
-      result = await hosted.done;
-    } else {
-      result = await this.claudeStep(agentHostKey(s.id, call.id), spec, cb, (hosted) => void (run.hosted = hosted));
-    }
-    run.say = null;
-    if (result === DETACHED) return { text: "", isError: true, detached: true };
-    if (own.signal.aborted) return stopped();
-    if (result) return { text: `The subagent failed: ${result}`, isError: true };
-    return { text: report || "The subagent finished without a report.", isError: false };
-  }
-
-  /** A subagent on Studio's own loop: model call, tool calls, model call, over the route's provider (or its helper's). */
-  private async loopSubagent(s: StoredSession, call: PendingTool, prompt: string, helper: NativeHelper | null, signal: AbortSignal, run: AgentRun, stopped: () => AgentResult, resume?: MessageParam[]): Promise<AgentResult> {
-    const detached = run.assigned;
-    const n = this.native();
-    const surf = this.surface();
-    const projected = new Set(surf.projected.map((p) => p.name));
-    // A helper whose file allows ue_mcp gets every projected editor tool in its place.
-    const allows = (name: string) => helper!.allowed!.has(name as never) || (projected.has(name) && helper!.allowed!.has("ue_mcp" as never));
-    const tools = helper?.allowed ? this.workTools(surf).filter((t) => allows((t as { name: string }).name)) : this.workTools(surf);
-    if (n?.skills.length) tools.push(SKILL_TOOL);
-    // Its answer to the user who writes to it from its thread; a helper's file never takes it away.
-    tools.push(REPLY_TOOL);
-    run.replies = true;
-    const steps = helper?.maxTurns ?? SUBAGENT_STEPS;
-    const base = withSurface(subagentSystem(this.o.host.projectDir, detached ? "automatic" : this.runsMode(), this.composed()), surf);
-    const systemText = [base, helper ? `You are the project's ${helper.name} helper. Its own instructions follow.\n\n${helper.prompt}` : null, this.skillLines()].filter(Boolean).join("\n\n");
-    const provider = helper?.run ? helper.run.provider : this.o.provider;
-    const model = helper?.run?.model ?? this.subagentModel();
-    const effort = (helper?.effort as Effort | null) ?? this.subagentEffort();
-    const parent = call.id;
-    // Its conversation is saved after each step, so a daemon restart resumes it where it was (recoverAgents).
-    const messages: MessageParam[] = resume ? structuredClone(resume) : [{ role: "user", content: prompt }];
-    const save = () => this.keepRun(s, run, undefined, messages);
-    let report = "";
-    if (resume) {
-      // Calls it was making when the daemon went down: never run again, their outcome unknown.
-      const last = messages[messages.length - 1];
-      const open = last?.role === "assistant" && Array.isArray(last.content) ? (last.content as ContentBlock[]).filter((b): b is Extract<ContentBlock, { type: "tool_use" }> => b.type === "tool_use") : [];
-      if (open.length) {
-        const lost = "Studio's daemon restarted while this call was running, so whether it took effect is unknown. Read the current state back before repeating it.";
-        for (const u of open) this.recordOutcome(s, { id: u.id, name: u.name, input: {}, state: "done", result: lost, isError: true }, "unknown");
-        messages.push({ role: "user", content: open.map((u) => ({ type: "tool_result", tool_use_id: u.id, content: lost, is_error: true })) } as MessageParam);
-      }
-      for (const t of [...messages].reverse()) {
-        if (t.role !== "assistant") continue;
-        report = textOf(t.content as ContentBlock[]) || report;
-        break;
-      }
-    }
-    save();
-    {
-      const sys = [{ type: "text" as const, text: systemText }];
-      const conv: Conversation = {
-        agent: parent,
-        messages,
-        model,
-        overhead: estimateTokens(systemText + JSON.stringify(tools)),
-        summarize: async (m, sig) => {
-          const t = await provider().run({ sessionId: s.id, model, effort, system: sys, tools, messages: m }, () => {}, sig);
-          return { text: textOf(t.content), usage: t.usage };
-        },
-      };
-      let overflowed = false;
-      for (let step = 0; step < steps; step++) {
-        if (signal.aborted) return stopped();
-        // A subagent's own conversation compacts the same way as the main one.
-        await this.autoCompact(s, conv, signal);
-        if (signal.aborted) return stopped();
-        // What the user sent it from its thread joins its conversation before its next model call.
-        const told = this.inbox.drain(parent);
-        if (told.length) {
-          addUserText(messages, toSubagent(told));
-          this.deliver(s, parent, told.length, "read");
-        }
-        let turn: ModelTurn;
-        try {
-          turn = await provider().run({ sessionId: s.id, model, effort, system: sys, tools, messages }, () => {}, signal);
-        } catch (e) {
-          if (signal.aborted || overflowed || !isContextOverflow(e)) throw e;
-          overflowed = true;
-          await this.compactConversation(s, conv, "overflow", Math.max(this.currentContext(s, conv), this.windowFor(model)), signal);
-          continue;
-        }
-        messages.push({ role: "assistant", content: turn.content } as MessageParam);
-        save();
-        this.count(s, usageTokens(turn.usage), parent);
-        this.spend(s, turn.usage, model);
-        this.measure(s, parent, turn.usage, model, { messages: messages.length });
-        this.recordSearches(s, turn.searches, parent);
-        const text = turn.content.filter((b): b is Extract<ContentBlock, { type: "text" }> => b.type === "text").map((b) => b.text).join("");
-        if (text) {
-          report = text;
-          this.addEntry(s, { kind: "assistant", text, at: now(), parent });
-        }
-        if (turn.stopReason === "refusal") return { text: `The subagent's model declined: ${turn.refusal ?? "no reason given"}`, isError: true };
-        if (turn.stopReason === "pause_turn") continue;
-        const uses = turn.content.filter((b): b is Extract<ContentBlock, { type: "tool_use" }> => b.type === "tool_use");
-        if (turn.stopReason !== "tool_use" || uses.length === 0) {
-          // A message the user sent while it wrote its report: it carries on to act on it rather than end.
-          if (this.inbox.has(parent)) continue;
-          return { text: report || "The subagent finished without a report.", isError: false };
-        }
-        const results: Array<{ type: "tool_result"; tool_use_id: string; content: ReturnType<typeof toolResultContent>; is_error?: boolean }> = [];
-        for (const raw of uses) {
-          const c = surf.canon(raw.name, (raw.input ?? {}) as Record<string, unknown>);
-          const u = { ...raw, name: c.name };
-          const input = c.input;
-          if (u.name === REPLY_TOOL_NAME) {
-            const r = this.replyToUser(s, parent, input);
-            results.push({ type: "tool_result", tool_use_id: u.id, content: r.text, is_error: r.isError || undefined });
-            continue;
-          }
-          this.addEntry(s, { kind: "tool", call: { id: u.id, name: u.name, input, outcome: "pending", startedAt: now() }, parent });
-          if (u.name === "skill") {
-            const r = skillResult(n?.skills ?? [], input.name);
-            this.recordOutcome(s, { id: u.id, name: u.name, input, state: "done", result: r.text, isError: r.isError }, r.isError ? "error" : "done");
-            results.push({ type: "tool_result", tool_use_id: u.id, content: r.text, is_error: r.isError || undefined });
-            continue;
-          }
-          // A tool the helper's file does not allow is refused, never run.
-          if (helper?.allowed && !helper.allowed.has(u.name as never)) {
-            const text = `The ${helper.name} helper's file does not allow ${u.name}.`;
-            this.recordOutcome(s, { id: u.id, name: u.name, input, state: "done", result: text, isError: true }, "error");
-            results.push({ type: "tool_result", tool_use_id: u.id, content: text, is_error: true });
-            continue;
-          }
-          // One working while the main agent is not replying waits for the editor without making the session wait.
-          if (u.name === "ue_mcp" && input.action === "call") await this.waitForEditor(s, signal, Infinity, detached || !this.replying.has(s.id));
-          if (signal.aborted) return stopped();
-          const gate = await this.gate(s, u.id, u.name, input, signal);
-          if (gate && "stopped" in gate) return stopped();
-          if (gate) {
-            this.recordOutcome(s, { id: u.id, name: u.name, input, state: "done", result: gate.declined, isError: true }, "declined");
-            results.push({ type: "tool_result", tool_use_id: u.id, content: gate.declined, is_error: true });
-            continue;
-          }
-          const running = this.execute(this.hostFor(s.id, detached), u.name, input, signal);
-          // A stop lets the call go at once; what it does after is still tracked for the crash report.
-          void running.then((e) => signal.aborted && this.mergeExec(s, e, e.outcome !== "unknown"), () => {});
-          const exec = await unlessAborted(running, signal);
-          if (!exec || signal.aborted) return stopped();
-          this.mergeExec(s, exec, exec.outcome !== "unknown");
-          this.markSaved(s, exec.saved);
-          const shown = exec.isError ? exec : this.withInstructions(parent, u.name, input, exec);
-          this.recordOutcome(s, { id: u.id, name: u.name, input, state: "done", result: shown.text, isError: exec.isError, ...(exec.images ? { images: exec.images } : {}) }, exec.outcome);
-          results.push({ type: "tool_result", tool_use_id: u.id, content: toolResultContent(forModel(shown), exec.images), is_error: exec.isError || undefined });
-        }
-        messages.push({ role: "user", content: results } as MessageParam);
-        save();
-      }
-      return { text: `The subagent stopped after ${steps} steps without finishing. Its last report: ${report || "none"}`, isError: true };
-    }
-  }
-
-  private pause(s: StoredSession): boolean {
-    this.setStatus(s, "waiting", this.causeNow());
-    return true;
   }
 
   /**

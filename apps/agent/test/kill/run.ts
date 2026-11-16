@@ -1,5 +1,5 @@
 /**
- * The kill tests (#445): the same scenarios against each runtime, the daemon
+ * The kill tests (#445): each scenario on the durable runtime, the daemon
  * killed at each kill point (TerminateProcess, as a crash) and started again
  * on the same data folder. Each run records whether the turn resumed on its
  * own, what a client that held the session open saw and then lost, what ran
@@ -16,7 +16,8 @@ import { spawn, type ChildProcess } from "node:child_process";
 import type { TranscriptEntry } from "@ue-mcp-studio/shared";
 import { startFakeAnthropic, type FakeTurn } from "../durable/fake-anthropic.js";
 
-type Runtime = "loop" | "hosts" | "durable";
+/** Studio's loop and the turn hosts are gone: the durable runtime is the only one left to kill. */
+type Runtime = "durable";
 const [outFile, runtimesArg, scenariosArg] = process.argv.slice(2);
 const here = path.dirname(new URL(import.meta.url).pathname.replace(/^\/([A-Za-z]:)/, "$1"));
 const DIST = process.env.STUDIO_AGENT_DIST!;
@@ -187,23 +188,11 @@ function killPid(pid: number | undefined): void {
   }
 }
 
-/** Every process this run started: the daemons, and what they started (the harness, turn hosts). */
+/** Every process this run started: the daemons, and the harness they started. */
 function cleanup(data: string, daemon: ChildProcess | null): void {
   if (daemon && daemon.exitCode === null) killPid(daemon.pid);
   try {
     killPid((JSON.parse(fs.readFileSync(path.join(data, "durable", "harness.json"), "utf-8")) as { pid: number }).pid);
-  } catch {
-    // None.
-  }
-  try {
-    for (const f of fs.readdirSync(path.join(data, "turn-hosts"))) {
-      if (!f.endsWith(".json") || f.includes("launch")) continue;
-      try {
-        killPid((JSON.parse(fs.readFileSync(path.join(data, "turn-hosts", f), "utf-8")) as { pid: number }).pid);
-      } catch {
-        // Unreadable.
-      }
-    }
   } catch {
     // None.
   }
@@ -355,7 +344,7 @@ async function runOne(runtime: Runtime, sc: Scenario): Promise<Result> {
   return result;
 }
 
-const runtimes = (runtimesArg ? runtimesArg.split(",") : ["loop", "hosts", "durable"]) as Runtime[];
+const runtimes = (runtimesArg ? runtimesArg.split(",").filter((r) => r === "durable") : ["durable"]) as Runtime[];
 const picked = scenariosArg ? SCENARIOS.filter((s) => scenariosArg.split(",").includes(s.id)) : SCENARIOS;
 const results: Result[] = [];
 for (const sc of picked) {
