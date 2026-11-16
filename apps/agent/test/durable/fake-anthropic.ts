@@ -51,6 +51,8 @@ export interface FakeRequest {
   sub: boolean;
   messages: Array<{ role: string; content: unknown }>;
   body: Record<string, unknown>;
+  /** The request's messages as JSON. */
+  userText: string;
 }
 
 /** What a script is handed for each request. `signal` aborts when the client drops the request. */
@@ -104,7 +106,7 @@ export async function startFakeAnthropic(script: (req: FakeScriptRequest) => Fak
     const studio = tools.some((t) => /(^|__)(ue_mcp|shell|reply)$/.test(t));
     const serverTools = ((body.tools ?? []) as Array<{ type?: string }>).map((t) => t.type ?? "").filter((t) => t && t !== "custom");
     const sub = system.includes("You are a subagent");
-    const request: FakeRequest = { model: String(body.model), tools, serverTools, toolResults: n, system, sub, messages, body };
+    const request: FakeRequest = { model: String(body.model), tools, serverTools, toolResults: n, system, sub, messages, body, userText };
     requests.push(request);
     if (log) fs.appendFileSync(log, `${JSON.stringify({ at: Date.now(), toolResults: n, studio, sub })}\n`);
     const dropped = new AbortController();

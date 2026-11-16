@@ -121,7 +121,6 @@
   .cfg .hide-narrow { display: none; }
   .cfg-sheet { top: auto; bottom: 0; left: 0; right: 0; transform: none; width: auto; max-height: 88vh; border-radius: 14px 14px 0 0; }
 }
-}
 @media (prefers-reduced-motion: reduce) { .cfg button.switch::after { transition: none; } }
 
 /* Links inside settings copy read as text, not as buttons. */

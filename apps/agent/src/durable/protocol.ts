@@ -193,6 +193,8 @@ export type ClientMessage =
   | { t: "complete"; id: string; route: RouteSpec; system: string; prompt: string; effort: Effort }
   /** What the harness is doing: its live tasks, queued submissions and recent reports. Reads only. An older harness never answers it. */
   | { t: "inspect"; id: string }
+  /** An edited message or a fork: conversation `to` goes on from just before the message in `from`. Answers { conv, at } or null. An older harness never answers it. */
+  | { t: "fork"; id: string; from: string; to: string; text: string; fromEnd: number }
   | { t: "res"; reqId: string; value: unknown }
   /** A daemon-side tool run got past its gate and is about to run. The harness records it before answering go. */
   | { t: "started"; reqId: string };
