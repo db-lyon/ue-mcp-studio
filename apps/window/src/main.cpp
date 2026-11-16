@@ -1541,12 +1541,25 @@ void resize() {
   gController->put_Bounds(r);
 }
 
-void openInBrowserAndQuit(const wchar_t* why) {
+const wchar_t* kWebView2Download = L"https://developer.microsoft.com/microsoft-edge/webview2/";
+
+/**
+ * The window cannot show Studio: open it in the browser when ue-mcp runs.
+ * Without ue-mcp there is no page to open, so never a bare notice: a missing
+ * runtime offers Microsoft's download page, and any other failure says how
+ * to get Studio up.
+ */
+void openInBrowserAndQuit(const wchar_t* why, bool missingRuntime) {
   Daemon d;
   if (readDaemon(d)) {
     openExternal(uiUrl(d));
+  } else if (missingRuntime) {
+    std::wstring text = std::wstring(L"Studio's window needs the Microsoft Edge WebView2 Runtime, which is not installed, and ue-mcp is not running, so Studio cannot open in your browser either.\n\n")
+      + L"Open Microsoft's download page? Its Evergreen installer needs no admin rights. Then open Studio again from the editor.";
+    if (MessageBoxW(gMain, text.c_str(), L"UE-MCP Studio", MB_YESNO | MB_ICONWARNING) == IDYES) openExternal(kWebView2Download);
   } else {
-    MessageBoxW(gMain, why, L"UE-MCP Studio", MB_OK | MB_ICONWARNING);
+    std::wstring text = std::wstring(why) + L"\n\nOpen Studio again from the editor's Studio menu, which starts ue-mcp; Studio then opens in your browser if its window still cannot.";
+    MessageBoxW(gMain, text.c_str(), L"UE-MCP Studio", MB_OK | MB_ICONWARNING);
   }
   DestroyWindow(gMain);
 }
@@ -1557,14 +1570,14 @@ void createWebView() {
   HRESULT hr = CreateCoreWebView2EnvironmentWithOptions(nullptr, data.c_str(), nullptr,
     Callback<ICoreWebView2CreateCoreWebView2EnvironmentCompletedHandler>([](HRESULT hr, ICoreWebView2Environment* environment) -> HRESULT {
       if (FAILED(hr) || !environment) {
-        openInBrowserAndQuit(L"Studio's window needs the Microsoft Edge WebView2 Runtime, which is not installed. Studio opens in your browser instead.");
+        openInBrowserAndQuit(L"Studio's window needs the Microsoft Edge WebView2 Runtime, which is not installed.", true);
         return S_OK;
       }
       gEnv = environment;
       return environment->CreateCoreWebView2Controller(gView, Callback<ICoreWebView2CreateCoreWebView2ControllerCompletedHandler>(
         [](HRESULT hr, ICoreWebView2Controller* controller) -> HRESULT {
           if (FAILED(hr) || !controller) {
-            openInBrowserAndQuit(L"Studio's window could not create its browser view.");
+            openInBrowserAndQuit(L"Studio's window could not create its browser view.", false);
             return S_OK;
           }
           gController = controller;
@@ -1666,7 +1679,7 @@ void createWebView() {
               COREWEBVIEW2_PROCESS_FAILED_KIND kind;
               args->get_ProcessFailedKind(&kind);
               if (kind == COREWEBVIEW2_PROCESS_FAILED_KIND_BROWSER_PROCESS_EXITED) {
-                openInBrowserAndQuit(L"Studio's browser view stopped.");
+                openInBrowserAndQuit(L"Studio's browser view stopped.", false);
               } else if (gWeb) {
                 gLoaded = Daemon();
                 gLocalPage = false;
@@ -1682,7 +1695,7 @@ void createWebView() {
           return S_OK;
         }).Get());
     }).Get());
-  if (FAILED(hr)) openInBrowserAndQuit(L"Studio's window needs the Microsoft Edge WebView2 Runtime, which is not installed. Studio opens in your browser instead.");
+  if (FAILED(hr)) openInBrowserAndQuit(L"Studio's window needs the Microsoft Edge WebView2 Runtime, which is not installed.", true);
 }
 
 // ---------------------------------------------------------------- windows
