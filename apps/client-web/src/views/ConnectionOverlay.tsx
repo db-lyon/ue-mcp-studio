@@ -5,6 +5,7 @@ import { reconnectEvents } from "../api";
 import { native } from "../native";
 import { QUIET_MS, REMOTE_OFFLINE, REMOTE_QUIET_MS, connected, elapsed, headline, isRemotePage, step, waking, type Conn, type ConnEvent } from "../connection";
 import { onAlive } from "../diag";
+import { SWITCH_PROJECT, projectListUrl } from "@ue-mcp-studio/client-core";
 
 interface HostStatus {
   node?: boolean;
@@ -174,6 +175,8 @@ export function ConnectionOverlay({ c }: { c: Connection }) {
             <span className="spacer" />
             {conn.noNode && native().opennodedownload && <button onClick={() => void native().opennodedownload!()}>Download Node.js</button>}
             {native().openlog && <button onClick={() => void native().openlog!()}>Open log</button>}
+            {/* The overlay covers the bar's project switcher: another project that is online is one press away. */}
+            {offline && <button onClick={() => window.location.assign(projectListUrl(window.location.origin))}>{SWITCH_PROJECT}</button>}
             <button className="primary" onClick={c.retry}>Retry</button>
           </div>
         )}

@@ -7,9 +7,10 @@
  * then a phone, often on a mobile network, shows only the small line: while
  * reconnecting, and for a restart's first REMOTE_RECONNECT_MS.
  */
-import { useEffect, useReducer, useRef } from "react";
+import { useContext, useEffect, useReducer, useRef } from "react";
+import { Exits } from "../exits";
 import { AppState, StyleSheet, View } from "react-native";
-import { CONN_QUIET_MS, REMOTE_OFFLINE, REMOTE_RECONNECT_MS, connected, elapsed, headline, step, waking, type Conn, type ConnEvent } from "@ue-mcp-studio/client-core";
+import { CONN_QUIET_MS, REFUSAL_BACK, REMOTE_OFFLINE, REMOTE_RECONNECT_MS, connected, elapsed, headline, step, waking, type Conn, type ConnEvent } from "@ue-mcp-studio/client-core";
 import { Button, edgePadding, font, Row, Spacer, Spinner, T, useInsets, useStyles, type Theme } from "../ui";
 import { useProjectNav } from "../nav";
 import type { DaemonEvent } from "../state";
@@ -88,6 +89,7 @@ export function useConnection(streaming: boolean, events: DaemonEvent[], updatin
 export function ConnectionOverlay({ c }: { c: Connection }) {
   const s = useStyles(styles);
   const insets = useInsets();
+  const exits = useContext(Exits);
   const { conn, now, remote } = c;
   if (conn.phase === "connected") return null;
   const down = conn.downSince === null ? "" : elapsed(now - conn.downSince);
@@ -136,6 +138,8 @@ export function ConnectionOverlay({ c }: { c: Connection }) {
         {needs || offline ? (
           <Row style={s.row}>
             <Spacer />
+            {/* The overlay covers the header and its back: Projects is the way out to a project that is online. */}
+            <Button title={REFUSAL_BACK} onPress={exits.onBack} />
             <Button title="Retry" variant="primary" onPress={c.retry} />
           </Row>
         ) : null}
