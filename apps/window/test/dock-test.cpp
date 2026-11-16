@@ -248,6 +248,98 @@ int main() {
     CHECK(dock::place(dock::Mode::Docked, true, r, true, host()).show == dock::Show::Docked);
   });
 
+  test("cutouts round-trip at the documented offsets, under the plugin's seq", [] {
+    Block b;
+    dock::init(b.m());
+    dock::Report s = sample();
+    s.flags |= dock::kCutouts;
+    s.cutoutCount = 2;
+    s.cutouts[0] = {0, 400, 800, 200};
+    s.cutouts[1] = {-30, -5, 60, 40};
+    dock::writeReport(b.m(), s);
+    static_assert(dock::kMaxCutouts == 10, "ten cutouts fit after the studio section");
+    CHECK(dock::load32(b.m(), 48) == 2);
+    CHECK(dock::load32(b.m(), 96 + 4) == 400 && dock::load32(b.m(), 96 + 8) == 800);
+    CHECK((int32_t)dock::load32(b.m(), 112) == -30);
+    dock::Report r;
+    CHECK(dock::readReport(b.m(), dock::kSize, r));
+    CHECK(r.cutoutCount == 2 && r.cutouts[0] == s.cutouts[0] && r.cutouts[1] == s.cutouts[1]);
+    // The studio section in between is untouched.
+    CHECK(dock::load32(b.m(), dock::kOffStudioSeq) == 0);
+  });
+
+  test("a report without kCutouts carries none, whatever an earlier writer left in the block", [] {
+    Block b;
+    dock::init(b.m());
+    dock::Report s = sample();
+    s.flags |= dock::kCutouts;
+    s.cutoutCount = 1;
+    s.cutouts[0] = {0, 0, 100, 100};
+    dock::writeReport(b.m(), s);
+    // An older plugin's write: flags without the bit, the count left as it was.
+    dock::store32(b.m(), dock::kOffFlags, dock::kOpen | dock::kVisible);
+    dock::Report r;
+    CHECK(dock::readReport(b.m(), dock::kSize, r) && r.cutoutCount == 0);
+    CHECK(dock::cutouts(r, 800, 600).empty());
+  });
+
+  test("a count past the limit is held to it", [] {
+    Block b;
+    dock::init(b.m());
+    dock::Report s = sample();
+    s.flags |= dock::kCutouts;
+    dock::writeReport(b.m(), s);
+    dock::store32(b.m(), dock::kOffCutoutCount, 999);
+    dock::Report r;
+    CHECK(dock::readReport(b.m(), dock::kSize, r) && r.cutoutCount == dock::kMaxCutouts);
+  });
+
+  test("cutouts are clipped to the window and the empty ones dropped", [] {
+    dock::Report r = sample();
+    r.flags |= dock::kCutouts;
+    r.cutoutCount = 4;
+    r.cutouts[0] = {-100, 350, 2000, 400};  // a drawer wider than the tab, past its bottom
+    r.cutouts[1] = {790, 10, 50, 20};       // a menu over the right edge
+    r.cutouts[2] = {900, 10, 50, 20};       // beside the tab
+    r.cutouts[3] = {10, 10, 0, 20};         // empty
+    std::vector<dock::Rect> c = dock::cutouts(r, 800, 600);
+    CHECK(c.size() == 2);
+    CHECK(c[0] == (dock::Rect{0, 350, 800, 250}));
+    CHECK(c[1] == (dock::Rect{790, 10, 10, 20}));
+    r.cutoutCount = 0;
+    CHECK(dock::cutouts(r, 800, 600).empty());
+    r.cutoutCount = 1;
+    CHECK(dock::cutouts(r, 0, 600).empty());
+  });
+
+  test("Studio shows everywhere but the cutouts, where the editor does", [] {
+    std::vector<dock::Rect> c = {{0, 350, 800, 250}, {790, 10, 10, 20}};
+    CHECK(dock::showsStudio(c, 800, 600, 400, 100));
+    CHECK(!dock::showsStudio(c, 800, 600, 400, 350));
+    CHECK(dock::showsStudio(c, 800, 600, 400, 349));
+    CHECK(!dock::showsStudio(c, 800, 600, 795, 15));
+    CHECK(dock::showsStudio(c, 800, 600, 789, 15));
+    CHECK(!dock::showsStudio(c, 800, 600, 800, 15));
+    CHECK(dock::showsStudio({}, 800, 600, 0, 0));
+  });
+
+  test("cutouts are physical pixels at any scale: a drawer on a 150% monitor", [] {
+    // A 1200x900 logical tab on a 150% monitor is 1800x1350 physical; the plugin reports
+    // physical rects and the window is placed in physical pixels, so nothing is scaled.
+    dock::Report r = sample();
+    r.w = 1800;
+    r.h = 1350;
+    r.flags |= dock::kCutouts;
+    r.cutoutCount = 1;
+    r.cutouts[0] = {-450, 900, 3000, 600};  // the drawer: 300 logical left of the tab, 600 logical tall from y 600
+    std::vector<dock::Rect> c = dock::cutouts(r, r.w, r.h);
+    CHECK(c.size() == 1 && c[0] == (dock::Rect{0, 900, 1800, 450}));
+    CHECK(!dock::showsStudio(c, r.w, r.h, 1799, 1349));
+    CHECK(dock::showsStudio(c, r.w, r.h, 1799, 899));
+    dock::Placement p = dock::place(dock::Mode::Docked, true, r, true, host(-2880, 0));
+    CHECK(p.w == 1800 && p.h == 1350 && p.x == -2870);
+  });
+
   test("the slot is directly above the host, under the editor's menu", [] {
     ZOrder z;
     z.order = {50, 30, 10};  // the editor's menu, the host, Studio below it

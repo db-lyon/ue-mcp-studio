@@ -19,12 +19,24 @@
 //   16  u64 host HWND: the top-level window holding the tab
 //   24  i32 x   28 i32 y   32 i32 w   36 i32 h
 //       the tab's content area in physical pixels, relative to the host's client origin
-//   40  u32 flags (kOpen, kVisible, kOverlay)
+//   40  u32 flags (kOpen, kVisible, kOverlay, kCutouts)
 //   44  u32 frame: counts the plugin's writes
+//   48  u32 cutout count, at most kMaxCutouts
+//   96  the cutouts, 16 bytes each: i32 x, y, w, h, relative to the tab's
+//       content origin (the docked window's origin), in physical pixels.
+//       They are part of the plugin section and written under its seq.
 //   studio section
 //   64  u32 seq                     68  u32 window pid
 //   72  u32 mode (Mode)             76  u32 request seq
 //   80  u32 request (Request): what the window last asked the plugin for
+//
+// Cutouts are what the editor draws over the tab: drawers and in-window
+// popups Slate paints inside the host window, and the editor's own windows
+// (menus, tooltips, notifications, drag decorators, modals) above the host.
+// No z-order lifts part of the host window over Studio, so Studio cuts those
+// rects out of its window region and the editor shows through them. They were
+// added to layout 1 without changing it: an older plugin never sets kCutouts,
+// and an older window never reads them.
 //
 // The plugin keeps its own copy of this layout; change both together.
 #pragma once
@@ -33,6 +45,7 @@
 #include <cstdint>
 #include <cstring>
 #include <string>
+#include <vector>
 
 namespace dock {
 
@@ -42,7 +55,9 @@ constexpr size_t kSize = 256;
 
 constexpr size_t kOffMagic = 0, kOffLayout = 4;
 constexpr size_t kOffPluginSeq = 8, kOffPluginPid = 12, kOffHost = 16, kOffX = 24, kOffY = 28, kOffW = 32, kOffH = 36, kOffFlags = 40, kOffFrame = 44;
+constexpr size_t kOffCutoutCount = 48, kOffCutouts = 96, kCutoutBytes = 16;
 constexpr size_t kOffStudioSeq = 64, kOffStudioPid = 68, kOffStudioMode = 72, kOffRequestSeq = 76, kOffRequest = 80;
+constexpr uint32_t kMaxCutouts = (uint32_t)((kSize - kOffCutouts) / kCutoutBytes);
 
 /** The dock tab exists. */
 constexpr uint32_t kOpen = 1;
@@ -50,9 +65,18 @@ constexpr uint32_t kOpen = 1;
 constexpr uint32_t kVisible = 2;
 /** An editor menu, popup, modal or drag is open over the rect. */
 constexpr uint32_t kOverlay = 4;
+/** The report carries the cutout list (the count may be 0). An older plugin never sets it. */
+constexpr uint32_t kCutouts = 8;
 
 enum class Mode : uint32_t { None = 0, Window = 1, Docked = 2 };
 enum class Request : uint32_t { None = 0, OpenTab = 1, CloseTab = 2 };
+
+/** A rect in the docked window's own coordinates: physical pixels from its top-left corner. */
+struct Rect {
+  int32_t x = 0, y = 0, w = 0, h = 0;
+  bool operator==(const Rect& o) const { return x == o.x && y == o.y && w == o.w && h == o.h; }
+  bool operator!=(const Rect& o) const { return !(*this == o); }
+};
 
 struct Report {
   uint32_t pid = 0;
@@ -60,6 +84,8 @@ struct Report {
   int32_t x = 0, y = 0, w = 0, h = 0;
   uint32_t flags = 0;
   uint32_t frame = 0;
+  uint32_t cutoutCount = 0;
+  Rect cutouts[kMaxCutouts];
 };
 
 struct StudioSection {
@@ -103,6 +129,14 @@ inline bool readReport(const volatile uint8_t* m, size_t size, Report& out) {
     r.h = (int32_t)load32(m, kOffH);
     r.flags = load32(m, kOffFlags);
     r.frame = load32(m, kOffFrame);
+    if (r.flags & kCutouts) {
+      uint32_t n = load32(m, kOffCutoutCount);
+      r.cutoutCount = n < kMaxCutouts ? n : kMaxCutouts;
+      for (uint32_t i = 0; i < r.cutoutCount; ++i) {
+        size_t at = kOffCutouts + i * kCutoutBytes;
+        r.cutouts[i] = {(int32_t)load32(m, at), (int32_t)load32(m, at + 4), (int32_t)load32(m, at + 8), (int32_t)load32(m, at + 12)};
+      }
+    }
     if (load32(m, kOffPluginSeq) != before) continue;
     if (before == 0 || r.pid == 0) return false;
     out = r;
@@ -123,6 +157,15 @@ inline void writeReport(volatile uint8_t* m, const Report& r) {
   store32(m, kOffH, (uint32_t)r.h);
   store32(m, kOffFlags, r.flags);
   store32(m, kOffFrame, r.frame);
+  uint32_t n = r.cutoutCount < kMaxCutouts ? r.cutoutCount : kMaxCutouts;
+  store32(m, kOffCutoutCount, n);
+  for (uint32_t i = 0; i < n; ++i) {
+    size_t at = kOffCutouts + i * kCutoutBytes;
+    store32(m, at, (uint32_t)r.cutouts[i].x);
+    store32(m, at + 4, (uint32_t)r.cutouts[i].y);
+    store32(m, at + 8, (uint32_t)r.cutouts[i].w);
+    store32(m, at + 12, (uint32_t)r.cutouts[i].h);
+  }
   store32(m, kOffPluginSeq, (seq | 1) + 1);
 }
 
@@ -238,6 +281,40 @@ uintptr_t slotAbove(uintptr_t host, uintptr_t self, Prev prev, Topmost topmost) 
  * popup or modal is over the tab, which must draw above Studio.
  */
 inline bool wantTopmost(bool editorOrStudioInFront, uint32_t flags) { return editorOrStudioInFront && !(flags & kOverlay); }
+
+// ---------------------------------------------------------------- what the editor draws over the tab
+
+/**
+ * The rects to cut out of the docked window, w by h physical pixels: the
+ * report's cutouts clipped to the window, the empty ones dropped. Empty when
+ * nothing is over the tab, and from a plugin that does not report cutouts,
+ * whose overlays only the kOverlay restack can show.
+ */
+inline std::vector<Rect> cutouts(const Report& r, long w, long h) {
+  std::vector<Rect> out;
+  if (!(r.flags & kCutouts) || w <= 0 || h <= 0) return out;
+  uint32_t n = r.cutoutCount < kMaxCutouts ? r.cutoutCount : kMaxCutouts;
+  for (uint32_t i = 0; i < n; ++i) {
+    const Rect& c = r.cutouts[i];
+    if (c.w <= 0 || c.h <= 0) continue;
+    long left = c.x > 0 ? c.x : 0;
+    long top = c.y > 0 ? c.y : 0;
+    long right = (long)c.x + c.w < w ? (long)c.x + c.w : w;
+    long bottom = (long)c.y + c.h < h ? (long)c.y + c.h : h;
+    if (right <= left || bottom <= top) continue;
+    out.push_back({(int32_t)left, (int32_t)top, (int32_t)(right - left), (int32_t)(bottom - top)});
+  }
+  return out;
+}
+
+/** Whether the docked window shows at (x, y) of its own coordinates once the cutouts are taken out: Studio there, or the editor. */
+inline bool showsStudio(const std::vector<Rect>& cuts, long w, long h, long x, long y) {
+  if (x < 0 || y < 0 || x >= w || y >= h) return false;
+  for (const Rect& c : cuts) {
+    if (x >= c.x && x < (long)c.x + c.w && y >= c.y && y < (long)c.y + c.h) return false;
+  }
+  return true;
+}
 
 /** Whether Studio already sits in that slot: directly under it, or at the top of the non-topmost band. */
 template <class Prev, class Topmost>

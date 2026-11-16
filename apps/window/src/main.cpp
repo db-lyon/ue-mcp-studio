@@ -719,9 +719,41 @@ void browserVisible(bool visible) {
   if (gController) gController->put_IsVisible(visible ? TRUE : FALSE);
 }
 
+/**
+ * What the editor draws over the tab shows through the docked window: its
+ * drawers and in-window popups, which no z-order can lift over Studio, and
+ * its own windows above the host. Those rects are cut out of the window's
+ * region, so the editor shows there and takes the clicks; with none, the
+ * window has no region. Set only when the cutouts change.
+ */
+std::vector<dock::Rect> gCuts;
+long gCutsW = 0, gCutsH = 0;  // the window size the region was made for
+
+void applyCutouts(const std::vector<dock::Rect>& cuts, long w, long h) {
+  // A region is made for one size, and a larger window would be clipped to it.
+  if (cuts == gCuts && (cuts.empty() || (w == gCutsW && h == gCutsH))) return;
+  gCuts = cuts;
+  gCutsW = w;
+  gCutsH = h;
+  if (cuts.empty()) {
+    SetWindowRgn(gMain, nullptr, TRUE);
+    return;
+  }
+  HRGN region = CreateRectRgn(0, 0, w, h);
+  for (const dock::Rect& c : cuts) {
+    HRGN cut = CreateRectRgn(c.x, c.y, c.x + c.w, c.y + c.h);
+    CombineRgn(region, region, cut, RGN_DIFF);
+    DeleteObject(cut);
+  }
+  // The window owns the region from here.
+  if (!SetWindowRgn(gMain, region, TRUE)) DeleteObject(region);
+}
+
 void present(const dock::Placement& p) {
   browserVisible(p.show != dock::Show::Hidden);
   if (p.show != dock::Show::Hidden) gEverShown = true;
+  // A window, or hidden, has no cutouts; docked, they go on before the window moves or shows.
+  applyCutouts(p.show == dock::Show::Docked ? dock::cutouts(gReport, p.w, p.h) : std::vector<dock::Rect>(), p.w, p.h);
   if (p.show == dock::Show::Window) {
     if (gShown == Shown::Window) return;
     if (gShown != Shown::None) setChrome(false);
