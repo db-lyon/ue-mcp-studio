@@ -19,6 +19,7 @@ import { api } from "../api";
 import { atMost, useBarTier } from "../chat/barTier";
 import { onRemotePage } from "../connection";
 import { REMOTE_CHANGE_NOTE } from "./settings/RemoteReadOnly";
+import { AskComputer } from "./remote/AskComputer";
 import { AppSignIn, SIGN_IN_ABOUT, TerminalSignIn } from "./AppSignIn";
 import { AccountSignIn } from "./settings/AccountSignIn";
 
@@ -265,7 +266,7 @@ export function KeyForm({ provider, onSaved }: { provider: KeyProviderId; onSave
     setKey("");
     onSaved();
   }, (e: Error) => setError(e.message));
-  if (onRemotePage()) return <p className="dim small remote-readonly-note">{REMOTE_CHANGE_NOTE}</p>;
+  if (onRemotePage()) return <p className="dim small remote-readonly-note">{REMOTE_CHANGE_NOTE} <AskComputer what="models" /></p>;
   return (
     <div className="connect">
       {error && <div className="banner bad small">{error}</div>}
@@ -289,7 +290,7 @@ export function KeyForm({ provider, onSaved }: { provider: KeyProviderId; onSave
 /** `name` and `about` reword the form for a sign-in shown somewhere other than Models (the ue-mcp account row). */
 export function SignInForm(props: { id: SignInId; primary?: boolean; onDone: () => void; name?: string; about?: string }) {
   // Sign-ins put credentials on the computer; a paired browser cannot start one.
-  if (onRemotePage()) return <p className="dim small remote-readonly-note">{REMOTE_CHANGE_NOTE}</p>;
+  if (onRemotePage()) return <p className="dim small remote-readonly-note">{REMOTE_CHANGE_NOTE} <AskComputer what="models" /></p>;
   if (props.id === "claude") return <ClaudeCodeLogin onDone={props.onDone} />;
   // The ue-mcp account: email and GitHub when the account service offers email, GitHub alone otherwise.
   if (props.id === "studio") return <AccountSignIn onDone={props.onDone} name={props.name} about={props.about} primary={props.primary} />;

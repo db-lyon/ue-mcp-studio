@@ -7,6 +7,7 @@
  */
 import { useEffect, useState } from "react";
 import { View } from "react-native";
+import { AskComputer } from "./AskComputer";
 import { REFUSAL_BACK, REFUSAL_CHECK_AGAIN, REFUSAL_OPEN_ANYWAY, REFUSAL_PENDING, REFUSAL_SLOW, REFUSAL_WAIT_MS, REMOTE_UPDATES, refusalStill } from "@ue-mcp-studio/client-core";
 import { refusalInHealth, type RefusedExtension, type StudioRefusal } from "@ue-mcp-studio/shared";
 import { Button, edgePadding, font, Spinner, T, useInsets, useStyles, useTheme, type Theme } from "../ui";
@@ -85,6 +86,7 @@ export function RefusedScreen({ refusal, onCheck, onBack }: { refusal: StudioRef
             Studio needs ue-mcp {refusal.needs} or later. You have {refusal.have}.
           </T>
           <T style={s.lead}>{REMOTE_UPDATES}</T>
+          <AskComputer what="update" />
           {onCheck || onBack ? (
             <View style={s.actions}>
               {onCheck ? <Button title={REFUSAL_CHECK_AGAIN} onPress={() => (setChecked(true), onCheck())} /> : null}

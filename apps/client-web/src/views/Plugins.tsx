@@ -6,8 +6,34 @@ import { ApiError, api } from "../api";
 import { onRemotePage } from "../connection";
 import { inEditor, native } from "../native";
 import type { DaemonState } from "../state";
+import { AskComputer } from "./remote/AskComputer";
+import { readUpdates } from "./Updates";
+import { startUpdate } from "./UpdateOverlay";
 
 export { isInstalled, searchCatalog, REMOTE_PLUGINS_NOTE };
+
+/** The way on from an old ue-mcp: update it from here, then the plugin tools load. */
+export function UpdateUeMcp() {
+  const [note, setNote] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+  const go = () => {
+    setBusy(true);
+    setNote(null);
+    readUpdates()
+      .then((u) => {
+        if (!u.ueMcp?.target) return setNote("No newer ue-mcp was found. Check again under Settings, General, Updates, or run npx ue-mcp@latest in the project folder.");
+        startUpdate({ studio: null, ueMcp: u.ueMcp });
+      })
+      .catch((e: Error) => setNote(`The update check failed: ${e.message}`))
+      .finally(() => setBusy(false));
+  };
+  return (
+    <p>
+      <button className="primary" disabled={busy} onClick={go}>Update ue-mcp</button>
+      {note && <span className="dim small" role="status"> {note}</span>}
+    </p>
+  );
+}
 
 /**
  * The project's ue-mcp plugins: the installed ones, with update and remove,
@@ -67,6 +93,7 @@ export function PluginsView({ daemon, remote = onRemotePage() }: { daemon: Daemo
       <section className="card">
         <h2>Plugins</h2>
         <p className="muted">Managing plugins here needs ue-mcp 1.4.0-beta.2 or later. Until then: <code>npx ue-mcp plugin install &lt;name&gt;</code> in the project folder.</p>
+        {remote ? <AskComputer what="update" /> : <UpdateUeMcp />}
       </section>
     );
   }
@@ -74,7 +101,7 @@ export function PluginsView({ daemon, remote = onRemotePage() }: { daemon: Daemo
   return (
     <div className="stack plugins">
       {error && <div className="banner bad" onClick={() => setError(null)}>{error}</div>}
-      {remote && <p className="banner plugins-remote-note">{REMOTE_PLUGINS_NOTE}</p>}
+      {remote && <p className="banner plugins-remote-note">{REMOTE_PLUGINS_NOTE} <AskComputer what="plugins" /></p>}
       {pending && !remote && (
         <div className="banner warn plugins-apply">
           <span>Plugin changes load when ue-mcp restarts.{!inEditor() && " Run npx ue-mcp daemon stop, then open Studio from the editor."}</span>

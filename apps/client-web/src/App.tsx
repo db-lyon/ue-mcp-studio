@@ -218,7 +218,7 @@ function Studio({ daemon }: { daemon: DaemonState }) {
         )}
         <DialogBanner daemon={daemon} />
         <VersionNotice daemon={daemon} />
-        <RemoteApprovalBanner />
+        <RemoteApprovalBanner onOpenAsk={(o) => { if (o.tab === "Settings") setSection(o.section ?? "general"); setTab(o.tab); }} />
         {!narrow && <EditorBanner daemon={daemon} />}
         <div className="stage">
           {chatShown.current && (

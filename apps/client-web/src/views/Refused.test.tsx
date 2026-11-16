@@ -77,9 +77,10 @@ describe("Studio refused for an older ue-mcp", () => {
     vi.useRealTimers();
   });
 
-  it("in a paired browser offers no button and says the update runs on the computer", () => {
+  it("in a paired browser offers no update of its own, says it runs on the computer and offers to ask it", () => {
     render(<RefusedScreen refusal={{ needs: "1.4.11-beta.6", have: "1.4.10" }} remote />);
-    expect(screen.queryAllByRole("button")).toEqual([]);
+    expect(screen.queryByRole("button", { name: "Update ue-mcp" })).toBeNull();
+    expect(screen.getByRole("button", { name: "Ask the computer to update" })).toBeTruthy();
     expect(screen.getByText("Updates run from Studio on the computer.")).toBeTruthy();
   });
 

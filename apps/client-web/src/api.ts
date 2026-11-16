@@ -62,6 +62,8 @@ import type {
   BillingCheckoutRequest,
   BillingLink,
   RemoteApproval,
+  RemoteAsk,
+  RemoteAskKind,
   RemoteBrowser,
   RemoteLockSettings,
   RemoteLockState,
@@ -164,7 +166,10 @@ export const api = {
   remoteBrowsers: () => call<{ browsers: RemoteBrowser[] }>("GET", "/v1/ext/studio/remote/browsers"),
   remoteApprovals: () => call<{ approvals: RemoteApproval[] }>("GET", "/v1/ext/studio/remote/approvals"),
   decideRemoteApproval: (id: string, allow: boolean) => call<{ ok: true }>("POST", `/v1/ext/studio/remote/approvals/${encodeURIComponent(id)}`, { allow }),
-  revokeRemoteBrowser: (id: string) => call<void>("DELETE", `/v1/ext/studio/remote/browsers/${encodeURIComponent(id)}`),
+  askComputer: (what: RemoteAskKind) => call<{ ok: true }>("POST", "/v1/ext/studio/remote-asks", { what }),
+  remoteAsks: () => call<{ asks: RemoteAsk[] }>("GET", "/v1/ext/studio/remote/asks"),
+  clearRemoteAsk: (what: RemoteAskKind) => call<void>("DELETE", `/v1/ext/studio/remote/asks/${what}`),
+  revokeRemoteBrowser:(id: string) => call<void>("DELETE", `/v1/ext/studio/remote/browsers/${encodeURIComponent(id)}`),
   /** The PIN lock, on the computer only. */
   remoteLock: () => call<RemoteLockSettings>("GET", "/v1/ext/studio/remote/lock"),
   /** The first PIN, or a new one with the current PIN. */

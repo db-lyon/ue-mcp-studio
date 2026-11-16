@@ -9,6 +9,7 @@ import { useEffect, useState } from "react";
 import { isNewer, refusalInHealth, type RefusedExtension, type StudioRefusal } from "@ue-mcp-studio/shared";
 import { native, type StudioBinding } from "../native";
 import { REMOTE_UPDATES, onRemotePage } from "../connection";
+import { AskComputer } from "./remote/AskComputer";
 import { REFUSAL_CHECK_AGAIN, REFUSAL_OPEN_ANYWAY, REFUSAL_PENDING, REFUSAL_SLOW, REFUSAL_WAIT_MS, SWITCH_PROJECT, refusalInstalled, refusalStill } from "@ue-mcp-studio/client-core";
 
 /**
@@ -153,7 +154,7 @@ export function RefusedScreen({ refusal, remote = onRemotePage(), onCheck, onSwi
           Studio needs ue-mcp <span className="version">{refusal.needs}</span> or later. You have <span className="version">{refusal.have}</span>.
         </h1>
         {remote ? (
-          <p className="muted">{REMOTE_UPDATES}</p>
+          <p className="muted">{REMOTE_UPDATES} <AskComputer what="update" /></p>
         ) : step.kind === "done" ? (
           <p className="muted">{refusalInstalled(step.version)}</p>
         ) : (

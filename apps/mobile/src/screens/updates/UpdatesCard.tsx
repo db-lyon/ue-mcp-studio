@@ -11,6 +11,7 @@ import { Details } from "../settings/Details";
 import { Radio, Txt } from "../settings/controls";
 import { useSettingsApi } from "../settings/hooks";
 import { useRun } from "../../views/UpdateOverlay";
+import { AskComputer } from "../../views/AskComputer";
 import { WhatsNewSheet } from "./WhatsNewSheet";
 
 /** Every read's count goes to the dot on Settings, so it never disagrees with the card. */
@@ -93,6 +94,7 @@ export function UpdatesCard() {
       <Txt size={12} tone="dim" style={{ marginTop: u ? 6 : 0, marginBottom: 12 }}>
         {REMOTE_UPDATES}
       </Txt>
+      {u && steps.length > 0 ? <AskComputer what="update" /> : null}
       {stopped && !working ? (
         <Banner kind="bad" role="alert">
           <Txt size={12} style={{ color: bannerText(t, "bad") }}>

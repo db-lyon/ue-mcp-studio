@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState, useSyncExternalStore } from "react";
-import { REMOTE_PIN_ATTEMPTS, formatPairingCode, type RemoteApproval, type RemoteBrowser } from "@ue-mcp-studio/shared";
+import { REMOTE_PIN_ATTEMPTS, formatPairingCode, type RemoteApproval, type RemoteAsk, type RemoteAskKind, type RemoteBrowser } from "@ue-mcp-studio/shared";
+import { ASK_OPEN, askNotice } from "@ue-mcp-studio/client-core";
 import { api } from "../../api";
 import { onRemotePage } from "../../connection";
 import { subscribeEvent } from "../../extensions/events";
@@ -162,17 +163,53 @@ function useCardShown(): boolean {
   );
 }
 
+/** What paired devices asked this computer to do, read from the agent and kept current by its events. */
+export function useRemoteAsks(): { asks: RemoteAsk[]; clear: (what: RemoteAskKind) => void } {
+  const [asks, setAsks] = useState<RemoteAsk[]>([]);
+  useEffect(() => {
+    if (onRemotePage()) return;
+    // Merged under what an event brought meanwhile, never over it.
+    api.remoteAsks().then((r) => setAsks((cur) => [...r.asks.filter((a) => !cur.some((c) => c.what === a.what)), ...cur]), () => undefined);
+    return subscribeEvent((e) => {
+      const d = e.data as Partial<RemoteAsk> & { cleared?: boolean };
+      if (e.type !== "studio.remote.ask" || !d.what) return;
+      setAsks((list) => {
+        const rest = list.filter((a) => a.what !== d.what);
+        return d.cleared ? rest : [...rest, d as RemoteAsk];
+      });
+    });
+  }, []);
+  const clear = useCallback((what: RemoteAskKind) => {
+    setAsks((list) => list.filter((a) => a.what !== what));
+    void api.clearRemoteAsk(what).catch(() => undefined);
+  }, []);
+  return { asks, clear };
+}
+
+/** "A paired device asks you to ..." with the button that opens the screen that does it. */
+export function AskNotice({ ask, onOpen, onDismiss }: { ask: RemoteAsk; onOpen: () => void; onDismiss: () => void }) {
+  return (
+    <div className="banner warn remote-ask" role="status">
+      <span className="grow">{askNotice(ask.what, ask.project)}</span>
+      <button className="primary" onClick={onOpen}>{ASK_OPEN[ask.what].label}</button>
+      <button className="ghost" aria-label="Dismiss" onClick={onDismiss}>×</button>
+    </div>
+  );
+}
+
 /** Studio-wide: every waiting browser and the notice after one is allowed, wherever the owner is in Studio. */
-export function RemoteApprovalBanner() {
+export function RemoteApprovalBanner({ onOpenAsk }: { onOpenAsk?: (open: (typeof ASK_OPEN)[RemoteAskKind]) => void } = {}) {
   const { approvals, decide } = useRemoteApprovals();
   const { paired, dismiss } = usePairedNotice();
   const lockout = useLockoutNotice();
+  const { asks, clear } = useRemoteAsks();
   const inCard = useCardShown();
   const shown = inCard ? [] : approvals;
-  if (shown.length === 0 && !paired && !lockout.removed) return null;
+  if (shown.length === 0 && !paired && !lockout.removed && asks.length === 0) return null;
   return (
     <div className="remote-approvals">
       {shown.map((a) => <ApprovalPrompt key={a.id} approval={a} onDecide={decide} />)}
+      {asks.map((a) => <AskNotice key={a.what} ask={a} onOpen={() => { onOpenAsk?.(ASK_OPEN[a.what]); clear(a.what); }} onDismiss={() => clear(a.what)} />)}
       {paired && <PairedNotice label={paired.label} onDismiss={dismiss} />}
       {lockout.removed && <LockoutNotice label={lockout.removed.label} onDismiss={lockout.dismiss} />}
     </div>

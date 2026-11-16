@@ -4,6 +4,7 @@
  * from Studio on the computer, so a phone says what changed, with no buttons.
  */
 import { useEffect, useState } from "react";
+import { AskComputer } from "./AskComputer";
 import { HttpError, REMOTE_UPDATES, type StudioVersionNotice } from "@ue-mcp-studio/client-core";
 import { Banner, Button, T, useTheme } from "../ui";
 import { useProjectNav } from "../nav";
@@ -32,6 +33,7 @@ export function VersionNoticeLine({ notice, onUpdate, onKeep, busy, error, remot
         {error ? <T style={{ color: t.c.dim }}> {error}</T> : null}
         {remote ? <T style={{ color: t.c.dim }}> {REMOTE_UPDATES}</T> : null}
       </T>
+      {remote ? <AskComputer what="update" /> : null}
       {!remote ? (
         <>
           <Button title={busy === "update" ? "Updating" : "Update this project"} variant="primary" disabled={busy !== null} onPress={onUpdate} />
