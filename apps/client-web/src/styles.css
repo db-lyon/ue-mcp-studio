@@ -993,14 +993,36 @@ pre.diff .hunk { color: var(--accent-hi); display: block; }
 .overlay-card.feedback { width: min(580px, 100%); }
 /* What's new: an accordion per part, each release's notes under its version, in the Updates card's type. */
 .overlay-card.whats-new { width: min(680px, 100%); max-height: min(86vh, 100%); gap: 10px; }
-.whats-new-part { border-top: 1px solid var(--line); padding-top: 8px; }
-.whats-new-part > summary { cursor: pointer; padding: 2px 0 6px; color: var(--text); }
-.whats-new-part > summary strong { font-weight: 600; }
-.whats-new-entry { margin: 4px 0 12px; }
-.whats-new-version { gap: 8px; margin-bottom: 4px; }
+/* The body is indented by the caret's width and the gap after it, so every line in it starts under the part's name. */
+/* Body text starts 24px in, level with the label, with a hairline rule under the caret's centre; a fold inside the notes indents one level more the same way. */
+.whats-new-parts { --wn-caret: 12px; --wn-gap: 12px; --wn-indent: calc(var(--wn-caret) + var(--wn-gap)); --wn-rule: calc(var(--wn-caret) / 2); }
+.whats-new-part { border-top: 1px solid var(--line); padding: 10px 0 2px; }
+/* The caret sits on the label's first line however tall the summary is (a touch screen makes it 44px). */
+.whats-new-part > summary, .whats-new-fold > summary { list-style: none; display: flex; align-items: flex-start; gap: var(--wn-gap); cursor: pointer; color: var(--text); line-height: 1.5; }
+.whats-new-part > summary::-webkit-details-marker, .whats-new-fold > summary::-webkit-details-marker { display: none; }
+.whats-new-caret { flex: 0 0 var(--wn-caret); height: 1.5em; display: flex; align-items: center; justify-content: center; }
+.whats-new-caret::before { content: ""; border-style: solid; border-width: 4px 0 4px 6px; border-color: transparent transparent transparent var(--dim); transition: transform 0.12s ease; }
+.whats-new-part[open] > summary .whats-new-caret::before, .whats-new-fold[open] > summary .whats-new-caret::before { transform: rotate(90deg); }
+/* A <details> inside a release's notes: the same caret, its content under the label. */
+.whats-new-fold { margin: 0 0 8px; }
+.whats-new-fold > summary { padding: 2px 0; }
+.whats-new-fold-body { margin: 6px 0 0 var(--wn-rule); padding: 2px 0 2px calc(var(--wn-indent) - var(--wn-rule) - 1px); border-left: 1px solid var(--line-strong); }
+.whats-new-fold-body > :last-child { margin-bottom: 0; }
+.whats-new-notes .md-image { max-width: 100%; height: auto; }
+.whats-new-label { min-width: 0; overflow-wrap: anywhere; }
+.whats-new-label strong { font-weight: 600; }
+.whats-new-body { margin: 8px 0 8px var(--wn-rule); padding: 2px 0 2px calc(var(--wn-indent) - var(--wn-rule) - 1px); border-left: 1px solid var(--line-strong); }
+.whats-new-entry + .whats-new-entry { margin-top: 12px; padding-top: 12px; border-top: 1px solid var(--line); }
+.whats-new-version { gap: 8px; align-items: baseline; flex-wrap: wrap; margin-bottom: 6px; }
 .whats-new-version h3 { margin: 0; font: 600 13px/1.4 var(--mono); color: var(--text); }
+.whats-new-version a { line-height: 1.4; }
 .whats-new-notes { font-size: 13px; overflow-wrap: anywhere; }
-.whats-new-notes h1, .whats-new-notes h2, .whats-new-notes h3, .whats-new-notes h4 { margin: 10px 0 6px; font-size: 13px; font-weight: 600; color: var(--text); }
+.whats-new-notes > :first-child { margin-top: 0; }
+.whats-new-notes > :last-child { margin-bottom: 0; }
+.whats-new-notes h1, .whats-new-notes h2, .whats-new-notes h3, .whats-new-notes h4 { margin: 12px 0 6px; font: 600 13px/1.4 var(--sans); letter-spacing: 0; text-transform: none; color: var(--text); }
+.whats-new-empty, .whats-new-more { margin: 0; }
+.whats-new-more { margin-top: 12px; }
+.whats-new-error { margin-bottom: 0; }
 .whats-new-error .row { gap: 10px; margin-top: 8px; }
 .overlay-card.feedback input:not([type="checkbox"]), .overlay-card.feedback textarea { width: 100%; box-sizing: border-box; }
 .overlay-card.feedback textarea { resize: vertical; min-height: 120px; font: inherit; }
