@@ -22,6 +22,9 @@ import type { TokenUsage } from "../usage.js";
 import { HarnessClient, type HarnessClientOptions } from "./client.js";
 import type { AgentSpec, AgentStart, EntryEvent, HarnessMessage, HarnessRequest, UserContent } from "./protocol.js";
 
+/** How long a reply waits for a run it just stopped to report its end, before it starts anyway. */
+const STOP_END_WAIT_MS = 3000;
+
 /** What the runtime needs of AgentRunner: the paths every route goes through. */
 export interface DurableHooks {
   host: AgentHost;
@@ -116,6 +119,8 @@ export class DurableTurns {
   private readonly sent = new Map<string, string>();
   /** Sessions being stopped by the user: their run's end is not a reply ending. */
   private readonly stopping = new Set<string>();
+  /** A reply waiting for a stopped run's end before it starts, by session. */
+  private readonly stopEnded = new Map<string, () => void>();
   private disposed = false;
 
   constructor(private readonly h: DurableHooks, opts: Omit<HarnessClientOptions, "onMessage" | "onConnection" | "log">) {
@@ -154,10 +159,21 @@ export class DurableTurns {
    * one is running (the main agent waits only on subagents), steered into it.
    */
   async reply(s: StoredSession, content: unknown[]): Promise<void> {
+    if (this.stopping.has(s.id)) {
+      // A run just stopped (Send now, an edit): its end can still be on its way, and must not be taken for this reply's end.
+      await new Promise<void>((resolve) => {
+        const t = setTimeout(resolve, STOP_END_WAIT_MS);
+        this.stopEnded.set(s.id, () => {
+          clearTimeout(t);
+          resolve();
+        });
+      });
+      this.stopEnded.delete(s.id);
+      this.stopping.delete(s.id);
+    }
     const controller = new AbortController();
     this.h.active.set(s.id, controller);
     this.h.replying.add(s.id);
-    this.stopping.delete(s.id);
     this.controller(s);
     try {
       // The conversation so far, without the message this reply answers.
@@ -391,6 +407,7 @@ export class DurableTurns {
     this.sent.delete(s.id);
     if (this.stopping.delete(s.id)) {
       this.h.replying.delete(s.id);
+      this.stopEnded.get(s.id)?.();
       return;
     }
     if (!wasReplying && s.status !== "running" && s.status !== "waiting") return;

@@ -514,7 +514,11 @@ export class AgentRunner {
       recordOutcome: (s, p, outcome) => this.recordOutcome(s, p, outcome),
       setStatus: (s, status, cause) => this.setStatus(s, status, cause),
       // A subagent the user assigned makes the user's own calls, as on Studio's loop.
-      runTool: (s, c, id, name, input, onStart, parent) => this.subscriptionTool(s, c, id, name, input, !!parent && !!this.runs.get(parent)?.assigned, onStart),
+      runTool: (s, c, id, name, input, onStart, parent) => {
+        // A projected category call (Lean, Full) runs as the ue_mcp call it is, as its transcript entry already shows it.
+        const call = this.surface().canon(name, input);
+        return this.subscriptionTool(s, c, id, call.name, call.input, !!parent && !!this.runs.get(parent)?.assigned, onStart);
+      },
       lostCall: (s, id, name, input) => this.lostCall(s, id, name, input),
       replyToUser: (s, id, input) => this.replyToUser(s, id, input),
       skill: (name) => skillResult(this.native()?.skills ?? [], name),
