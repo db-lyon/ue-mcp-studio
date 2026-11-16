@@ -30,6 +30,25 @@ describe("feedback", () => {
     await waitFor(() => expect(screen.getByText("issue #9")).toBeTruthy());
   });
 
+  it("sends with a title alone, and on a send error offers the report on GitHub, filled in", async () => {
+    const open = vi.fn();
+    vi.stubGlobal("open", open);
+    m.feedbackEnvironment.mockResolvedValue({ body: "### Environment\n- Studio 0.1.0\n\n_Filed from the Studio panel._" });
+    m.sendFeedback.mockRejectedValue(new Error("Studio is not answering."));
+    render(<FeedbackDialog onClose={() => {}} />);
+    fireEvent.change(screen.getByLabelText("Title"), { target: { value: "Odd" } });
+    expect((screen.getByRole("button", { name: "Send" }) as HTMLButtonElement).disabled).toBe(false);
+    await waitFor(() => expect(screen.getByText(/Studio 0.1.0/)).toBeTruthy());
+    await act(async () => fireEvent.click(screen.getByRole("button", { name: "Send" })));
+    await waitFor(() => expect(screen.getByText("Studio is not answering.")).toBeTruthy());
+    fireEvent.click(screen.getByRole("button", { name: "Open on GitHub" }));
+    const url = new URL(open.mock.calls[0][0] as string);
+    expect(url.pathname).toBe("/db-lyon/ue-mcp-studio/issues/new");
+    expect(url.searchParams.get("title")).toBe("Odd");
+    expect(url.searchParams.get("labels")).toBe("bug,from-studio");
+    expect(url.searchParams.get("body")).toContain("- Studio 0.1.0");
+  });
+
   it("opens the report on GitHub, filled in, when it could not be filed", async () => {
     const open = vi.fn();
     vi.stubGlobal("open", open);

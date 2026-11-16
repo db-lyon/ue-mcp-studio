@@ -236,14 +236,17 @@ function ConfigView() {
   const t = useTheme();
   const [file, setFile] = useState<StudioConfigFile | null>(null);
   const [error, setError] = useState<string | null>(null);
+  /** Raised by Try again: reads ue-mcp.yml again after a failed read. */
+  const [attempt, setAttempt] = useState(0);
   useEffect(() => {
     api.config().then(setFile, (e: Error) => setError(e.message));
-  }, [api]);
+  }, [api, attempt]);
   const parts = useMemo(() => (file ? tokenizeYaml(file.text) : []), [file]);
   if (!file)
     return error ? (
-      <Banner kind="bad">
+      <Banner kind="bad" role="alert" style={{ gap: 8 }}>
         <Txt style={{ color: bannerText(t, "bad") }}>{error}</Txt>
+        <Button title="Try again" label="Read ue-mcp.yml again" onPress={() => (setError(null), setAttempt((n) => n + 1))} style={{ alignSelf: "flex-start" }} />
       </Banner>
     ) : (
       <Txt tone="muted">Loading</Txt>

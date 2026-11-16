@@ -5,7 +5,7 @@ import { describe, expect, it, vi } from "vitest";
 import { act, fireEvent, render, screen, within } from "@testing-library/react";
 import type { ActionListing, FlowListing, MentionMatch, MentionSearchResponse, ModelCatalog, StudioSettings } from "@ue-mcp-studio/shared";
 import { mentionToken } from "@ue-mcp-studio/shared";
-import { Platform, View } from "react-native";
+import { Linking, Platform, View } from "react-native";
 import { AgentsGlyph, Composer, CheckpointsGlyph } from "../src/chat/Composer";
 import { BarTierContext } from "../src/chat/barTier";
 import { MentionText, type MentionSearchFn } from "../src/chat/MentionMenu";
@@ -147,6 +147,16 @@ describe("Composer", () => {
       await settle();
       expect(screen.getByRole("alert").textContent).toBe("Studio may not use the camera. Allow it in the phone's settings.");
       expect(onAddFiles).toHaveBeenCalledTimes(1);
+      // The way on: the phone's settings, where the camera is allowed.
+      // react-native-web has no openSettings; Android does.
+      const settings = vi.fn(async () => undefined);
+      (Linking as { openSettings?: () => Promise<void> }).openSettings = settings;
+      try {
+        fireEvent.click(button("Open the phone's settings for Studio"));
+        expect(settings).toHaveBeenCalledTimes(1);
+      } finally {
+        delete (Linking as { openSettings?: unknown }).openSettings;
+      }
     } finally {
       imagePicked.granted = true;
     }

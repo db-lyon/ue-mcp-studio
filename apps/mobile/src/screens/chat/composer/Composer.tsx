@@ -9,7 +9,7 @@
  * .composer-bar, at a phone's width and coarse pointer.
  */
 import { createContext, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
-import { Image, Modal, PanResponder, Platform, Pressable, StyleSheet, Text, TextInput, View, useWindowDimensions, type HostInstance, type LayoutChangeEvent, type TextInputInstance, type TextInputKeyPressEvent, type TextStyle } from "react-native";
+import { Image, Linking, Modal, PanResponder, Platform, Pressable, StyleSheet, Text, TextInput, View, useWindowDimensions, type HostInstance, type LayoutChangeEvent, type TextInputInstance, type TextInputKeyPressEvent, type TextStyle } from "react-native";
 import Svg, { Circle, Path } from "react-native-svg";
 import { BAR_UTILITIES, QUEUE_HINT, MAX_LINES, MIN_HEIGHT, MIN_TRANSCRIPT, NUDGE, NUDGE_SAVE_MS, SEND_KEYS, STOP_KEYS, UTILITY_MORE_LABEL, UTILITY_TITLE, clampHeight, extOf, fitHeight, foldUtilities, formatBytes, moreLabel, utilityLabel, type BarUtilityId } from "@ue-mcp-studio/client-core";
 import type { ActionListing, FlowListing, SlashCommand } from "@ue-mcp-studio/shared";
@@ -18,7 +18,7 @@ import { useAnchor } from "../../../ui/anchor";
 import { useBack } from "../../../back";
 import { haptic } from "../../../native/haptics";
 import { useKeyboardHeight } from "../../../native/keyboard";
-import { clipboardHasImage, pastedImage, pickFiles, type PendingFile, type PickSource, type PickedFile } from "./attachments";
+import { CAMERA_REFUSED, clipboardHasImage, pastedImage, pickFiles, type PendingFile, type PickSource, type PickedFile } from "./attachments";
 import { useSlashMenu, type MenuKey } from "./SlashMenu";
 import { MentionChips, useMentionMenu, type MentionSearchFn } from "./MentionMenu";
 import { BarTierContext, barTier, type BarTier } from "./barTier";
@@ -391,6 +391,8 @@ export function Composer({ draft, onDraft, onBlur, placeholder, busy, canSend, o
       <Sheet open={attachOpen} title="Attach" onClose={() => setAttachOpen(false)}>
         <View style={{ gap: 8, paddingHorizontal: 4, paddingBottom: 4 }}>
           {attachError ? <Text role="alert" style={s.attachError}>{attachError}</Text> : null}
+          {/* The camera refused: the phone's settings are where it is allowed, as on the scanner. */}
+          {attachError === CAMERA_REFUSED ? <Button title="Open settings" label="Open the phone's settings for Studio" variant="primary" onPress={() => void Linking.openSettings()} /> : null}
           <Button title="Photos" label="Attach photos" onPress={() => take("images")} />
           <Button title="Camera" label="Take a photo" onPress={() => take("camera")} />
           <Button title="Files" label="Attach files" onPress={() => take("files")} />
