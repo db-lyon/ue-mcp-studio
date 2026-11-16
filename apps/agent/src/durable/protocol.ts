@@ -23,7 +23,7 @@ import type { Effort } from "@ue-mcp-studio/shared";
 import type { ToolExecution } from "../tools.js";
 
 /** Bumped when a message is added or a meaning changes. */
-export const DURABLE_PROTOCOL = 1;
+export const DURABLE_PROTOCOL = 2;
 export const DURABLE_DIR = "durable";
 
 export const durableDir = (dataDir: string): string => path.join(dataDir, DURABLE_DIR);
@@ -63,7 +63,7 @@ export interface HarnessLaunch {
 
 /** How a conversation reaches its model: data the harness turns into a pi-ai provider. */
 export interface RouteSpec {
-  /** Studio's route key, as the setting names it: studio, key:anthropic, key:openai, key:google, chatgpt, endpoint, claude. */
+  /** Studio's route key, which its credential is asked for by: studio, key:anthropic, key:openai, key:google, chatgpt, endpoint:<id>, claude. */
   route: string;
   /** The pi-ai provider id the harness registers it under. */
   provider: string;
@@ -78,6 +78,8 @@ export interface RouteSpec {
   contextWindow?: number;
   /** How the credential the daemon hands out is sent: as the API key, or as a bearer authorization header. */
   auth: "apiKey" | "bearer" | "none";
+  /** The provider runs web search on its own side, paid by the user's key or subscription. Without it Studio offers its own web_search tool. */
+  search?: boolean;
 }
 
 /** A tool as the daemon defines it, in the Messages format. */
@@ -94,6 +96,8 @@ export interface AgentSpec {
   tools: ToolDef[];
   effort: Effort;
   maxTurns?: number;
+  /** The provider's own web search goes with this conversation's requests (its route has one, and the agent may search). */
+  search?: boolean;
 }
 
 /** Content of a user input, in pi-ai's form. */
@@ -152,6 +156,8 @@ export type ClientMessage =
   /** Send every entry after these, per conversation, then the live state. */
   | { t: "sync"; id: string; sessionId: string; after: Record<string, string> }
   | { t: "compact"; id: string; sessionId: string; instructions: string }
+  /** Protocol 2: a subagent the user assigned from the chat, run beside the main agent's runs under its own call id. */
+  | { t: "assign"; id: string; sessionId: string; callId: string; start: Extract<AgentStart, { ok: true }> }
   | { t: "res"; reqId: string; value: unknown }
   /** A daemon-side tool run got past its gate and is about to run. The harness records it before answering go. */
   | { t: "started"; reqId: string };
@@ -169,7 +175,7 @@ export type HarnessMessage =
   /** A subagent conversation was made for an agent call. */
   | { t: "child"; sessionId: string; callId: string; conv: string }
   /** A subagent's agent call ended: in the foreground its result is the tool result entry; in the background this carries its report. */
-  | { t: "agentEnd"; sessionId: string; callId: string; text: string; isError: boolean; stopped: boolean; background: boolean }
+  | { t: "agentEnd"; sessionId: string; callId: string; text: string; isError: boolean; stopped: boolean; background: boolean; assigned?: boolean }
   /** What became of a message to a subagent: it read it, or it ended first and the message went to the main agent. */
   | { t: "told"; sessionId: string; callId: string; requestId: string; delivery: "read" | "main" }
   | { t: "req"; reqId: string; req: HarnessRequest }

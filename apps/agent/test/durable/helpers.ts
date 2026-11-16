@@ -81,6 +81,8 @@ export function durableRunner(o: {
   start?: (launch: HarnessLaunch) => Promise<void> | void;
   script?: string | null;
   extra?: Partial<RunnerOptions>;
+  /** The route has the provider's own web search, as an Anthropic key does. */
+  search?: boolean;
 }): DurableRig {
   const host = new FakeHost(o.projectDir, o.dataDir);
   const store = new SessionStore(o.dataDir);
@@ -95,7 +97,7 @@ export function durableRunner(o: {
     ...o.extra,
     durable: {
       route: () => "key:anthropic",
-      routeSpec: (model) => ({ route: "key:anthropic", provider: "anthropic", api: "anthropic-messages", model, baseUrl: o.base, auth: "apiKey" }),
+      routeSpec: (model) => ({ route: "key:anthropic", provider: "anthropic", api: "anthropic-messages", model, baseUrl: o.base, auth: "apiKey", ...(o.search ? { search: true } : {}) }),
       credential: async () => "test-key",
       harness: { dataDir: o.dataDir, projectDir: o.projectDir, version: "0.0.0-test", script: o.script ?? null, extensionFile: null, ...(o.start ? { start: o.start } : {}) },
     },

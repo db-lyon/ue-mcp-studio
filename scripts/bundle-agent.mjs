@@ -4,6 +4,7 @@ import * as path from "node:path";
 import { fileURLToPath } from "node:url";
 import { build } from "esbuild";
 import { CLAUDE_SIGN_IN_AVAILABLE } from "@ue-mcp-studio/shared";
+import { patchClaudeCodeStream } from "./pi-claude-code-patch.mjs";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 // The Claude runtime the subscription route fetches must match the bundled SDK.
@@ -24,6 +25,8 @@ const result = await build({
     name: "pi-claude-code",
     setup(b) {
       b.onResolve({ filter: /^studio-pi-claude-code$/ }, () => ({ path: path.join(root, "node_modules", "@earendil-works", "pi-claude-code", "src", "provider.ts") }));
+      // Its request body goes through onPayload, as every pi-ai API's does (scripts/pi-claude-code-patch.mjs).
+      b.onLoad({ filter: /pi-claude-code[\\/]src[\\/]stream\.ts$/ }, (args) => ({ contents: patchClaudeCodeStream(fs.readFileSync(args.path, "utf-8")), loader: "ts" }));
     },
   }],
   outdir: path.join(root, "apps", "agent", "dist"),

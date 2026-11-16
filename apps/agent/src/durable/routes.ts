@@ -55,7 +55,11 @@ export class DurableSetting {
   }
 }
 
-/** Where each route is reached, and how its credential is sent. */
+/**
+ * Where each route is reached, and how its credential is sent. `search`: the
+ * provider runs web search on its own side. The gateway and custom endpoints
+ * have none, and get Studio's own web_search tool instead.
+ */
 export function routeSpec(o: {
   route: DurableRoute;
   model: string;
@@ -71,21 +75,23 @@ export function routeSpec(o: {
         headers: { [GATEWAY_CLIENT_HEADER]: `${GATEWAY_CLIENT_PREFIX}${o.agentVersion}` }, sessionHeader: GATEWAY_SESSION_HEADER,
       };
     case "key:anthropic":
-      return { route: o.route, provider: "anthropic", api: "anthropic-messages", model: o.model, baseUrl: "https://api.anthropic.com", auth: "apiKey" };
+      return { route: o.route, provider: "anthropic", api: "anthropic-messages", model: o.model, baseUrl: "https://api.anthropic.com", auth: "apiKey", search: true };
     case "key:openai":
-      return { route: o.route, provider: "openai", api: "openai-responses", model: o.model, baseUrl: "https://api.openai.com/v1", auth: "apiKey" };
+      return { route: o.route, provider: "openai", api: "openai-responses", model: o.model, baseUrl: "https://api.openai.com/v1", auth: "apiKey", search: true };
     case "key:google":
-      return { route: o.route, provider: "google", api: "google-generative-ai", model: o.model, baseUrl: "https://generativelanguage.googleapis.com/v1beta", auth: "apiKey" };
+      return { route: o.route, provider: "google", api: "google-generative-ai", model: o.model, baseUrl: "https://generativelanguage.googleapis.com/v1beta", auth: "apiKey", search: true };
     case "chatgpt":
-      return { route: o.route, provider: "chatgpt", api: "openai-responses", model: o.model, baseUrl: "https://api.openai.com/v1", auth: "bearer" };
+      return { route: o.route, provider: "chatgpt", api: "openai-responses", model: o.model, baseUrl: "https://api.openai.com/v1", auth: "bearer", search: true };
     case "endpoint": {
       const id = endpointIdOf(o.vendor);
       const e = id !== null ? o.endpoint(id) : null;
       if (!e) throw new Error(`The endpoint for ${o.model} was removed: pick another model.`);
-      return { route: o.route, provider: `endpoint-${id}`, api: "openai-completions", model: o.model, baseUrl: e.baseUrl, auth: e.key ? "apiKey" : "none" };
+      // Its credential is asked for by the endpoint's own id: a helper can run on another endpoint than the main agent's.
+      return { route: `endpoint:${id}`, provider: `endpoint-${id}`, api: "openai-completions", model: o.model, baseUrl: e.baseUrl, auth: e.key ? "apiKey" : "none" };
     }
     case "claude":
-      return { route: o.route, provider: "claude-code", api: "claude-code", model: o.model, auth: "none" };
+      // Claude Code as a model sends the Messages API's own web search with the request, on the user's subscription.
+      return { route: o.route, provider: "claude-code", api: "claude-code", model: o.model, auth: "none", search: true };
   }
 }
 

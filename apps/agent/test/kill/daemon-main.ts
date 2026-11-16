@@ -21,6 +21,7 @@ import { AnthropicProvider } from "../../src/providers.js";
 import { TurnHosts } from "../../src/hosted-turn.js";
 import { syncOf } from "../../src/session-delta.js";
 import { FakeHost } from "../durable/helpers.js";
+import { routeSpec } from "../../src/durable/routes.js";
 
 export interface DaemonConfig {
   runtime: "loop" | "hosts" | "durable";
@@ -57,7 +58,8 @@ const runner = new AgentRunner(
     durable: {
       route: () => (config.claude ? "claude" : "key:anthropic"),
       routeSpec: (model) => (config.claude
-        ? { route: "claude", provider: "claude-code", api: "claude-code", model, auth: "none" }
+        // The route as Studio ships it, with the provider's own web search.
+        ? routeSpec({ route: "claude", model, vendor: "anthropic", gatewayUrl: "", agentVersion: config.version, endpoint: () => null })
         : { route: "key:anthropic", provider: "anthropic", api: "anthropic-messages", model, baseUrl: config.base, auth: "apiKey" }),
       credential: async () => "test-key",
       harness: {

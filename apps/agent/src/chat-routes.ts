@@ -346,17 +346,18 @@ export function registerChat(api: DaemonExtensionApi, agentVersion = "0.0.0", pa
     }),
     durable: {
       route: durableRoute,
-      routeSpec: (model) => {
-        const r = durableRoute();
-        if (!r) throw new Error("The durable runtime is off for this route.");
-        return routeSpec({ route: r, model, vendor: settings.provider(), gatewayUrl: settings.gatewayUrl(), agentVersion, endpoint: endpointOf });
+      routeSpec: (model, on) => {
+        // A helper on another vendor's model runs on that model's own route, in the same harness.
+        const r = on ? durableRouteOf(on.route as ModelRoute, on.vendor as VendorId) : durableRoute();
+        if (!r) throw new Error(on ? `Nothing on this computer runs ${model} on the durable runtime.` : "The durable runtime is off for this route.");
+        return routeSpec({ route: r, model, vendor: (on?.vendor ?? settings.provider()) as VendorId, gatewayUrl: settings.gatewayUrl(), agentVersion, endpoint: endpointOf });
       },
       credential: async (r) => {
         if (r === "studio") return accountToken();
         if (r === "key:anthropic" || r === "key:openai" || r === "key:google") return settings.key(r.slice(4) as KeyProviderId);
         if (r === "chatgpt") return chatgpt.accessToken();
-        if (r === "endpoint") {
-          const id = endpointIdOf(settings.provider());
+        if (r === "endpoint" || r.startsWith("endpoint:")) {
+          const id = r.startsWith("endpoint:") ? r.slice("endpoint:".length) : endpointIdOf(settings.provider());
           return id !== null ? endpointOf(id)?.key ?? null : null;
         }
         return null;

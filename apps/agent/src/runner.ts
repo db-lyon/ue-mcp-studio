@@ -30,6 +30,7 @@ import type { QaBroker } from "./qa.js";
 import { TOOLS, WORK_TOOLS, editorConnected, executeTool, forModel, packageFile, validateInput, verifyUnknown, type AgentHost, type ToolExecution } from "./tools.js";
 import type Anthropic from "@anthropic-ai/sdk";
 import { approvalFor, localToolDefinitions, shell } from "./local-tools.js";
+import { WEB_SEARCH_TOOL } from "./web-search.js";
 import { callInsideProject } from "./project-scope.js";
 import { MICRO_LINE, microSurface, withSurface, type EditorSurface } from "./context-surface.js";
 
@@ -310,8 +311,11 @@ export interface RunnerOptions {
   durable?: {
     /** The current route's key when its setting selects the durable runtime; null when it is off. */
     route(): string | null;
-    /** How a conversation on the current route reaches `model`. */
-    routeSpec(model: string): RouteSpec;
+    /**
+     * How a conversation reaches `model`: on the current route, or on `on`,
+     * the route and vendor a helper's own model runs on.
+     */
+    routeSpec(model: string, on?: { route: string; vendor: string }): RouteSpec;
     /** A fresh credential for a route, by its key. */
     credential(route: string): Promise<string | null>;
     harness: Omit<HarnessClientOptions, "onMessage" | "onConnection" | "log">;
@@ -437,6 +441,17 @@ export function addUserContent(messages: MessageParam[], content: unknown[]): vo
   last.content = [...blocks, ...content] as MessageParam["content"];
 }
 
+/**
+ * Web search on the durable runtime, the same on every route: the provider's
+ * own where its route has one (the harness adds it to each request), and
+ * Studio's own web_search tool where it has none. `may`: the agent may search.
+ */
+function withSearch(route: RouteSpec, tools: Anthropic.Beta.BetaToolUnion[], may: boolean): { tools: ToolDef[]; search: boolean } {
+  const defs = tools.map(toolDef);
+  if (may && !route.search) defs.push(toolDef(WEB_SEARCH_TOOL));
+  return { tools: defs, search: may && !!route.search };
+}
+
 /** A tool definition as the durable harness takes it. */
 const toolDef = (t: Anthropic.Beta.BetaToolUnion): ToolDef => {
   const b = t as { name: string; description?: string; input_schema?: Record<string, unknown> };
@@ -498,7 +513,8 @@ export class AgentRunner {
       addEntry: (s, e) => this.addEntry(s, e),
       recordOutcome: (s, p, outcome) => this.recordOutcome(s, p, outcome),
       setStatus: (s, status, cause) => this.setStatus(s, status, cause),
-      runTool: (s, c, id, name, input, onStart) => this.subscriptionTool(s, c, id, name, input, false, onStart),
+      // A subagent the user assigned makes the user's own calls, as on Studio's loop.
+      runTool: (s, c, id, name, input, onStart, parent) => this.subscriptionTool(s, c, id, name, input, !!parent && !!this.runs.get(parent)?.assigned, onStart),
       lostCall: (s, id, name, input) => this.lostCall(s, id, name, input),
       replyToUser: (s, id, input) => this.replyToUser(s, id, input),
       skill: (name) => skillResult(this.native()?.skills ?? [], name),
@@ -1084,7 +1100,9 @@ export class AgentRunner {
       run.told = [...(saved.told ?? [])];
       run.say = this.durable!.sayTo(s, id);
       this.subagents.set(id, () => this.durable!.stopChild(s, id));
-      void this.slotsFor(s.id).acquire(id);
+      // One the user assigned holds no slot, and its report becomes the agent's note when it ends.
+      if (saved.assigned) void run.call.then((r) => this.assignedEnded(s, id, t.call.input as Record<string, unknown>, r));
+      else void this.slotsFor(s.id).acquire(id);
     }
     this.o.store.save(s);
     this.durable!.reattach(s);
@@ -1101,7 +1119,8 @@ export class AgentRunner {
   private durableMainSpec(): AgentSpec {
     const surf = this.surface();
     const text = [withSurface(system(this.o.host.projectDir, this.runsMode(), this.usage(), this.composed()), surf), this.skillLines()].filter(Boolean).join("\n");
-    return { route: this.o.durable!.routeSpec(this.o.model()), system: text, tools: this.mainTools(surf).map(toolDef), effort: this.o.effort?.() ?? "high" };
+    const route = this.o.durable!.routeSpec(this.o.model());
+    return { route, system: text, ...withSearch(route, this.mainTools(surf), true), effort: this.o.effort?.() ?? "high" };
   }
 
   /**
@@ -1140,21 +1159,46 @@ export class AgentRunner {
     this.refreshFree(s);
     const told = this.inbox.drain(id);
     this.deliver(s, id, told.length, "read");
+    return {
+      ok: true,
+      description: describeCall(input),
+      spec: this.durableSubagentSpec(helper, false),
+      prompt: [{ type: "text", text: prompt }, ...(told.length ? [{ type: "text" as const, text: toSubagent(told) }] : [])],
+    };
+  }
+
+  /**
+   * What a subagent's conversation runs with on the durable runtime: the same
+   * prompt, tools, effort and steps as on every route. A helper whose file
+   * names another vendor's model runs on that model, on its own route, in the
+   * same harness; when nothing here runs it, on the subagent model.
+   * `assigned`: one the user started from a card, whose runs are the user's.
+   */
+  private durableSubagentSpec(helper: NativeHelper | null, assigned: boolean): AgentSpec {
+    const n = this.native();
     const surf = this.surface();
     const projected = new Set(surf.projected.map((p) => p.name));
     const allows = (name: string) => helper!.allowed!.has(name as never) || (projected.has(name) && helper!.allowed!.has("ue_mcp" as never));
     const tools = helper?.allowed ? this.workTools(surf).filter((t) => allows((t as { name: string }).name)) : this.workTools(surf);
     if (n?.skills.length) tools.push(SKILL_TOOL);
     tools.push(REPLY_TOOL as Anthropic.Beta.BetaToolUnion);
-    const base = withSurface(subagentSystem(this.o.host.projectDir, this.runsMode(), this.composed()), surf);
+    const base = withSurface(subagentSystem(this.o.host.projectDir, assigned ? "automatic" : this.runsMode(), this.composed()), surf);
     const systemText = [base, helper ? `You are the project's ${helper.name} helper. Its own instructions follow.\n\n${helper.prompt}` : null, this.skillLines()].filter(Boolean).join("\n\n");
-    // A helper on another vendor's model runs on the route's own model here: one route per durable session.
-    const model = helper?.run && helper.run.route === this.o.durable!.route() ? helper.run.model : this.subagentModel();
+    let route: RouteSpec | null = null;
+    if (helper?.run) {
+      try {
+        route = this.o.durable!.routeSpec(helper.run.model, { route: helper.run.route, vendor: helper.run.vendor });
+      } catch (e) {
+        this.o.host.log.warn(`helper ${helper.name}: ${e instanceof Error ? e.message : String(e)} It runs on the subagent model.`);
+      }
+    }
+    const reach = route ?? this.o.durable!.routeSpec(this.subagentModel());
     return {
-      ok: true,
-      description: describeCall(input),
-      spec: { route: this.o.durable!.routeSpec(model), system: systemText, tools: tools.map(toolDef), effort: (helper?.effort as Effort | null) ?? this.subagentEffort(), maxTurns: helper?.maxTurns ?? SUBAGENT_STEPS },
-      prompt: [{ type: "text", text: prompt }, ...(told.length ? [{ type: "text" as const, text: toSubagent(told) }] : [])],
+      route: reach,
+      system: systemText,
+      ...withSearch(reach, tools, !helper?.allowed || helper.allowed.has("web_search")),
+      effort: (helper?.effort as Effort | null) ?? this.subagentEffort(),
+      maxTurns: helper?.maxTurns ?? SUBAGENT_STEPS,
     };
   }
 
@@ -1177,6 +1221,13 @@ export class AgentRunner {
     if (unread.length) {
       this.deliver(s, id, unread.length, "main");
       this.addEntry(s, { kind: "note", text: `"${run?.description ?? "The subagent"}" ended before it read your message, so it went to the main agent.`, at: now() });
+    }
+    // One the user assigned: its call, its calls left running and its note for the agent's next turn are assignedEnded's, as on Studio's loop.
+    if (run?.assigned) {
+      run.answer({ text: r.text, isError: r.isError, ...(r.stopped ? { stopped: true } : {}) });
+      this.o.store.save(s);
+      this.refreshFree(s);
+      return;
     }
     this.endCalls(s, () => "The subagent ended before this call returned a result.", "error", id);
     const entry = s.transcript.find((t) => t.kind === "tool" && t.call.id === id);
@@ -2401,9 +2452,35 @@ ${result}`);
     const input = { description, prompt };
     this.addEntry(s, { kind: "tool", call: { id: callId, name: "agent", input, outcome: "pending", startedAt: now() } });
     const run = this.newRun(s, callId, input, true);
-    run.done = this.runSubagent(s, { id: callId, name: "agent", input, state: "running" }, null, run);
-    this.settleRun(s, run);
     const done = run.call.then((r) => this.assignedEnded(s, callId, input, r));
+    const onLoop = () => {
+      run.done = this.runSubagent(s, { id: callId, name: "agent", input, state: "running" }, null, run);
+      this.settleRun(s, run);
+    };
+    // The route's setting selects the durable runtime: the subagent runs in the harness, as an agent call's does.
+    if (this.durable && this.o.durable?.route() && this.durable.available()) {
+      run.say = this.durable.sayTo(s, callId);
+      this.subagents.set(callId, () => this.durable!.stopChild(s, callId));
+      let spec: AgentSpec;
+      try {
+        spec = this.durableSubagentSpec(null, true);
+      } catch (e) {
+        this.durableAgentEnded(s, callId, { text: `The subagent could not start: ${e instanceof Error ? e.message : String(e)}`, isError: true, stopped: false }, true);
+        return { callId, done };
+      }
+      void this.durable.assign(s, callId, { ok: true, spec, description, prompt: [{ type: "text", text: prompt }] }).then(
+        (sent) => {
+          if (sent) return;
+          // The running harness predates assigned subagents: this one runs on Studio's loop.
+          this.subagents.delete(callId);
+          run.say = null;
+          onLoop();
+        },
+        (e: unknown) => this.durableAgentEnded(s, callId, { text: `The subagent could not start: ${e instanceof Error ? e.message : String(e)}`, isError: true, stopped: false }, true),
+      );
+      return { callId, done };
+    }
+    onLoop();
     return { callId, done };
   }
 

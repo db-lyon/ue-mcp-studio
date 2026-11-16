@@ -18,7 +18,7 @@ import { anthropicMessagesApi } from "@earendil-works/pi-ai/api/anthropic-messag
 import { openAIResponsesApi } from "@earendil-works/pi-ai/api/openai-responses.lazy";
 import { openAICompletionsApi } from "@earendil-works/pi-ai/api/openai-completions.lazy";
 import { googleGenerativeAIApi } from "@earendil-works/pi-ai/api/google-generative-ai.lazy";
-import { createRegistry, defineDoc, defineExtension, defineTool, Harness, LiveDoc } from "@earendil-works/pi-durable";
+import { createRegistry, defineDoc, defineExtension, defineTool, GenerationTask, Harness, hook, LiveDoc } from "@earendil-works/pi-durable";
 import { openNodeSqliteStorage } from "@earendil-works/pi-durable/storage/sqlite/node";
 import { NOOP_TELEMETRY_CONTEXT } from "@earendil-works/pi-telemetry";
 import { createClaudeCodeProvider } from "studio-pi-claude-code";
@@ -50,6 +50,8 @@ interface ChildRecord {
   description: string;
   /** Its prompt's submission, which its report answers. */
   submission?: string;
+  /** The user started it from the chat (a playtest card), not the main agent: its report goes to Studio, and a stop of the main agent leaves it running. */
+  assigned?: boolean;
 }
 interface SessionRecord {
   conv: string;
@@ -59,6 +61,8 @@ interface SessionRecord {
 }
 interface SessionsDoc {
   sessions: Record<string, SessionRecord>;
+  /** Conversations whose requests carry the provider's own web search, as their spec last said. */
+  search?: Record<string, boolean>;
 }
 
 const Sessions: unknown = (defineDoc as unknown as (d: unknown) => unknown)({
@@ -79,6 +83,16 @@ export interface Kit {
   request(req: HarnessRequest, onStarted?: () => Promise<void>, signal?: AbortSignal): Promise<unknown>;
   /** Run an agent call's subagent and wait for its report, or for it to go to the background. */
   runSubagent(sessionId: string, callId: string, start: Extract<AgentStart, { ok: true }>, signal: AbortSignal | undefined): Promise<{ text: string; isError: boolean }>;
+  /** Pi Durable's hook builder and its generation task (missing from a harness before 0.1.35-beta.35). */
+  hook?: typeof hook;
+  GenerationTask?: typeof GenerationTask;
+  /** Whether the provider's own web search goes with a conversation's requests (its AgentSpec.search). */
+  searches?(conv: string): boolean;
+  /** A provider that refused its web search: requests to it go on without one while this harness runs. */
+  searchRefused?(provider: string): boolean;
+  refuseSearch?(provider: string): void;
+  /** A line in the harness's log. */
+  log?(text: string): void;
 }
 
 /** Studio's extension: built from the daemon's tool definitions on every change, and replaced in place by registry.install(). */
@@ -319,8 +333,22 @@ export class DurableEngine {
       whereIs: (conv) => this.byConv.get(conv) ?? null,
       request: (req, onStarted, signal) => this.request(req, onStarted, signal),
       runSubagent: (sessionId, callId, start, signal) => this.runSubagent(sessionId, callId, start, signal),
+      hook,
+      GenerationTask,
+      log: (text) => this.host.log(text),
+      searches: (conv) => this.searching.get(conv) === true,
+      searchRefused: (provider) => this.refused.has(provider),
+      refuseSearch: (provider) => {
+        if (this.refused.has(provider)) return;
+        this.refused.add(provider);
+        this.host.log(`${provider} refused its web search: requests to it go on without one`);
+      },
     };
   }
+
+  /** Conversations whose requests carry the provider's web search, read from the sessions document and kept by configure. */
+  private readonly searching = new Map<string, boolean>();
+  private readonly refused = new Set<string>();
 
   /** A request to the daemon, sent once every entry before it is: a tool call's entry must reach the daemon first. */
   private async request(req: HarnessRequest, onStarted?: () => Promise<void>, signal?: AbortSignal): Promise<unknown> {
@@ -339,6 +367,7 @@ export class DurableEngine {
       this.byConv.set(rec.conv, { sessionId, parent: null });
       for (const [callId, c] of Object.entries(rec.children)) this.byConv.set(c.conv, { sessionId, parent: callId });
     }
+    for (const [conv, on] of Object.entries(doc.search ?? {})) this.searching.set(conv, on);
   }
 
   /** Start running what the last process left, and the reporters of background subagents. */
@@ -394,6 +423,16 @@ export class DurableEngine {
     const registered = new Map<string, unknown>();
     for (const { tool } of this.registry.snapshot().tools()) registered.set((tool as { name: string }).name, tool);
     const tools = spec.tools.map((t) => registered.get(t.name)).filter(Boolean);
+    const id = String((conv as unknown as { id: unknown }).id);
+    const search = spec.search === true;
+    if (this.searching.get(id) !== search) {
+      this.searching.set(id, search);
+      // Kept for a rerun after a crash, which may send a request before the next configure.
+      await this.harness.commit(async (tx) => {
+        const d = await (tx as unknown as { doc(t: unknown): Promise<SessionsDoc> }).doc(Sessions);
+        (d.search ??= {})[id] = search;
+      }, CTX);
+    }
     await conv.configure({
       model,
       thinkingLevel: thinkingOf(spec.effort),
@@ -431,6 +470,8 @@ export class DurableEngine {
     const jobs: Array<Promise<unknown>> = [];
     if (children) {
       for (const [callId, c] of Object.entries(rec.children)) {
+        // One the user assigned runs beside the main agent's runs: only stopping it stops it.
+        if (c.assigned) continue;
         this.waiting.delete(callId);
         const conv = await this.harness.conversation(c.conv as never, CTX);
         if (conv) jobs.push(conv.abort(CTX));
@@ -718,7 +759,25 @@ export class DurableEngine {
     }
   }
 
-  /** A background subagent's reporter: when it ends, its report goes to the main agent as a message, once. */
+  /**
+   * A subagent the user assigned from the chat: the same subagent conversation
+   * an agent call makes, under its own call id, but no agent call waits on it.
+   * It runs beside the main agent's runs, whether one is running or not, and
+   * its reporter hands its report to the daemon only. Sent again after a
+   * restart, it finds the same conversation and the same submission.
+   */
+  async assign(sessionId: string, callId: string, start: Extract<AgentStart, { ok: true }>): Promise<void> {
+    await this.mainConversation(sessionId);
+    const conv = await this.childConversation(sessionId, callId, start.description);
+    const rec = (await this.sessions()).sessions[sessionId]?.children[callId];
+    if (rec?.reported) return;
+    await this.configure(conv, start.spec, "child");
+    const submission = await conv.submit({ type: "input", content: start.prompt, requestId: `agent:${callId}` } as never, CTX);
+    await this.markChild(sessionId, callId, { submission: String(submission.id), background: true, assigned: true });
+    this.report(sessionId, callId);
+  }
+
+  /** A background subagent's reporter: when it ends, its report goes to the main agent as a message, once (to the daemon only, for one the user assigned). */
   private report(sessionId: string, callId: string): void {
     if (this.reporters.has(callId)) return;
     this.reporters.add(callId);
@@ -735,9 +794,9 @@ export class DurableEngine {
         const r = await this.reportOf(conv, settled as unknown as { status: string; reason?: string; detail?: string });
         const unread = await this.unread(sessionId, callId);
         const text = unread.length ? `${r.text}\n\n[Studio] The user wrote to this subagent and it ended before reading it:\n${unread.map((t) => `- ${t}`).join("\n")}` : r.text;
-        this.host.emit({ t: "agentEnd", sessionId, callId, text, isError: r.isError, stopped: r.stopped, background: true });
-        // One the user stopped wakes nobody: the daemon keeps its note for the next message.
-        if (!r.stopped) {
+        this.host.emit({ t: "agentEnd", sessionId, callId, text, isError: r.isError, stopped: r.stopped, background: true, ...(c.assigned ? { assigned: true } : {}) });
+        // One the user stopped wakes nobody: the daemon keeps its note for the next message. One the user assigned reports to the daemon alone.
+        if (!r.stopped && !c.assigned) {
           const main = await this.harness.conversation(rec.conv as never, CTX);
           const note = `[Studio] The subagent "${c.description}" (agent call ${callId}), which kept working in the background, has ended. ${r.isError ? "It failed." : "It finished."} Its report:\n${text}`;
           await main?.submit({ type: "input", content: note, requestId: `report:${callId}`, whenBusy: "steer" } as never, CTX);

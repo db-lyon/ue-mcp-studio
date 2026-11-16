@@ -15,6 +15,7 @@ import type { ActionResult, EditorStatus } from "ue-mcp/daemon";
 import type { TouchedItem } from "@ue-mcp-studio/shared";
 import { CHANGING_TOOLS, isLocalTool, localToolDefinitions, runLocal, validateLocal, type LocalToolName } from "./local-tools.js";
 import { firstFailedStep, type OperationStep } from "./operation-result.js";
+import { WEB_SEARCH_NAME, validateSearch, webSearch } from "./web-search.js";
 import { IMAGE_EXTENSIONS, MAX_IMAGE_FILE_BYTES, prepareImage, sniffImage, type ToolImage } from "./images.js";
 import { compactDescribe, compactSearch } from "./discovery.js";
 import { compactJson, keepForModel, saveResult } from "./model-text.js";
@@ -132,6 +133,7 @@ export function validateInput(name: string, input: unknown): string | null {
   if (!input || typeof input !== "object" || Array.isArray(input)) return "input must be an object";
   const i = input as Record<string, unknown>;
   if (isLocalTool(name)) return validateLocal(name, i);
+  if (name === WEB_SEARCH_NAME) return validateSearch(i);
   if (name === "editor_restart") {
     if (i.operation !== "restart" && i.operation !== "rebuild") return "operation must be restart or rebuild";
     return null;
@@ -239,6 +241,12 @@ export async function executeTool(host: AgentHost, name: string, input: Record<s
     const r = await runLocal(host.projectDir, name, input, signal);
     const changed = !r.isError && CHANGING_TOOLS.includes(name as LocalToolName);
     return { text: r.text, isError: r.isError, outcome: r.isError ? "error" : "done", touched: [], saved: [], ...(changed ? { changed } : {}), ...(r.images?.length ? { images: r.images } : {}) };
+  }
+
+  // Studio's own search, offered only where the provider runs none of its own.
+  if (name === WEB_SEARCH_NAME) {
+    const r = await webSearch(input as { query: string; max_results?: number }, signal);
+    return { text: r.text, isError: r.isError, outcome: r.isError ? "error" : "done", touched: [], saved: [] };
   }
 
   if (name === "editor_restart") {

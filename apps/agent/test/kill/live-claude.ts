@@ -18,7 +18,13 @@ const DIST = process.env.STUDIO_AGENT_DIST!;
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 const PROMPT = "Call the ue_mcp tool once with action \"call\", category \"level\", method \"get_info\" and args {}. Then reply with one short sentence that quotes what it returned.";
 
-async function run(kill: boolean): Promise<Record<string, unknown>> {
+/** Web search through the provider's own tool, in two turns: the second replays the first's searches. */
+const SEARCH = [
+  "Search the web: when was Unreal Engine 5.7 released? Answer in one sentence with the date and the URL you found it at.",
+  "Search the web again: when was Unreal Engine 5.6 released? One sentence with the date and the URL.",
+];
+
+async function run(kill: boolean, prompts: string[] = [PROMPT]): Promise<Record<string, unknown>> {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), "studio-live-claude-"));
   const data = path.join(root, "data");
   const project = path.join(root, "project");
@@ -41,20 +47,24 @@ async function run(kill: boolean): Promise<Record<string, unknown>> {
   const started = Date.now();
   await start();
   const id = String((await call("POST", "/session", {}))!.id);
-  await call("POST", "/send", { id, text: PROMPT });
   const calls = () => (fs.existsSync(path.join(data, "calls.jsonl")) ? fs.readFileSync(path.join(data, "calls.jsonl"), "utf-8").split("\n").filter(Boolean).length : 0);
-  if (kill) {
-    for (let i = 0; i < 1200 && calls() === 0; i++) await sleep(100);
-    await sleep(300);
-    daemon!.kill();
-    await sleep(800);
-    await start();
-  }
   let d: Record<string, unknown> | null = null;
-  for (let i = 0; i < 600; i++) {
-    d = await call("GET", `/detail?id=${id}`);
-    if (d && ["idle", "error", "stopped"].includes(String(d.status))) break;
-    await sleep(500);
+  for (const text of prompts) {
+    await call("POST", "/send", { id, text });
+    if (kill) {
+      for (let i = 0; i < 1200 && calls() === 0; i++) await sleep(100);
+      await sleep(300);
+      daemon!.kill();
+      await sleep(800);
+      await start();
+    }
+    await sleep(1000);
+    for (let i = 0; i < 600; i++) {
+      d = await call("GET", `/detail?id=${id}`);
+      if (d && ["idle", "error", "stopped"].includes(String(d.status))) break;
+      await sleep(500);
+    }
+    if (String(d?.status) !== "idle") break;
   }
   const transcript = (d?.transcript ?? []) as TranscriptEntry[];
   const out = {
@@ -65,6 +75,13 @@ async function run(kill: boolean): Promise<Record<string, unknown>> {
     editorCalls: calls(),
     entries: transcript.map((e) => (e.kind === "tool" ? `tool ${e.call.name} ${e.call.outcome}` : `${e.kind}: ${(e as { text?: string }).text?.slice(0, 160)}`)),
     totals: d?.totals ?? null,
+    harnessLog: (() => {
+      try {
+        return fs.readFileSync(path.join(data, "durable", "harness.log"), "utf-8").split("\n").filter(Boolean).slice(-12);
+      } catch {
+        return [];
+      }
+    })(),
   };
   daemon!.kill();
   try {
@@ -77,6 +94,9 @@ async function run(kill: boolean): Promise<Record<string, unknown>> {
   return out;
 }
 
-console.log(JSON.stringify(await run(false), null, 2));
-console.log(JSON.stringify(await run(true), null, 2));
+if (process.env.STUDIO_LIVE_ONLY !== "search") {
+  console.log(JSON.stringify(await run(false), null, 2));
+  console.log(JSON.stringify(await run(true), null, 2));
+}
+console.log(JSON.stringify(await run(false, SEARCH), null, 2));
 process.exit(0);
