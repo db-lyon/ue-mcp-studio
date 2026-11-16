@@ -32,7 +32,7 @@ export function durableRouteOf(route: ModelRoute, vendor: VendorId): DurableRout
  * Each route is switched on by default on its own, as its kill tests and
  * live check pass; a route that fails them comes out of this list alone.
  */
-export const DURABLE_DEFAULT_ON: readonly DurableRoute[] = ["claude", "key:anthropic", "key:openai", "key:google", "chatgpt", "endpoint"];
+export const DURABLE_DEFAULT_ON: readonly DurableRoute[] = ["claude", "key:anthropic", "key:openai", "key:google", "chatgpt", "endpoint", "studio"];
 
 export class DurableSetting {
   constructor(private readonly dir: string, private readonly defaults: readonly DurableRoute[] = DURABLE_DEFAULT_ON) {}
