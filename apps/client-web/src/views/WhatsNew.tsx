@@ -1,4 +1,4 @@
-import { useEffect, useState, type ReactNode } from "react";
+import { Children, isValidElement, useEffect, useState, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import Markdown, { type Components } from "react-markdown";
 import remarkGfm from "remark-gfm";
@@ -25,7 +25,19 @@ const NOTE_COMPONENTS: Components = {
   a: ({ href, children }) => (href ? <Link href={href}>{children}</Link> : <>{children}</>),
   img: ({ src, alt }) => (src ? <img className="md-image" src={String(src)} alt={alt ?? ""} loading="lazy" referrerPolicy="no-referrer" /> : <>{alt}</>),
   table: ({ children }) => <div className="md-table"><table>{children}</table></div>,
-  details: ({ children, open }) => <details className="whats-new-fold" open={open}>{children}</details>,
+  // The summary, then everything after it in one indented body, so the fold reads as a level below.
+  details: ({ children, open }) => {
+    const kids = Children.toArray(children);
+    const at = kids.findIndex((k) => isValidElement(k) && (k.props as { node?: { tagName?: string } }).node?.tagName === "summary");
+    const summary = at >= 0 ? kids[at] : null;
+    const rest = kids.filter((_, i) => i !== at);
+    return (
+      <details className="whats-new-fold" open={open}>
+        {summary}
+        <div className="whats-new-fold-body">{rest}</div>
+      </details>
+    );
+  },
   summary: ({ children }) => (
     <summary>
       <span className="whats-new-caret" aria-hidden="true" />

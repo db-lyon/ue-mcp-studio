@@ -11,7 +11,7 @@ import { Linking, Modal, Pressable, ScrollView, View } from "react-native";
 import { NOTHING_NEW, WHATS_NEW_NO_NOTES, WHATS_NEW_PAGE, WHATS_NEW_TITLE, WHATS_NEW_UNAVAILABLE, componentRange, entryDate, moreLine, readWhatsNewWith, shownComponents, whatsNewError } from "@ue-mcp-studio/client-core";
 import type { WhatsNew, WhatsNewComponent } from "@ue-mcp-studio/shared";
 import { Banner, Button, Markdown, Spacer, bannerText, font, T, useSheetInsets, useTheme } from "../../ui";
-import { FOLD_CARET } from "../../ui/Markdown";
+import { FOLD_LABEL_GAP, FoldBody } from "../../ui/Markdown";
 import { Txt, pageScroll } from "../settings/controls";
 import { Details } from "../settings/Details";
 import { useSettingsApi } from "../settings/hooks";
@@ -26,13 +26,13 @@ function Part({ c, startOpen, retry, retrying }: { c: WhatsNewComponent; startOp
         startOpen={startOpen}
         label={`${c.name}, ${componentRange(c)}`}
         summary={
-          <Txt style={{ flexShrink: 1 }}>
+          <Txt style={{ flexShrink: 1, marginLeft: FOLD_LABEL_GAP }}>
             <Txt weight={600}>{c.name}</Txt> <Txt size={12} tone="dim">{componentRange(c)}</Txt>
           </Txt>
         }
       >
-        {/* Indented by the disclosure box, so every line starts under the part's name, as the web's .whats-new-body. */}
-        <View style={{ paddingLeft: FOLD_CARET, paddingBottom: 8 }}>
+        {/* One level in: 24 from the edge, level with the part's name, beside a rule under the caret, as the web's .whats-new-body. */}
+        <FoldBody style={{ marginBottom: 8 }}>
           {c.error ? (
             <Banner kind="bad" role="alert" style={{ marginBottom: 0 }}>
               <Txt size={12} style={{ color: bannerText(t, "bad") }}>
@@ -69,7 +69,7 @@ function Part({ c, startOpen, retry, retrying }: { c: WhatsNewComponent; startOp
               ) : null}
             </>
           )}
-        </View>
+        </FoldBody>
       </Details>
     </View>
   );

@@ -365,8 +365,22 @@ function place(blocks: Block[], top: boolean): ReactNode[] {
   });
 }
 
-/** The disclosure box a fold's caret sits in; the fold's content starts after it, under the summary text (the browser's marker is 1.06em of 12px). */
+/**
+ * A fold's levels, as the web's What's new: the caret's box (the browser's
+ * marker is 1.06em of 12px), the summary text and the content both 24 from
+ * the edge, and a hairline rule down the caret's centre beside the content.
+ */
 export const FOLD_CARET = 12 * 1.06;
+export const FOLD_INDENT = 24;
+export const FOLD_RULE = 6;
+/** The space between the caret's box and the summary text, so the text starts at FOLD_INDENT. */
+export const FOLD_LABEL_GAP = FOLD_INDENT - FOLD_CARET;
+
+/** The content under a fold's summary: indented to FOLD_INDENT beside its rule. */
+export function FoldBody({ children, style }: { children: ReactNode; style?: ViewStyle }) {
+  const t = useTheme();
+  return <View style={[{ marginLeft: FOLD_RULE, paddingLeft: FOLD_INDENT - FOLD_RULE - 1, borderLeftWidth: 1, borderLeftColor: t.c.lineStrong, paddingVertical: 2 }, style]}>{children}</View>;
+}
 
 /**
  * A release body's <details>: its summary with the dialog's caret, a 44px
@@ -382,9 +396,9 @@ function NoteFold({ ctx, summary, content, startOpen, style }: { ctx: Ctx; summa
         <View style={{ width: FOLD_CARET, height: lh, alignItems: "center", justifyContent: "center" }}>
           <View style={{ width: 0, height: 0, borderTopWidth: 4, borderBottomWidth: 4, borderLeftWidth: 6, borderTopColor: "transparent", borderBottomColor: "transparent", borderLeftColor: t.c.dim, transform: [{ rotate: open ? "90deg" : "0deg" }] }} />
         </View>
-        <Text style={[body, { flex: 1, color: t.c.text }]}>{inlines(ctx, summary, true)}</Text>
+        <Text style={[body, { flex: 1, marginLeft: FOLD_LABEL_GAP, color: t.c.text }]}>{inlines(ctx, summary, true)}</Text>
       </Pressable>
-      {open ? <View style={{ marginLeft: FOLD_CARET, marginTop: 6 }}>{place(content, false)}</View> : null}
+      {open ? <FoldBody style={{ marginTop: 6 }}>{place(content, false)}</FoldBody> : null}
     </View>
   );
 }
