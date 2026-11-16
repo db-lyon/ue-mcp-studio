@@ -294,7 +294,7 @@ export function registerChat(api: DaemonExtensionApi, agentVersion = "0.0.0", pa
   };
   // ue-mcp asks before each flow step as it runs when it offers "flows.stepApproval"; older daemons get the plan check.
   const stepHost = api as unknown as FlowStepHost;
-  // The durable runtime, per route, off by default (durable/routes.ts).
+  // The durable runtime, per route: on by default for the routes in DURABLE_DEFAULT_ON, each can be turned off (durable/routes.ts).
   const durableSetting = new DurableSetting(api.dataDir);
   const durableRoute = () => {
     const r = durableRouteOf(route(), settings.provider());
