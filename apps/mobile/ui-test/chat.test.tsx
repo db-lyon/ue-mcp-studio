@@ -512,4 +512,25 @@ describe("Chat", () => {
     await settle();
     expect(api.sessionSync.mock.calls.length).toBeGreaterThan(before);
   });
+
+  it("follows the open session's watch: an op draws in place without a read, and a gap reads it again (#463 L2)", async () => {
+    const api = fakeApi();
+    const { project, emit } = (await import("./helpers")).fakeProject();
+    api.sessions.mockResolvedValue({ sessions: [summary()] });
+    api.settings.mockResolvedValue(settings);
+    api.models.mockResolvedValue({ signedIn: {}, providers: [] });
+    api.sessionSync.mockResolvedValue({ ...session({ transcript: [{ kind: "user", text: "Make the door swing", at: "2026-11-04T12:00:00Z" }] as TranscriptEntry[] }), hashes: "", opsSeq: 5 });
+    renderInProject(<Chat initialSession="s1" />, api, project);
+    await settle();
+    const before = api.sessionSync.mock.calls.length;
+    const op = { sessionId: "s1", seq: 6, length: 2, entries: [[1, { kind: "assistant", text: "The door swings on its hinge now.", at: "2026-11-04T12:01:00Z" }, 1]] };
+    emit("studio.transcript.added", { sessionId: "s1" });
+    emit("studio.session.ops", op);
+    await settle();
+    expect(screen.getByText("The door swings on its hinge now.")).toBeTruthy();
+    expect(api.sessionSync.mock.calls.length).toBe(before);
+    emit("studio.session.ops", { ...op, seq: 9 });
+    await settle();
+    expect(api.sessionSync.mock.calls.length).toBe(before + 1);
+  });
 });
