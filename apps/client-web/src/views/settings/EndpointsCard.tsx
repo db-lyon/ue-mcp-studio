@@ -66,7 +66,12 @@ export function EndpointsCard({ onChange }: { onChange: () => void }) {
           <div className="grow">
             <div className="t"><strong>{e.name}</strong> <span className="muted small">{e.models.length === 1 ? "1 model" : `${e.models.length} models`}, {e.hasKey ? "key saved" : "no key"}</span></div>
             <div className="path dim">{e.baseUrl}</div>
-            {e.listError && <div className="small endpoint-warn">Could not read its models: {e.listError}. {e.models.length ? "Showing the last list." : "Add them in Edit."}</div>}
+            {e.listError && (
+              <div className="small endpoint-warn row">
+                <span className="grow">Could not read its models: {e.listError}. {e.models.length ? "Showing the saved list and context windows." : "Add them in Edit."}</span>
+                <button disabled={busy === e.id} onClick={() => refresh(e.id)}>Retry</button>
+              </div>
+            )}
             {e.models.length > 0 && <div className="endpoint-models">{e.models.map((m) => <span key={m.id} className="tag">{m.id}</span>)}</div>}
           </div>
           <div className="endpoint-actions">

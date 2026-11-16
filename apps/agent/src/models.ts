@@ -141,7 +141,7 @@ export function endpointCatalog(e: CustomEndpoint): ModelCatalog["providers"][nu
     connected: true,
     source: e.models.some((m) => !m.typed) ? "live" : "typed",
     endpoint: { id: e.id, ...(e.listError ? { listError: e.listError } : {}) },
-    models: e.models.map((m) => withWindow({ id: m.id, name: m.id, signIns: [] })),
+    models: e.models.map((m) => (m.contextWindow ? { id: m.id, name: m.id, signIns: [], contextWindow: m.contextWindow } : withWindow({ id: m.id, name: m.id, signIns: [] }))),
   };
 }
 

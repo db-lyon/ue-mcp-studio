@@ -64,6 +64,15 @@ describe("the custom endpoints card", () => {
     expect(screen.getByText("mine")).toBeTruthy();
   });
 
+  it("offers Retry beside a failed read and says the saved list is shown", async () => {
+    m.endpoints.mockResolvedValue({ endpoints: [{ ...box, listError: "its /models answered 401" }] });
+    m.listEndpointModels.mockResolvedValue(box);
+    await act(async () => render(<EndpointsCard onChange={() => {}} />));
+    expect(screen.getByText(/Showing the saved list and context windows/)).toBeTruthy();
+    await act(async () => fireEvent.click(screen.getByRole("button", { name: "Retry" })));
+    expect(m.listEndpointModels).toHaveBeenCalledWith("box");
+  });
+
   it("shows what the agent refused", async () => {
     m.endpoints.mockResolvedValue({ endpoints: [box] });
     m.saveEndpoint.mockRejectedValue(new Error("baseUrl must be an http or https URL"));

@@ -121,6 +121,8 @@ export function registerChat(api: DaemonExtensionApi, agentVersion = "0.0.0", pa
   const attachments = new AttachmentStore(api.dataDir);
   // Custom OpenAI-compatible endpoints, for every project like the vendor keys.
   const endpoints = new EndpointStore();
+  // The windows each endpoint listed last time are known at once; the lists are read again in the background below.
+  endpoints.hydrateWindows();
   // ue-mcp's own word on which actions delete or overwrite, for that approval row.
   const actionsApi = required((api as unknown as { actions?: { effects(): Array<{ category: string; action: string; effect: string; destructive?: boolean }> } }).actions, "actions.effects");
   const effects = new DaemonActionEffects(() => actionsApi.effects());
@@ -471,6 +473,11 @@ export function registerChat(api: DaemonExtensionApi, agentVersion = "0.0.0", pa
       if (settings.provider() === endpointVendor(id)) settings.forgetModel();
     },
   });
+  // Refresh every endpoint's models at startup so no one has to press Read models. A failure is kept on the endpoint beside its saved list.
+  void endpoints.refreshAll().then(() => {
+    nativeCache = null;
+    api.events.publish("settings.changed", {});
+  }, () => undefined);
   registerNativeRoutes(api, {
     enabled: () => settings.usage().projectInstructions,
     main: () => ({ vendor: settings.provider(), model: settings.model(), route: route() }),

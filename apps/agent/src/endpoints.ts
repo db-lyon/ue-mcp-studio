@@ -55,7 +55,8 @@ export function modelsOf(v: unknown): EndpointModel[] {
     const id = typeof x.id === "string" ? x.id.trim() : "";
     if (!id) throw new Error(`model ${i + 1} needs an id`);
     if (out.some((o) => o.id === id)) return;
-    const model: EndpointModel = { id, ...(x.typed === true ? { typed: true } : {}) };
+    const w = typeof x.contextWindow === "number" && Number.isFinite(x.contextWindow) && x.contextWindow >= 1024 ? Math.floor(x.contextWindow) : null;
+    const model: EndpointModel = { id, ...(x.typed === true ? { typed: true } : {}), ...(w ? { contextWindow: w } : {}) };
     out.push(model);
   });
   return out;
@@ -63,6 +64,11 @@ export function modelsOf(v: unknown): EndpointModel[] {
 
 /** The chat models an endpoint's /models lists, by id. */
 export async function listEndpointModels(baseUrl: string, key: string | null, fetchImpl: typeof fetch = fetch): Promise<string[]> {
+  return (await listEndpointEntries(baseUrl, key, fetchImpl)).map((m) => m.id);
+}
+
+/** The chat models an endpoint's /models lists, with the context window each one states. */
+export async function listEndpointEntries(baseUrl: string, key: string | null, fetchImpl: typeof fetch = fetch): Promise<EndpointModel[]> {
   const res = await fetchImpl(`${baseUrl}/models`, {
     headers: key ? { authorization: `Bearer ${key}` } : {},
     signal: AbortSignal.timeout(10_000),
@@ -70,14 +76,23 @@ export async function listEndpointModels(baseUrl: string, key: string | null, fe
   if (!res.ok) throw new Error(`its /models answered ${res.status}`);
   const body = (await res.json().catch(() => null)) as { data?: Array<{ id?: unknown }> } | null;
   if (!body || !Array.isArray(body.data)) throw new Error("its /models did not answer with a model list");
-  for (const m of body.data) if (typeof m.id === "string") rememberWindow(m.id, m);
-  return [...new Set(body.data.map((m) => (typeof m.id === "string" ? m.id : "")).filter((id) => id && !NOT_CHAT.test(id)))].sort((a, b) => a.localeCompare(b, undefined, { numeric: true }));
+  const byId = new Map<string, EndpointModel>();
+  for (const m of body.data) {
+    if (typeof m.id !== "string" || !m.id || NOT_CHAT.test(m.id) || byId.has(m.id)) continue;
+    const w = rememberWindow(m.id, m);
+    byId.set(m.id, { id: m.id, ...(w ? { contextWindow: w } : {}) });
+  }
+  return [...byId.values()].sort((a, b) => a.id.localeCompare(b.id, undefined, { numeric: true }));
 }
 
-/** The listed models with the typed ones kept. */
-export function mergeListed(current: EndpointModel[], listed: string[]): EndpointModel[] {
-  const out: EndpointModel[] = listed.map((id) => ({ id }));
-  for (const m of current) if (m.typed && !listed.includes(m.id)) out.push(m);
+/** The listed models with the typed ones kept. A listed model the list gave no window for keeps the one it had. */
+export function mergeListed(current: EndpointModel[], listed: Array<string | EndpointModel>): EndpointModel[] {
+  const entries = listed.map((l): EndpointModel => (typeof l === "string" ? { id: l } : l));
+  const out: EndpointModel[] = entries.map((m) => {
+    const w = m.contextWindow ?? current.find((c) => c.id === m.id)?.contextWindow;
+    return { id: m.id, ...(w ? { contextWindow: w } : {}) };
+  });
+  for (const m of current) if (m.typed && !entries.some((l) => l.id === m.id)) out.push(m);
   return out;
 }
 
@@ -193,7 +208,11 @@ export class EndpointStore {
     if (input.models !== undefined) {
       const given = modelsOf(input.models);
       const listed = new Set(e.models.filter((m) => !m.typed).map((m) => m.id));
-      e.models = given.map((m) => (listed.has(m.id) ? { id: m.id } : { ...m, typed: true }));
+      const had = new Map(e.models.map((m) => [m.id, m.contextWindow] as const));
+      e.models = given.map((m) => {
+        const w = had.get(m.id);
+        return listed.has(m.id) ? { id: m.id, ...(w ? { contextWindow: w } : {}) } : { ...m, typed: true };
+      });
     }
     if (input.key !== undefined && typeof input.key !== "string") throw new Error("key must be a string");
     this.write(list);
@@ -209,14 +228,24 @@ export class EndpointStore {
     return true;
   }
 
+  /** Load the windows kept per endpoint, so the catalog and the runner have them before any list is read. */
+  hydrateWindows(): void {
+    for (const e of this.read()) for (const m of e.models) if (m.contextWindow) rememberWindow(m.id, { context_length: m.contextWindow });
+  }
+
+  /** Read every endpoint's /models again, one after another. Each keeps its saved list when it cannot answer. */
+  async refreshAll(fetchImpl: typeof fetch = fetch): Promise<void> {
+    for (const e of this.read()) await this.refresh(e.id, fetchImpl).catch(() => undefined);
+  }
+
   /** Read an endpoint's /models again and keep what it lists beside the typed models. A failure is kept to show, not thrown. */
   async refresh(id: string, fetchImpl: typeof fetch = fetch): Promise<CustomEndpoint> {
     const before = this.read().find((x) => x.id === id);
     if (!before) throw new NotFound(id);
-    let listed: string[] | null = null;
+    let listed: EndpointModel[] | null = null;
     let error: string | null = null;
     try {
-      listed = await listEndpointModels(before.baseUrl, this.key(id), fetchImpl);
+      listed = await listEndpointEntries(before.baseUrl, this.key(id), fetchImpl);
     } catch (e) {
       error = e instanceof Error ? (e.name === "TimeoutError" ? "its /models did not answer within 10 seconds" : e.message) : String(e);
     }
