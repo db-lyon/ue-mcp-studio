@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { PLUGIN_OUTSIDE, checkFailure, daemonMoves, daemonTarget, pluginOutside, updateStatus, updateFailureLine as failureLine, pluginStep, readUpdatesWith, readyLine, studioUpdatesOf, ueMcpUpdateOf, updateRows, updateSteps, waiting, withFloor, type StudioUpdates, type UeMcpUpdate } from "@ue-mcp-studio/client-core";
+import { PLUGIN_OUTSIDE, checkFailure, offersWhatsNew, daemonMoves, daemonTarget, pluginOutside, updateStatus, updateFailureLine as failureLine, pluginStep, readUpdatesWith, readyLine, studioUpdatesOf, ueMcpUpdateOf, updateRows, updateSteps, waiting, withFloor, type StudioUpdates, type UeMcpUpdate } from "@ue-mcp-studio/client-core";
 import { startUpdate, useRun } from "./UpdateOverlay";
 import { waitingSteps } from "./update-run";
 import { REMOTE_UPDATES, onRemotePage } from "../connection";
@@ -86,7 +86,7 @@ export function UpdatesCard({ remote = onRemotePage() }: { remote?: boolean } = 
       <div className="row">
         <h2>Updates</h2>
         <span className="spacer" />
-        <WhatsNewButton />
+        {offersWhatsNew(u) && <WhatsNewButton />}
         {!working && steps.length === 0 && <button onClick={load}>Check again</button>}
       </div>
       {!u && <p className="muted">Checking</p>}

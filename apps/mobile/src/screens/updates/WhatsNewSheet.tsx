@@ -1,16 +1,17 @@
 /**
- * What's new (client-web views/WhatsNew.tsx): an accordion per part with
- * release notes, each release's notes under its version, newest first, with
- * what is available marked. Notes that could not be read say so, with Retry
- * and the release page. The markdown goes through the app's renderer, which
- * draws no raw HTML and opens only web links.
+ * What's new (client-web views/WhatsNew.tsx): an accordion per part with a
+ * release newer than the installed one, each release's notes under its
+ * version, newest first. Notes that could not be read say so, with Retry and
+ * the release page. The notes go through the renderer's release-notes mode:
+ * client-core's sanitiser, <details> as folds, and only web links open.
  */
 import { useBack } from "../../back";
 import { useCallback, useEffect, useState } from "react";
 import { Linking, Modal, Pressable, ScrollView, View } from "react-native";
-import { NOTHING_NEW, WHATS_NEW_AVAILABLE, WHATS_NEW_NO_NOTES, WHATS_NEW_PAGE, WHATS_NEW_TITLE, WHATS_NEW_UNAVAILABLE, componentRange, entryDate, moreLine, readWhatsNewWith, shownComponents, whatsNewError } from "@ue-mcp-studio/client-core";
+import { NOTHING_NEW, WHATS_NEW_NO_NOTES, WHATS_NEW_PAGE, WHATS_NEW_TITLE, WHATS_NEW_UNAVAILABLE, componentRange, entryDate, moreLine, readWhatsNewWith, shownComponents, whatsNewError } from "@ue-mcp-studio/client-core";
 import type { WhatsNew, WhatsNewComponent } from "@ue-mcp-studio/shared";
-import { Banner, Button, Markdown, Pill, Spacer, bannerText, font, T, useSheetInsets, useTheme } from "../../ui";
+import { Banner, Button, Markdown, Spacer, bannerText, font, T, useSheetInsets, useTheme } from "../../ui";
+import { FOLD_LABEL_GAP, FoldBody } from "../../ui/Markdown";
 import { Txt, pageScroll } from "../settings/controls";
 import { Details } from "../settings/Details";
 import { useSettingsApi } from "../settings/hooks";
@@ -25,48 +26,50 @@ function Part({ c, startOpen, retry, retrying }: { c: WhatsNewComponent; startOp
         startOpen={startOpen}
         label={`${c.name}, ${componentRange(c)}`}
         summary={
-          <Txt style={{ flexShrink: 1 }}>
+          <Txt style={{ flexShrink: 1, marginLeft: FOLD_LABEL_GAP }}>
             <Txt weight={600}>{c.name}</Txt> <Txt size={12} tone="dim">{componentRange(c)}</Txt>
           </Txt>
         }
       >
-        {c.error ? (
-          <Banner kind="bad" role="alert">
-            <Txt size={12} style={{ color: bannerText(t, "bad") }}>
-              {whatsNewError(c)}
-            </Txt>
-            <View style={{ flexDirection: "row", alignItems: "center", gap: 10, marginTop: 8 }}>
-              <Button title={retrying ? "Retrying" : "Retry"} disabled={retrying} onPress={retry} />
-              {c.releasesUrl ? <Button variant="ghost" title={WHATS_NEW_PAGE} onPress={() => open(c.releasesUrl)} /> : null}
-            </View>
-          </Banner>
-        ) : (
-          <View style={{ gap: 12, paddingBottom: 8 }}>
-            {c.entries.map((e) => (
-              <View key={e.version} style={{ gap: 4 }}>
-                <View style={{ flexDirection: "row", alignItems: "center", flexWrap: "wrap", gap: 8 }}>
-                  <T accessibilityRole="header" style={[font(t, "mono", 600, 13, 1.4), { color: t.c.text }]}>
-                    {e.version}
-                  </T>
-                  {e.available ? <Pill kind="warn">{WHATS_NEW_AVAILABLE}</Pill> : null}
-                  {entryDate(e.publishedAt) ? <Txt size={12} tone="dim">{entryDate(e.publishedAt)}</Txt> : null}
-                  <Spacer />
-                  {e.url ? (
-                    <Txt size={12} tone="accentHi" onPress={() => open(e.url)}>
-                      {WHATS_NEW_PAGE}
-                    </Txt>
-                  ) : null}
-                </View>
-                {e.body ? <Markdown page breaks={false} text={e.body} /> : <Txt size={12} tone="dim">{WHATS_NEW_NO_NOTES}</Txt>}
-              </View>
-            ))}
-            {c.more > 0 ? (
-              <Txt size={12} tone="accentHi" onPress={() => open(c.releasesUrl)}>
-                {moreLine(c.more)}
+        {/* One level in: 24 from the edge, level with the part's name, beside a rule under the caret, as the web's .whats-new-body. */}
+        <FoldBody style={{ marginBottom: 8 }}>
+          {c.error ? (
+            <Banner kind="bad" role="alert" style={{ marginBottom: 0 }}>
+              <Txt size={12} style={{ color: bannerText(t, "bad") }}>
+                {whatsNewError(c)}
               </Txt>
-            ) : null}
-          </View>
-        )}
+              <View style={{ flexDirection: "row", alignItems: "center", gap: 10, marginTop: 8 }}>
+                <Button title={retrying ? "Retrying" : "Retry"} disabled={retrying} onPress={retry} />
+                {c.releasesUrl ? <Button variant="ghost" title={WHATS_NEW_PAGE} onPress={() => open(c.releasesUrl)} /> : null}
+              </View>
+            </Banner>
+          ) : (
+            <>
+              {c.entries.map((e, i) => (
+                <View key={e.version} style={i > 0 ? { marginTop: 12, paddingTop: 12, borderTopWidth: 1, borderTopColor: t.c.line } : null}>
+                  <View style={{ flexDirection: "row", alignItems: "baseline", flexWrap: "wrap", gap: 8, marginBottom: 6 }}>
+                    <T accessibilityRole="header" style={[font(t, "mono", 600, 13, 1.4), { color: t.c.text }]}>
+                      {e.version}
+                    </T>
+                    {entryDate(e.publishedAt) ? <Txt size={12} tone="dim">{entryDate(e.publishedAt)}</Txt> : null}
+                    <Spacer />
+                    {e.url ? (
+                      <Txt size={12} tone="accentHi" onPress={() => open(e.url)} label={WHATS_NEW_PAGE}>
+                        {WHATS_NEW_PAGE}
+                      </Txt>
+                    ) : null}
+                  </View>
+                  {e.body ? <Markdown notes breaks={false} paragraphMargin={8} text={e.body} /> : <Txt size={12} tone="dim">{WHATS_NEW_NO_NOTES}</Txt>}
+                </View>
+              ))}
+              {c.more > 0 ? (
+                <Txt size={12} tone="accentHi" style={{ marginTop: 12 }} onPress={() => open(c.releasesUrl)}>
+                  {moreLine(c.more)}
+                </Txt>
+              ) : null}
+            </>
+          )}
+        </FoldBody>
       </Details>
     </View>
   );

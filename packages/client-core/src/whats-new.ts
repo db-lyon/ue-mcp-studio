@@ -1,15 +1,17 @@
 /**
  * The What's new dialog's model, shared by client-web's Updates card and the
  * mobile app's: GET /v1/ext/studio/whats-new read and normalized, which parts
- * show, and the dialog's words.
+ * show, when the card offers it, and the dialog's words. It shows only what
+ * is newer than each installed part on the channel: what Update would bring.
  */
 import { WHATS_NEW_PARTS, type WhatsNew, type WhatsNewComponent, type WhatsNewEntry, type WhatsNewPart } from "@ue-mcp-studio/shared";
 import { obj } from "./normalize.js";
+import { releaseNoteText } from "./release-notes.js";
+import { updateRows, type Updates } from "./updates.js";
 
 export const WHATS_NEW_TITLE = "What's new";
 export const NOTHING_NEW = "Nothing new.";
 export const WHATS_NEW_UNAVAILABLE = "This Studio cannot read release notes yet. Update Studio, or read them on GitHub.";
-export const WHATS_NEW_AVAILABLE = "Available";
 export const WHATS_NEW_PAGE = "Release page";
 export const WHATS_NEW_NO_NOTES = "No notes for this release.";
 
@@ -21,19 +23,19 @@ function entryOf(raw: unknown): WhatsNewEntry | null {
   const e = obj(raw);
   const version = text(e.version);
   if (!version) return null;
-  return { version, body: text(e.body) ?? "", url: text(e.url) ?? "", publishedAt: text(e.publishedAt), available: e.available === true };
+  return { version, body: releaseNoteText(version, text(e.body) ?? ""), url: text(e.url) ?? "", publishedAt: text(e.publishedAt), available: e.available === true };
 }
 
 function componentOf(raw: unknown): WhatsNewComponent | null {
   const c = obj(raw);
   const part = c.part as WhatsNewPart;
   if (!WHATS_NEW_PARTS.includes(part)) return null;
-  const entries = Array.isArray(c.entries) ? c.entries.map(entryOf).filter((e): e is WhatsNewEntry => !!e) : [];
+  // Only what is newer: an agent from before this rule also sent the installed release.
+  const entries = Array.isArray(c.entries) ? c.entries.map(entryOf).filter((e): e is WhatsNewEntry => !!e && e.available) : [];
   return {
     part,
     name: text(c.name) ?? part,
     installed: text(c.installed),
-    previous: text(c.previous),
     entries,
     more: typeof c.more === "number" && c.more > 0 ? c.more : 0,
     ...(text(c.error) ? { error: text(c.error)! } : {}),
@@ -56,21 +58,23 @@ export async function readWhatsNewWith(get: (path: string) => Promise<unknown>, 
   return whatsNewOf(await get(whatsNewPath(refresh)));
 }
 
-/** The accordions to show: a part with notes, or one whose notes could not be read. */
+/** The accordions to show: a part with something newer, or one whose notes could not be read. */
 export const shownComponents = (w: WhatsNew | null): WhatsNewComponent[] => (w ? w.components.filter((c) => c.entries.length > 0 || !!c.error) : []);
 
-/** The accordion's summary beside its name: "0.1.30 to 0.1.35", the installed version alone, and what is available. */
+/** The card offers What's new only when its check found something newer for some part. */
+export const offersWhatsNew = (u: Updates | null): boolean => !!u && updateRows(u).some(([, , latest, available]) => available && !!latest);
+
+/** The accordion's summary beside its name: "0.1.3 to 0.1.5", installed to the newest. */
 export function componentRange(c: WhatsNewComponent): string {
-  const available = c.entries.find((e) => e.available)?.version;
-  const base = c.previous && c.installed && c.previous !== c.installed ? `${c.previous} to ${c.installed}` : (c.installed ?? "");
-  return available ? `${base}, ${available} available` : base;
+  const newest = c.entries[0]?.version;
+  return newest && c.installed ? `${c.installed} to ${newest}` : (newest ?? c.installed ?? "");
 }
 
 /** "Could not load the release notes: GitHub answered 500." */
 export const whatsNewError = (c: WhatsNewComponent): string => `Could not load the release notes: ${(c.error ?? "no answer").replace(/\.$/, "")}.`;
 
-/** "More releases are on the release page": the older ones left out of a long list. */
-export const moreLine = (n: number): string => `${n} older release${n === 1 ? "" : "s"} on the release page.`;
+/** The newer releases left out of a long list. */
+export const moreLine = (n: number): string => `${n} more release${n === 1 ? "" : "s"} on the release page.`;
 
 /** A release's date as YYYY-MM-DD, or "" when unknown. */
 export const entryDate = (iso: string | null): string => (iso && /^\d{4}-\d{2}-\d{2}/.test(iso) ? iso.slice(0, 10) : "");

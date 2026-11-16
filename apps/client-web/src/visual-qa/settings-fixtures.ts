@@ -86,22 +86,30 @@ const NOTIFY_STATE = {
 
 const page = (title: string, section: string, o: Partial<Scenario> = {}): Scenario => ({ title, hash: `#/settings/${section}`, index: { playtests: [], listed: true }, height: 2600, ...o });
 
-/** GET /whats-new: Studio moved from beta.24 to beta.26 with beta.27 waiting, and the plugin's notes unread. */
+/**
+ * GET /whats-new: three Studio releases newer than beta.24 (one restating its
+ * version in a heading, one folding a section into <details> beside a script
+ * and an event handler that must not survive, one with no notes), the editor
+ * plugin's notes unread, and the bridge with nothing newer, so no accordion.
+ */
 const WHATS_NEW = {
   channel: "beta",
   components: [
     {
-      part: "studio", name: "Studio", installed: "0.1.24-beta.26", previous: "0.1.24-beta.24", more: 0, releasesUrl: "https://github.com/db-lyon/ue-mcp-studio/releases",
+      part: "studio", name: "Studio", installed: "0.1.24-beta.24", more: 0, releasesUrl: "https://github.com/db-lyon/ue-mcp-studio/releases",
       entries: [
-        { version: "0.1.24-beta.27", available: true, publishedAt: "2026-11-15T10:00:00Z", url: "https://github.com/db-lyon/ue-mcp-studio/releases/tag/v0.1.24-beta.27", body: "- The composer keeps a draft per session.\n- Settings shows **What's new** for every part." },
-        { version: "0.1.24-beta.26", available: false, publishedAt: "2026-11-14T10:00:00Z", url: "https://github.com/db-lyon/ue-mcp-studio/releases/tag/v0.1.24-beta.26", body: "## Fixes\n\n- A long reply no longer jumps while it streams.\n- `Check again` reads the channel you chose." },
-        { version: "0.1.24-beta.25", available: false, publishedAt: "2026-11-13T10:00:00Z", url: "https://github.com/db-lyon/ue-mcp-studio/releases/tag/v0.1.24-beta.25", body: "" },
+        { version: "0.1.24-beta.27", available: true, publishedAt: "2026-11-15T10:00:00Z", url: "https://github.com/db-lyon/ue-mcp-studio/releases/tag/v0.1.24-beta.27", body: "## v0.1.24-beta.27\n\n- The composer keeps a draft per session.\n- Settings shows **What's new** for every part." },
+        { version: "0.1.24-beta.26", available: true, publishedAt: "2026-11-14T10:00:00Z", url: "https://github.com/db-lyon/ue-mcp-studio/releases/tag/v0.1.24-beta.26", body: "## Features\n\n<details>\n<summary><b>Editor dialogs</b></summary>\n\n- `editor(list_dialogs)` reports a modal's pickers as `combos`.\n- A disabled button is refused instead of pressed.\n\n</details>\n\n<script>window.hacked = 1</script>\n\n## Fixes\n\n- A long reply no longer jumps while it streams. <img src=x onerror=\"window.hacked=1\">\n- `Check again` reads the channel you chose." },
+        { version: "0.1.24-beta.25", available: true, publishedAt: "2026-11-13T10:00:00Z", url: "https://github.com/db-lyon/ue-mcp-studio/releases/tag/v0.1.24-beta.25", body: "" },
       ],
     },
-    { part: "plugin", name: "Editor plugin (UE_MCP_Studio)", installed: "0.1.4", previous: null, entries: [], more: 0, error: "GitHub is limiting requests right now", releasesUrl: "https://github.com/db-lyon/ue-mcp-studio-plugin/releases" },
-    { part: "bridge", name: "Bridge plugin (UE_MCP_Bridge)", installed: "1.4.11-beta.4", previous: null, entries: [], more: 0, releasesUrl: "https://github.com/db-lyon/ue-mcp/releases" },
+    { part: "plugin", name: "Editor plugin (UE_MCP_Studio)", installed: "0.1.4", entries: [], more: 0, error: "GitHub is limiting requests right now", releasesUrl: "https://github.com/db-lyon/ue-mcp-studio-plugin/releases" },
+    { part: "bridge", name: "Bridge plugin (UE_MCP_Bridge)", installed: "1.4.11-beta.4", entries: [], more: 0, releasesUrl: "https://github.com/db-lyon/ue-mcp/releases" },
   ],
 };
+
+/** The update check that offers What's new: Studio has a newer release on beta. */
+const WHATS_NEW_UPDATES = { channel: "beta", studio: { installed: "0.1.24-beta.24", latest: "0.1.24-beta.27", available: true }, plugin: { installed: "0.1.4", latest: "0.1.4", available: false, location: "project", engine: "5.7" } };
 
 /**
  * What Studio 0.1.23 and an older ue-mcp answer, which the newest UI bundle on
@@ -202,9 +210,9 @@ export const SETTINGS_SCENARIOS: Record<string, Scenario> = {
     focus: ".yaml-editor textarea",
   }),
   "settings-general": page("General: themes and updates", "general"),
-  "settings-whats-new": page("General with What's new open: Studio's notes from the version before the last update, an update available marked, and the editor plugin's notes that could not be read with Retry and the release page", "general", {
-    get: (p) => (p === "/v1/ext/studio/whats-new" ? WHATS_NEW : undefined),
-    click: ".whats-new-open",
+  "settings-whats-new": page("General with What's new open: the three Studio releases newer than the installed one, one with a folded Editor dialogs section, and the editor plugin's notes that could not be read with Retry and the release page", "general", {
+    get: (p) => (p === "/v1/ext/studio/whats-new" ? WHATS_NEW : p === "/v1/ext/studio/updates" ? WHATS_NEW_UPDATES : undefined),
+    clicks: [".whats-new-open", ".whats-new-fold > summary"],
   }),
   "settings-notifications": page("Notifications in Studio's window on a paid plan: this device's choices, every event at its default, one muted session", "notifications", {
     studioWindow: true,

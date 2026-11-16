@@ -17,7 +17,7 @@ export interface WhatsNewEntry {
   url: string;
   /** ISO time it was published, when GitHub said. */
   publishedAt: string | null;
-  /** Newer than what is installed: Update would bring it. */
+  /** Newer than what is installed: Update would bring it. Always true from this agent; an older agent also sent the installed release. */
   available: boolean;
 }
 
@@ -26,9 +26,7 @@ export interface WhatsNewComponent {
   /** "Studio", "Editor plugin (UE_MCP_Studio)", ... */
   name: string;
   installed: string | null;
-  /** The version installed before the last update, when one was seen. */
-  previous: string | null;
-  /** Newest first: what is available, then what the last update brought. */
+  /** Newest first: the releases newer than installed on the channel. */
   entries: WhatsNewEntry[];
   /** Releases in the range left out to keep the list short. */
   more: number;

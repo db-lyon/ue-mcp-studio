@@ -5,7 +5,7 @@
  */
 import { useCallback, useEffect, useState } from "react";
 import { View } from "react-native";
-import { PLUGIN_OUTSIDE, REMOTE_UPDATES, WHATS_NEW_TITLE, checkFailure, pluginOutside, updateStatus, updateFailureLine, readUpdatesWith, readyLine, updateRows, updateSteps, waiting, waitingSteps, type Updates } from "@ue-mcp-studio/client-core";
+import { PLUGIN_OUTSIDE, REMOTE_UPDATES, WHATS_NEW_TITLE, checkFailure, offersWhatsNew, pluginOutside, updateStatus, updateFailureLine, readUpdatesWith, readyLine, updateRows, updateSteps, waiting, waitingSteps, type Updates } from "@ue-mcp-studio/client-core";
 import { Banner, Button, Card, Pill, Spacer, bannerText, labelFont, T, useTheme } from "../../ui";
 import { Details } from "../settings/Details";
 import { Radio, Txt } from "../settings/controls";
@@ -68,7 +68,7 @@ export function UpdatesCard() {
           Updates
         </T>
         <Spacer />
-        <Button variant="ghost" title={WHATS_NEW_TITLE} testID="whats-new-open" onPress={() => setNotes(true)} />
+        {offersWhatsNew(u) ? <Button variant="ghost" title={WHATS_NEW_TITLE} testID="whats-new-open" onPress={() => setNotes(true)} /> : null}
         {!working && steps.length === 0 ? <Button title="Check again" onPress={load} /> : null}
       </View>
       {notes ? <WhatsNewSheet onClose={() => setNotes(false)} /> : null}
