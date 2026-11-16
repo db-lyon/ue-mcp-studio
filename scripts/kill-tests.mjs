@@ -3,6 +3,8 @@
 // (the harness, its extension and the turn host come from apps/agent/dist).
 //
 // node scripts/kill-tests.mjs [--out results.json] [--runtimes loop,hosts,durable] [--scenarios stream,...]
+// node scripts/kill-tests.mjs --live-claude <runtime exe> <model> | --live-chatgpt <model> <chatgpt home>
+// A ChatGPT home is a test folder holding a sign-in's credentials.json, never the user's own.
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
@@ -22,6 +24,7 @@ await build({
     daemon: path.join(root, "apps", "agent", "test", "kill", "daemon-main.ts"),
     run: path.join(root, "apps", "agent", "test", "kill", "run.ts"),
     "live-claude": path.join(root, "apps", "agent", "test", "kill", "live-claude.ts"),
+    "live-chatgpt": path.join(root, "apps", "agent", "test", "kill", "live-chatgpt.ts"),
   },
   outdir: dir,
   outExtension: { ".js": ".mjs" },
@@ -36,7 +39,11 @@ await build({
 });
 // --live-claude <runtime exe> <model>: the durable runtime on the real Claude sign-in instead of the matrix.
 const live = process.argv.indexOf("--live-claude");
-const args = live > 0
+// --live-chatgpt <model> <chatgpt home>: the durable runtime on a real Sign in with ChatGPT, kept in a test folder.
+const liveChatgpt = process.argv.indexOf("--live-chatgpt");
+const args = liveChatgpt > 0
+  ? [path.join(dir, "live-chatgpt.mjs"), process.argv[liveChatgpt + 1], path.resolve(process.argv[liveChatgpt + 2])]
+  : live > 0
   ? [path.join(dir, "live-claude.mjs"), process.argv[live + 1], process.argv[live + 2]]
   : [path.join(dir, "run.mjs"), out, arg("runtimes") ?? "loop,hosts,durable", arg("scenarios") ?? ""];
 const r = spawnSync(process.execPath, args, {
