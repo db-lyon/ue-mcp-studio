@@ -66,7 +66,11 @@ export function UpdatesCard({ remote = onRemotePage() }: { remote?: boolean } = 
     if (run?.error) setStopped(run.error);
     else if (working) setStopped(null);
   }, [run?.error, working]);
-  const load = () => void readUpdates().then(setU, () => setU({ studio: null, ueMcp: null }));
+  const [checking, setChecking] = useState(true);
+  const load = () => {
+    setChecking(true);
+    void readUpdates().then(setU, () => setU({ studio: null, ueMcp: null })).finally(() => setChecking(false));
+  };
   useEffect(load, []);
   // Read again once an update finishes or stops.
   useEffect(() => {
@@ -86,7 +90,8 @@ export function UpdatesCard({ remote = onRemotePage() }: { remote?: boolean } = 
       <div className="row">
         <h2>Updates</h2>
         <span className="spacer" />
-        {!working && steps.length === 0 && <button onClick={load}>Check again</button>}
+        {/* Always offered, whatever the state; held while a check or an update runs. */}
+        <button disabled={checking || working} onClick={load}>Check again</button>
       </div>
       {!u && <p className="muted">Checking</p>}
       {u && (
