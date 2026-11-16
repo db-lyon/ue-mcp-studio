@@ -2085,8 +2085,6 @@ fieldset.remote-readonly[disabled] > :not(.remote-readonly-note) { opacity: 0.7;
 /* The script path stands alone, so its reach is the full 44 pixels. */
 @media (pointer: coarse) { .qa-script-path .asset-link::after { inset: -13px -2px; } }
 
-}
-
 /* The divider between the transcript and the message box. The composer's top border is the line;
    its dark background fills from the line down. A bare bar sits centred in the 12 pixel gap
    between the line and the text box. The drag target reaches up over the transcript, never over
