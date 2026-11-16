@@ -11,7 +11,7 @@ import { Linking, Modal, Pressable, ScrollView, View } from "react-native";
 import { NOTHING_NEW, WHATS_NEW_NO_NOTES, WHATS_NEW_PAGE, WHATS_NEW_TITLE, WHATS_NEW_UNAVAILABLE, componentRange, entryDate, moreLine, readWhatsNewWith, shownComponents, whatsNewError } from "@ue-mcp-studio/client-core";
 import type { WhatsNew, WhatsNewComponent } from "@ue-mcp-studio/shared";
 import { Banner, Button, Markdown, Spacer, bannerText, font, T, useSheetInsets, useTheme } from "../../ui";
-import { FOLD_LABEL_GAP, FoldBody } from "../../ui/Markdown";
+import { FOLD_GAP } from "../../ui/Markdown";
 import { Txt, pageScroll } from "../settings/controls";
 import { Details } from "../settings/Details";
 import { useSettingsApi } from "../settings/hooks";
@@ -20,19 +20,22 @@ const open = (url: string) => void Linking.openURL(url).catch(() => undefined);
 
 function Part({ c, startOpen, retry, retrying }: { c: WhatsNewComponent; startOpen: boolean; retry: () => void; retrying: boolean }) {
   const t = useTheme();
+  const [isOpen, setOpen] = useState(startOpen);
   return (
-    <View style={{ borderTopWidth: 1, borderTopColor: t.c.line, paddingTop: 4 }}>
+    // As the web's .whats-new-part: a box whose header is on the lighter panel2 and whose content is on the darker bg, both full width.
+    <View style={{ borderWidth: 1, borderColor: t.c.line, borderRadius: 8, overflow: "hidden" }}>
       <Details
         startOpen={startOpen}
+        onToggle={setOpen}
         label={`${c.name}, ${componentRange(c)}`}
+        summaryStyle={{ alignItems: "center", paddingHorizontal: 12, backgroundColor: t.c.panel2, borderBottomWidth: isOpen ? 1 : 0, borderBottomColor: t.c.line }}
         summary={
-          <Txt style={{ flexShrink: 1, marginLeft: FOLD_LABEL_GAP }}>
+          <Txt style={{ flexShrink: 1, marginLeft: FOLD_GAP }}>
             <Txt weight={600}>{c.name}</Txt> <Txt size={12} tone="dim">{componentRange(c)}</Txt>
           </Txt>
         }
       >
-        {/* One level in: 24 from the edge, level with the part's name, beside a rule under the caret, as the web's .whats-new-body. */}
-        <FoldBody style={{ marginBottom: 8 }}>
+        <View style={{ padding: 12, backgroundColor: t.c.bg }}>
           {c.error ? (
             <Banner kind="bad" role="alert" style={{ marginBottom: 0 }}>
               <Txt size={12} style={{ color: bannerText(t, "bad") }}>
@@ -69,7 +72,7 @@ function Part({ c, startOpen, retry, retrying }: { c: WhatsNewComponent; startOp
               ) : null}
             </>
           )}
-        </FoldBody>
+        </View>
       </Details>
     </View>
   );
