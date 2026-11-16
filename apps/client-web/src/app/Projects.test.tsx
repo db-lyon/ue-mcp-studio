@@ -76,6 +76,18 @@ afterEach(() => {
   delete appSlot().ue;
 });
 
+describe("a report this app cannot read", () => {
+  it("offers Update UE-MCP, which opens Settings where the update is, beside Check again", async () => {
+    const h = fakeHost();
+    h.report.mockResolvedValue({ ok: false, reason: "version", ueMcp: "ue-mcp@2.0.0" } as never);
+    render(<App />);
+    await screen.findByRole("heading", { name: "UE-MCP needs a newer ue-mcp" });
+    expect(screen.getByRole("button", { name: "Check again" })).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Update UE-MCP" }));
+    await waitFor(() => expect(document.querySelector(".app-nav-item.active")?.textContent).toContain("Settings"));
+  });
+});
+
 describe("the UE-MCP app's Projects", () => {
   it("lists each project once with its folder, versions, daemon and an update badge from the channel's newest, without a daemon", async () => {
     const h = fakeHost();
