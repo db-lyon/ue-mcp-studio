@@ -19,6 +19,11 @@
   "dependencies": {
     "@anthropic-ai/claude-agent-sdk": "^0.3.296",
     "@anthropic-ai/sdk": "^0.133.0",
+    "@earendil-works/pi-ai": "1.5.2",
+    "@earendil-works/pi-claude-code": "https://codeload.github.com/earendil-works/pi-claude-code/tar.gz/d5b5e04c314d3452d357174d16d10dda34daa2d2",
+    "@earendil-works/pi-durable": "1.5.2",
+    "@earendil-works/pi-schema": "1.5.2",
+    "@earendil-works/pi-telemetry": "1.5.2",
     "@jsquash/webp": "^1.5.0",
     "@modelcontextprotocol/sdk": "^1.32.1",
     "@ue-mcp-studio/extension-api": "*",
