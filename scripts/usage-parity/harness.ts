@@ -1,5 +1,6 @@
-// Studio's own subscription turn, tool executor and system prompts, run outside the daemon. Bundled by measure.mjs from a
-// source tree (this checkout, or a git ref) so a source change is measured before it ships.
+// Studio's turn as it ships: AgentRunner on the durable runtime, with the harness in this process and the Claude sign-in
+// through pi-claude-code, Studio's tool executor and system prompts, run outside the daemon against ue-mcp. Bundled by
+// measure.mjs from a source tree (this checkout, or a git ref) so a source change is measured before it ships.
 // node <bundle> <prompts.json> <promptId> <model> <effort> <label> <uproject> <ue-mcp entry> <results.jsonl> <dataDir> [nonce] [strategy]
 // strategy (micro, lean or full) runs ue-mcp under that context strategy and gives Studio's agent that surface.
 import * as fs from "node:fs";
@@ -7,17 +8,20 @@ import * as path from "node:path";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
 import { DEFAULT_USAGE } from "@ue-mcp-studio/shared";
-import { runSubscriptionTurn } from "./subscription.js";
-import { executeTool, type AgentHost, type ToolExecution } from "./tools.js";
-import { ContextSurfaces, microSurface, withSurface, type ContextApi, type EditorSurface, type ProjectedTool } from "./context-surface.js";
-// @ts-expect-error exported by measure.mjs's bundler plugin
-import { system } from "./runner.js";
+import type { AgentHost } from "./tools.js";
+import { ContextSurfaces, microSurface, type ContextApi, type EditorSurface, type ProjectedTool } from "./context-surface.js";
+import { AgentRunner } from "./runner.js";
+import { SessionStore } from "./sessions.js";
+import { routeSpec } from "./durable/routes.js";
+import { runHarness } from "./durable/harness-main.js";
+import { ensureRuntime } from "./runtime.js";
 
 const [, , promptsFile, pid, model, effort, label, uproject, ueMcp, results, dataDir, nonce, strategyArg] = process.argv;
 const strategy = (["lean", "full"].includes(strategyArg) ? strategyArg : "micro") as "micro" | "lean" | "full";
 const spec = (JSON.parse(fs.readFileSync(promptsFile, "utf8")) as Record<string, string | string[]>)[pid];
 const turns = (Array.isArray(spec) ? spec : [spec]).map((t, i) => (i === 0 && nonce ? `${t}\n\n(run ${nonce})` : t));
 const projectDir = path.dirname(path.resolve(uproject));
+fs.mkdirSync(dataDir, { recursive: true });
 
 const c = new Client({ name: "usage-parity", version: "0" });
 await c.connect(new StdioClientTransport({ command: process.execPath, args: [ueMcp, uproject], stderr: "ignore", env: { ...(process.env as Record<string, string>), UE_MCP_CONTEXT_STRATEGY: strategy } }));
@@ -51,46 +55,71 @@ const host = {
     const r = await c.callTool(call, undefined, { timeout: 600000 });
     return { isError: !!r.isError, content: r.content as Array<{ type: string; text?: string }> };
   },
-  editors: () => [{ name: path.basename(projectDir), connected: true }],
+  editors: () => [{ name: path.basename(projectDir), connected: true, port: 1, pid: 1, lastDisconnect: null }],
   editorOperation: async () => ({ steps: [] }),
   events: { publish: () => undefined, subscribe: () => () => undefined },
   setBusy: () => undefined,
   log: { info: () => undefined, warn: () => undefined },
 } as unknown as AgentHost;
 
-const usage = { ...DEFAULT_USAGE };
-// The main agent's reply alone: subagents are Studio's own (runner.ts), outside what this measures.
-const sys = withSurface(system(projectDir, "manual", usage), surface);
-const run = async (name: string, input: Record<string, unknown>): Promise<ToolExecution> => {
-  const pass = surface.passthrough(name);
-  if (!pass) return executeTool(host, name, input);
-  const r = await pass(input);
-  return { text: r.content.map((x) => x.text ?? "").join("\n"), isError: r.isError, outcome: r.isError ? "error" : "done", touched: [], saved: [] };
-};
+// The harness runs in this process, on its own storage under the run's data folder.
+let harness: { close(): Promise<void> } | null = null;
+const store = new SessionStore(dataDir);
+const runner = new AgentRunner({
+  host,
+  store,
+  model: () => model,
+  effort: () => effort as never,
+  // The main agent's reply alone: subagents are off, outside what this measures.
+  usage: () => ({ ...DEFAULT_USAGE, subagents: "off" }),
+  surfaces: { current: () => surface },
+  askBeforeChanges: () => false,
+  durable: {
+    route: () => "claude",
+    routeSpec: (m) => routeSpec({ route: "claude", model: m, vendor: "anthropic", gatewayUrl: "", agentVersion: "usage-parity", endpoint: () => null }),
+    credential: async () => null,
+    harness: {
+      dataDir, projectDir, version: "usage-parity", script: null, extensionFile: null,
+      claudeCommand: () => ensureRuntime(),
+      start: async (launch) => {
+        harness = await runHarness(launch);
+      },
+    },
+  },
+});
+
 const t0 = Date.now();
-let session: string | null = null;
-let final = "";
+const s = store.create("usage-parity");
 const errors: Array<string | null> = [];
 const finals: string[] = [];
 const turnWall: number[] = [];
+const settled = (): boolean => {
+  const now = store.get(s.id)!;
+  return now.status === "idle" || now.status === "error" || now.status === "stopped";
+};
 for (const text of turns) {
   const t1 = Date.now();
-  final = "";
-  errors.push(await runSubscriptionTurn({
-    projectDir, model, effort: effort as never, system: sys,
-    prompt: [{ type: "text", text }], resume: session, signal: new AbortController().signal,
-    onSession: (id) => (session = id), onDelta: () => undefined,
-    onAssistant: (_id, blocks, parent) => {
-      if (!parent) for (const b of blocks as Array<{ type: string; text?: string }>) if (b.type === "text" && b.text) final = b.text;
-    },
-    onToolResults: () => undefined,
-    ...(strategy === "micro" ? {} : { editor: { tools: surface.projected.map(({ name, description, inputSchema }) => ({ name, description, inputSchema })), canon: surface.canon } }),
-    runTool: (_id, name, input) => run(name, input),
-  }));
-  finals.push(final);
+  const before = store.get(s.id)!.transcript.length;
+  await runner.send(s.id, text);
+  while (!settled()) await new Promise((r) => setTimeout(r, 250));
+  const now = store.get(s.id)!;
+  const said = now.transcript.slice(before).filter((e) => e.kind === "assistant" && !e.parent) as Array<{ text: string }>;
+  finals.push(said.at(-1)?.text ?? "");
+  errors.push(now.status === "error" ? now.error ?? "the turn failed" : null);
   turnWall.push((Date.now() - t1) / 1000);
 }
-const r = { label, strategy, seedTokens, prompt: pid, model, effort, wall: (Date.now() - t0) / 1000, turnWall, session, error: errors.find((e) => e) ?? null, finalText: finals.join("\n---\n") };
+const done = store.get(s.id)!;
+// How the agent used ue-mcp, as report.mjs counts it from a Claude Code transcript.
+const ue = { search: 0, describe: 0, call: 0 };
+for (const e of done.transcript) {
+  if (e.kind !== "tool" || e.call.name !== "ue_mcp") continue;
+  const a = (e.call.input as { action?: string } | undefined)?.action;
+  if (a === "search" || a === "describe" || a === "call") ue[a]++;
+}
+const r = { label, strategy, seedTokens, prompt: pid, model, effort, wall: (Date.now() - t0) / 1000, turnWall, session: s.id, totals: done.totals ?? null, ue, error: errors.find((e) => e) ?? null, finalText: finals.join("\n---\n") };
 fs.appendFileSync(results, JSON.stringify(r) + "\n");
+runner.dispose();
+store.flush();
+await (harness as { close(): Promise<void> } | null)?.close();
 await c.close();
 process.exit(0);

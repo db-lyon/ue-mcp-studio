@@ -1,5 +1,6 @@
 /**
- * What a run spent, read from the Claude transcripts it wrote, and the table
+ * What a run spent, read from the Claude transcripts it wrote (Claude Code)
+ * or from Studio's own totals (Studio, see spendFromTotals), and the table
  * per prompt per client. Cost is input-equivalent tokens: input x1, 5-minute
  * cache write x1.25, 1-hour cache write x2, cache read x0.1, output x5, each
  * assistant message counted once by its id across the main transcript and
@@ -78,6 +79,19 @@ export function spend(files) {
   return { ...t, ue, results: byKind, cost: Math.round(cost) };
 }
 
+/**
+ * What a Studio run spent, from Studio's own totals: the durable runtime runs
+ * Claude Code with no session of its own, so it writes no transcript. Its
+ * `input` holds the cache writes, as Studio counts them; they are priced as
+ * 5-minute writes.
+ */
+export function spendFromTotals(totals, ue = { search: 0, describe: 0, call: 0 }) {
+  const write = totals.cacheWrite ?? 0;
+  const t = { calls: totals.requests ?? 0, input: Math.max(0, (totals.input ?? 0) - write), write5m: write, write1h: 0, read: totals.cacheRead ?? 0, output: totals.output ?? 0 };
+  const cost = t.input + 1.25 * t.write5m + 0.1 * t.read + 5 * t.output;
+  return { ...t, ue, results: {}, cost: Math.round(cost) };
+}
+
 const k = (n) => (n / 1000).toFixed(1);
 const median = (xs) => {
   const s = [...xs].sort((a, b) => a - b);
@@ -89,11 +103,11 @@ export function report(runs) {
   const lines = ["## Runs", "", "| client | prompt | wall s | model calls | cache write | cache read | output | ue search/describe/call | cost k | task | largest results |", "|---|---|---|---|---|---|---|---|---|---|---|"];
   const groups = new Map();
   for (const r of runs) {
-    if (!r.files?.length) {
+    if (!r.files?.length && !r.totals) {
       lines.push(`| ${r.client} | ${r.prompt} | | | | | | | | no transcript: ${r.error ?? ""} | |`);
       continue;
     }
-    const s = spend(r.files);
+    const s = r.files?.length ? spend(r.files) : spendFromTotals(r.totals, r.ue);
     const big = Object.entries(s.results).sort((a, b) => b[1].chars - a[1].chars).slice(0, 3).map(([n, v]) => `${n} ${v.n}x ${k(v.chars)}k`).join(", ");
     const task = r.verify?.ok ? "ok" : `FAILED ${(r.verify?.failed ?? []).map((f) => f.name).join("; ") || r.verify?.error || ""}`;
     lines.push(`| ${r.client} | ${r.prompt} | ${Math.round(r.wall ?? 0)} | ${s.calls} | ${k(s.write5m + s.write1h)} | ${k(s.read)} | ${k(s.output)} | ${s.ue.search}/${s.ue.describe}/${s.ue.call} | ${k(s.cost)} | ${task} | ${big} |`);

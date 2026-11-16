@@ -54,27 +54,35 @@ fs.mkdirSync(runDir, { recursive: true });
 const resultsFile = path.join(runDir, "results.jsonl");
 const log = (...a) => console.log(new Date().toISOString().slice(11, 19), ...a);
 
-/** Bundle the harness against an agent source tree, exporting runner.ts's prompt builders. */
+/**
+ * Bundle the harness against an agent source tree: AgentRunner on the durable runtime, with pi-claude-code built
+ * the way scripts/bundle-agent.mjs builds it. A tree from before the durable runtime has none, and fails to bundle.
+ */
 async function buildHarness(srcRoot, out) {
   const esbuild = await import("esbuild");
+  const { patchClaudeCodeStream } = await import("../pi-claude-code-patch.mjs");
   const entry = path.join(srcRoot, "apps", "agent", "src", "__usage_parity_harness.ts");
   fs.copyFileSync(path.join(here, "harness.ts"), entry);
+  const runtime = JSON.parse(fs.readFileSync(path.join(repo, "apps", "agent", "package.json"), "utf8")).claudeRuntime;
   try {
     await esbuild.build({
       entryPoints: [entry], bundle: true, platform: "node", format: "esm", target: "node20", outfile: out,
-      external: ["@anthropic-ai/claude-agent-sdk", "@modelcontextprotocol/sdk"],
+      external: ["@modelcontextprotocol/sdk"],
       alias: { "@ue-mcp-studio/shared": path.join(srcRoot, "packages", "shared", "src", "index.ts") },
       nodePaths: [path.join(repo, "node_modules"), path.join(repo, "apps", "agent", "node_modules")],
-      define: { __CLAUDE_SIGN_IN__: "true" },
+      define: { __CLAUDE_SIGN_IN__: "true", __CLAUDE_SDK_VERSION__: JSON.stringify(runtime) },
       banner: { js: "import { createRequire as __cr } from 'module'; const require = __cr(import.meta.url);" },
       logLevel: "warning",
       plugins: [{
-        name: "export-prompts",
+        name: "pi-claude-code",
         setup(b) {
-          b.onLoad({ filter: /[\\/]apps[\\/]agent[\\/]src[\\/]runner\.ts$/ }, (a) => ({ contents: `${fs.readFileSync(a.path, "utf8")}\nexport { system, subagentSystem };\n`, loader: "ts" }));
+          b.onResolve({ filter: /^studio-pi-claude-code$/ }, () => ({ path: path.join(repo, "node_modules", "@earendil-works", "pi-claude-code", "src", "provider.ts") }));
+          b.onLoad({ filter: /pi-claude-code[\\/]src[\\/]stream\.ts$/ }, (a) => ({ contents: patchClaudeCodeStream(fs.readFileSync(a.path, "utf8")), loader: "ts" }));
         },
       }],
     });
+    // pi-claude-code starts this script beside its own module, which in the bundle is the harness itself.
+    fs.copyFileSync(path.join(repo, "node_modules", "@earendil-works", "pi-claude-code", "src", "inert-mcp.mjs"), path.join(path.dirname(out), "inert-mcp.mjs"));
   } finally {
     fs.rmSync(entry, { force: true });
   }
