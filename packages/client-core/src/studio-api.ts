@@ -102,6 +102,8 @@ export function studioApi(t: Transport) {
     dismissAgents: (id: string, ids: string[]) => send<{ dismissed: string[] }>("POST", `${session(id)}/dismissed`, { ids }),
     editMessage: (id: string, index: number, text: string, mode: "rewind" | "fork" = "rewind") => send<{ sessionId: string }>("POST", `${session(id)}/transcript/${index}/edit`, { text, mode }),
     stopSubagent: (id: string, callId: string) => send<void>("POST", `${session(id)}/agents/${enc(callId)}/stop`),
+    /** Resume a subagent that stopped or failed: it goes on in its kept conversation under a new agent call. */
+    resumeSubagent: (id: string, callId: string) => send<{ callId: string }>("POST", `${session(id)}/agents/${enc(callId)}/resume`),
     /** A message written in a subagent's thread: to it while it runs, else to the main agent, naming it (queued behind its reply unless now). */
     messageSubagent: (id: string, callId: string, text: string, attachments: string[] = [], now = false) =>
       send<{ sessionId: string; to: "subagent" | "queue" | "main" }>("POST", `${session(id)}/agents/${enc(callId)}/messages`, now ? { text, attachments, now } : { text, attachments }),

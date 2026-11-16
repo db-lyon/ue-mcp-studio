@@ -183,6 +183,19 @@ describe("Threads", () => {
     expect(onThread).toHaveBeenCalledWith("a1");
   });
 
+  it("offers Resume on a failed subagent and not on a running or done one", () => {
+    const onResume = vi.fn();
+    const transcript = [agent("a1", "Rocks"), agent("a2", "Fog", "done"), agent("a3", "Lights", "error")];
+    renderInProject(
+      <Threads agents={sessionAgents(transcript, { status: "running", asked: new Set() })} thread={null} onThread={() => undefined} onStop={() => undefined} onResume={onResume} seen={new Set()} />,
+    );
+    fireEvent.click(screen.getByLabelText("Finished (2)"));
+    fireEvent.click(screen.getByLabelText("Resume Lights"));
+    expect(onResume).toHaveBeenCalledWith("a3");
+    expect(screen.queryByLabelText("Resume Rocks")).toBeNull();
+    expect(screen.queryByLabelText("Resume Fog")).toBeNull();
+  });
+
   it("draws nothing with no subagents", () => {
     const { container } = renderInProject(<Threads agents={[]} thread={null} onThread={() => undefined} onStop={() => undefined} seen={new Set()} />);
     expect(container.textContent).toBe("");

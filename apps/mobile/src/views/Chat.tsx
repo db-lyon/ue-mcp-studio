@@ -451,6 +451,10 @@ export function Chat({ nav, initialSession = null, onSettings, active = true }: 
   const stopSubagent = (id: string) => {
     if (selected) void api.stopSubagent(selected, id).catch(fail);
   };
+  // A stopped or failed subagent goes on in its kept conversation, under a new row.
+  const resumeSubagent = (id: string) => {
+    if (selected) void api.resumeSubagent(selected, id).catch(fail);
+  };
 
   const busy = detail?.status === "running" || detail?.status === "waiting";
   useEffect(() => setDiag({ entries: detail ? (Array.isArray(detail.transcript) ? detail.transcript.length : -2) : -1 }), [detail]);
@@ -541,6 +545,7 @@ export function Chat({ nav, initialSession = null, onSettings, active = true }: 
         openThreadId(id);
       }}
       onStop={stopSubagent}
+      onResume={resumeSubagent}
       seen={seen}
       dismissed={dismissed}
       onDismiss={dismiss}

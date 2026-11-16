@@ -100,6 +100,10 @@ export const AGENT_TOOL: Anthropic.Beta.BetaToolUnion = {
     properties: {
       description: { type: "string", description: "A short (3-5 word) name for the task, shown to the user" },
       prompt: { type: "string", description: "The complete task for the subagent" },
+      resume: {
+        type: "string",
+        description: "The agent call id of a subagent that stopped or failed. It goes on in its own conversation, with everything it did and read, and the prompt is your next instruction to it (for example: continue from where you stopped).",
+      },
     },
     required: ["description", "prompt"],
   },

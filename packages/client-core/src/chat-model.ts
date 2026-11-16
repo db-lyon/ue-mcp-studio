@@ -10,6 +10,9 @@ export type Call = ToolCallRecord;
 /** What a subagent is doing now: the daemon's SessionAgent state. */
 export type { AgentState };
 
+/** A subagent that ended without finishing its task, which Resume continues in its kept conversation. */
+export const resumable = (state: AgentState): boolean => state === "failed" || state === "stopped" || state === "unknown";
+
 export const STATE_LABEL: Record<AgentState, string> = {
   queued: "Waiting to start",
   working: "working",
