@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { ALIVE_GRACE_MS, ATTEMPT_MS, BACKOFF_MS, REMOTE_RECONNECT_MS, LOST_PAUSE_MS, MAX_ATTEMPTS, RECONNECT_MS, RESTART_MS, UPDATE_RESTART_MS, WAKE_GRACE_MS, connected, headline, step, stoppingWhy, waking, type Conn, type ConnEvent } from "./connection";
+import { ALIVE_GRACE_MS, ATTEMPT_MS, BACKOFF_MS, REMOTE_RECONNECT_MS, LOST_PAUSE_MS, MAX_ATTEMPTS, NEEDS_YOU_RETRY_MS, RECONNECT_MS, RESTART_MS, UPDATE_RESTART_MS, WAKE_GRACE_MS, connected, headline, step, stoppingWhy, waking, type Conn, type ConnEvent } from "./connection";
 
 /** Feed events in order; collect when an attempt is launched. */
 function run(events: ConnEvent[], canStart = true, from: Conn = connected()): { conn: Conn; starts: number[] } {
@@ -83,8 +83,14 @@ describe("the connection to ue-mcp", () => {
     expect(r.conn.phase).toBe("needsYou");
     expect(r.conn.failure).toMatch(/^ue-mcp did not start after 3 attempts\./);
     expect(r.conn.why).toBe("ue-mcp was closed");
-    // Needs you waits for the user.
-    expect(run([tick(t + 600_000)], true, r.conn).conn.phase).toBe("needsYou");
+    expect(r.conn.failure).toMatch(/Studio tries again every minute\.$/);
+    // Needs you keeps trying on its own: a new round once the slow wait ends, never a dead end.
+    expect(run([tick(t + NEEDS_YOU_RETRY_MS - 1)], true, r.conn).starts).toEqual([]);
+    const later = run([tick(t + NEEDS_YOU_RETRY_MS)], true, r.conn);
+    expect(later.conn).toMatchObject({ phase: "starting", attempt: 1, launched: true });
+    expect(later.starts).toEqual([t + NEEDS_YOU_RETRY_MS]);
+    // Where Studio cannot start ue-mcp, it does not.
+    expect(run([tick(t + NEEDS_YOU_RETRY_MS)], false, r.conn).starts).toEqual([]);
     const again = run([{ type: "retry", at: t + 1 }], true, r.conn);
     expect(again.conn).toMatchObject({ phase: "starting", attempt: 1, launched: true });
     expect(again.starts).toEqual([t + 1]);

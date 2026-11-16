@@ -5,7 +5,7 @@
 import { isRemotePage } from "@ue-mcp-studio/client-core";
 
 export {
-  ALIVE_GRACE_MS, ATTEMPT_MS, BACKOFF_MS, LOST_PAUSE_MS, MAX_ATTEMPTS, RECONNECT_MS, REMOTE_OFFLINE, REMOTE_QUIET_MS, REMOTE_RECONNECT_MS, CONN_QUIET_MS as QUIET_MS,
+  ALIVE_GRACE_MS, ATTEMPT_MS, BACKOFF_MS, LOST_PAUSE_MS, MAX_ATTEMPTS, NEEDS_YOU_RETRY_MS, RECONNECT_MS, REMOTE_OFFLINE, REMOTE_QUIET_MS, REMOTE_RECONNECT_MS, CONN_QUIET_MS as QUIET_MS,
   REMOTE_UPDATES, RESTART_MS, UPDATE_RESTART_MS, WAKE_GRACE_MS, connected, elapsed, headline, isRemotePage, step, stoppingWhy, waking,
   type Conn, type ConnEvent, type Phase, type StepOptions,
 } from "@ue-mcp-studio/client-core";

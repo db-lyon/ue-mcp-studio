@@ -464,7 +464,12 @@ int main() {
     CHECK(s.phase == conn::Phase::NeedsYou);
     CHECK(s.failure.rfind("ue-mcp did not start after 3 attempts.", 0) == 0);
     CHECK(conn::headline(s, t) == "ue-mcp is not running");
-    CHECK(conn::tick(s, none(), t + 600000) == conn::Effect::None);
+    CHECK(s.failure.find("Studio tries again every minute.") != std::string::npos);
+    CHECK(conn::tick(s, none(), t + conn::kNeedsYouRetryMs - 1) == conn::Effect::None);
+    // Needs you keeps trying on its own: a new round once the slow wait ends.
+    conn::State later = s;
+    CHECK(conn::tick(later, none(), t + conn::kNeedsYouRetryMs) == conn::Effect::Start);
+    CHECK(later.phase == conn::Phase::Starting && later.attempt == 1 && later.launched);
     CHECK(conn::retry(s, none(), t + 1) == conn::Effect::Start);
     CHECK(s.phase == conn::Phase::Starting && s.attempt == 1 && s.launched);
   });
@@ -490,6 +495,10 @@ int main() {
     CHECK(s.phase == conn::Phase::NeedsYou && s.loads == 3);
     CHECK(conn::headline(s, 0) == "Studio did not load");
     CHECK(conn::tick(s, live("ab"), 60000) == conn::Effect::None);
+    // The same daemon gets a new round of loads on its own after the slow wait.
+    conn::State later = s;
+    CHECK(conn::tick(later, live("ab"), 8000 + conn::kLoadWaitMs + conn::kNeedsYouRetryMs) == conn::Effect::Load);
+    CHECK(later.phase == conn::Phase::Loading && later.loads == 0);
     // A new daemon gets fresh loads.
     CHECK(conn::tick(s, live("cd"), 60001) == conn::Effect::Load);
     CHECK(s.loads == 0);

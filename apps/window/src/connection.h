@@ -29,6 +29,12 @@ constexpr Ms kLoadWaitMs = 20000;
 /** The wait before loads 2 and 3 of a page that did not load. */
 constexpr Ms kLoadBackoffMs[] = {2000, 5000};
 constexpr int kMaxLoads = 3;
+/**
+ * After the attempts or loads run out, the window keeps trying on its own this
+ * often, a new round each time, as NEEDS_YOU_RETRY_MS does in the UI. Not
+ * without Node.js.
+ */
+constexpr Ms kNeedsYouRetryMs = 60000;
 
 enum class Phase { Waiting, Restarting, Starting, Loading, NeedsYou };
 enum class Effect { None, Start, Load };
@@ -89,12 +95,13 @@ inline State begin(const Facts& f, Ms now) {
   return s;
 }
 
-inline void needsYou(State& s, const std::string& failure, bool noNode = false) {
+/** Needs you. `retryAt`, when not 0, is when the window tries again on its own. */
+inline void needsYou(State& s, const std::string& failure, bool noNode = false, Ms retryAt = 0) {
   s.phase = Phase::NeedsYou;
   s.failure = failure;
   s.noNode = noNode;
   s.launched = false;
-  s.deadline = 0;
+  s.deadline = retryAt;
 }
 
 inline void attempt(State& s, int n, Ms at) {
@@ -107,7 +114,7 @@ inline void attempt(State& s, int n, Ms at) {
 /** The attempt after a failed one, or needs you after the last. */
 inline void next(State& s, Ms now, const std::string& failure) {
   if (s.attempt >= kMaxAttempts) {
-    needsYou(s, "ue-mcp did not start after " + std::to_string(kMaxAttempts) + " attempts. " + failure);
+    needsYou(s, "ue-mcp did not start after " + std::to_string(kMaxAttempts) + " attempts. " + failure + " Studio tries again every minute.", false, now + kNeedsYouRetryMs);
     return;
   }
   int k = s.attempt - 1;
@@ -127,16 +134,26 @@ inline Effect tick(State& s, const Facts& f, Ms now) {
     if (f.token != s.loadToken) {
       s.loadToken = f.token;
       s.loads = 0;
-      if (s.phase == Phase::NeedsYou) s.phase = Phase::Loading;
+      if (s.phase == Phase::NeedsYou) {
+        s.phase = Phase::Loading;
+        s.launched = false;
+        s.deadline = 0;
+      }
     }
-    if (s.phase == Phase::NeedsYou) return Effect::None;
+    if (s.phase == Phase::NeedsYou) {
+      // A new round of loads on its own once the slow wait ends.
+      if (s.noNode || s.deadline == 0 || now < s.deadline) return Effect::None;
+      s.loads = 0;
+      s.launched = false;
+      s.failure.clear();
+    }
     if (s.phase == Phase::Loading && now < s.deadline) return Effect::None;
     if (s.phase == Phase::Loading && s.launched) {
       // The last load never answered.
       ++s.loads;
       s.failure = "Studio's page did not answer within " + std::to_string(kLoadWaitMs / 1000) + " seconds.";
       if (s.loads >= kMaxLoads) {
-        needsYou(s, "ue-mcp is running, but Studio's page did not load. " + s.failure);
+        needsYou(s, "ue-mcp is running, but Studio's page did not load. " + s.failure + " Studio tries again every minute.", false, now + kNeedsYouRetryMs);
         return Effect::None;
       }
     }
@@ -165,7 +182,11 @@ inline Effect tick(State& s, const Facts& f, Ms now) {
       next(s, now, "ue-mcp did not answer within " + std::to_string(kAttemptMs / 1000) + " seconds of starting.");
       return Effect::None;
     case Phase::NeedsYou:
-      return Effect::None;
+      // A new round of start attempts on its own once the slow wait ends.
+      if (s.noNode || s.deadline == 0 || now < s.deadline) return Effect::None;
+      s.failure.clear();
+      attempt(s, 1, now);
+      return launch(s, now);
   }
   return Effect::None;
 }
@@ -182,7 +203,7 @@ inline void loadFailed(State& s, const std::string& why, Ms now) {
   ++s.loads;
   s.failure = "Studio's page did not load: " + why + ".";
   if (s.loads >= kMaxLoads) {
-    needsYou(s, "ue-mcp is running, but Studio's page did not load. " + s.failure);
+    needsYou(s, "ue-mcp is running, but Studio's page did not load. " + s.failure + " Studio tries again every minute.", false, now + kNeedsYouRetryMs);
     return;
   }
   s.phase = Phase::Loading;
