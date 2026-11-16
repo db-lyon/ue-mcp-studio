@@ -21,6 +21,7 @@ import * as os from "node:os";
 import * as path from "node:path";
 import type { Effort } from "@ue-mcp-studio/shared";
 import type { ToolExecution } from "../tools.js";
+import type { ToolImage } from "../images.js";
 
 /** Bumped when a message is added or a meaning changes. */
 export const DURABLE_PROTOCOL = 2;
@@ -136,7 +137,23 @@ export type HarnessRequest =
   /** A subagent asks for its slot and what it runs with. Answered once it may start. */
   | { kind: "agent"; sessionId: string; callId: string; input: Record<string, unknown> }
   /** A fresh credential for a route. */
-  | { kind: "credential"; route: string };
+  | { kind: "credential"; route: string }
+  /** #463 L3: may this local tool call run? The daemon's approval gate and input check. Answers LocalGate. */
+  | { kind: "gate"; sessionId: string; parent: string | null; callId: string; name: string; input: Record<string, unknown> }
+  /** #463 L3: a local tool call the harness ran ended: the daemon records it as every route does. Answers the ToolExecution the model is given. */
+  | { kind: "finished"; sessionId: string; parent: string | null; callId: string; name: string; input: Record<string, unknown>; result: LocalOutcome };
+
+/** The daemon's answer to a local call's gate: it may run, or it is blocked with the text the model gets. */
+export type LocalGate = { allow: true } | { allow: false; text: string };
+
+/** What a local tool call the harness ran came to. `unknown`: it may have run when the harness stopped, so its outcome is not known. */
+export interface LocalOutcome {
+  text: string;
+  isError: boolean;
+  outcome: "done" | "error" | "unknown";
+  changed?: boolean;
+  images?: ToolImage[];
+}
 
 export type AgentStart =
   /** `resume`: the agent call of a subagent that stopped or failed, whose kept conversation this one goes on in. A harness without it starts a new conversation. */
@@ -292,6 +309,8 @@ export type HarnessMessage =
   | { t: "req"; reqId: string; req: HarnessRequest }
   /** The harness recorded that a tool run started: the daemon runs it now. */
   | { t: "go"; reqId: string }
+  /** #463 L3: what a local tool call running in the harness printed, as it prints it. */
+  | { t: "output"; sessionId: string; callId: string; text: string }
   /** The harness withdrew a request (its call was aborted): the daemon stops waiting on its side. */
   | { t: "cancel"; reqId: string };
 

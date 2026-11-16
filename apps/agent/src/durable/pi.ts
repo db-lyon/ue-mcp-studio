@@ -19,7 +19,7 @@ import { anthropicMessagesApi } from "@earendil-works/pi-ai/api/anthropic-messag
 import { openAIResponsesApi } from "@earendil-works/pi-ai/api/openai-responses.lazy";
 import { openAICompletionsApi } from "@earendil-works/pi-ai/api/openai-completions.lazy";
 import { googleGenerativeAIApi } from "@earendil-works/pi-ai/api/google-generative-ai.lazy";
-import { createRegistry, defineDoc, defineExtension, defineTool, GenerationTask, Harness, hook, LiveDoc } from "@earendil-works/pi-durable";
+import { createRegistry, defineDoc, defineExtension, defineTool, GenerationTask, Harness, hook, LiveDoc, ToolTask } from "@earendil-works/pi-durable";
 import { openNodeSqliteStorage } from "@earendil-works/pi-durable/storage/sqlite/node";
 import { NOOP_TELEMETRY_CONTEXT } from "@earendil-works/pi-telemetry";
 import { renderTrace } from "@earendil-works/pi-telemetry/render";
@@ -163,6 +163,11 @@ export interface Kit {
   refuseSearch?(provider: string): void;
   /** A line in the harness's log. */
   log?(text: string): void;
+  /** #463 L3: Pi Durable's tool task, for the approval hook, and the project folder local tools run in. A harness without them sends local tools to the daemon. */
+  ToolTask?: typeof ToolTask;
+  projectDir?: string;
+  /** What a local tool call is printing, to the daemon as it prints it. */
+  output?(sessionId: string, callId: string, text: string): void;
 }
 
 /** Studio's extension: built from the daemon's tool definitions on every change, and replaced in place by registry.install(). */
@@ -474,7 +479,10 @@ export class DurableEngine {
   private readonly reporters = new Set<string>();
 
   /** `traces`: the trace store's file; without one, or when it cannot be opened, the harness records nothing and runs as before. */
-  static async open(file: string, host: EngineHost, traces?: string): Promise<DurableEngine> {
+  /** The project folder Studio's local tools run in (#463 L3); without one they run in the daemon. */
+  private projectDir: string | null = null;
+
+  static async open(file: string, host: EngineHost, traces?: string, projectDir?: string): Promise<DurableEngine> {
     const routes = new RouteModels(host);
     const registry = createRegistry();
     const storage = await openNodeSqliteStorage(file);
@@ -514,6 +522,7 @@ export class DurableEngine {
       throw e;
     });
     const engine = new DurableEngine(harness, registry, routes, host, reports, traceStore, traceNote);
+    engine.projectDir = projectDir ?? null;
     await engine.load();
     return engine;
   }
@@ -538,6 +547,9 @@ export class DurableEngine {
       runSubagent: (sessionId, callId, start, signal) => this.runSubagent(sessionId, callId, start, signal),
       hook,
       GenerationTask,
+      ToolTask,
+      ...(this.projectDir ? { projectDir: this.projectDir } : {}),
+      output: (sessionId, callId, text) => this.host.emit({ t: "output", sessionId, callId, text }),
       log: (text) => this.host.log(text),
       searches: (conv) => this.searching.get(conv) === true,
       searchRefused: (provider) => this.refused.has(provider),

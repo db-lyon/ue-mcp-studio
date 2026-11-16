@@ -80,7 +80,7 @@ export async function runHarness(launch: HarnessLaunch): Promise<{ close(): Prom
       }, { once: true });
       if (daemon) send({ reqId, ...p });
     }),
-  }, telemetryFile(launch.dataDir));
+  }, telemetryFile(launch.dataDir), launch.projectDir);
   engine.install(createStudioExtension as unknown as ExtensionFactory);
 
   const ret = (sock: net.Socket, id: string, work: () => Promise<unknown>): void => {

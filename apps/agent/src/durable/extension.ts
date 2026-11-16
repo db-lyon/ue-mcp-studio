@@ -1,9 +1,13 @@
 /**
  * Studio's tools on the durable runtime, as one Pi Durable extension.
  *
- * Every tool the daemon defines (ue-mcp, the editor restart, shell, files,
- * web, skills, a subagent's reply) runs where it runs on every other route: in
- * the daemon, through its editor wait, its approval gate and its executor. The
+ * Studio's local tools (shell, files, search, web fetch) run here in the
+ * harness on Studio's own executors, with the daemon's approval gate as a
+ * beforeTool hook (#463 L3), so a daemon that dies mid-command no longer
+ * leaves its outcome unknown. Every other tool (ue-mcp, the editor restart,
+ * skills, a subagent's reply), and every tool on a harness without tool
+ * hooks, runs in the daemon, through its editor wait, its approval gate and
+ * its executor. The
  * harness asks the daemon for each call and waits for whichever daemon is
  * connected, so a daemon restart mid-wait costs nothing: the next one asks for
  * the approval again or waits for the editor again.
@@ -21,8 +25,9 @@
  * calls already running finish on the code they started with.
  */
 import type { Kit } from "./pi.js";
-import type { AgentStart, ToolDef } from "./protocol.js";
+import type { AgentStart, LocalGate, LocalOutcome, ToolDef } from "./protocol.js";
 import type { ToolExecution } from "../tools.js";
+import { CHANGING_TOOLS, isLocalTool, runLocal, type LocalToolName } from "../local-tools.js";
 
 /** This extension's version: a newer Studio's daemon installs its own over it. */
 export const EXTENSION_NAME = "studio";
@@ -33,6 +38,8 @@ const OUTPUT_LIMITS = { maxBytes: 2_000_000, maxLines: 100_000, retain: "head" a
 const text = (t: string) => [{ type: "text" as const, text: t }];
 
 export function createStudioExtension(kit: Kit, defs: ToolDef[]) {
+  // #463 L3: local tools run here when the harness offers its tool task (for the approval hook) and the project folder.
+  const local = !!(kit.hook && kit.ToolTask && kit.projectDir);
   const tools = defs.map((d) => {
     if (d.name === "agent") {
       return kit.defineTool({
@@ -52,6 +59,7 @@ export function createStudioExtension(kit: Kit, defs: ToolDef[]) {
         },
       } as never);
     }
+    if (local && isLocalTool(d.name)) return localTool(kit, d, d.name);
     return kit.defineTool({
       name: d.name,
       description: d.description,
@@ -76,8 +84,72 @@ export function createStudioExtension(kit: Kit, defs: ToolDef[]) {
     } as never);
   });
   // A harness before 0.1.35-beta.35 has no hooks to hand out: it runs the tools alone.
-  const hooks = kit.hook && kit.GenerationTask && kit.searches ? [searchHook(kit)] : [];
+  const hooks = [...(kit.hook && kit.GenerationTask && kit.searches ? [searchHook(kit)] : []), ...(local ? [approvalHook(kit)] : [])];
   return kit.defineExtension({ name: EXTENSION_NAME, tools, hooks } as never);
+}
+
+/** Local tools that only read: one cut off by a harness stop runs again. The others change things, and are reported unknown instead. */
+const READ_ONLY = new Set<string>(["read_file", "glob", "grep", "web_fetch"]);
+
+type HookApi = { conversationId: unknown; memo(name: string, ...a: unknown[]): Promise<unknown> };
+
+/**
+ * The daemon's approval gate as a beforeTool hook on Pi Durable's tool task,
+ * for the local tools only: the same card, the same "allow for this session"
+ * and project-folder rule, and the input check. The answer is memoized, so a
+ * harness restart never asks twice; a denial or a stop blocks the call with
+ * the daemon's own words.
+ */
+function approvalHook(kit: Kit) {
+  return kit.hook!(kit.ToolTask!, {
+    beforeTool: async (call: { id: string; name: string; arguments: Record<string, unknown> }, api: HookApi, context: { abortSignal?: AbortSignal }) => {
+      if (!isLocalTool(call.name)) return undefined;
+      const where = kit.whereIs(String(api.conversationId));
+      if (!where) return { block: "This conversation belongs to no Studio session." };
+      let gate = (await api.memo("studio.gate", context)) as LocalGate | undefined;
+      if (!gate) {
+        const asked = (await kit.request({ kind: "gate", sessionId: where.sessionId, parent: where.parent, callId: call.id, name: call.name, input: call.arguments ?? {} }, undefined, context.abortSignal)) as LocalGate;
+        gate = (await api.memo("studio.gate", asked, context)) as LocalGate;
+      }
+      return gate.allow ? undefined : { block: gate.text };
+    },
+  } as never);
+}
+
+/**
+ * A local tool run here, in the harness, on Studio's own executor: a daemon
+ * that dies mid-run no longer makes its outcome unknown. The result is
+ * memoized before the daemon is told, and the daemon records it as every
+ * route does (finished). A run the harness itself was cut off in runs again
+ * when it only reads, and is reported unknown when it changes things.
+ */
+function localTool(kit: Kit, d: ToolDef, name: LocalToolName) {
+  return kit.defineTool({
+    name: d.name,
+    description: d.description,
+    parameters: d.input_schema as never,
+    replay: "safe",
+    outputLimits: OUTPUT_LIMITS,
+    execute: async (args: Record<string, unknown>, api: HookApi & { callId: string }, context: { abortSignal?: AbortSignal }) => {
+      const where = kit.whereIs(String(api.conversationId));
+      if (!where) return { output: text("This conversation belongs to no Studio session."), isError: true };
+      let result = (await api.memo("studio.result", context)) as LocalOutcome | undefined;
+      if (!result) {
+        if ((await api.memo("studio.running", context)) === true && !READ_ONLY.has(name)) {
+          result = { text: "Studio's background runtime stopped while this call was running, so whether it took effect is unknown. Check before running it again.", isError: true, outcome: "unknown" };
+        } else {
+          await api.memo("studio.running", true, context);
+          const r = await runLocal(kit.projectDir!, name, args, context.abortSignal, (t) => kit.output?.(where.sessionId, api.callId, t));
+          result = { text: r.text, isError: r.isError, outcome: r.isError ? "error" : "done", ...(!r.isError && CHANGING_TOOLS.includes(name) ? { changed: true } : {}), ...(r.images?.length ? { images: r.images } : {}) };
+        }
+        result = (await api.memo("studio.result", result, context)) as LocalOutcome;
+      }
+      const exec = (await kit.request({ kind: "finished", sessionId: where.sessionId, parent: where.parent, callId: api.callId, name, input: args, result }, undefined, context.abortSignal)) as ToolExecution;
+      const output: Array<{ type: "text"; text: string } | { type: "image"; data: string; mimeType: string }> = text(exec.modelText ?? exec.text);
+      for (const img of exec.images ?? []) output.push({ type: "image", data: img.data, mimeType: img.mediaType });
+      return { output, isError: exec.isError, details: { outcome: exec.outcome } };
+    },
+  } as never);
 }
 
 /** The Messages API's own web search, which runs on Anthropic's side. */

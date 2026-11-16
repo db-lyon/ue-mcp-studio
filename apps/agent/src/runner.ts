@@ -54,7 +54,7 @@ import { AGENT_TOOL } from "./tools.js";
 import { SKILL_TOOL, agentTool, skillResult, skillsSection, type NativeHelper, type NativeRun } from "./native-runtime.js";
 import { DurableTurns } from "./durable/runtime.js";
 import type { HarnessClientOptions } from "./durable/client.js";
-import type { AgentSpec, AgentStart, DurableInspection, RouteSpec, ToolDef, TraceDetail, TraceFilter, TracePage, TraceSummary } from "./durable/protocol.js";
+import type { AgentSpec, AgentStart, DurableInspection, LocalGate, LocalOutcome, RouteSpec, ToolDef, TraceDetail, TraceFilter, TracePage, TraceSummary } from "./durable/protocol.js";
 
 /** The most of a /action's answer the agent's note carries; the transcript keeps all of it. */
 export const ACTION_NOTE_CHARS = 4000;
@@ -535,6 +535,13 @@ export class AgentRunner {
         return this.subscriptionTool(s, c, id, call.name, call.input, !!parent && !!this.runs.get(parent)?.assigned, onStart);
       },
       lostCall: (s, id, name, input) => this.lostCall(s, id, name, input),
+      gateLocal: (s, id, name, input, parent, signal) => this.gateLocal(s, id, name, input, parent, signal),
+      finishLocal: (s, id, name, input, parent, result) => this.finishLocal(s, id, name, input, parent, result),
+      localOutput: (s, id, text) => {
+        let out = this.localLive.get(id);
+        if (!out) this.localLive.set(id, (out = this.liveOutput(s.id, id)));
+        out.push(text);
+      },
       replyToUser: (s, id, input) => this.replyToUser(s, id, input),
       skill: (name) => skillResult(this.native()?.skills ?? [], name),
       spent: (s, agent, u, model, tokens = true) => {
@@ -2133,6 +2140,43 @@ ${result}`);
     this.recordOutcome(s, p, exec.outcome);
     // A subagent the user assigned runs beside the session's turns, not as one.
     if (!quiet && s.status !== "running") this.setStatus(s, "running", null);
+    return exec;
+  }
+
+  /** Running output of local calls the durable harness runs, by call id, batched as the daemon's own calls' is. */
+  private readonly localLive = new Map<string, { push: (text: string) => void; flush: () => void }>();
+
+  /**
+   * #463 L3: may a local call the durable harness runs go ahead? The same
+   * input check, subagent stop and approval gate as subscriptionTool's; a
+   * blocked call is recorded here, and its text is what the model gets.
+   */
+  private async gateLocal(s: StoredSession, toolId: string, name: string, input: Record<string, unknown>, parent: string | null, signal: AbortSignal): Promise<LocalGate> {
+    const blocked = (text: string, outcome: "error" | "stopped" | "declined"): LocalGate => {
+      this.recordOutcome(s, { id: toolId, name, input, state: "done", result: text, isError: true }, outcome);
+      return { allow: false, text };
+    };
+    const invalid = validateInput(name, input);
+    if (invalid) return blocked(`Invalid input: ${invalid}`, "error");
+    const sub = parent ? this.subagentAbort(parent).signal : null;
+    const both = sub ? AbortSignal.any([signal, sub]) : signal;
+    const stopped = () => blocked(interruptedResult({ name, input }, USER_STOP, true), "stopped");
+    if (sub?.aborted) return stopped();
+    const gate = await this.gate(s, toolId, name, input, both);
+    if (sub?.aborted) return stopped();
+    if (gate) return "stopped" in gate ? blocked("Stopped by the user.", "stopped") : blocked(gate.declined, "declined");
+    return { allow: true };
+  }
+
+  /** It ended in the harness: what every route does with a call's result, and the result as the model gets it. */
+  private finishLocal(s: StoredSession, toolId: string, name: string, input: Record<string, unknown>, parent: string | null, r: LocalOutcome): ToolExecution {
+    const live = this.localLive.get(toolId);
+    live?.flush();
+    this.localLive.delete(toolId);
+    let exec: ToolExecution = { text: r.text, isError: r.isError, outcome: r.outcome, touched: [], saved: [], ...(r.changed ? { changed: true } : {}), ...(r.images?.length ? { images: r.images } : {}) };
+    this.mergeExec(s, exec, exec.outcome !== "unknown");
+    if (!exec.isError) exec = this.withInstructions(parent ?? s.id, name, input, exec, true);
+    this.recordOutcome(s, { id: toolId, name, input, state: "done", result: exec.text, isError: exec.isError, ...(exec.images ? { images: exec.images } : {}) }, exec.outcome);
     return exec;
   }
 

@@ -24,7 +24,7 @@ import type { MessageParam } from "../providers.js";
 import type { TokenUsage } from "../usage.js";
 import { isContextOverflow } from "../compaction.js";
 import { HarnessClient, type HarnessClientOptions } from "./client.js";
-import type { AgentSpec, AgentStart, EntryEvent, HarnessMessage, HarnessRequest, LedgerUsage, UserContent } from "./protocol.js";
+import type { AgentSpec, AgentStart, EntryEvent, HarnessMessage, HarnessRequest, LedgerUsage, LocalGate, LocalOutcome, UserContent } from "./protocol.js";
 
 /** How long a reply waits for a run it just stopped to report its end, before it starts anyway. */
 const STOP_END_WAIT_MS = 3000;
@@ -53,6 +53,12 @@ export interface DurableHooks {
   /** One of Studio's tools, as AgentRunner runs every route's: editor wait, gate, call, outcome. `onStart` runs once it is past the gate. */
   runTool(s: StoredSession, controller: AbortController, callId: string, name: string, input: Record<string, unknown>, onStart: () => Promise<boolean>, parent: string | null): Promise<ToolExecution>;
   lostCall(s: StoredSession, callId: string, name: string, input: Record<string, unknown>): Promise<ToolExecution>;
+  /** #463 L3: a local call the harness runs: may it run (the approval gate and the input check)? */
+  gateLocal(s: StoredSession, callId: string, name: string, input: Record<string, unknown>, parent: string | null, signal: AbortSignal): Promise<LocalGate>;
+  /** It ended in the harness: recorded as every route records a call, and what the model is given back. */
+  finishLocal(s: StoredSession, callId: string, name: string, input: Record<string, unknown>, parent: string | null, result: LocalOutcome): ToolExecution;
+  /** What it is printing meanwhile. */
+  localOutput(s: StoredSession, callId: string, text: string): void;
   replyToUser(s: StoredSession, callId: string, input: Record<string, unknown>): ToolExecution;
   skill(name: unknown): { text: string; isError: boolean };
   /** Count a request's spend for the main agent (null) or a subagent. */
@@ -444,6 +450,11 @@ export class DurableTurns {
       }
       case "req":
         return void this.request(m.reqId, m.req);
+      case "output": {
+        const s = this.session(m.sessionId);
+        if (s) this.h.localOutput(s, m.callId, m.text);
+        return;
+      }
       case "cancel":
         this.running.get(m.reqId)?.controller.abort();
         return;
@@ -566,7 +577,17 @@ export class DurableTurns {
       }
       const s = this.session(req.sessionId);
       if (!s) {
-        this.client.answer(reqId, req.kind === "tool" ? { text: "This session is gone.", isError: true, outcome: "error", touched: [], saved: [] } : { ok: false, text: "This session is gone." });
+        this.client.answer(reqId, req.kind === "tool" || req.kind === "finished" ? { text: req.kind === "finished" ? req.result.text : "This session is gone.", isError: true, outcome: "error", touched: [], saved: [] }
+          : req.kind === "gate" ? { allow: false, text: "This session is gone." }
+          : { ok: false, text: "This session is gone." });
+        return;
+      }
+      if (req.kind === "gate") {
+        this.client.answer(reqId, await this.h.gateLocal(s, req.callId, req.name, req.input, req.parent, this.controller(s).signal));
+        return;
+      }
+      if (req.kind === "finished") {
+        this.client.answer(reqId, this.h.finishLocal(s, req.callId, req.name, req.input, req.parent, req.result));
         return;
       }
       if (req.kind === "agent") {
