@@ -375,6 +375,19 @@ describe("an update run on the computer", () => {
     expect(screen.getByText(/Restarting now stops every turn in progress/)).toBeTruthy();
   });
 
+  it("Hide keeps the update running behind a banner, Show brings the screen back, Reload now asks again", () => {
+    const run = { steps: [{ key: "plugin", state: "active" }], target: null, at: Date.now() };
+    const reload = vi.fn();
+    renderInProject(<UpdateRunner streaming events={[{ id: 1, type: "studio.update.run", at: "", data: { run } }]} onReload={reload} />);
+    fireEvent.click(screen.getByText("Reload now"));
+    expect(reload).toHaveBeenCalledTimes(1);
+    fireEvent.click(screen.getByText("Hide"));
+    expect(screen.queryByText("Updating")).toBeNull();
+    expect(screen.getByText(/keeps going in the background/)).toBeTruthy();
+    fireEvent.click(screen.getByText("Show"));
+    expect(screen.getByText("Updating")).toBeTruthy();
+  });
+
   it("keeps the banner's 10px under a stopped update's reason, above Close, as the web's .banner does", () => {
     const run = { steps: [{ key: "plugin", state: "failed" }], target: null, at: Date.now(), error: "The editor plugin did not install." };
     renderInProject(<UpdateRunner streaming events={[{ id: 1, type: "studio.update.run", at: "", data: { run } }]} />);

@@ -99,9 +99,30 @@ export function UpdateRunner({ streaming, events }: { streaming: boolean; events
     return () => clearTimeout(t);
   }, [run?.summary]);
 
+  // Hide keeps the update running; a new run, or a stop that needs a decision, shows the screen again.
+  const [hidden, setHidden] = useState(false);
+  useEffect(() => {
+    if (!run || run.error) setHidden(false);
+  }, [run === null, !!run?.error]);
+
   if (run && waitingSteps(run).length > 0) return <><UpdateWaiting run={run} />{overlay}</>;
-  if (run && !escalated) return createPortal(<UpdateScreen run={run} slow={slow} onClose={() => setRun(null)} onRetry={onRemotePage() ? undefined : () => retryUpdate(run)} />, document.body);
+  if (run && !escalated && hidden && !run.error && run.summary === undefined) return <><UpdateHidden run={run} onShow={() => setHidden(false)} onReload={() => window.location.reload()} />{overlay}</>;
+  if (run && !escalated) return createPortal(<UpdateScreen run={run} slow={slow} onClose={() => setRun(null)} onRetry={onRemotePage() ? undefined : () => retryUpdate(run)} onHide={() => setHidden(true)} onReload={() => window.location.reload()} />, document.body);
   return overlay;
+}
+
+/** The update still runs; this is all that is left of its screen while it is hidden. */
+export function UpdateHidden({ run, onShow, onReload }: { run: UpdateRun; onShow: () => void; onReload: () => void }) {
+  const active = run.steps.find((s) => s.state === "active");
+  return (
+    <div className="banner warn update-waiting" role="status">
+      <span className="editor-banner-text">
+        <strong>Updating.</strong> {active ? `${STEP_NAME[active.key]}${run.detail ? `: ${run.detail}` : ""}` : "Still running."} It keeps going in the background.
+      </span>
+      <button className="ghost" onClick={onReload}>Reload now</button>
+      <button className="primary" onClick={onShow}>Show</button>
+    </div>
+  );
 }
 
 /** An update kept until the turn in progress finishes, with a way to install it now. */
@@ -125,7 +146,7 @@ export function UpdateWaiting({ run }: { run: UpdateRun }) {
  * `onRetry`: Studio on the computer runs the update again from what is still
  * newer; a paired browser has none and says the update runs on the computer.
  */
-export function UpdateScreen({ run, slow, onClose, onRetry, openLog = native().openlog }: { run: UpdateRun; slow: boolean; onClose: () => void; onRetry?: () => void; openLog?: () => Promise<boolean> }) {
+export function UpdateScreen({ run, slow, onClose, onRetry, openLog = native().openlog, onHide, onReload }: { run: UpdateRun; slow: boolean; onClose: () => void; onRetry?: () => void; openLog?: () => Promise<boolean>; onHide?: () => void; onReload?: () => void }) {
   const finished = run.summary !== undefined;
   const failed = !!run.error;
   const title = failed ? "Update stopped" : finished ? "Updated" : "Updating";
@@ -152,6 +173,13 @@ export function UpdateScreen({ run, slow, onClose, onRetry, openLog = native().o
         {failed && <div className="banner bad small update-error">{run.error}</div>}
         {finished && run.summary && <p className="muted small">{run.summary}</p>}
         {failed && !onRetry && <p className="dim small">{UPDATE_RETRY_ON_COMPUTER}</p>}
+        {!finished && !failed && (onHide || onReload) && (
+          <div className="row">
+            <span className="spacer" />
+            {onReload && <button className="ghost" onClick={onReload}>Reload now</button>}
+            {onHide && <button onClick={onHide}>Hide</button>}
+          </div>
+        )}
         {(finished || failed) && (
           <div className="row">
             {failed && onRetry && openLog && <button className="ghost" onClick={() => void openLog()}>Open log</button>}

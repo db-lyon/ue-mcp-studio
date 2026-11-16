@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
-import { UpdateScreen, UpdateWaiting } from "./UpdateOverlay";
+import { UpdateHidden, UpdateScreen, UpdateWaiting } from "./UpdateOverlay";
 
 describe("an update that stopped", () => {
   const failed = { target: null, at: Date.now(), steps: [{ key: "plugin" as const, state: "failed" as const }], error: "The editor plugin did not install." };
@@ -21,6 +21,28 @@ describe("an update that stopped", () => {
     render(<UpdateScreen run={failed} slow={false} onClose={() => {}} />);
     expect(screen.queryByRole("button", { name: "Retry" })).toBeNull();
     expect(screen.getByText("To try again, choose Update in Studio on the computer.")).toBeTruthy();
+  });
+});
+
+describe("an update in progress", () => {
+  const running = { target: null, at: Date.now(), steps: [{ key: "plugin" as const, state: "active" as const }] };
+
+  it("offers Hide and Reload now on the running screen", () => {
+    const hide = vi.fn();
+    const reload = vi.fn();
+    render(<UpdateScreen run={running} slow={false} onClose={() => {}} onHide={hide} onReload={reload} />);
+    fireEvent.click(screen.getByRole("button", { name: "Hide" }));
+    fireEvent.click(screen.getByRole("button", { name: "Reload now" }));
+    expect(hide).toHaveBeenCalledTimes(1);
+    expect(reload).toHaveBeenCalledTimes(1);
+  });
+
+  it("leaves a banner while hidden, with Show to bring the screen back", () => {
+    const show = vi.fn();
+    render(<UpdateHidden run={running} onShow={show} onReload={() => {}} />);
+    expect(screen.getByRole("status").textContent).toContain("keeps going in the background");
+    fireEvent.click(screen.getByRole("button", { name: "Show" }));
+    expect(show).toHaveBeenCalledTimes(1);
   });
 });
 
