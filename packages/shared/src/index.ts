@@ -252,6 +252,8 @@ export interface EndpointModel {
   id: string;
   /** Typed by the user rather than listed by the endpoint; kept when the list is read again. */
   typed?: boolean;
+  /** The context window its /models stated, kept so a restart does not lose it. */
+  contextWindow?: number;
 }
 
 /** GET /v1/ext/studio/endpoints: a custom OpenAI-compatible endpoint, its key by presence only. */

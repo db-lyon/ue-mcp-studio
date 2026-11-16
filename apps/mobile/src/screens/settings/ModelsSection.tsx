@@ -236,7 +236,7 @@ function EndpointsCard() {
             </View>
             {e.listError ? (
               <Txt size={12} tone="warn" style={{ marginTop: 4 }}>
-                Could not read its models: {e.listError}. {e.models.length ? "Showing the last list." : "Add them in Edit."}
+                Could not read its models: {e.listError}. {e.models.length ? "Showing the saved list and context windows." : "Add them in Edit."}
               </Txt>
             ) : null}
             {e.models.length > 0 ? (

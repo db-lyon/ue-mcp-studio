@@ -7,6 +7,7 @@ import type { DaemonExtensionApi } from "ue-mcp/daemon";
 import { conventionOf, endpointVendor, type CustomEndpoint, type SignInId } from "@ue-mcp-studio/shared";
 import { EndpointStore, baseUrlOf, idFor, listEndpointModels, mergeListed, registerEndpointRoutes } from "../src/endpoints.js";
 import { ModelCatalogSource, endpointCatalog, pickRoute, type RouteContext } from "../src/models.js";
+import { knownWindow } from "../src/context-windows.js";
 import { OpenAICompatibleProvider } from "../src/openai-compat.js";
 import { providerFor } from "../src/providers.js";
 import { SettingsStore } from "../src/settings.js";
@@ -98,6 +99,35 @@ describe("reading an endpoint's models", () => {
     const ok = await store.refresh("box", listing(["served"]) as unknown as typeof fetch);
     expect(ok.listError).toBeNull();
     expect(ok.models.map((m) => m.id)).toEqual(["served", "typed-one"]);
+  });
+});
+
+const withWindows = (rows: Array<{ id: string; context_length?: number }>, status = 200) =>
+  vi.fn(async (_url: string | URL | Request, _init?: RequestInit) => new Response(JSON.stringify({ data: rows }), { status }));
+
+describe("context windows across a restart", () => {
+  it("keeps each listed window on its endpoint and loads it into a new store", async () => {
+    store.create({ name: "Router", baseUrl: "http://router/v1" });
+    await store.refresh("router", withWindows([{ id: "vendor/big-model-x1", context_length: 1_000_000 }, { id: "vendor/small-x1" }]) as unknown as typeof fetch);
+    const restarted = new EndpointStore(keysDir);
+    expect(restarted.get("router")!.models).toEqual([{ id: "vendor/big-model-x1", contextWindow: 1_000_000 }, { id: "vendor/small-x1" }]);
+    expect(knownWindow("vendor/other-model-y")).toBeUndefined();
+    restarted.hydrateWindows();
+    expect(knownWindow("vendor/big-model-x1")).toBe(1_000_000);
+    expect(endpointCatalog(restarted.get("router")!).models[0].contextWindow).toBe(1_000_000);
+  });
+
+  it("keeps the saved models and windows when the startup refresh fails, and says why", async () => {
+    store.create({ name: "Router", baseUrl: "http://router/v1" });
+    await store.refresh("router", withWindows([{ id: "vendor/kept-model-z1", context_length: 400_000 }]) as unknown as typeof fetch);
+    const restarted = new EndpointStore(keysDir);
+    await restarted.refreshAll(withWindows([], 503) as unknown as typeof fetch);
+    const e = restarted.get("router")!;
+    expect(e.listError).toMatch(/503/);
+    expect(e.models).toEqual([{ id: "vendor/kept-model-z1", contextWindow: 400_000 }]);
+    const refreshed = await restarted.refresh("router", withWindows([{ id: "vendor/kept-model-z1" }]) as unknown as typeof fetch);
+    expect(refreshed.models[0].contextWindow).toBe(400_000);
+    expect(refreshed.listError).toBeNull();
   });
 });
 
