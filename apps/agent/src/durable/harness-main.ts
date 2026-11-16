@@ -119,7 +119,7 @@ export async function runHarness(launch: HarnessLaunch): Promise<{ close(): Prom
       case "background":
         return ret(sock, msg.id, () => engine.background(msg.sessionId));
       case "tell":
-        return ret(sock, msg.id, () => engine.tell(msg.sessionId, msg.callId, msg.text, msg.requestId));
+        return ret(sock, msg.id, () => engine.tell(msg.sessionId, msg.callId, msg.text, msg.requestId, msg.quote));
       case "sync":
         return ret(sock, msg.id, () => engine.sync(msg.sessionId, msg.after));
       case "compact":

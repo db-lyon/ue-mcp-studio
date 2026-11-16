@@ -25,7 +25,7 @@ import type { CardEntry, CardPost } from "@ue-mcp-studio/extension-api";
 import type { BusyTracker } from "./busy.js";
 import type { DialogBroker } from "./dialogs.js";
 import type { QaBroker } from "./qa.js";
-import { WORK_TOOLS, editorConnected, executeTool, packageFile, validateInput, type AgentHost, type ToolExecution } from "./tools.js";
+import { WORK_TOOLS, editorConnected, executeTool, packageFile, validateInput, verifyUnknown, type AgentHost, type ToolExecution } from "./tools.js";
 import type Anthropic from "@anthropic-ai/sdk";
 import { approvalFor, localToolDefinitions, shell } from "./local-tools.js";
 import { WEB_SEARCH_TOOL } from "./web-search.js";
@@ -1257,6 +1257,8 @@ ${result}`);
   private async runTool(s: StoredSession, controller: AbortController, toolId: string, name: string, input: Record<string, unknown>, detached = false, onStart?: () => void | Promise<boolean>): Promise<ToolExecution> {
     // The turn ended while the harness was still asking: nothing runs after a stop.
     if (controller.signal.aborted) return { text: interruptedResult({ name, input }, this.causeOf(controller), false), isError: true, outcome: "error", touched: [], saved: [] };
+    // A projected category call (Lean, Full) runs as the ue_mcp call it is, as its transcript entry already shows it.
+    ({ name, input } = this.surface().canon(name, input));
     // A subagent's call also ends when the user stops that subagent.
     const owner = s.transcript.find((t) => t.kind === "tool" && t.call.id === toolId)?.parent;
     const sub = owner ? this.subagentAbort(owner).signal : null;
@@ -1285,6 +1287,11 @@ ${result}`);
     this.mergeExec(s, exec, exec.outcome !== "unknown");
     // Stopped while the editor worked: the stop already answered this call.
     if (controller.signal.aborted) return exec;
+    // The editor went away while the call ran: the model is told why, and what is on disk now, to read back before any retry.
+    if (exec.outcome === "unknown" && name === "ue_mcp" && input.action === "call") {
+      const text = verifyUnknown(this.o.host, input, this.lastCause);
+      exec = { ...exec, text, isError: true, modelText: undefined };
+    }
     if (name === "editor_restart" && !exec.isError) exec = await this.editorBack(s, exec, controller.signal);
     if (controller.signal.aborted) return exec;
     this.markSaved(s, exec.saved);

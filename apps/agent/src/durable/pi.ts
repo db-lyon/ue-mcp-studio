@@ -23,6 +23,7 @@ import { openNodeSqliteStorage } from "@earendil-works/pi-durable/storage/sqlite
 import { NOOP_TELEMETRY_CONTEXT } from "@earendil-works/pi-telemetry";
 import { createClaudeCodeProvider } from "studio-pi-claude-code";
 import type { AgentSpec, AgentStart, EntryEvent, HarnessMessage, HarnessRequest, RouteSpec, ToolDef, UserContent } from "./protocol.js";
+import { heardNote } from "../subagent-inbox.js";
 
 /** Pi Durable's call context. Studio never cancels through it: a wait it gives up on is raced instead. */
 type Ctx = Parameters<typeof Harness.open>[2];
@@ -290,6 +291,8 @@ export class DurableEngine {
   private readonly watched = new Map<string, { stop: () => Promise<unknown>; last: string | null; text: string; running: boolean; pumping: Promise<void> | null; again: boolean }>();
   /** Foreground agent calls waiting on their subagent, by call id: how to send each to the background. */
   private readonly waiting = new Map<string, () => void>();
+  /** What the user sent each running subagent, by agent call id: its submission and the user's own words. */
+  private readonly toldTo = new Map<string, Array<{ submission: string; quote: string }>>();
   /** Reporters of background subagents running in this process, by call id. */
   private readonly reporters = new Set<string>();
 
@@ -505,7 +508,7 @@ export class DurableEngine {
   }
 
   /** The user's message to a running subagent: steered into its run, read at its next step. False when it is not running. */
-  async tell(sessionId: string, callId: string, text: string, requestId: string): Promise<boolean> {
+  async tell(sessionId: string, callId: string, text: string, requestId: string, quote?: string): Promise<boolean> {
     const doc = await this.sessions();
     const c = doc.sessions[sessionId]?.children[callId];
     if (!c || c.reported) return false;
@@ -522,6 +525,10 @@ export class DurableEngine {
       const rec = d.sessions[sessionId];
       if (rec) rec.told[requestId] = { callId, submission: String(submission.id) };
     }, CTX);
+    // Kept while this process runs: its report waits for the run each message joined, and names what the user wrote.
+    const told = this.toldTo.get(callId) ?? [];
+    told.push({ submission: String(submission.id), quote: quote ?? text });
+    this.toldTo.set(callId, told);
     return true;
   }
 
@@ -771,14 +778,38 @@ export class DurableEngine {
         await this.markChild(sessionId, callId, { reported: true });
         return { text: "Stopped by the user.", isError: true };
       }
-      const r = await this.reportOf(conv, first as unknown as { status: string; reason?: string; detail?: string });
+      // A message steered in while it wrote its report keeps it going: its report is what it says after answering it.
+      const settled = await this.lastOf(callId, first as unknown as { status: string; reason?: string; detail?: string });
+      const r = await this.reportOf(conv, settled);
       const unread = await this.unread(sessionId, callId);
       await this.markChild(sessionId, callId, { reported: true });
-      const text = unread.length ? `${r.text}\n\n[Studio] The user wrote to this subagent and it ended before reading it:\n${unread.map((t) => `- ${t}`).join("\n")}` : r.text;
+      // What it read from the user goes with its report: the main agent never saw it, and would otherwise distrust a report that acts on it.
+      const read = (this.toldTo.get(callId) ?? []).map((t) => t.quote).filter((q) => !unread.some((u) => u.includes(q)));
+      let text = r.text;
+      if (read.length) text = `${text}\n\n[Studio] ${heardNote(read)}`;
+      if (unread.length) text = `${text}\n\n[Studio] The user wrote to this subagent and it ended before reading it:\n${unread.map((t) => `- ${t}`).join("\n")}`;
       return { text, isError: r.isError };
     } finally {
       this.waiting.delete(callId);
+      this.toldTo.delete(callId);
     }
+  }
+
+  /**
+   * How a subagent's work settled: its prompt's submission, or the last
+   * message the user steered into it that it took in, whichever ended last.
+   * A message still queued is not waited for: it goes back as unread.
+   */
+  private async lastOf(callId: string, first: { status: string; reason?: string; detail?: string }): Promise<{ status: string; reason?: string; detail?: string }> {
+    let last = first;
+    for (const t of this.toldTo.get(callId) ?? []) {
+      const sub = await this.harness.submission(t.submission as never, CTX);
+      if (!sub) continue;
+      const st = (await sub.status(CTX)) as unknown as { status: string };
+      if (st.status === "queued") continue;
+      last = (await sub.wait(CTX)) as unknown as { status: string; reason?: string; detail?: string };
+    }
+    return last;
   }
 
   /**

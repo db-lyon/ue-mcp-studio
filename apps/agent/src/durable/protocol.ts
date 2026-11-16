@@ -154,7 +154,7 @@ export type ClientMessage =
   /** The main agent's foreground agent calls stop waiting: their subagents go on in the background. */
   | { t: "background"; id: string; sessionId: string }
   /** The user's message to a running subagent. */
-  | { t: "tell"; id: string; sessionId: string; callId: string; text: string; requestId: string }
+  | { t: "tell"; id: string; sessionId: string; callId: string; text: string; requestId: string; quote?: string }
   /** Send every entry after these, per conversation, then the live state. */
   | { t: "sync"; id: string; sessionId: string; after: Record<string, string> }
   | { t: "compact"; id: string; sessionId: string; instructions: string }

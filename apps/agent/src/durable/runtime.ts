@@ -19,8 +19,12 @@ import type { AgentHost, ToolExecution } from "../tools.js";
 import type { PendingTool, SessionStore, StoredSession } from "../sessions.js";
 import type { MessageParam } from "../messages.js";
 import type { TokenUsage } from "../usage.js";
+import { toSubagent } from "../subagent-inbox.js";
 import { HarnessClient, type HarnessClientOptions } from "./client.js";
 import { COMPLETE_PROTOCOL, type AgentSpec, type AgentStart, type EntryEvent, type HarnessMessage, type HarnessRequest, type RouteSpec, type UserContent } from "./protocol.js";
+
+/** How long a reply waits for a run it just stopped to report its end, before it starts anyway. */
+const STOP_END_WAIT_MS = 3000;
 
 /** What the runtime needs of AgentRunner: the paths every route goes through. */
 export interface DurableHooks {
@@ -116,6 +120,8 @@ export class DurableTurns {
   private readonly sent = new Map<string, string>();
   /** Sessions being stopped by the user: their run's end is not a reply ending. */
   private readonly stopping = new Set<string>();
+  /** A reply waiting for a stopped run's end before it starts, by session. */
+  private readonly stopEnded = new Map<string, () => void>();
   private disposed = false;
 
   constructor(private readonly h: DurableHooks, opts: Omit<HarnessClientOptions, "onMessage" | "onConnection" | "log">) {
@@ -154,10 +160,21 @@ export class DurableTurns {
    * one is running (the main agent waits only on subagents), steered into it.
    */
   async reply(s: StoredSession, content: unknown[]): Promise<void> {
+    if (this.stopping.has(s.id)) {
+      // A run just stopped (Send now, an edit): its end can still be on its way, and must not be taken for this reply's end.
+      await new Promise<void>((resolve) => {
+        const t = setTimeout(resolve, STOP_END_WAIT_MS);
+        this.stopEnded.set(s.id, () => {
+          clearTimeout(t);
+          resolve();
+        });
+      });
+      this.stopEnded.delete(s.id);
+      this.stopping.delete(s.id);
+    }
     const controller = new AbortController();
     this.h.active.set(s.id, controller);
     this.h.replying.add(s.id);
-    this.stopping.delete(s.id);
     this.controller(s);
     try {
       // The conversation so far, without the message this reply answers.
@@ -181,12 +198,6 @@ export class DurableTurns {
   }
 
   /**
-   * A subagent the user assigned from the chat runs in the harness, beside
-   * the main agent's runs, and reports to Studio when it ends (agentEnd).
-   * False, with nothing sent, when the running harness is older than the
-   * message: the subagent then runs on Studio's loop.
-   */
-  /**
    * One answer from a model on a route, outside any session: a flow agent
    * step. A harness started by a Studio from before protocol 3 cannot answer
    * one; it exits once idle, and the next daemon starts the current one.
@@ -199,6 +210,12 @@ export class DurableTurns {
     return String(await this.client.call("complete", { route, system, prompt, effort }));
   }
 
+  /**
+   * A subagent the user assigned from the chat runs in the harness, beside
+   * the main agent's runs, and reports to Studio when it ends (agentEnd).
+   * False, with nothing sent, when the running harness is older than the
+   * message.
+   */
   async assign(s: StoredSession, callId: string, start: Extract<AgentStart, { ok: true }>): Promise<boolean> {
     await this.client.ensure();
     if ((this.client.harness?.protocol ?? 1) < 2) return false;
@@ -261,7 +278,8 @@ export class DurableTurns {
   sayTo(s: StoredSession, callId: string): (text: string) => Promise<boolean> {
     return async (text) => {
       if (!s.durable) return false;
-      return !!(await this.client.call("tell", { sessionId: keyOf(s), callId, text, requestId: crypto.randomUUID() }).catch(() => false));
+      // Framed as the user's own turn, as the subagent's system prompt says it comes.
+      return !!(await this.client.call("tell", { sessionId: keyOf(s), callId, text: toSubagent([text]), quote: text, requestId: crypto.randomUUID() }).catch(() => false));
     };
   }
 
@@ -404,6 +422,7 @@ export class DurableTurns {
     this.sent.delete(s.id);
     if (this.stopping.delete(s.id)) {
       this.h.replying.delete(s.id);
+      this.stopEnded.get(s.id)?.();
       return;
     }
     if (!wasReplying && s.status !== "running" && s.status !== "waiting") return;
@@ -429,7 +448,7 @@ export class DurableTurns {
         this.running.set(reqId, { sessionId: s.id, controller: own, executing: false });
         const key = keyOf(s);
         const start = await this.h.agentStart(s, req.callId, req.input, own.signal,
-          async (text) => !!(await this.client.call("tell", { sessionId: key, callId: req.callId, text, requestId: crypto.randomUUID() }).catch(() => false)),
+          async (text) => !!(await this.client.call("tell", { sessionId: key, callId: req.callId, text: toSubagent([text]), quote: text, requestId: crypto.randomUUID() }).catch(() => false)),
           () => this.stopChild(s, req.callId));
         this.running.delete(reqId);
         if (!own.signal.aborted) this.client.answer(reqId, start);
