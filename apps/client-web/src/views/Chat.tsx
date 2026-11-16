@@ -262,14 +262,19 @@ export function ChatView({ daemon, nav, active = true, onSettings }: {
     const files = attach.ready.map((a) => a.id);
     clearPills();
     setDraft("");
-    attach.clear();
+    // Taken, not cleared: a failed send gives the files back with the text.
+    const taken = attach.take();
     void api.saveDraft(selected, "").catch(() => {});
     if (follow) {
       setThread(null);
       setSent((n) => n + 1);
     }
-    how(selected, text, files).then(() => loadDetail(selected), (e: Error) => {
+    how(selected, text, files).then(() => {
+      attach.release(taken);
+      return loadDetail(selected);
+    }, (e: Error) => {
       setDraft(text);
+      attach.restore(taken);
       setError(e.message);
     });
   };

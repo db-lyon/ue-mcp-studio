@@ -75,6 +75,19 @@ export function useAttachments(sessionId: string | null) {
     setFiles([]);
   }, []);
 
+  /** Empty the message's files and hand them over, previews kept, for a send that may fail and give them back. */
+  const take = useCallback((): PendingFile[] => {
+    const all = live.current;
+    setFiles([]);
+    return all;
+  }, []);
+  /** Put files a failed send took back in front of any added since. */
+  const restore = useCallback((list: PendingFile[]) => setFiles((cur) => [...list, ...cur.filter((f) => !list.some((x) => x.key === f.key))]), []);
+  /** A send went through: free the previews of the files it took. */
+  const release = useCallback((list: PendingFile[]) => {
+    for (const f of list) if (f.preview) URL.revokeObjectURL(f.preview);
+  }, []);
+
   // Another session starts with nothing attached.
   useEffect(() => clear, [sessionId, clear]);
 
@@ -83,6 +96,9 @@ export function useAttachments(sessionId: string | null) {
     add,
     remove,
     clear,
+    take,
+    restore,
+    release,
     uploading: files.some((f) => f.state === "uploading"),
     ready: files.flatMap((f) => (f.state === "ready" && f.attachment ? [f.attachment] : [])),
   };
