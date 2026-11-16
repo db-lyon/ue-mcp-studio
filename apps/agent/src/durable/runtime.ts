@@ -275,6 +275,34 @@ export class DurableTurns {
     this.h.store.save(s);
   }
 
+  /**
+   * An edited message (`to` is `from`, cut back) or a fork (`to` is the copy):
+   * `to`'s next reply goes on in a fork of `from`'s durable conversation taken
+   * just before the edited message, so the model keeps every tool call, result
+   * and image before it. `text` is the message as first sent and `fromEnd` how
+   * many later messages of the main agent have the same text. False when that
+   * cannot be done (no durable conversation, a message it never got, a harness
+   * from an older Studio): the caller releases `to`, and its next reply starts
+   * from Studio's own copy as before.
+   */
+  async forkTo(from: StoredSession, to: StoredSession, text: string, fromEnd: number): Promise<boolean> {
+    if (!from.durable) return false;
+    const key = `${to.id}~${crypto.randomUUID()}`;
+    let r: { conv: string; at: string } | null = null;
+    try {
+      await this.client.ensure();
+      r =(await this.client.call("fork", { from: keyOf(from), to: key, text, fromEnd }, 5000)) as { conv: string; at: string } | null;
+    } catch (e) {
+      this.h.host.log.warn(`session ${from.id}: forking its durable conversation failed, so the next reply starts from Studio's copy`, e);
+    }
+    if (!r?.conv) return false;
+    to.durable = { key, applied: { [r.conv]: r.at }, children: {}, seeded: true };
+    // A run stopped by the edit ended in the old conversation; the new one has nothing running to wait for.
+    if (this.stopping.delete(to.id)) this.stopEnded.get(to.id)?.();
+    this.h.store.save(to);
+    return true;
+  }
+
   /** How the user's message reaches a running subagent's conversation. */
   sayTo(s: StoredSession, callId: string): (text: string) => Promise<boolean> {
     return async (text) => {

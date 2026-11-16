@@ -3113,9 +3113,12 @@ ${result}`);
       return f ? [f] : [];
     });
     const later = index < s.transcript.length - 1;
+    const at = this.forkPoint(s, index);
+    // The durable conversation holds what the edit cut: the next reply goes on in a fork of it from just before
+    // the message, with every tool call and result before it; failing that, a new one from what is left.
+    const forked = !!at && !!(await this.durable?.forkTo(s, s, at.text, at.fromEnd));
     SessionStore.truncateAt(s, index);
-    // The durable conversation holds what the edit cut: the next reply starts a new one from what is left.
-    this.durable?.release(s);
+    if (!forked) this.durable?.release(s);
     if (later) s.notes.push(REWOUND_NOTE);
     s.status = "idle";
     s.waitingCause = null;
@@ -3154,9 +3157,23 @@ ${result}`);
       const f = this.files.get(copy.id, a.id);
       return f ? [f] : [];
     });
-    // The fork answers with its id at once; its first turn runs on.
-    this.send(copy.id, text, files).catch((e) => this.o.host.log.warn(`the fork of session ${s.id} failed`, e));
+    const at = this.forkPoint(s, index);
+    // The fork answers with its id at once; its first turn runs on, in a fork of the original's durable
+    // conversation from just before the message when it can be taken, else from the copy's transcript.
+    (async () => {
+      if (at && s.durable) await this.durable?.forkTo(s, copy, at.text, at.fromEnd);
+      await this.send(copy.id, text, files);
+    })().catch((e) => this.o.host.log.warn(`the fork of session ${s.id} failed`, e));
     return copy.id;
+  }
+
+  /** How the harness finds a main-agent message to fork before: its text, and how many later messages of the main agent contain the same. */
+  private forkPoint(s: StoredSession, index: number): { text: string; fromEnd: number } | null {
+    const entry = s.transcript[index];
+    const text = entry?.kind === "user" ? (entry.text ?? "").trim() : "";
+    if (!text) return null;
+    const fromEnd = s.transcript.slice(index + 1).filter((e) => e.kind === "user" && !e.parent && (e.text ?? "").includes(text)).length;
+    return { text, fromEnd };
   }
 
   private busy(s: StoredSession): boolean {
