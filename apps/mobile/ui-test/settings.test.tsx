@@ -60,6 +60,7 @@ describe("Settings > General", () => {
     expect(screen.getByText("Ready to install: Studio 0.1.25-beta.19.")).toBeTruthy();
     expect(screen.queryByLabelText("Update")).toBeNull();
     expect(screen.getByText("Updates run from Studio on the computer.")).toBeTruthy();
+    expect(screen.getByText("Check again")).toBeTruthy();
     const before = writes().length;
     fireEvent.click(screen.getByLabelText("Beta"));
     await settled();

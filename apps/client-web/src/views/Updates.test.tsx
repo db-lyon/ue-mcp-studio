@@ -131,6 +131,37 @@ describe("updates", () => {
     expect(screen.getByRole("alert").textContent).toBe(`The last update stopped: ${npm}`);
   });
 
+  it("keeps Check again on the card when up to date, when an update is available, and when the check failed, held while a check runs", async () => {
+    const check = () => screen.getByRole("button", { name: "Check again" }) as HTMLButtonElement;
+    for (const body of [
+      (url: string) => url.includes("/ext/studio/") ? studio(false, false) : ueMcp(false),
+      (url: string) => url.includes("/ext/studio/") ? studio(true, true) : ueMcp(true),
+      (url: string) => url.includes("/ext/studio/") ? { ...studio(false, false), error: "503" } : null,
+    ]) {
+      let release: () => void = () => {};
+      const gate = new Promise<void>((r) => (release = r));
+      let first = true;
+      vi.stubGlobal("fetch", vi.fn(async (url: string) => {
+        if (first) { first = false; await gate; }
+        const b = body(url);
+        return b ? new Response(JSON.stringify(b)) : new Response("", { status: 502 });
+      }));
+      render(<UpdatesCard />);
+      expect(check().disabled).toBe(true);
+      release();
+      await waitFor(() => expect(check().disabled).toBe(false));
+      cleanup();
+    }
+  });
+
+  it("keeps Check again when an update is available and offers it beside Update", async () => {
+    vi.stubGlobal("fetch", vi.fn(async (url: string) => new Response(JSON.stringify(url.includes("/ext/studio/") ? studio(true, false) : ueMcp(false)))));
+    render(<UpdatesCard />);
+    await waitFor(() => expect(screen.getByText("Update available")).toBeTruthy());
+    expect(screen.getByRole("button", { name: "Update" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Check again" })).toBeTruthy();
+  });
+
   it("says up to date with nothing to do", async () => {
     vi.stubGlobal("fetch", vi.fn(async (url: string) => new Response(JSON.stringify(url.includes("/ext/studio/") ? studio(false, false) : ueMcp(false)))));
     render(<UpdatesCard />);

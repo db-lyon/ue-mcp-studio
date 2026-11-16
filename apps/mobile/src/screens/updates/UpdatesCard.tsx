@@ -48,7 +48,11 @@ export function UpdatesCard() {
     if (run?.error) setStopped(run.error);
     else if (working) setStopped(null);
   }, [run?.error, working]);
-  const load = useCallback(() => void readUpdatesWith((p) => api.maybe(p)).then((x) => (shareCount(x), setU(x)), () => setU({ studio: null, ueMcp: null })), [api]);
+  const [checking, setChecking] = useState(true);
+  const load = useCallback(() => {
+    setChecking(true);
+    void readUpdatesWith((p) => api.maybe(p)).then((x) => (shareCount(x), setU(x)), () => setU({ studio: null, ueMcp: null })).finally(() => setChecking(false));
+  }, [api]);
   useEffect(load, [load]);
   // Read again once a run the computer is doing finishes or stops.
   useEffect(() => {
@@ -69,7 +73,7 @@ export function UpdatesCard() {
           Updates
         </T>
         <Spacer />
-        {!working && steps.length === 0 ? <Button title="Check again" onPress={load} /> : null}
+        <Button title="Check again" onPress={load} disabled={checking || working} />
       </View>
       {notes ? <WhatsNewSheet onClose={() => setNotes(false)} /> : null}
       {!u ? <Txt tone="muted" style={{ marginVertical: t.base.size }}>Checking</Txt> : null}
