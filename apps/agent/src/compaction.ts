@@ -8,6 +8,7 @@
  */
 import { COMPACTED_PREFIX, estimateTokens } from "@ue-mcp-studio/shared";
 import type { MessageParam } from "./providers.js";
+import { swapLargeForPath } from "./attached-swap.js";
 
 type Block = { type: string; text?: string; name?: string; input?: unknown; content?: unknown; source?: { data?: string } };
 
@@ -111,7 +112,9 @@ export function compactedMessages(original: readonly MessageParam[], summary: st
   if (isToolResults(last)) {
     return [{ role: "user", content: [{ type: "text", text: `${head}\n\n[Studio] You were in the middle of the work above, and the summary covers its latest results. Continue the task where it stopped, without asking the user to repeat anything.` }] } as MessageParam];
   }
-  return [{ role: "user", content: [{ type: "text", text: head }, ...blocksOf(last).filter((b) => !(b.type === "text" && (b.text ?? "").startsWith("[Studio] The conversation is about to be compacted")))] } as MessageParam];
+  // A large document in the kept message would overflow the window again: it goes as its saved path.
+  const kept = swapLargeForPath(blocksOf(last).filter((b) => !(b.type === "text" && (b.text ?? "").startsWith("[Studio] The conversation is about to be compacted")))).blocks;
+  return [{ role: "user", content: [{ type: "text", text: head }, ...kept] } as MessageParam];
 }
 
 /** A provider's answer that a request was longer than the model's window. */
