@@ -311,10 +311,28 @@ export class CallMatcher {
 
 /** Why the Claude runtime ended a turn, from its result subtype. */
 export function endedText(subtype: string): string {
-  if (subtype === "error_max_turns") return "The turn ended: it reached its step limit.";
-  if (subtype === "error_during_execution") return "The turn ended: the Claude runtime hit an error.";
-  if (subtype === "error_max_budget_usd") return "The turn ended: it reached its spending limit.";
-  return `The turn ended: ${subtype}`;
+  if (subtype === "error_max_turns") return "The turn ended: it reached its step limit. Press Retry, or send \"continue\", to go on.";
+  if (subtype === "error_during_execution") return "The turn ended: the Claude runtime hit an error. Press Retry to send it again.";
+  if (subtype === "error_max_budget_usd") return "The turn ended: it reached its spending limit. Press Retry to go on, or pick another model or route in the model picker.";
+  return `The turn ended: ${subtype}. Press Retry to send it again.`;
+}
+
+/** A Claude sign-in error code in plain words, with what to do next. */
+export function claudeErrorText(code: string): string {
+  switch (code) {
+    case "rate_limit":
+      return "Claude: your Claude plan's usage limit is reached for now. Press Retry once it resets, or pick another model or an API key in the model picker.";
+    case "authentication_failed":
+      return "Claude: the sign-in is no longer valid. Sign in to Claude again in the model picker, then press Retry.";
+    case "billing_error":
+      return "Claude: the account has a billing problem. Fix it on claude.ai, or pick another model or an API key in the model picker.";
+    case "server_error":
+      return "Claude: the service had an error. Press Retry to send it again.";
+    case "invalid_request":
+      return "Claude: the request was refused. Press Retry, or edit your last message and send it again.";
+    default:
+      return `Claude: ${code}. Press Retry to send it again, or pick another model in the model picker.`;
+  }
 }
 
 /** How long a stopped turn's binary gets to end the turn itself before it is closed. */
@@ -488,7 +506,7 @@ export async function runSubscriptionTurn(t: SubscriptionTurn): Promise<string |
         const e = m.event;
         if (!m.parent_tool_use_id && e.type === "content_block_delta" && e.delta.type === "text_delta") t.onDelta(e.delta.text);
       } else if (m.type === "assistant") {
-        if (m.error) error = `Claude: ${m.error}`;
+        if (m.error) error = claudeErrorText(String(m.error));
         const u = messagesUsage((m.message as { usage?: unknown }).usage);
         if (t.onTokens) {
           const tokens = usageTokens(u);
@@ -580,7 +598,7 @@ export async function runSubscriptionCompletion(c: SubscriptionCompletion): Prom
     let error: string | null = null;
     for await (const m of q as AsyncIterable<SDKMessage>) {
       if (m.type === "assistant") {
-        if (m.error) error = `Claude: ${m.error}`;
+        if (m.error) error = claudeErrorText(String(m.error));
         for (const b of m.message.content as ContentBlock[]) if (b.type === "text") text += b.text;
       } else if (m.type === "result") {
         if (m.subtype === "success" && !m.is_error) text = m.result || text;

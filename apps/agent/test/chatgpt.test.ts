@@ -203,4 +203,13 @@ describe("the Responses API", () => {
       .rejects.toThrow(/usage limit is reached/);
     await expect(readResponsesStream(stream([{ type: "response.output_text.delta", delta: "Hal" }]), () => {})).rejects.toThrow(/ended before it completed/);
   });
+
+  it("hands a reply cut off at the output limit back as max_tokens, so the loop asks it to go on", async () => {
+    const turn = await readResponsesStream(stream([
+      { type: "response.output_text.delta", delta: "Half" },
+      { type: "response.output_item.done", item: { type: "message", content: [{ type: "output_text", text: "Half" }] } },
+      { type: "response.incomplete", response: { incomplete_details: { reason: "max_output_tokens" } } },
+    ]), () => {});
+    expect(turn.stopReason).toBe("max_tokens");
+  });
 });
