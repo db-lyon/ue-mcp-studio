@@ -1124,11 +1124,16 @@ export class AgentRunner {
     return { available: !!this.durable?.available(), connected: !!c?.connected(), version: c?.harness?.version ?? null, pid: c?.harness?.pid ?? null };
   }
 
+  /** A model's route on the durable runtime, with the window the context meter shows, so the harness compacts where the meter says. */
+  private durableRoute(model: string, on?: { route: string; vendor: string }): RouteSpec {
+    return { ...this.o.durable!.routeSpec(model, on), contextWindow: this.windowFor(model) };
+  }
+
   /** The main agent's conversation as the durable runtime runs it: the same prompt, tools and effort as every route's. */
   private durableMainSpec(): AgentSpec {
     const surf = this.surface();
     const text = [withSurface(system(this.o.host.projectDir, this.runsMode(), this.usage(), this.composed()), surf), this.skillLines()].filter(Boolean).join("\n");
-    const route = this.o.durable!.routeSpec(this.o.model());
+    const route = this.durableRoute(this.o.model());
     return { route, system: text, ...withSearch(route, this.mainTools(surf), true), effort: this.o.effort?.() ?? "high" };
   }
 
@@ -1196,12 +1201,12 @@ export class AgentRunner {
     let route: RouteSpec | null = null;
     if (helper?.run) {
       try {
-        route = this.o.durable!.routeSpec(helper.run.model, { route: helper.run.route, vendor: helper.run.vendor });
+        route = this.durableRoute(helper.run.model, { route: helper.run.route, vendor: helper.run.vendor });
       } catch (e) {
         this.o.host.log.warn(`helper ${helper.name}: ${e instanceof Error ? e.message : String(e)} It runs on the subagent model.`);
       }
     }
-    const reach = route ?? this.o.durable!.routeSpec(this.subagentModel());
+    const reach = route ?? this.durableRoute(this.subagentModel());
     return {
       route: reach,
       system: systemText,
