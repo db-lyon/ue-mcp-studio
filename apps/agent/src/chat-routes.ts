@@ -36,7 +36,7 @@
  * (/mentions/search) in mentions.ts.
  *
  * Progress arrives on the daemon's event stream as studio.session.changed,
- * studio.transcript.added, studio.turn.delta, studio.tool.finished,
+ * studio.transcript.added, studio.turn.delta, studio.turn.thinking, studio.tool.output, studio.tool.finished,
  * studio.tool.queued, studio.approval.requested and studio.approval.resolved.
  */
 import { registerVersionNotice } from "./version-notice.js";

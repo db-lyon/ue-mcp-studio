@@ -218,7 +218,7 @@ export type HarnessMessage =
   | { t: "ret"; id: string; ok: boolean; value?: unknown; error?: string }
   | EntryEvent
   /** The text the current generation has written so far. */
-  | { t: "delta"; sessionId: string; parent: string | null; text: string }
+  | { t: "delta"; sessionId: string; parent: string | null; text: string; thinking?: string }
   /** A conversation's run started, or ended (with why it ended without an answer). */
   | { t: "run"; sessionId: string; parent: string | null; running: boolean; failure?: { reason: string; detail?: string } }
   /** A subagent conversation was made for an agent call. */

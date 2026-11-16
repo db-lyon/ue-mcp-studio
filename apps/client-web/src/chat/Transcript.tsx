@@ -36,7 +36,11 @@ import {
   summarize,
   toolLabel,
   toolTitle,
+  LIVE_OUTPUT_LABEL,
+  NO_LIVE,
+  THINKING_LABEL,
   type Call,
+  type LiveParts,
   type ThreadItem,
 } from "@ue-mcp-studio/client-core";
 import { useFollow, useNow } from "./hooks";
@@ -364,10 +368,12 @@ export const Reply = memo(function Reply({ text, at, images }: { text: string; a
  * bottom, with a way back down when they have scrolled up.
  */
 /** The conversation. Memoized: typing in the composer does not render it again. */
-export const MainTranscript = memo(function MainTranscript({ transcript, status, streaming, waitingCause, error, onOpen, onStop, hidden, sent }: {
+export const MainTranscript = memo(function MainTranscript({ transcript, status, streaming, live = NO_LIVE, waitingCause, error, onOpen, onStop, hidden, sent }: {
   transcript: TranscriptEntry[];
   status: TurnStatus;
   streaming: string;
+  /** The thinking and the running call's output so far, while the turn runs. */
+  live?: LiveParts;
   waitingCause: string | null;
   error: string | null;
   onOpen: (id: string) => void;
@@ -380,13 +386,25 @@ export const MainTranscript = memo(function MainTranscript({ transcript, status,
   const cards = useSlot("chat.card");
   const askedIds = useAsked();
   const items = useMemo(() => mainTimeline(transcript, (t) => t.kind !== "card" || cards.some((i) => i.ext === t.ext && i.contribution.id === t.type), askedIds), [transcript, cards, askedIds]);
-  const follow = useFollow<HTMLDivElement>(`${transcript.length}:${streaming.length}:${status}`, sent);
+  const follow = useFollow<HTMLDivElement>(`${transcript.length}:${streaming.length}:${live.thinking.length}:${live.output?.text.length ?? 0}:${status}`, sent);
   const waiting = status === "waiting";
   const asked = askedIds.size;
   return (
     <>
       <div className="transcript" ref={follow.ref} onScroll={follow.onScroll} aria-hidden={hidden || undefined}>
         <ThreadItems items={items} transcript={transcript} onOpen={onOpen} onStop={onStop} />
+        {live.output && (
+          <div className="live-output" role="log" aria-label={LIVE_OUTPUT_LABEL}>
+            <div className="live-label">{LIVE_OUTPUT_LABEL}</div>
+            <pre>{live.output.text}</pre>
+          </div>
+        )}
+        {live.thinking && (
+          <details className="msg thinking" open>
+            <summary>{THINKING_LABEL}</summary>
+            <div className="thinking-text">{live.thinking}</div>
+          </details>
+        )}
         {streaming && <div className="msg assistant">{streaming}</div>}
         {asked > 0 && <div className="banner warn" role="status">Waiting on you: {asked === 1 ? "a call needs" : `${asked} calls need`} your approval below.</div>}
         {waiting && <div className="banner warn">Waiting for editor: {waitingCause ?? "not connected"}. The turn continues when it is back.</div>}

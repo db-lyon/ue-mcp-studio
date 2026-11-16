@@ -237,12 +237,12 @@ export function editorConnected(host: AgentHost): boolean {
 }
 
 /** Run one tool call. An error while the editor went away is reported as an unknown outcome, never as a failure. */
-export async function executeTool(host: AgentHost, name: string, input: Record<string, unknown>, signal?: AbortSignal): Promise<ToolExecution> {
+export async function executeTool(host: AgentHost, name: string, input: Record<string, unknown>, signal?: AbortSignal, onOutput?: (text: string) => void): Promise<ToolExecution> {
   const invalid = validateInput(name, input);
   if (invalid) return { text: `Invalid input: ${invalid}`, isError: true, outcome: "error", touched: [], saved: [] };
 
   if (isLocalTool(name)) {
-    const r = await runLocal(host.projectDir, name, input, signal);
+    const r = await runLocal(host.projectDir, name, input, signal, onOutput);
     const changed = !r.isError && CHANGING_TOOLS.includes(name as LocalToolName);
     return { text: r.text, isError: r.isError, outcome: r.isError ? "error" : "done", touched: [], saved: [], ...(changed ? { changed } : {}), ...(r.images?.length ? { images: r.images } : {}) };
   }

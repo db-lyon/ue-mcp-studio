@@ -9,6 +9,7 @@ import { useBack } from "../back";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Animated, AppState, Pressable, RefreshControl, ScrollView, useWindowDimensions, View } from "react-native";
 import { SLASH_COMMANDS, contextView, parseSlashCommand, type ActionRunRequest, type FlowRunRequest, type PlaytestRequest, type SessionDetail, type SessionSummary, type StudioSettings } from "@ue-mcp-studio/shared";
+import { NO_LIVE, applyLive, type LiveParts } from "@ue-mcp-studio/client-core";
 import { CHAT_INTRO, DetailLoader, SESSIONS_SLOW, SESSION_TRY_AGAIN, SESSION_TRY_AGAIN_LABEL, sessionLoadFailed, chatPane, composerPlaceholder, composerQueues, composerTarget, listedSubagents, sessionGone, subagentsLine, subagentsOf, subagentsPress, toMainFromThread, unreachable } from "@ue-mcp-studio/client-core";
 import { useProjectNav } from "../nav";
 import { writeLocation } from "../location";
@@ -126,6 +127,9 @@ export function Chat({ nav, initialSession = null, onSettings, active = true }: 
   const fail = useCallback((e: Error) => (sessionGone(e) ? undefined : setError(unreachable(e) ? NOT_ANSWERING : e.message)), []);
   const streamed = useRef("");
   const [streaming, setStreaming] = useState("");
+  /** The open session's thinking and running call's output so far, from the event stream. */
+  const liveRef = useRef<LiveParts>(NO_LIVE);
+  const [liveParts, setLive] = useState<LiveParts>(NO_LIVE);
   const [settings, setSettings] = useState<StudioSettings | null>(null);
   /** The subagent thread on screen, by its agent call id; null is the main thread. */
   const [thread, setThread] = useState<string | null>(null);
@@ -256,6 +260,8 @@ export function Chat({ nav, initialSession = null, onSettings, active = true }: 
     setDraft("");
     streamed.current = "";
     setStreaming("");
+    liveRef.current = NO_LIVE;
+    setLive(NO_LIVE);
     resetDiag();
     void loadDetail(selected);
   }, [selected]);
@@ -272,6 +278,13 @@ export function Chat({ nav, initialSession = null, onSettings, active = true }: 
         if (e.type === "studio.settings.changed") void loadSettings();
         if (e.type === "gap" && cur) return void loadDetail(cur);
         if (!cur || sessionOf(e.data) !== cur) return;
+        const nextLive = applyLive(liveRef.current, e.type, e.data);
+        if (nextLive) {
+          liveRef.current = nextLive;
+          setLive(nextLive);
+        }
+        // Drawn from the live parts; nothing to read again.
+        if (e.type === "studio.turn.thinking" || e.type === "studio.tool.output") return;
         if (e.type === "studio.turn.delta") {
           streamed.current += String(e.data.text ?? "");
           setStreaming(streamed.current);
@@ -682,7 +695,7 @@ export function Chat({ nav, initialSession = null, onSettings, active = true }: 
                         <View style={{ flex: 1, minHeight: 0, overflow: "hidden" }} onLayout={(e) => setDiag({ boxH: e.nativeEvent.layout.height })}>
                           {/* A part that cannot draw says so in its place; the header, cards and composer stay. */}
                           <ErrorBoundary what="The conversation" where="Chat > Conversation" resetKey={detail.id}>
-                            <MainTranscript key={detail.id} more={(detail.from ?? 0) > 0 ? olderEntries : undefined} transcript={detail.transcript} status={detail.status} streaming={streaming} waitingCause={detail.waitingCause} error={detail.error} onOpen={openThreadId} onStop={stopSubagent} hidden={!!drawerId} sent={sent} />
+                            <MainTranscript key={detail.id} more={(detail.from ?? 0) > 0 ? olderEntries : undefined} transcript={detail.transcript} status={detail.status} streaming={streaming} live={liveParts} waitingCause={detail.waitingCause} error={detail.error} onOpen={openThreadId} onStop={stopSubagent} hidden={!!drawerId} sent={sent} />
                           </ErrorBoundary>
                           {drawerAgent ? (
                             <Animated.View

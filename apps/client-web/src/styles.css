@@ -431,6 +431,14 @@ button.example:hover:not(:disabled) { color: var(--text); background: var(--acce
 .msg { white-space: pre-wrap; overflow-wrap: anywhere; padding: 10px 13px; border-radius: 10px; max-width: 86%; }
 .msg.user { align-self: flex-end; background: var(--accent-wash); border: 1px solid var(--accent-line); }
 .msg.assistant { align-self: flex-start; background: transparent; padding-left: 2px; max-width: 92%; }
+/* The model's thinking while it answers: quiet, under a fold, gone once the answer lands. */
+.msg.thinking { align-self: flex-start; max-width: 92%; padding: 6px 10px; border-left: 2px solid var(--line); border-radius: 0; color: var(--dim); font-size: 12.5px; }
+.msg.thinking summary { cursor: pointer; font: var(--label-font); text-transform: uppercase; letter-spacing: 0.08em; }
+.msg.thinking .thinking-text { margin-top: 4px; max-height: 240px; overflow-y: auto; }
+/* What the running call has printed so far: its newest lines, in a scroll box. */
+.live-output { align-self: stretch; margin: 0 2px; border: 1px solid var(--line); border-radius: 8px; background: var(--panel); min-width: 0; }
+.live-output .live-label { padding: 5px 10px 0; font: var(--label-font); text-transform: uppercase; letter-spacing: 0.08em; color: var(--dim); }
+.live-output pre { margin: 0; padding: 4px 10px 8px; max-height: 200px; overflow: auto; font: 400 11.5px/1.5 var(--mono); white-space: pre-wrap; overflow-wrap: anywhere; color: var(--text); }
 .msg.assistant.local-reply { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: start; gap: 8px 10px; margin: 0 14px 8px; white-space: normal; }
 .msg.assistant.local-reply > p { margin: 0; align-self: center; }
 .msg.assistant.local-reply .reply-close { width: 24px; height: 24px; }

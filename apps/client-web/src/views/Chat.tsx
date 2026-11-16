@@ -34,7 +34,7 @@ import { AssetLinksContext, AssetTranscriptContext, useAssetLinks } from "../cha
 import { readLocation, writeLocation } from "../location";
 import { useSessionFocus } from "../focus";
 import { chatPane } from "../chat/pane";
-import { DetailLoader, composerPlaceholder, composerQueues, composerTarget, sessionGone, toMainFromThread } from "@ue-mcp-studio/client-core";
+import { DetailLoader, NO_LIVE, applyLive, composerPlaceholder, composerQueues, composerTarget, sessionGone, toMainFromThread, type LiveParts } from "@ue-mcp-studio/client-core";
 import { SessionLoading, SessionRowsLoading } from "../chat/Skeleton";
 import { ChatHeader } from "../chat/ChatHeader";
 import { Sheet } from "../chat/Sheet";
@@ -112,6 +112,9 @@ export function ChatView({ daemon, nav, active = true, onSettings }: {
   const seenEvent = useRef(0);
   const streamed = useRef("");
   const [streaming, setStreaming] = useState("");
+  /** The open session's thinking and running call's output so far, from the event stream. */
+  const liveRef = useRef<LiveParts>(NO_LIVE);
+  const [liveParts, setLive] = useState<LiveParts>(NO_LIVE);
   const [settings, setSettings] = useState<StudioSettings | null>(null);
   /** The subagent thread on screen, by its agent call id; null is the main thread. */
   const [thread, setThread] = useState<string | null>(null);
@@ -219,6 +222,8 @@ export function ChatView({ daemon, nav, active = true, onSettings }: {
     setThread(null);
     setDrawerId(null);
     setDrawerOpen(false);
+    liveRef.current = NO_LIVE;
+    setLive(NO_LIVE);
     setDraft("");
     streamed.current = "";
     setStreaming("");
@@ -238,14 +243,19 @@ export function ChatView({ daemon, nav, active = true, onSettings }: {
       if (e.type === "studio.session.changed") relist = true;
       if (e.type === "studio.settings.changed") void loadSettings();
       if (id !== selected) continue;
+      const nextLive = applyLive(liveRef.current, e.type, e.data);
+      if (nextLive) liveRef.current = nextLive;
       if (e.type === "studio.turn.delta") {
         streamed.current += String(e.data.text ?? "");
+      } else if (e.type === "studio.turn.thinking" || e.type === "studio.tool.output") {
+        // Drawn from the live parts; nothing to read again.
       } else {
         if (e.type === "studio.transcript.added") streamed.current = "";
         refetch = true;
       }
     }
     setStreaming(streamed.current);
+    setLive(liveRef.current);
     if (refetch && selected) void loadDetail(selected);
     if (relist) void loadList();
   }, [daemon.events, selected]);
@@ -613,6 +623,7 @@ export function ChatView({ daemon, nav, active = true, onSettings }: {
                   transcript={detail.transcript}
                   status={detail.status}
                   streaming={streaming}
+                  live={liveParts}
                   waitingCause={detail.waitingCause}
                   error={detail.error}
                   onOpen={openThreadId}

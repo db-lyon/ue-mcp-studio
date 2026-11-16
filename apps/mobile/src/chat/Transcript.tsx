@@ -35,8 +35,12 @@ import {
   summarize,
   toolLabel,
   toolTitle,
+  LIVE_OUTPUT_LABEL,
+  NO_LIVE,
+  THINKING_LABEL,
   type AgentState,
   type Call,
+  type LiveParts,
   type ThreadItem,
 } from "@ue-mcp-studio/client-core";
 import { Banner, bannerText, baseFont, Button, T, ContentButton, buttonFont, font, labelFont, lineBox, MarkdownPiece, markdownPieces, Output, PIECE_CHARS, Pulse, stopOf, useTheme, type Theme } from "../ui";
@@ -442,6 +446,47 @@ function StreamPiece({ text, first, last }: { text: string; first: boolean; last
   );
 }
 
+/** .msg.thinking: the model's thinking while it answers, quiet and folded open, gone once the answer lands. */
+function ThinkingLine({ text }: { text: string }) {
+  const t = useTheme();
+  const [open, setOpen] = useState(true);
+  return (
+    <View testID="live-thinking" style={{ alignSelf: "flex-start", maxWidth: "100%", marginVertical: 4, paddingVertical: 6, paddingHorizontal: 10, borderLeftWidth: 2, borderLeftColor: t.c.line }}>
+      <Pressable accessibilityRole="button" accessibilityState={{ expanded: open }} onPress={() => setOpen((o) => !o)} style={{ minHeight: 32, justifyContent: "center" }}>
+        <Text style={[labelFont(t), { color: t.c.dim }]}>{THINKING_LABEL.toUpperCase()}</Text>
+      </Pressable>
+      {open ? <Text style={[baseFont(t), { color: t.c.dim, fontSize: 12.5 }]}>{text}</Text> : null}
+    </View>
+  );
+}
+
+/** .live-output: what the running call has printed so far, its newest lines. */
+function LiveOutputBox({ text }: { text: string }) {
+  const t = useTheme();
+  return (
+    <View testID="live-output" accessibilityLabel={LIVE_OUTPUT_LABEL} style={{ marginVertical: 4, borderWidth: 1, borderColor: t.c.line, borderRadius: 8, backgroundColor: t.c.panel }}>
+      <Text style={[labelFont(t), { color: t.c.dim, paddingHorizontal: 10, paddingTop: 5 }]}>{LIVE_OUTPUT_LABEL.toUpperCase()}</Text>
+      <ScrollView style={{ maxHeight: 200 }} nestedScrollEnabled>
+        <Text style={[font(t, "mono", 400, 11.5, 1.5), { color: t.c.text, paddingHorizontal: 10, paddingBottom: 8, paddingTop: 4 }]}>{text}</Text>
+      </ScrollView>
+    </View>
+  );
+}
+
+/** The live parts as rows after the thread: the running call's output, then the thinking. */
+function liveRows(live: LiveParts): ThreadRow[] {
+  const rows: ThreadRow[] = [];
+  if (live.output) {
+    const text = live.output.text;
+    rows.push({ key: "live-output", render: () => <LiveOutputBox text={text} /> });
+  }
+  if (live.thinking) {
+    const text = live.thinking;
+    rows.push({ key: "live-thinking", render: () => <ThinkingLine text={text} /> });
+  }
+  return rows;
+}
+
 function streamRow(text: string): ThreadRow {
   const runs = streamPieces(text);
   return {
@@ -786,10 +831,12 @@ function useUndrawn(count: number, measured: { current: Measured }): void {
  * bottom, with a way back down when they have scrolled up. Memoized: typing in
  * the composer does not render it again.
  */
-export const MainTranscript = memo(function MainTranscript({ transcript, status, streaming, waitingCause, error, onOpen, onStop, hidden, sent, more }: {
+export const MainTranscript = memo(function MainTranscript({ transcript, status, streaming, live = NO_LIVE, waitingCause, error, onOpen, onStop, hidden, sent, more }: {
   transcript: TranscriptEntry[];
   status: TurnStatus;
   streaming: string;
+  /** The thinking and the running call's output so far, while the turn runs. */
+  live?: LiveParts;
   waitingCause: string | null;
   error: string | null;
   onOpen: (id: string) => void;
@@ -807,12 +854,12 @@ export const MainTranscript = memo(function MainTranscript({ transcript, status,
   const items = useMemo(() => mainTimeline(transcript, (e) => e.kind !== "card", askedIds), [transcript, askedIds]);
   const from = useContext(TranscriptFromContext);
   // A page read in front of the held entries is not a new line below.
-  const follow = useFollow(`${from + transcript.length}:${streaming.length}:${status}`, sent);
+  const follow = useFollow(`${from + transcript.length}:${streaming.length}:${live.thinking.length}:${live.output?.text.length ?? 0}:${status}`, sent);
   const waiting = status === "waiting";
   const asked = askedIds.size;
   const rows = useMemo(() => itemRows(items, transcript, from, onOpen, onStop), [items, transcript, onOpen, onStop, from]);
   // The streaming reply is the newest line, cut into pieces as it grows.
-  const drawn = useMemo(() => (streaming ? [...rows, streamRow(streaming)] : rows), [rows, streaming]);
+  const drawn = useMemo(() => [...rows, ...liveRows(live), ...(streaming ? [streamRow(streaming)] : [])], [rows, live, streaming]);
   const foot =
     asked > 0 || waiting || (status === "error" && error) ? (
       <>

@@ -230,6 +230,10 @@ export const REWOUND_NOTE = "The user edited an earlier message, so the conversa
  */
 export const NO_TURN_LIMIT = Number.MAX_SAFE_INTEGER;
 
+/** A running call's output is gathered this long between tool.output events, and at most this much of it is sent at once. */
+const LIVE_OUTPUT_MS = 150;
+const LIVE_OUTPUT_CHARS = 8 * 1024;
+
 /** How long editor_restart waits for the editor to connect again after the daemon reports it started. */
 export const EDITOR_BACK_MS = 10 * 60_000;
 
@@ -628,10 +632,38 @@ export class AgentRunner {
     return surface.strategy === "micro" ? [...WORK_TOOLS] : [...surface.tools, ...localToolDefinitions()];
   }
 
+  /**
+   * A running call's output as tool.output events, so clients show a long command's output as it comes. Gathered
+   * for LIVE_OUTPUT_MS between events so a chatty build does not flood the event stream; `flush` sends the rest.
+   */
+  private liveOutput(sessionId: string, callId: string): { push: (text: string) => void; flush: () => void } {
+    let held = "";
+    let timer: ReturnType<typeof setTimeout> | null = null;
+    const flush = () => {
+      if (timer) clearTimeout(timer);
+      timer = null;
+      if (!held) return;
+      const text = held.length > LIVE_OUTPUT_CHARS ? held.slice(-LIVE_OUTPUT_CHARS) : held;
+      held = "";
+      this.o.host.events.publish("tool.output", { sessionId, callId, text });
+    };
+    return {
+      push: (text) => {
+        held += text;
+        timer ??= setTimeout(flush, LIVE_OUTPUT_MS);
+      },
+      flush,
+    };
+  }
+
   /** Run one call: a projected tool that is not a category through the daemon's context.call, everything else through Studio's executor. */
-  private execute(host: AgentHost, name: string, input: Record<string, unknown>, signal: AbortSignal): Promise<ToolExecution> {
+  private execute(host: AgentHost, name: string, input: Record<string, unknown>, signal: AbortSignal, live?: { sessionId: string; callId: string }): Promise<ToolExecution> {
     const pass = this.surface().passthrough(name);
-    if (!pass) return executeTool(host, name, input, signal);
+    if (!pass) {
+      if (!live) return executeTool(host, name, input, signal);
+      const out = this.liveOutput(live.sessionId, live.callId);
+      return executeTool(host, name, input, signal, out.push).finally(out.flush);
+    }
     return pass(input).then(
       (r) => {
         const text = r.content.map((c) => c.text ?? "").filter(Boolean).join("\n") || (r.isError ? "The call failed." : "Done.");
@@ -2032,7 +2064,7 @@ ${result}`);
     }
     // The durable harness records that the call started before it runs: false when it went away first, and the call does not run here.
     if ((await onStart?.()) === false) return { text: "The call was handed back before it ran.", isError: true, outcome: "error", touched: [], saved: [] };
-    const running = this.execute(this.hostFor(s.id, detached), name, input, signal);
+    const running = this.execute(this.hostFor(s.id, detached), name, input, signal, { sessionId: s.id, callId: toolId });
     // What a call does after its subagent was stopped is still tracked for the crash report.
     if (sub) void running.then((e) => sub.aborted && this.mergeExec(s, e, e.outcome !== "unknown"), () => {});
     const done = sub ? await unlessAborted(running, sub) : await running;
@@ -3447,7 +3479,7 @@ ${result}`);
       }
       p.state = "running";
       this.o.store.save(s);
-      const exec = await this.execute(this.hostFor(s.id), p.name, p.input, signal);
+      const exec = await this.execute(this.hostFor(s.id), p.name, p.input, signal, { sessionId: s.id, callId: p.id });
       if (signal.aborted) {
         // Stopped while the editor worked: the stop already answered this call.
         this.mergeExec(s, exec, exec.outcome !== "unknown");
@@ -3752,7 +3784,7 @@ ${result}`);
             results.push({ type: "tool_result", tool_use_id: u.id, content: gate.declined, is_error: true });
             continue;
           }
-          const running = this.execute(this.hostFor(s.id, detached), u.name, input, signal);
+          const running = this.execute(this.hostFor(s.id, detached), u.name, input, signal, { sessionId: s.id, callId: u.id });
           // A stop lets the call go at once; what it does after is still tracked for the crash report.
           void running.then((e) => signal.aborted && this.mergeExec(s, e, e.outcome !== "unknown"), () => {});
           const exec = await unlessAborted(running, signal);
