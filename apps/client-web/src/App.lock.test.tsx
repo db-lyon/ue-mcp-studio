@@ -9,7 +9,7 @@ vi.mock("./api", () => {
   return { api: new Proxy({}, { get: () => pending }), ApiError: class extends Error {} };
 });
 vi.mock("./state", () => ({ useDaemon: () => ({ events: [], health: null, streaming: false, error: null, refresh: () => {} }) }));
-vi.mock("./views/Refused", () => ({ useRefusal: () => undefined, RefusedScreen: () => null }));
+vi.mock("./views/Refused", () => ({ useRefusal: () => undefined, RefusedScreen: () => null, RefusalPending: () => null }));
 vi.mock("./views/remote/RemoteLock", () => ({ RemoteLock: () => <div role="dialog" aria-label="Studio is locked" /> }));
 import { App } from "./App";
 

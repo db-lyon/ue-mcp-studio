@@ -30,6 +30,9 @@ export const STEP_NOTE: Partial<Record<StepKey, string>> = {
   restart: "ue-mcp restarts. This panel reloads when it is back.",
 };
 
+/** A stopped update on a paired device: the way on is the computer's own Update. */
+export const UPDATE_RETRY_ON_COMPUTER = "To try again, choose Update in Studio on the computer.";
+
 /** The steps the agent keeps until no turn is in progress. */
 export const waitingSteps = (run: UpdateRun): StepKey[] => run.steps.filter((s) => s.state === "deferred").map((s) => s.key);
 

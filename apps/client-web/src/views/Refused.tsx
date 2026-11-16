@@ -9,16 +9,55 @@ import { useEffect, useState } from "react";
 import { isNewer, refusalInHealth, type RefusedExtension, type StudioRefusal } from "@ue-mcp-studio/shared";
 import { native, type StudioBinding } from "../native";
 import { REMOTE_UPDATES, onRemotePage } from "../connection";
+import { REFUSAL_CHECK_AGAIN, REFUSAL_OPEN_ANYWAY, REFUSAL_PENDING, REFUSAL_SLOW, REFUSAL_WAIT_MS, SWITCH_PROJECT, refusalInstalled, refusalStill } from "@ue-mcp-studio/client-core";
 
-/** Studio's refusal, null when Studio runs, undefined until the agent has answered. */
-export function useRefusal(health: { version: string; refusedExtensions?: RefusedExtension[] } | null): StudioRefusal | null | undefined {
+/**
+ * Studio's refusal, null when Studio runs, undefined until the agent has
+ * answered. Raising `attempt` (Check again) asks again; the last answer
+ * stands until the new one arrives.
+ */
+export function useRefusal(health: { version: string; refusedExtensions?: RefusedExtension[] } | null, attempt = 0): StudioRefusal | null | undefined {
   const [own, setOwn] = useState<StudioRefusal | null | undefined>(undefined);
   useEffect(() => {
+    let live = true;
     fetch("/v1/ext/studio/refusal", { credentials: "same-origin" })
       .then((r) => (r.ok ? (r.json() as Promise<StudioRefusal>) : null))
-      .then(setOwn, () => setOwn(null));
-  }, []);
+      .then((r) => live && setOwn(r), () => live && setOwn(null));
+    return () => {
+      live = false;
+    };
+  }, [attempt]);
   return refusalInHealth(health) ?? own;
+}
+
+/**
+ * While the check has not answered: a spinner, and once it has taken longer
+ * than it should, Check again, Open Studio anyway and, on a paired browser,
+ * Switch project.
+ */
+export function RefusalPending({ onCheck, onOpen, onSwitch }: { onCheck: () => void; onOpen: () => void; onSwitch?: () => void }) {
+  const [slow, setSlow] = useState(false);
+  useEffect(() => {
+    const t = setTimeout(() => setSlow(true), REFUSAL_WAIT_MS);
+    return () => clearTimeout(t);
+  }, []);
+  return (
+    <div className="app">
+      <main className="empty refused" aria-busy={!slow || undefined}>
+        <div className="refused-pending" role="status">
+          <span className="spinner" aria-hidden />
+          <span>{slow ? REFUSAL_SLOW : REFUSAL_PENDING}</span>
+        </div>
+        {slow && (
+          <div className="row refused-actions">
+            <button onClick={onCheck}>{REFUSAL_CHECK_AGAIN}</button>
+            <button className="ghost" onClick={onOpen}>{REFUSAL_OPEN_ANYWAY}</button>
+            {onSwitch && <button className="ghost" onClick={onSwitch}>{SWITCH_PROJECT}</button>}
+          </div>
+        )}
+      </main>
+    </div>
+  );
 }
 
 interface Check {
@@ -90,14 +129,23 @@ export async function updateUeMcp(
 
 type Step = { kind: "idle" } | { kind: "working" } | { kind: "done"; version: string } | { kind: "failed"; error: string };
 
-/** `remote`: a paired browser, which says the update runs on the computer instead of offering it. */
-export function RefusedScreen({ refusal, remote = onRemotePage() }: { refusal: StudioRefusal; remote?: boolean }) {
+/**
+ * `remote`: a paired browser, which says the update runs on the computer
+ * instead of offering it. `onCheck` asks the computer again; `onSwitch`, on a
+ * paired browser, goes to the other projects.
+ */
+export function RefusedScreen({ refusal, remote = onRemotePage(), onCheck, onSwitch }: { refusal: StudioRefusal; remote?: boolean; onCheck?: () => void; onSwitch?: () => void }) {
   const [step, setStep] = useState<Step>({ kind: "idle" });
+  const [checked, setChecked] = useState(false);
   const update = () => {
     setStep({ kind: "working" });
     void updateUeMcp(refusal.needs).then((r) =>
       setStep(r.ok ? { kind: "done", version: r.version } : { kind: "failed", error: r.error ?? "The update did not finish." }));
   };
+  const check = onCheck && (() => {
+    setChecked(true);
+    onCheck();
+  });
   return (
     <div className="app">
       <main className="empty refused">
@@ -107,13 +155,20 @@ export function RefusedScreen({ refusal, remote = onRemotePage() }: { refusal: S
         {remote ? (
           <p className="muted">{REMOTE_UPDATES}</p>
         ) : step.kind === "done" ? (
-          <p className="muted">ue-mcp {step.version} is installed. Restart the editor to finish.</p>
+          <p className="muted">{refusalInstalled(step.version)}</p>
         ) : (
           <button className="primary large" onClick={update} disabled={step.kind === "working"}>
             {step.kind === "working" ? "Updating ue-mcp" : "Update ue-mcp"}
           </button>
         )}
         {step.kind === "failed" && <div className="banner bad small refused-error">{step.error}</div>}
+        {(check || (remote && onSwitch)) && (
+          <div className="row refused-actions">
+            {check && <button className={step.kind === "done" ? "primary" : ""} onClick={check}>{REFUSAL_CHECK_AGAIN}</button>}
+            {remote && onSwitch && <button className="ghost" onClick={onSwitch}>{SWITCH_PROJECT}</button>}
+          </div>
+        )}
+        {checked && <p className="dim small" role="status">{refusalStill(refusal.needs)}</p>}
       </main>
     </div>
   );
