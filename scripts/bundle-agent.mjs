@@ -19,6 +19,8 @@ const result = await build({
     "durable-harness": path.join(root, "apps", "agent", "src", "durable", "harness-main.ts"),
     // Studio's extension alone, which a harness an older Studio started installs over its own.
     "durable-extension": path.join(root, "apps", "agent", "src", "durable", "extension.ts"),
+    // Code mode's worker thread, which the harness's sandbox starts from beside itself.
+    "codemode-worker": path.join(root, "apps", "agent", "src", "durable", "codemode-worker.ts"),
   },
   // pi-claude-code ships as TypeScript source from its pinned commit: only the durable harness imports it, by this name.
   plugins: [{
@@ -47,6 +49,8 @@ const result = await build({
 });
 // The WebP decoder's code, which the agent loads from beside the bundle.
 fs.copyFileSync(path.join(root, "node_modules", "@jsquash", "webp", "codec", "dec", "webp_dec.wasm"), path.join(root, "apps", "agent", "dist", "webp_dec.wasm"));
+// QuickJS for code mode's sandbox, which the harness loads from beside itself.
+fs.copyFileSync(path.join(root, "node_modules", "quickjs-wasi", "quickjs.wasm"), path.join(root, "apps", "agent", "dist", "quickjs.wasm"));
 // pi-claude-code starts this script beside its own module, which in the bundle is dist/durable-harness.js.
 fs.copyFileSync(path.join(root, "node_modules", "@earendil-works", "pi-claude-code", "src", "inert-mcp.mjs"), path.join(root, "apps", "agent", "dist", "inert-mcp.mjs"));
 // Which packages went into the bundle, for the third-party notices.
