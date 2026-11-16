@@ -288,8 +288,12 @@ describe("assigning the playtest to a subagent", () => {
     const steps = [{ ...STEPS[0], status: "passed" }, { ...STEPS[1], status: "passed" }, { ...STEPS[2], agent_judgeable: false, status: "awaiting_verdict" }];
     mount(runOf({ state: "awaiting_verdict", steps }));
     const assign = screen.getByRole("button", { name: "Assign to subagent" }) as HTMLButtonElement;
-    expect(assign.disabled).toBe(true);
+    expect(assign.getAttribute("aria-disabled")).toBe("true");
     expect(assign.title).toMatch(/Every step needs a person to judge/);
+    // The reason in words on a press, not only on hover.
+    expect(screen.queryByRole("note")).toBeNull();
+    fireEvent.click(assign);
+    expect(screen.getByRole("note").textContent).toMatch(/Every step needs a person to judge/);
     expect(within(step(2)).getByText("Person only")).toBeTruthy();
   });
 

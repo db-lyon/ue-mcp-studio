@@ -9,7 +9,7 @@ import { useBack } from "../back";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Animated, AppState, Pressable, RefreshControl, ScrollView, useWindowDimensions, View } from "react-native";
 import { SLASH_COMMANDS, contextView, parseSlashCommand, type ActionRunRequest, type FlowRunRequest, type PlaytestRequest, type SessionDetail, type SessionSummary, type StudioSettings } from "@ue-mcp-studio/shared";
-import { CHAT_INTRO, DetailLoader, SESSIONS_SLOW, chatPane, composerPlaceholder, composerQueues, composerTarget, listedSubagents, sessionGone, subagentsLine, subagentsOf, subagentsPress, toMainFromThread, unreachable } from "@ue-mcp-studio/client-core";
+import { CHAT_INTRO, DetailLoader, SESSIONS_SLOW, SESSION_TRY_AGAIN, SESSION_TRY_AGAIN_LABEL, sessionLoadFailed, chatPane, composerPlaceholder, composerQueues, composerTarget, listedSubagents, sessionGone, subagentsLine, subagentsOf, subagentsPress, toMainFromThread, unreachable } from "@ue-mcp-studio/client-core";
 import { useProjectNav } from "../nav";
 import { writeLocation } from "../location";
 import { haptic } from "../native/haptics";
@@ -660,8 +660,8 @@ export function Chat({ nav, initialSession = null, onSettings, active = true }: 
         {!detail && selected ? (
           detailError ? (
             <View accessibilityRole="alert" style={{ flex: 1, padding: 14, gap: 10 }}>
-              <Banner kind="bad">{`This session could not be loaded: ${detailError}`}</Banner>
-              <Button title="Try again" label="Load the session again" style={{ alignSelf: "flex-start" }} onPress={() => (setDetailError(null), void loadDetail(selected))} />
+              <Banner kind="bad">{sessionLoadFailed(detailError)}</Banner>
+              <Button title={SESSION_TRY_AGAIN} label={SESSION_TRY_AGAIN_LABEL} style={{ alignSelf: "flex-start" }} onPress={() => (setDetailError(null), void loadDetail(selected))} />
             </View>
           ) : (
             <SessionLoading />
