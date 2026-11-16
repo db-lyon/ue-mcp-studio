@@ -106,6 +106,28 @@ export interface EngineHost {
 
 const ZERO_COST = { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 };
 
+/** The share of a window Studio compacts at, as the meter says (AUTO_COMPACT_FRACTION in @ue-mcp-studio/shared). */
+export const COMPACT_FRACTION = 0.85;
+/** Pi Durable's own reserve: room for the summary request on a small window. */
+const MIN_RESERVE_TOKENS = 16_384;
+
+/**
+ * The reserve that puts Pi Durable's compaction threshold (the model's window
+ * minus the reserve) at 85% of the window the meter shows. Without it Pi
+ * Durable compacts at the window less 16k tokens, about 98% of a 1M window,
+ * while the meter tells the user 85%. `window`: the model's window as the
+ * harness knows it; `shown`: the window the meter uses, when the daemon sent it.
+ */
+export function reserveFor(window: number, shown?: number): number {
+  const target = Math.floor(Math.min(window, shown && shown > 0 ? shown : window) * COMPACT_FRACTION);
+  return Math.max(MIN_RESERVE_TOKENS, window - target);
+}
+
+/** Pi Durable's background compaction lead: its default, but never more than 5% of the window, so a summary is not placed well before the point the meter shows. */
+export function backgroundFor(window: number): number {
+  return Math.min(32_768, Math.floor(window * 0.05));
+}
+
 /** A pi-ai model for a route: the catalog's own entry when it has one, moved to the route's address. */
 function modelFor(spec: RouteSpec): Record<string, unknown> {
   const catalog = spec.api === "anthropic-messages" ? "anthropic" : spec.api === "google-generative-ai" ? "google" : spec.api.startsWith("openai") ? "openai" : null;
@@ -187,6 +209,16 @@ class RouteModels {
     const c = this.creds.get(route);
     if (!c) throw new Error(`No credential for ${route}: connect it in Studio's settings.`);
     return c;
+  }
+
+  /** The context window a registered model runs with, when the catalog knows the model. */
+  window(provider: string, modelId: string): number | undefined {
+    try {
+      const w = (this.models as unknown as { getModel(p: string, id: string): { contextWindow?: number } | undefined }).getModel(provider, modelId)?.contextWindow;
+      return typeof w === "number" && w > 0 ? w : undefined;
+    } catch {
+      return undefined;
+    }
   }
 
   /** The model reference a conversation runs with, registering its route first. */
@@ -420,6 +452,7 @@ export class DurableEngine {
     // Every tool a conversation names is registered before it is selected.
     this.reinstall();
     const model = await this.routes.ref(spec.route);
+    const window = this.routes.window(model.provider, model.modelId);
     const registered = new Map<string, unknown>();
     for (const { tool } of this.registry.snapshot().tools()) registered.set((tool as { name: string }).name, tool);
     const tools = spec.tools.map((t) => registered.get(t.name)).filter(Boolean);
@@ -440,6 +473,8 @@ export class DurableEngine {
       tools,
       // No cap unless a helper's own file sets one: the user's Stop and compaction keep a long run in hand, on every route.
       maxTurns: spec.maxTurns ?? null,
+      // Compact where the meter says, on this model's window; null leaves Pi Durable's default for a model it cannot size.
+      compaction: window ? { reserveTokens: reserveFor(window, spec.route.contextWindow), backgroundTokens: backgroundFor(Math.min(window, spec.route.contextWindow ?? window)) } : null,
     } as never, CTX);
   }
 

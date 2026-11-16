@@ -17,6 +17,8 @@ export interface FakeTurn {
   paceMs?: number;
   /** Pause before the answer starts. */
   delayMs?: number;
+  /** The input tokens the answer reports, to fill the context as a long conversation would. */
+  inputTokens?: number;
 }
 
 export interface FakeAnthropic {
@@ -80,7 +82,7 @@ export async function startFakeAnthropic(script: (req: { toolResults: number; sy
       await new Promise((r) => setTimeout(r, pace));
     };
     const id = ++seq;
-    const usage = { input_tokens: 100 + n, output_tokens: 1, cache_creation_input_tokens: 0, cache_read_input_tokens: 0 };
+    const usage = { input_tokens: turn.inputTokens ?? 100 + n, output_tokens: 1, cache_creation_input_tokens: 0, cache_read_input_tokens: 0 };
     await send({ type: "message_start", message: { id: `msg_${id}`, type: "message", role: "assistant", model: body.model, content: [], stop_reason: null, stop_sequence: null, usage } });
     let index = 0;
     if (turn.text) {
