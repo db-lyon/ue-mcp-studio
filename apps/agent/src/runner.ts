@@ -439,7 +439,7 @@ export class AgentRunner {
       addEntry: (s, e) => this.addEntry(s, e),
       recordOutcome: (s, p, outcome) => this.recordOutcome(s, p, outcome),
       setStatus: (s, status, cause) => this.setStatus(s, status, cause),
-      // A subagent the user assigned makes the user's own calls.
+      // A subagent the user assigned makes the user's own calls. runTool runs a projected category call as its ue_mcp call.
       runTool: (s, c, id, name, input, onStart, parent) => this.runTool(s, c, id, name, input, !!parent && !!this.runs.get(parent)?.assigned, onStart),
       lostCall: (s, id, name, input) => this.lostCall(s, id, name, input),
       replyToUser: (s, id, input) => this.replyToUser(s, id, input),
