@@ -293,6 +293,27 @@ describe("durable runtime", () => {
     expect(fake.requests.filter((q) => !q.system.includes("You are a subagent")).every((q) => q.model === "claude-opus-5-5")).toBe(true);
   }, 60_000);
 
+  it("sends the provider's own web search with each request on a route that has one", async () => {
+    fake = await startFakeAnthropic(() => ({ text: "Searched." }));
+    rig = durableRunner({ projectDir: path.join(dir, "project"), dataDir: path.join(dir, "data"), base: fake.base, start, search: true });
+    const s = rig.store.create("t");
+    await rig.runner.send(s.id, "what is new in UE 5.9?");
+    await until(() => rig.store.get(s.id)!.status === "idle", 30_000, "the turn to end");
+    expect(fake.requests[0].serverTools).toContain("web_search_20250305");
+    // Studio's own search tool is not offered beside the provider's.
+    expect(fake.requests[0].tools.filter((t) => t === "web_search")).toHaveLength(1);
+  }, 60_000);
+
+  it("offers Studio's own web_search tool on a route whose provider has none", async () => {
+    fake = await startFakeAnthropic(() => ({ text: "Searched." }));
+    rig = durableRunner({ projectDir: path.join(dir, "project"), dataDir: path.join(dir, "data"), base: fake.base, start });
+    const s = rig.store.create("t");
+    await rig.runner.send(s.id, "what is new in UE 5.9?");
+    await until(() => rig.store.get(s.id)!.status === "idle", 30_000, "the turn to end");
+    expect(fake.requests[0].serverTools).toEqual([]);
+    expect(fake.requests[0].tools).toContain("web_search");
+  }, 60_000);
+
   it("moves a saved session onto the durable runtime with its conversation so far", async () => {
     fake = await startFakeAnthropic(({ userText }) => ({ text: userText.includes("the blue cube") ? "You asked about the blue cube." : "I do not know." }));
     rig = durableRunner({ projectDir: path.join(dir, "project"), dataDir: path.join(dir, "data"), base: fake.base, start });

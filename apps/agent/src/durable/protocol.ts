@@ -78,6 +78,8 @@ export interface RouteSpec {
   contextWindow?: number;
   /** How the credential the daemon hands out is sent: as the API key, or as a bearer authorization header. */
   auth: "apiKey" | "bearer" | "none";
+  /** The provider runs web search on its own side, paid by the user's key or subscription. Without it Studio offers its own web_search tool. */
+  search?: boolean;
 }
 
 /** A tool as the daemon defines it, in the Messages format. */
@@ -94,6 +96,8 @@ export interface AgentSpec {
   tools: ToolDef[];
   effort: Effort;
   maxTurns?: number;
+  /** The provider's own web search goes with this conversation's requests (its route has one, and the agent may search). */
+  search?: boolean;
 }
 
 /** Content of a user input, in pi-ai's form. */

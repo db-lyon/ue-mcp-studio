@@ -75,5 +75,72 @@ export function createStudioExtension(kit: Kit, defs: ToolDef[]) {
       },
     } as never);
   });
-  return kit.defineExtension({ name: EXTENSION_NAME, tools } as never);
+  // A harness before 0.1.35-beta.35 has no hooks to hand out: it runs the tools alone.
+  const hooks = kit.hook && kit.GenerationTask && kit.searches ? [searchHook(kit)] : [];
+  return kit.defineExtension({ name: EXTENSION_NAME, tools, hooks } as never);
+}
+
+/** The Messages API's own web search, which runs on Anthropic's side. */
+const ANTHROPIC_SEARCH = { type: "web_search_20250305", name: "web_search", max_uses: 8 };
+
+/**
+ * The provider's own web search in one request body, in that API's format;
+ * undefined for an API with none. Exported for the tests.
+ */
+export function withProviderSearch(api: string, payload: unknown): unknown {
+  if (!payload || typeof payload !== "object") return undefined;
+  const p = payload as Record<string, unknown>;
+  const add = (tools: unknown, tool: Record<string, unknown>, same: (t: Record<string, unknown>) => boolean): unknown[] => {
+    const list = Array.isArray(tools) ? (tools as Array<Record<string, unknown>>) : [];
+    return list.some(same) ? list : [...list, tool];
+  };
+  // The Claude sign-in's request body is the extra body Claude Code sends, in the Messages format (pi-claude-code's API is claude-code-stream-json).
+  switch (api.startsWith("claude-code") ? "claude-code" : api) {
+    case "anthropic-messages":
+    case "claude-code":
+      return { ...p, tools: add(p.tools, ANTHROPIC_SEARCH, (t) => String(t.type ?? "").startsWith("web_search")) };
+    case "openai-responses":
+      return { ...p, tools: add(p.tools, { type: "web_search" }, (t) => t.type === "web_search") };
+    case "google-generative-ai": {
+      const config = (p.config && typeof p.config === "object" ? p.config : {}) as Record<string, unknown>;
+      return { ...p, config: { ...config, tools: add(config.tools, { googleSearch: {} }, (t) => "googleSearch" in t) } };
+    }
+    default:
+      return undefined;
+  }
+}
+
+/** A request refused because of the search tool, which some keys, accounts and models do not have. */
+export const isSearchRefusal = (text: string | undefined): boolean =>
+  !!text && /web.?search|google.?search|googleSearch|search tool|tool use with function calling is unsupported/i.test(text);
+
+/**
+ * The provider's own web search on every route that has one, paid by the
+ * user's key or subscription: added to each request of a conversation whose
+ * spec allows it. A provider that refuses it has it taken off for the rest of
+ * this harness's life, and the refused request is sent again without it.
+ */
+/** Conversations whose search was logged: the extension is rebuilt at every configure. */
+const told = new Set<string>();
+
+function searchHook(kit: Kit) {
+  return kit.hook!(kit.GenerationTask!, {
+    beforeProviderRequest: (request: { model: { api: string; provider: string }; payload: unknown }, api: { conversationId: unknown }) => {
+      const conv = String(api.conversationId);
+      if (!kit.searches!(conv) || kit.searchRefused?.(request.model.provider)) return undefined;
+      const payload = withProviderSearch(request.model.api, request.payload);
+      if (payload !== undefined && !told.has(conv)) {
+        told.add(conv);
+        kit.log?.(`conversation ${conv}: ${request.model.provider}'s own web search goes with its requests`);
+      }
+      return payload === undefined ? undefined : { payload };
+    },
+    afterResponse: (message: { stopReason: string; errorMessage?: string; provider: string }, api: { conversationId: unknown }) => {
+      if (message.stopReason !== "error" || !kit.searches!(String(api.conversationId)) || kit.searchRefused?.(message.provider)) return;
+      if (!isSearchRefusal(message.errorMessage)) return;
+      kit.refuseSearch?.(message.provider);
+      // Worded so the harness's retry policy sends it again, now without the search.
+      message.errorMessage = `${message.errorMessage} (Studio turned this provider's web search off; you can retry your request.)`;
+    },
+  } as never);
 }

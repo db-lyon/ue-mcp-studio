@@ -30,6 +30,7 @@ import type { QaBroker } from "./qa.js";
 import { TOOLS, WORK_TOOLS, editorConnected, executeTool, forModel, packageFile, validateInput, verifyUnknown, type AgentHost, type ToolExecution } from "./tools.js";
 import type Anthropic from "@anthropic-ai/sdk";
 import { approvalFor, localToolDefinitions, shell } from "./local-tools.js";
+import { WEB_SEARCH_TOOL } from "./web-search.js";
 import { callInsideProject } from "./project-scope.js";
 import { MICRO_LINE, microSurface, withSurface, type EditorSurface } from "./context-surface.js";
 
@@ -438,6 +439,17 @@ export function addUserContent(messages: MessageParam[], content: unknown[]): vo
   }
   const blocks = typeof last.content === "string" ? [{ type: "text", text: last.content }] : [...(last.content as unknown[])];
   last.content = [...blocks, ...content] as MessageParam["content"];
+}
+
+/**
+ * Web search on the durable runtime, the same on every route: the provider's
+ * own where its route has one (the harness adds it to each request), and
+ * Studio's own web_search tool where it has none. `may`: the agent may search.
+ */
+function withSearch(route: RouteSpec, tools: Anthropic.Beta.BetaToolUnion[], may: boolean): { tools: ToolDef[]; search: boolean } {
+  const defs = tools.map(toolDef);
+  if (may && !route.search) defs.push(toolDef(WEB_SEARCH_TOOL));
+  return { tools: defs, search: may && !!route.search };
 }
 
 /** A tool definition as the durable harness takes it. */
@@ -1107,7 +1119,8 @@ export class AgentRunner {
   private durableMainSpec(): AgentSpec {
     const surf = this.surface();
     const text = [withSurface(system(this.o.host.projectDir, this.runsMode(), this.usage(), this.composed()), surf), this.skillLines()].filter(Boolean).join("\n");
-    return { route: this.o.durable!.routeSpec(this.o.model()), system: text, tools: this.mainTools(surf).map(toolDef), effort: this.o.effort?.() ?? "high" };
+    const route = this.o.durable!.routeSpec(this.o.model());
+    return { route, system: text, ...withSearch(route, this.mainTools(surf), true), effort: this.o.effort?.() ?? "high" };
   }
 
   /**
@@ -1179,10 +1192,11 @@ export class AgentRunner {
         this.o.host.log.warn(`helper ${helper.name}: ${e instanceof Error ? e.message : String(e)} It runs on the subagent model.`);
       }
     }
+    const reach = route ?? this.o.durable!.routeSpec(this.subagentModel());
     return {
-      route: route ?? this.o.durable!.routeSpec(this.subagentModel()),
+      route: reach,
       system: systemText,
-      tools: tools.map(toolDef),
+      ...withSearch(reach, tools, !helper?.allowed || helper.allowed.has("web_search")),
       effort: (helper?.effort as Effort | null) ?? this.subagentEffort(),
       maxTurns: helper?.maxTurns ?? SUBAGENT_STEPS,
     };
