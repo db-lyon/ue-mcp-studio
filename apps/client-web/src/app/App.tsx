@@ -194,7 +194,7 @@ export function App({ initial = "projects" }: { initial?: Screen } = {}) {
           <NodeCard state={m.state} refreshNode={m.refreshNode} onInstalled={() => void m.refresh()} />
         ) : (
           <>
-            {screen === "projects" && <ReportProblem m={m} />}
+            {screen === "projects" && <ReportProblem m={m} onSettings={() => go("settings")} />}
             {/* With no report to show, the problem above is the whole screen. */}
             {screen === "projects" && project && <ProjectDetail p={project} m={m} onBack={() => setSelected(null)} />}
             {screen === "projects" && !project && (m.report || m.loading) && <ProjectsView m={m} onOpen={setSelected} />}
@@ -207,7 +207,7 @@ export function App({ initial = "projects" }: { initial?: Screen } = {}) {
 }
 
 /** Why the report could not be read, above whatever is shown from an earlier one. */
-function ReportProblem({ m }: { m: Machine }) {
+function ReportProblem({ m, onSettings }: { m: Machine; onSettings: () => void }) {
   const a = m.answer;
   if (!a || a.ok || m.loading) return null;
   const version = a.ueMcp?.replace(/^ue-mcp@/, "") ?? "";
@@ -222,6 +222,8 @@ function ReportProblem({ m }: { m: Machine }) {
         </p>
         {m.stale && <p className="dim small">Showing the list read {readAt(a.cachedAt)}.</p>}
         <div className="row">
+          {/* The update the text names is one press away, not a screen to find. */}
+          {a.reason === "version" && <button className="primary" onClick={onSettings}>Update UE-MCP</button>}
           <button onClick={() => void m.refresh()}>Check again</button>
         </div>
       </section>
