@@ -62,9 +62,10 @@ describe.skipIf(!browserPath)("a reply's table, laid out at the chat's narrowest
       <div class="chat" style="width:${NARROWEST}px"><section class="card conversation"><div class="transcript">${markup}</div></section></div></body></html>`);
   }, 30_000);
 
+  // Closing Chrome on a loaded machine can take longer than vitest's 10 s hook default; teardown gets a budget of its own.
   afterAll(async () => {
     await browser?.close();
-  });
+  }, 60_000);
 
   it("never breaks a plain word in a cell across lines", async () => {
     const broken = await page.evaluate(() => {

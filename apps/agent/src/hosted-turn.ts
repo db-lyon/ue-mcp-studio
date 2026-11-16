@@ -432,8 +432,15 @@ class HostLink {
       case "heard": return cb.onHeard?.(ev.n);
       case "end": {
         sendLine(this.sock, { t: "ack", seq: ev.seq });
-        removeHostFiles(this.o.dataDir, this.record.host);
+        // The turn is over whatever the files do: settled first, so a failed removal cannot leave it open.
         this.settle(ev.error);
+        // The host removes its own files once it has the ack; this is only for one that went away first.
+        // On Windows the host can still be renaming its record at this moment (EPERM): it is then the host's to remove.
+        try {
+          removeHostFiles(this.o.dataDir, this.record.host);
+        } catch (e) {
+          this.o.log.info(`session ${this.record.session}: the turn host's files are left to the host (${e instanceof Error ? e.message : String(e)})`);
+        }
         setTimeout(() => this.close(), 200).unref?.();
         return;
       }

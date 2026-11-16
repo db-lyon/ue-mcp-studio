@@ -1153,7 +1153,10 @@ describe("send now on a queued message", () => {
 // The turn that took Studio down searched a large folder with grep and no ripgrep: every queue
 // request waited until the search ended, 15 minutes later (#165). Each step here runs from its own
 // timer, as a request would, and must land while that search is still running.
-describe("the queue while a turn searches a large folder", () => {
+// Each case writes 200 files and greps them without ripgrep on purpose, so the search is still running when the
+// queue changes. With every core busy (the full suite) that whole turn can pass vitest's 5 s default, and a case
+// timed out with nothing wrong: the cases get the time a real folder walk takes.
+describe("the queue while a turn searches a large folder", { timeout: 30_000 }, () => {
   beforeEach(() => {
     setRipgrep(null);
     for (let d = 0; d < 20; d++) {

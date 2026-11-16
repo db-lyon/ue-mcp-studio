@@ -194,7 +194,9 @@ export function listRecords(dataDir: string): TurnHostRecord[] {
 
 /** Remove a host's files: once its end is applied, or once it was stopped. */
 export function removeHostFiles(dataDir: string, host: string): void {
-  for (const f of [recordFile(dataDir, host), journalFile(dataDir, host), launchFile(dataDir, host)]) fs.rmSync(f, { force: true });
+  // The host and the daemon both remove them as a turn ends, and on Windows one side's open or rename makes the
+  // other's removal fail with EPERM or EBUSY for a moment: Node tries again on exactly those.
+  for (const f of [recordFile(dataDir, host), journalFile(dataDir, host), launchFile(dataDir, host)]) fs.rmSync(f, { force: true, maxRetries: 10, retryDelay: 50 });
 }
 
 const SEQ = /^\{"seq":(\d+),/;

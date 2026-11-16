@@ -318,7 +318,14 @@ export class TurnHost {
     if (this.journal !== null) fs.closeSync(this.journal);
     this.journal = null;
     // Applied, or stopped: nothing is left to reattach. Otherwise the next daemon applies the journal.
-    if (this.aborted || this.acked >= this.seq) removeHostFiles(this.l.dataDir, this.l.host);
+    if (this.aborted || this.acked >= this.seq) {
+      // A removal that still fails must not keep the host from exiting: a leftover record says the turn ended.
+      try {
+        removeHostFiles(this.l.dataDir, this.l.host);
+      } catch (e) {
+        this.log(`could not remove this host's files: ${e instanceof Error ? e.message : String(e)}`);
+      }
+    }
     this.daemon = null;
     const closed = new Promise<void>((r) => (this.server ? this.server.close(() => r()) : r()));
     for (const s of this.sockets) s.end();

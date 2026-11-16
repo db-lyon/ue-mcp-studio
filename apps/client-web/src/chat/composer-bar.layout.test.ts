@@ -40,10 +40,12 @@ beforeAll(async () => {
   browser = await chromium.launch({ executablePath: exe, headless: true });
 }, 120_000);
 
+// Closing Chrome and the Vite server on a loaded machine (the full suite, every worker busy) can take longer than
+// vitest's 10 s hook default, and the hook then failed a run whose tests all passed. Teardown gets a budget of its own.
 afterAll(async () => {
   await browser?.close();
   await server?.close();
-});
+}, 60_000);
 
 interface Measure {
   tier: string | undefined;
