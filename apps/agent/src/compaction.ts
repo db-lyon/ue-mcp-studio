@@ -7,7 +7,7 @@
  * on its own, and Studio shows where it did.
  */
 import { COMPACTED_PREFIX, estimateTokens } from "@ue-mcp-studio/shared";
-import type { MessageParam } from "./providers.js";
+import type { MessageParam } from "./messages.js";
 
 type Block = { type: string; text?: string; name?: string; input?: unknown; content?: unknown; source?: { data?: string } };
 

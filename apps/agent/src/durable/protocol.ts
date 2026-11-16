@@ -23,7 +23,9 @@ import type { Effort } from "@ue-mcp-studio/shared";
 import type { ToolExecution } from "../tools.js";
 
 /** Bumped when a message is added or a meaning changes. */
-export const DURABLE_PROTOCOL = 2;
+export const DURABLE_PROTOCOL = 3;
+/** The first protocol whose harness answers one-off completions (`complete`), as flow agent steps ask for them. */
+export const COMPLETE_PROTOCOL = 3;
 export const DURABLE_DIR = "durable";
 
 export const durableDir = (dataDir: string): string => path.join(dataDir, DURABLE_DIR);
@@ -181,12 +183,14 @@ export type ClientMessage =
   /** The main agent's foreground agent calls stop waiting: their subagents go on in the background. */
   | { t: "background"; id: string; sessionId: string }
   /** The user's message to a running subagent. */
-  | { t: "tell"; id: string; sessionId: string; callId: string; text: string; requestId: string }
+  | { t: "tell"; id: string; sessionId: string; callId: string; text: string; requestId: string; quote?: string }
   /** Send every entry after these, per conversation, then the live state. */
   | { t: "sync"; id: string; sessionId: string; after: Record<string, string> }
   | { t: "compact"; id: string; sessionId: string; instructions: string }
   /** Protocol 2: a subagent the user assigned from the chat, run beside the main agent's runs under its own call id. */
   | { t: "assign"; id: string; sessionId: string; callId: string; start: Extract<AgentStart, { ok: true }> }
+  /** Protocol 3: one answer from a model on a route, outside any conversation: a flow agent step. Answered with the text. */
+  | { t: "complete"; id: string; route: RouteSpec; system: string; prompt: string; effort: Effort }
   /** What the harness is doing: its live tasks, queued submissions and recent reports. Reads only. An older harness never answers it. */
   | { t: "inspect"; id: string }
   /** An edited message or a fork: conversation `to` goes on from just before the message in `from`. Answers { conv, at } or null. An older harness never answers it. */

@@ -12,8 +12,8 @@ The editor must already be running on that project. The runner never starts, sto
 ## What it compares
 
 - `cc`: Claude Code headless (`claude -p`) with ue-mcp as its only MCP server (`--strict-mcp-config`), `--setting-sources project,local`, bypassing permissions. Multi-turn prompts continue with `--resume`.
-- `studio`: this checkout's agent source, bundled into a harness that runs Studio's Claude-plan turn on the user's Claude Code login (`runSubscriptionTurn`), tool executor (`executeTool`) and system prompts with the default usage settings, against ue-mcp. The model, effort and SDK options are the ones Studio sends.
-- `studio-base` (with `--base <git ref>`): the same harness built from that ref, so a change is measured against what it changes, in the same session.
+- `studio`: this checkout's agent source, bundled into a harness that runs Studio's turn as it ships: `AgentRunner` on the durable runtime, with the harness in the same process and the Claude sign-in through pi-claude-code on the user's Claude Code login, Studio's tool executor and system prompts with the default usage settings (subagents off), against ue-mcp. The model and effort are the ones Studio sends. Claude Code runs as a model there and writes no transcript, so Studio's spend comes from Studio's own totals for the session (`spendFromTotals` in `report.mjs`).
+- `studio-base` (with `--base <git ref>`): the same harness built from that ref, so a change is measured against what it changes, in the same session. The ref must have the durable runtime.
 
 Both clients use the same Claude login, model and effort (`--model`, default `claude-sonnet-5-5`; `--effort`, default `medium`).
 
@@ -23,7 +23,7 @@ Both clients use the same Claude login, model and effort (`--model`, default `cl
 
 ## How it counts
 
-Cost is input-equivalent tokens, read from the Claude transcripts each run writes under `~/.claude/projects/<project>`: input x1, 5-minute cache write x1.25, 1-hour cache write x2, cache read x0.1, output x5. Each assistant message counts once by its id, main transcript and subagents together.
+Cost is input-equivalent tokens, read for Claude Code from the transcripts each run writes under `~/.claude/projects/<project>`, and for Studio from its own totals for the session: input x1, 5-minute cache write x1.25, 1-hour cache write x2, cache read x0.1, output x5. Each assistant message counts once by its id, main transcript and subagents together.
 
 - Clients run interleaved, prompt by prompt, and the client order reverses every round.
 - Each client's first run (prompt A, labelled `warm`) writes its fixed prefix to the prompt cache and is not counted, so no client is charged for a cold cache the other did not pay.
@@ -67,5 +67,5 @@ Without `--keep`, the runner loads the level that was open before, deletes `/Gam
 
 ## Needs
 
-- `claude` on the PATH, signed in. Studio's harness runs on the same login, through the Agent SDK runtime Studio downloads to `~/.ue-mcp/studio/runtime`.
-- The repo's dependencies (`npm ci`): the harness resolves the Agent SDK and the MCP SDK from them, and ue-mcp from the nearest `node_modules/ue-mcp` above `apps/agent`, where npm installed it.
+- `claude` on the PATH, signed in. Studio's harness runs on the same login, through the Claude runtime Studio downloads to `~/.ue-mcp/studio/runtime`.
+- The repo's dependencies (`npm ci`): the harness bundles pi-durable, pi-ai and pi-claude-code from them, resolves the MCP SDK, and finds ue-mcp in the nearest `node_modules/ue-mcp` above `apps/agent`, where npm installed it.

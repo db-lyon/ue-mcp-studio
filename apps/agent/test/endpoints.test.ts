@@ -7,8 +7,7 @@ import type { DaemonExtensionApi } from "ue-mcp/daemon";
 import { conventionOf, endpointVendor, type CustomEndpoint, type SignInId } from "@ue-mcp-studio/shared";
 import { EndpointStore, baseUrlOf, idFor, listEndpointModels, mergeListed, registerEndpointRoutes } from "../src/endpoints.js";
 import { ModelCatalogSource, endpointCatalog, pickRoute, type RouteContext } from "../src/models.js";
-import { OpenAICompatibleProvider } from "../src/openai-compat.js";
-import { providerFor } from "../src/providers.js";
+import { routeSpec } from "../src/durable/routes.js";
 import { SettingsStore } from "../src/settings.js";
 
 let dir: string;
@@ -185,22 +184,19 @@ describe("the model catalog", () => {
 });
 
 describe("running on an endpoint", () => {
-  it("sends Chat Completions to the endpoint's address, with its key when it has one", async () => {
-    const fetchImpl = vi.fn(async (_url: string | URL | Request, _init?: RequestInit) => new Response("data: [DONE]\n", { status: 200 }));
-    await new OpenAICompatibleProvider("http://box/v1", "", fetchImpl as unknown as typeof fetch).run({ sessionId: "s", model: "llama", system: [{ type: "text", text: "sys" }], tools: [], messages: [{ role: "user", content: "hi" }] }, () => {}, new AbortController().signal);
-    expect(fetchImpl.mock.calls[0][0]).toBe("http://box/v1/chat/completions");
-    expect((fetchImpl.mock.calls[0][1]!.headers as Record<string, string>).authorization).toBeUndefined();
-    await new OpenAICompatibleProvider("http://box/v1", "k", fetchImpl as unknown as typeof fetch).run({ sessionId: "s", model: "llama", system: [], tools: [], messages: [{ role: "user", content: "hi" }] }, () => {}, new AbortController().signal);
-    expect((fetchImpl.mock.calls[1][1]!.headers as Record<string, string>).authorization).toBe("Bearer k");
+  const spec = (endpoint: (id: string) => { baseUrl: string; key: string | null } | null) =>
+    routeSpec({ route: "endpoint", model: "llama", vendor: endpointVendor("box"), gatewayUrl: "", agentVersion: "0.0.0", endpoint });
+
+  it("reaches Chat Completions at the endpoint's address, with its key when it has one, asked for by the endpoint's id", () => {
+    expect(spec(() => ({ baseUrl: "http://box/v1", key: null }))).toMatchObject({ route: "endpoint:box", api: "openai-completions", baseUrl: "http://box/v1", auth: "none", model: "llama" });
+    expect(spec(() => ({ baseUrl: "http://box/v1", key: "k" }))).toMatchObject({ auth: "apiKey" });
   });
 
-  it("makes the endpoint's provider, and says so when the endpoint was removed", () => {
+  it("says so when the endpoint was removed", () => {
     const settings = new SettingsStore(path.join(dir, "project"), keysDir);
     settings.update({ provider: "endpoint:box", model: "llama" });
     expect(settings.provider()).toBe("endpoint:box");
-    const p = providerFor(settings, "endpoint", { endpoint: (id) => (id === "box" ? { baseUrl: "http://box/v1", key: null } : null) });
-    expect(p).toBeInstanceOf(OpenAICompatibleProvider);
-    expect(() => providerFor(settings, "endpoint", { endpoint: () => null })).toThrow(/removed/);
+    expect(() => spec(() => null)).toThrow(/removed/);
   });
 });
 

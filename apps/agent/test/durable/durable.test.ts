@@ -11,7 +11,6 @@ import type { SessionDetail, TranscriptEntry } from "@ue-mcp-studio/shared";
 import { runHarness } from "../../src/durable/harness-main.js";
 import { AgentRunner } from "../../src/runner.js";
 import { SessionStore } from "../../src/sessions.js";
-import type { ModelProvider, ModelTurn } from "../../src/providers.js";
 import { syncOf } from "../../src/session-delta.js";
 import { DetailLoader as Build40Loader } from "../fixtures/build40-session-sync.js";
 import { loadout } from "../../src/native.js";
@@ -130,7 +129,7 @@ describe("durable runtime", () => {
     expect(editorCalls(path.join(dir, "data")).filter((c) => c.action === "list")).toHaveLength(STEPS);
   }, 180_000);
 
-  it("shows the same conversation as Studio's loop does, and Android build 40's loader reads it", async () => {
+  it("shows the conversation as every client expects it, and Android build 40's loader reads it", async () => {
     const script = ({ toolResults }: { toolResults: number }): FakeTurn => toolResults === 0
       ? { text: "Placing it.", tool: { name: "ue_mcp", input: { action: "call", category: "level", method: "place_actor", args: { class: "Cube" } } } }
       : { text: "Placed a cube." };
@@ -140,28 +139,14 @@ describe("durable runtime", () => {
     await rig.runner.send(s.id, "place a cube");
     await until(() => rig.store.get(s.id)!.status === "idle", 30_000, "the durable turn");
 
-    // The same script on Studio's own loop, with the setting off.
-    const loopData = path.join(dir, "loop");
-    fs.mkdirSync(loopData);
-    const loopHost = new FakeHost(path.join(dir, "project"), loopData);
-    const loopStore = new SessionStore(loopData);
-    const model: ModelProvider = {
-      run: async (req) => {
-        const n = req.messages.flatMap((m) => (Array.isArray(m.content) ? m.content : [])).filter((b) => (b as { type?: string }).type === "tool_result").length;
-        const turn = script({ toolResults: n });
-        const content: unknown[] = [];
-        if (turn.text) content.push({ type: "text", text: turn.text, citations: null });
-        if (turn.tool) content.push({ type: "tool_use", id: `toolu_${n}_${turn.tool.name}`, name: turn.tool.name, input: turn.tool.input });
-        return { content, stopReason: turn.tool ? "tool_use" : "end_turn" } as ModelTurn;
-      },
-    };
-    const loop = new AgentRunner({ host: loopHost, store: loopStore, provider: () => model, model: () => "claude-opus-5-5", askBeforeChanges: () => false });
-    const l = loopStore.create("t");
-    await loop.send(l.id, "place a cube");
-    await until(() => loopStore.get(l.id)!.status === "idle", 10_000, "the loop turn");
-    loop.dispose();
-    const shape = (t: TranscriptEntry[]) => t.map((e) => (e.kind === "tool" ? { kind: e.kind, parent: e.parent, name: e.call.name, input: e.call.input, outcome: e.call.outcome, result: e.call.result, id: e.call.id } : { kind: e.kind, parent: e.parent, text: (e as { text?: string }).text }));
-    expect(shape(transcript(rig.store, s.id))).toEqual(shape(loopStore.get(l.id)!.transcript));
+    // The shape Studio's own loop produced before the cutover, which the clients are built against.
+    const shape = (t: TranscriptEntry[]) => t.map((e) => (e.kind === "tool" ? { kind: e.kind, parent: e.parent, name: e.call.name, input: e.call.input, outcome: e.call.outcome } : { kind: e.kind, parent: e.parent, text: (e as { text?: string }).text }));
+    expect(shape(transcript(rig.store, s.id))).toEqual([
+      { kind: "user", parent: undefined, text: "place a cube" },
+      { kind: "assistant", parent: undefined, text: "Placing it." },
+      { kind: "tool", parent: undefined, name: "ue_mcp", input: { action: "call", category: "level", method: "place_actor", args: { class: "Cube" } }, outcome: "done" },
+      { kind: "assistant", parent: undefined, text: "Placed a cube." },
+    ]);
 
     // An old phone's loader gets the chat from the durable session as from any other.
     const detail = SessionStore.detail(rig.store.get(s.id)!);
@@ -347,8 +332,8 @@ describe("durable runtime", () => {
     const l = loadout("claude", projectDir, path.join(dir, "home"), new Map(), dir);
     const asked: Array<{ model: string; on?: { route: string; vendor: string } }> = [];
     const native: NativeRun = {
-      convention: "claude", loadout: l, composed: composeNative(l), skills: l.skills, sdkLoads: false,
-      helpers: [{ name: "reviewer", description: "Reviews", prompt: "Review carefully.", allowed: null, maxTurns: null, effort: null, run: { provider: () => { throw new Error("unused"); }, model: "gpt-review", vendor: "openai", route: "key" } }],
+      convention: "claude", loadout: l, composed: composeNative(l), skills: l.skills,
+      helpers: [{ name: "reviewer", description: "Reviews", prompt: "Review carefully.", allowed: null, maxTurns: null, effort: null, run: { model: "gpt-review", vendor: "openai", route: "key" } }],
     };
     rig = durableRunner({ projectDir, dataDir: path.join(dir, "data"), base: fake.base, start, extra: { native: () => native } });
     // The rig's routes, with the helper's own route recorded: both reach the stand-in.

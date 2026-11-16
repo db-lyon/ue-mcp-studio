@@ -3,17 +3,16 @@
  * the daemon's projection, every category call read back as the ue_mcp call it
  * is, and Micro whenever the daemon cannot project.
  */
-import { beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
-import type { ActionResult, EditorStatus } from "ue-mcp/daemon";
+import type { ActionResult } from "ue-mcp/daemon";
 import { ContextSurfaces, MICRO_LINE, canonCategoryCall, contextApiOf, withSurface, type ContextApi, type Projection } from "../src/context-surface.js";
-import { AgentRunner } from "../src/runner.js";
 import { SessionStore } from "../src/sessions.js";
-import type { ModelProvider, ModelRequest, ModelTurn } from "../src/providers.js";
-import type { AgentHost } from "../src/tools.js";
-import { withEditor, zodShape } from "../src/subscription.js";
+import { runHarness } from "../src/durable/harness-main.js";
+import { FakeHost, durableRunner, until, type DurableRig } from "./durable/helpers.js";
+import { startFakeAnthropic, type FakeAnthropic } from "./durable/fake-anthropic.js";
 
 const level = { name: "level", description: "Levels. Actions: get_outliner, spawn_actor", category: "level", inputSchema: { type: "object", properties: { action: { type: "string", enum: ["get_outliner", "spawn_actor"] }, args: { type: "object" }, editor: { type: "string" } }, required: ["action"] } };
 const catalog = { name: "catalog", description: "Describe an action", category: null, inputSchema: { type: "object", properties: { name: { type: "string" } }, required: ["name"] } };
@@ -78,76 +77,60 @@ describe("reading the daemon's projection", () => {
   });
 });
 
-describe("the Agent SDK's registry", () => {
-  it("types a projected schema as far as it says, and stands projected tools in for ue_mcp", () => {
-    const shape = zodShape(level.inputSchema);
-    expect(Object.keys(shape)).toEqual(["action", "args", "editor"]);
-    expect(shape.action.safeParse("spawn_actor").success).toBe(true);
-    expect(shape.action.safeParse("explode").success).toBe(false);
-    expect(shape.args.safeParse(undefined).success).toBe(true);
-    expect(withEditor(["mcp__studio__ue_mcp", "mcp__studio__shell"], ["level", "catalog"])).toEqual(["mcp__studio__level", "mcp__studio__catalog", "mcp__studio__shell"]);
-    expect(withEditor(["mcp__studio__ue_mcp"], undefined)).toEqual(["mcp__studio__ue_mcp"]);
-  });
-});
-
-/* ── The loop on a projected surface ─────────────────────────────── */
-
-class Host implements AgentHost {
-  calls: Array<{ category: string; action: string; args?: Record<string, unknown> }> = [];
-  log = { info() {}, warn() {} };
-  events = { publish: () => undefined, subscribe: () => () => {} };
-  constructor(public projectDir: string, public dataDir: string) {}
-  async callAction(category: string, action: string, args?: Record<string, unknown>): Promise<ActionResult> {
-    this.calls.push({ category, action, args });
-    return { isError: false, content: [{ type: "text", text: "{\"success\":true,\"actors\":[]}" }] };
-  }
-  editors(): EditorStatus[] {
-    return [{ name: "P", connected: true, port: 1, pid: 1, lastDisconnect: null }];
-  }
-  async editorOperation(op: string) {
-    return { op, steps: [] };
-  }
-  setBusy(): void {}
-}
-
-class Scripted implements ModelProvider {
-  requests: ModelRequest[] = [];
-  constructor(private readonly turns: Array<() => ModelTurn>) {}
-  async run(req: ModelRequest): Promise<ModelTurn> {
-    this.requests.push(JSON.parse(JSON.stringify(req)));
-    return this.turns.shift()!();
-  }
-}
-const use = (id: string, name: string, input: Record<string, unknown>): ModelTurn => ({ content: [{ type: "tool_use", id, name, input } as never], stopReason: "tool_use" });
-const text = (t: string): ModelTurn => ({ content: [{ type: "text", text: t, citations: null } as never], stopReason: "end_turn" });
+/* ── A turn on a projected surface, in the durable harness ───────── */
 
 describe("a turn on Lean", () => {
-  let host: Host;
+  let root: string;
+  let host: FakeHost;
   let store: SessionStore;
+  let fake: FakeAnthropic | null = null;
+  let harness: { close(): Promise<void> } | null = null;
+  let rig: DurableRig | null = null;
   beforeEach(() => {
-    const root = fs.mkdtempSync(path.join(os.tmpdir(), "studio-lean-"));
-    host = new Host(root, path.join(root, "data"));
+    root = fs.mkdtempSync(path.join(os.tmpdir(), "studio-lean-"));
+    fs.mkdirSync(path.join(root, "data"), { recursive: true });
+    host = new FakeHost(root, path.join(root, "data"));
     store = new SessionStore(host.dataDir);
+  });
+  afterEach(async () => {
+    rig?.runner.dispose();
+    await harness?.close();
+    await fake?.close();
+    rig = null;
+    harness = null;
+    fake = null;
+    fs.rmSync(root, { recursive: true, force: true });
   });
 
   it("offers the projected tools, runs a category call as the ue_mcp call it is, and a catalog call through context.call", async () => {
     const api = new FakeContext();
-    const model = new Scripted([
-      () => use("c1", "catalog", { name: "level.get_outliner" }),
-      () => use("c2", "level", { action: "get_outliner", args: {} }),
-      () => text("Empty level."),
-    ]);
-    const runner = new AgentRunner({ host, store, provider: () => model, model: () => "claude-opus-5-5", surfaces: new ContextSurfaces(api, () => "lean") });
+    fake = await startFakeAnthropic(({ toolResults }) => [
+      { tool: { id: "c1", name: "catalog", input: { name: "level.get_outliner" } } },
+      { tool: { id: "c2", name: "level", input: { action: "get_outliner", args: {} } } },
+      { text: "Empty level." },
+    ][Math.min(toolResults, 2)]);
+    rig = durableRunner({
+      projectDir: host.projectDir,
+      dataDir: host.dataDir,
+      base: fake.base,
+      host,
+      store,
+      start: async (launch) => {
+        harness = await runHarness(launch);
+      },
+      extra: { surfaces: new ContextSurfaces(api, () => "lean") },
+    });
     const s = store.create();
-    await runner.send(s.id, "what is in the level");
-    const names = model.requests[0].tools.map((t) => (t as { name: string }).name);
+    await rig.runner.send(s.id, "what is in the level");
+    await until(() => store.get(s.id)!.status === "idle", 30_000, "the turn to end");
+    const names = fake.requests[0].tools;
     expect(names.slice(0, 3)).toEqual(["level", "catalog", "editor_restart"]);
     expect(names).not.toContain("ue_mcp");
-    expect(model.requests[0].system[0].text).toContain("ue-mcp lean instructions.");
+    expect(fake.requests[0].system).toContain("ue-mcp lean instructions.");
     expect(api.calls).toEqual([{ tool: "catalog", input: { name: "level.get_outliner" }, strategy: "lean" }]);
     expect(host.calls).toEqual([{ category: "level", action: "get_outliner", args: {} }]);
     // The transcript keeps one shape on every strategy.
     const call = store.get(s.id)!.transcript.find((t) => t.kind === "tool" && t.call.id === "c2");
     expect(call?.kind === "tool" && call.call).toMatchObject({ name: "ue_mcp", input: { action: "call", category: "level", method: "get_outliner" }, outcome: "done" });
-  });
+  }, 60_000);
 });

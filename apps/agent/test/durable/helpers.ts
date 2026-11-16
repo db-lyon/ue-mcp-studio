@@ -32,8 +32,14 @@ export class FakeHost implements AgentHost {
       };
     },
   };
+  /** Every editor call in this process, in order, list_dirty_packages too. */
+  calls: Array<{ category: string; action: string; args?: Record<string, unknown> }> = [];
+  /** Answers every editor call instead of the default when a test sets it. */
+  handler: ((category: string, action: string, args?: Record<string, unknown>) => Promise<ActionResult>) | null = null;
   constructor(public projectDir: string, public dataDir: string) {}
   async callAction(category: string, action: string, args?: Record<string, unknown>): Promise<ActionResult> {
+    this.calls.push({ category, action, args });
+    if (this.handler) return this.handler(category, action, args);
     if (category === "editor" && action === "list_dirty_packages") return { isError: false, content: [{ type: "text", text: "{\"success\":true,\"content\":[]}" }] };
     fs.appendFileSync(path.join(this.dataDir, "calls.jsonl"), `${JSON.stringify({ at: Date.now(), category, action, args, pid: process.pid })}\n`);
     if (this.callMs) await new Promise((r) => setTimeout(r, this.callMs));
@@ -83,15 +89,15 @@ export function durableRunner(o: {
   extra?: Partial<RunnerOptions>;
   /** The route has the provider's own web search, as an Anthropic key does. */
   search?: boolean;
+  /** A host and a store of the test's own, instead of new ones over the folders. */
+  host?: FakeHost;
+  store?: SessionStore;
 }): DurableRig {
-  const host = new FakeHost(o.projectDir, o.dataDir);
-  const store = new SessionStore(o.dataDir);
+  const host = o.host ?? new FakeHost(o.projectDir, o.dataDir);
+  const store = o.store ?? new SessionStore(o.dataDir);
   const runner = new AgentRunner({
     host,
     store,
-    provider: () => {
-      throw new Error("the durable runtime does not use Studio's providers");
-    },
     model: () => "claude-opus-5-5",
     askBeforeChanges: () => false,
     ...o.extra,

@@ -1,8 +1,10 @@
 /**
- * The Claude runtime the Agent SDK drives, fetched on first use.
- * It is the SDK's own platform package from npm, checked against the
- * registry's integrity hash and kept under Studio's folder per version, so a
- * Studio install needs no separate Claude install and no package shipped beside it.
+ * The Claude runtime the Claude sign-in runs on (pi-claude-code drives it as
+ * a model), fetched on first use. It is the platform package Anthropic
+ * publishes on npm, at the version pinned as `claudeRuntime` in the agent's
+ * package.json, checked against the registry's integrity hash and kept under
+ * Studio's folder per version, so a Studio install needs no separate Claude
+ * install and no package shipped beside it.
  */
 import * as crypto from "node:crypto";
 import * as fs from "node:fs";
@@ -19,12 +21,12 @@ const REGISTRY = "https://registry.npmjs.org";
 const BINARY = process.platform === "win32" ? "claude.exe" : "claude";
 const platformPackage = () => `@anthropic-ai/claude-agent-sdk-${process.platform}-${process.arch}`;
 
-/** The SDK version the bundle was built with; the runtime must match it. */
+/** The runtime version this Studio pins: stamped into the bundle, read from the agent's package.json in development and tests. */
 export function runtimeVersion(): string | null {
   if (typeof __CLAUDE_SDK_VERSION__ === "string") return __CLAUDE_SDK_VERSION__;
   try {
-    const main = createRequire(import.meta.url).resolve("@anthropic-ai/claude-agent-sdk");
-    return JSON.parse(fs.readFileSync(path.join(path.dirname(main), "package.json"), "utf-8")).version;
+    const pkg = createRequire(import.meta.url)("../package.json") as { claudeRuntime?: unknown };
+    return typeof pkg.claudeRuntime === "string" ? pkg.claudeRuntime : null;
   } catch {
     return null;
   }

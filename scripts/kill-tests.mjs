@@ -1,8 +1,8 @@
 // The durable runtime's kill tests (#445): bundle the stand-in daemon and the
-// runner, then run every scenario on every runtime. Needs `npm run build` first
-// (the harness, its extension and the turn host come from apps/agent/dist).
+// runner, then run every scenario on the durable runtime. Needs `npm run build`
+// first (the harness and its extension come from apps/agent/dist).
 //
-// node scripts/kill-tests.mjs [--out results.json] [--runtimes loop,hosts,durable] [--scenarios stream,...]
+// node scripts/kill-tests.mjs [--out results.json] [--scenarios stream,...]
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
@@ -38,7 +38,7 @@ await build({
 const live = process.argv.indexOf("--live-claude");
 const args = live > 0
   ? [path.join(dir, "live-claude.mjs"), process.argv[live + 1], process.argv[live + 2]]
-  : [path.join(dir, "run.mjs"), out, arg("runtimes") ?? "loop,hosts,durable", arg("scenarios") ?? ""];
+  : [path.join(dir, "run.mjs"), out, "durable", arg("scenarios") ?? ""];
 const r = spawnSync(process.execPath, args, {
   stdio: "inherit",
   env: { ...process.env, STUDIO_AGENT_DIST: path.join(root, "apps", "agent", "dist") },

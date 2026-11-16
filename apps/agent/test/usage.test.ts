@@ -1,12 +1,6 @@
 /** Each provider's token usage, as a turn counts it. */
 import { describe, expect, it } from "vitest";
 import { messagesUsage, openaiUsage, promptTokens, usageGrowth, usageTokens } from "../src/usage.js";
-import { readChatStream } from "../src/openai-compat.js";
-import { readResponsesStream } from "../src/responses.js";
-
-async function* lines(...l: string[]): AsyncIterable<string> {
-  for (const x of l) yield x;
-}
 
 describe("token usage", () => {
   it("counts Messages input with cache writes and without cache reads", () => {
@@ -36,23 +30,5 @@ describe("token usage", () => {
     const again = messagesUsage({ input_tokens: 10, cache_read_input_tokens: 900, output_tokens: 45 })!;
     expect(usageGrowth(again, first)).toEqual({ input: 0, output: 40, cacheRead: 0, cacheWrite: 0, reasoning: 0 });
     expect(usageGrowth(first, undefined)).toMatchObject({ input: 10, output: 5, cacheRead: 900 });
-  });
-
-
-  it("reads the usage chunk that ends a Chat Completions stream", async () => {
-    const turn = await readChatStream(lines(
-      `data: ${JSON.stringify({ choices: [{ delta: { content: "hi" }, finish_reason: "stop" }] })}`,
-      `data: ${JSON.stringify({ choices: [], usage: { prompt_tokens: 12, completion_tokens: 3 } })}`,
-      "data: [DONE]",
-    ), () => {});
-    expect(turn.usage).toMatchObject({ input: 12, output: 3 });
-  });
-
-  it("reads the usage of a completed Responses stream", async () => {
-    const turn = await readResponsesStream(lines(
-      `data: ${JSON.stringify({ type: "response.output_item.done", item: { type: "message", content: [{ type: "output_text", text: "ok" }] } })}`,
-      `data: ${JSON.stringify({ type: "response.completed", response: { usage: { input_tokens: 40, output_tokens: 4 } } })}`,
-    ), () => {});
-    expect(turn.usage).toMatchObject({ input: 40, output: 4 });
   });
 });

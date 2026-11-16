@@ -18,7 +18,7 @@ import {
   type HarnessMessage,
   type HarnessRecord,
 } from "./protocol.js";
-import { onLines, pidAlive, sendLine, writeJsonAtomic } from "../turn-host-protocol.js";
+import { onLines, pidAlive, sendLine, writeJsonAtomic } from "./ipc.js";
 
 export interface HarnessClientOptions {
   dataDir: string;

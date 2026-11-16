@@ -6,7 +6,6 @@
  */
 import { describe, expect, it } from "vitest";
 import { REPLY_TOOL, SUBAGENT_MESSAGES_LINE, SUBAGENT_MESSAGE_PREFIX, messagesIn, toSubagent } from "../src/subagent-inbox.js";
-import { toolOptions } from "../src/subscription.js";
 
 describe("the user's message to a subagent", () => {
   it("is the user's own turn, answered at once with the reply tool, and stop means stop", () => {
@@ -36,11 +35,8 @@ describe("the user's message to a subagent", () => {
     expect(messagesIn("Build the door. Use oak.")).toBe(0);
   });
 
-  it("gives the reply tool to a subagent on every route, whatever a helper's file allows", () => {
+  it("has a reply tool that takes the answer as text", () => {
     expect(REPLY_TOOL.name).toBe("reply");
     expect(REPLY_TOOL.input_schema.required).toEqual(["text"]);
-    expect(toolOptions({ agent: false, reply: true, allowed: ["read_file"], skills: false }).allowedTools).toEqual(["mcp__studio__read_file", "mcp__studio__reply"]);
-    // The main agent has none.
-    expect(toolOptions({ agent: true, skills: false }).allowedTools).not.toContain("mcp__studio__reply");
   });
 });

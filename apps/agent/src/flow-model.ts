@@ -4,15 +4,12 @@
  * ChatGPT sign-in or a vendor key). Registered with the daemon so a flow such
  * as the built-in playtest flow drafts with the same model as the chat.
  *
- * Every route answers with text only: no tools, the JSON Schema in the system
- * prompt, and the JSON parsed out of the answer. The flow validates it.
+ * The durable harness answers it, as it runs every conversation: one answer,
+ * no tools, the JSON Schema in the system prompt, and the JSON parsed out of
+ * the answer. The flow validates it.
  */
 import type { Effort } from "@ue-mcp-studio/shared";
-import type { MessageParam, ModelProvider } from "./providers.js";
 import { required } from "./backend.js";
-
-/** Set by the release bundle: false leaves the Agent SDK out of it. Unset in development and tests. */
-declare const __CLAUDE_SIGN_IN__: boolean | undefined;
 
 /** One completion as a flow's agent step asks for it. */
 export interface FlowCompletionRequest {
@@ -35,13 +32,10 @@ export interface FlowCompletionResponse {
 }
 
 export interface FlowModelOptions {
-  projectDir: string;
   model: () => string;
   effort: () => Effort;
-  /** True while the selected model runs on the user's Claude sign-in. */
-  subscription: () => boolean;
-  /** The provider for every other route. Throws with how to connect one when none can run the model. */
-  provider: () => ModelProvider;
+  /** One answer from the selected model on its route, in the durable harness. Throws with why when none can be had. */
+  complete: (system: string, prompt: string, effort: Effort, signal: AbortSignal) => Promise<string>;
 }
 
 /** The system prompt's line that asks for JSON matching the schema. */
@@ -72,23 +66,8 @@ export function parseJsonAnswer(text: string): unknown {
   return undefined;
 }
 
-/** The conversation as the Messages format; a role the format has no place for is sent as the user's. */
-function messagesOf(req: FlowCompletionRequest): MessageParam[] {
-  const list = req.messages?.length ? req.messages : [{ role: "user", content: req.prompt ?? "" }];
-  const out: MessageParam[] = [];
-  for (const m of list) {
-    if (m.role === "system") continue;
-    const role = m.role === "assistant" ? "assistant" : "user";
-    const last = out[out.length - 1];
-    // Roles alternate in the Messages format: consecutive turns of one role are one message.
-    if (last?.role === role) (last.content as Array<{ type: "text"; text: string }>).push({ type: "text", text: m.content });
-    else out.push({ role, content: [{ type: "text", text: m.content }] });
-  }
-  return out;
-}
-
-/** The conversation as one prompt, for the Claude sign-in, which takes a single message. */
-function promptOf(req: FlowCompletionRequest): string {
+/** The conversation as one prompt: the harness sends a single user message on every route. */
+export function promptOf(req: FlowCompletionRequest): string {
   if (!req.messages?.length) return req.prompt ?? "";
   if (req.messages.length === 1) return req.messages[0].content;
   return req.messages
@@ -98,7 +77,7 @@ function promptOf(req: FlowCompletionRequest): string {
 }
 
 /** The system prompt the request carries, with its own system messages and the schema line. */
-function systemOf(req: FlowCompletionRequest): string {
+export function systemOf(req: FlowCompletionRequest): string {
   const parts = [req.system ?? "", ...(req.messages ?? []).filter((m) => m.role === "system").map((m) => m.content)];
   if (req.schema) parts.push(schemaInstruction(req.schema));
   return parts.filter((p) => p.trim()).join("\n\n");
@@ -119,25 +98,8 @@ export function studioFlowModel(o: FlowModelOptions): { complete(req: FlowComple
   return {
     async complete(req) {
       const model = o.model();
-      const system = systemOf(req);
       const signal = req.signal ?? new AbortController().signal;
-      let text: string;
-      if (o.subscription()) {
-        // A dynamic import the bundler drops when the sign-in is off, and the Agent SDK with it.
-        const sdk = typeof __CLAUDE_SIGN_IN__ === "undefined" || __CLAUDE_SIGN_IN__ ? await import("./subscription.js") : null;
-        if (!sdk) throw new Error("This Studio build does not include the Claude sign-in.");
-        const r = await sdk.runSubscriptionCompletion({ projectDir: o.projectDir, model, effort: o.effort(), system, prompt: promptOf(req), signal });
-        if ("error" in r) throw new Error(r.error);
-        text = r.text;
-      } else {
-        const turn = await o.provider().run(
-          { sessionId: "flow", model, effort: o.effort(), system: [{ type: "text", text: system }], tools: [], search: false, messages: messagesOf(req) },
-          () => {},
-          signal,
-        );
-        if (turn.stopReason === "refusal") throw new Error(`The model declined: ${turn.refusal ?? "no reason given"}`);
-        text = turn.content.filter((b) => b.type === "text").map((b) => (b as { text: string }).text).join("");
-      }
+      const text = await o.complete(systemOf(req), promptOf(req), o.effort(), signal);
       const parsed = req.schema ? parseJsonAnswer(text) : undefined;
       return { text, model, finishReason: "stop", ...(parsed !== undefined ? { parsed } : {}) };
     },

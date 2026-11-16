@@ -27,7 +27,7 @@ import {
   type HarnessRecord,
   type HarnessRequest,
 } from "./protocol.js";
-import { onLines, sendLine, writeJsonAtomic } from "../turn-host-protocol.js";
+import { onLines, sendLine, writeJsonAtomic } from "./ipc.js";
 
 /** How long the harness stays with no daemon connected and nothing to run. */
 const IDLE_EXIT_MS = 10 * 60_000;
@@ -119,13 +119,15 @@ export async function runHarness(launch: HarnessLaunch): Promise<{ close(): Prom
       case "background":
         return ret(sock, msg.id, () => engine.background(msg.sessionId));
       case "tell":
-        return ret(sock, msg.id, () => engine.tell(msg.sessionId, msg.callId, msg.text, msg.requestId));
+        return ret(sock, msg.id, () => engine.tell(msg.sessionId, msg.callId, msg.text, msg.requestId, msg.quote));
       case "sync":
         return ret(sock, msg.id, () => engine.sync(msg.sessionId, msg.after));
       case "compact":
         return ret(sock, msg.id, () => engine.compact(msg.sessionId, msg.instructions));
       case "assign":
         return ret(sock, msg.id, () => engine.assign(msg.sessionId, msg.callId, msg.start));
+      case "complete":
+        return ret(sock, msg.id, () => engine.complete(msg.route, msg.system, msg.prompt, msg.effort));
       case "fork":
         return ret(sock, msg.id, () => engine.fork(msg.from, msg.to, msg.text, msg.fromEnd));
       case "inspect":

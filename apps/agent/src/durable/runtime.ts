@@ -14,14 +14,15 @@
  * off, from the conversation Studio keeps beside it (s.messages).
  */
 import * as crypto from "node:crypto";
-import type { TranscriptEntry } from "@ue-mcp-studio/shared";
+import type { Effort, TranscriptEntry } from "@ue-mcp-studio/shared";
 import type { AgentHost, ToolExecution } from "../tools.js";
 import type { PendingTool, SessionStore, StoredSession } from "../sessions.js";
-import type { MessageParam } from "../providers.js";
+import type { MessageParam } from "../messages.js";
 import type { TokenUsage } from "../usage.js";
+import { toSubagent } from "../subagent-inbox.js";
 import { isContextOverflow } from "../compaction.js";
 import { HarnessClient, type HarnessClientOptions } from "./client.js";
-import type { AgentSpec, AgentStart, EntryEvent, HarnessMessage, HarnessRequest, UserContent } from "./protocol.js";
+import { COMPLETE_PROTOCOL, type AgentSpec, type AgentStart, type EntryEvent, type HarnessMessage, type HarnessRequest, type RouteSpec, type UserContent } from "./protocol.js";
 
 /** How long a reply waits for a run it just stopped to report its end, before it starts anyway. */
 const STOP_END_WAIT_MS = 3000;
@@ -212,10 +213,23 @@ export class DurableTurns {
   }
 
   /**
+   * One answer from a model on a route, outside any session: a flow agent
+   * step. A harness started by a Studio from before protocol 3 cannot answer
+   * one; it exits once idle, and the next daemon starts the current one.
+   */
+  async complete(route: RouteSpec, system: string, prompt: string, effort: Effort): Promise<string> {
+    await this.client.ensure();
+    if ((this.client.harness?.protocol ?? 1) < COMPLETE_PROTOCOL) {
+      throw new Error("The running durable harness predates flow agent steps. It takes them once it restarts, after its current work.");
+    }
+    return String(await this.client.call("complete", { route, system, prompt, effort }));
+  }
+
+  /**
    * A subagent the user assigned from the chat runs in the harness, beside
    * the main agent's runs, and reports to Studio when it ends (agentEnd).
    * False, with nothing sent, when the running harness is older than the
-   * message: the subagent then runs on Studio's loop.
+   * message.
    */
   async assign(s: StoredSession, callId: string, start: Extract<AgentStart, { ok: true }>): Promise<boolean> {
     await this.client.ensure();
@@ -307,7 +321,8 @@ export class DurableTurns {
   sayTo(s: StoredSession, callId: string): (text: string) => Promise<boolean> {
     return async (text) => {
       if (!s.durable) return false;
-      return !!(await this.client.call("tell", { sessionId: keyOf(s), callId, text, requestId: crypto.randomUUID() }).catch(() => false));
+      // Framed as the user's own turn, as the subagent's system prompt says it comes.
+      return !!(await this.client.call("tell", { sessionId: keyOf(s), callId, text: toSubagent([text]), quote: text, requestId: crypto.randomUUID() }).catch(() => false));
     };
   }
 
@@ -476,7 +491,7 @@ export class DurableTurns {
         this.running.set(reqId, { sessionId: s.id, controller: own, executing: false });
         const key = keyOf(s);
         const start = await this.h.agentStart(s, req.callId, req.input, own.signal,
-          async (text) => !!(await this.client.call("tell", { sessionId: key, callId: req.callId, text, requestId: crypto.randomUUID() }).catch(() => false)),
+          async (text) => !!(await this.client.call("tell", { sessionId: key, callId: req.callId, text: toSubagent([text]), quote: text, requestId: crypto.randomUUID() }).catch(() => false)),
           () => this.stopChild(s, req.callId));
         this.running.delete(reqId);
         if (!own.signal.aborted) this.client.answer(reqId, start);

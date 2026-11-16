@@ -7,14 +7,14 @@ import { CLAUDE_SIGN_IN_AVAILABLE } from "@ue-mcp-studio/shared";
 import { patchClaudeCodeStream } from "./pi-claude-code-patch.mjs";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
-// The Claude runtime the subscription route fetches must match the bundled SDK.
-const sdkVersion = JSON.parse(fs.readFileSync(path.join(root, "apps", "agent", "node_modules", "@anthropic-ai", "claude-agent-sdk", "package.json"), "utf-8")).version;
+// The Claude runtime the Claude sign-in fetches, as the agent's package.json pins it.
+const sdkVersion = JSON.parse(fs.readFileSync(path.join(root, "apps", "agent", "package.json"), "utf-8")).claudeRuntime;
+if (!/^\d+\.\d+\.\d+/.test(sdkVersion ?? "")) throw new Error("apps/agent/package.json pins no claudeRuntime");
 fs.rmSync(path.join(root, "apps", "agent", "dist"), { recursive: true, force: true });
 const result = await build({
-  // The extension, and the turn host: the process a Claude sign-in turn runs in, so it outlives a daemon restart.
   entryPoints: {
+    // The extension.
     index: path.join(root, "apps", "agent", "src", "index.ts"),
-    "turn-host": path.join(root, "apps", "agent", "src", "turn-host-main.ts"),
     // The durable harness: one long-lived process per project that owns its Pi Durable storage.
     "durable-harness": path.join(root, "apps", "agent", "src", "durable", "harness-main.ts"),
     // Studio's extension alone, which a harness an older Studio started installs over its own.
@@ -38,7 +38,7 @@ const result = await build({
   legalComments: "none",
   // Some dependencies still call require(); give the ESM bundle one.
   banner: { js: "import { createRequire as __cr } from 'node:module'; const require = __cr(import.meta.url);" },
-  // With the Claude sign-in off, the Agent SDK is left out of the bundle.
+  // The Claude runtime's version, and whether this build offers the Claude sign-in.
   define: { __CLAUDE_SDK_VERSION__: JSON.stringify(sdkVersion), __CLAUDE_SIGN_IN__: JSON.stringify(CLAUDE_SIGN_IN_AVAILABLE) },
   logLevel: "warning",
   metafile: true,
@@ -51,4 +51,4 @@ fs.copyFileSync(path.join(root, "node_modules", "@jsquash", "webp", "codec", "de
 fs.copyFileSync(path.join(root, "node_modules", "@earendil-works", "pi-claude-code", "src", "inert-mcp.mjs"), path.join(root, "apps", "agent", "dist", "inert-mcp.mjs"));
 // Which packages went into the bundle, for the third-party notices.
 fs.writeFileSync(path.join(root, "apps", "agent", "dist", "meta.json"), JSON.stringify(result.metafile));
-console.log("bundled the agent into apps/agent/dist/index.js, dist/turn-host.js, dist/durable-harness.js and dist/durable-extension.js");
+console.log("bundled the agent into apps/agent/dist/index.js, dist/durable-harness.js and dist/durable-extension.js");

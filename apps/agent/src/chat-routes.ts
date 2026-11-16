@@ -58,7 +58,6 @@ import { SessionStore } from "./sessions.js";
 import { SettingsStore } from "./settings.js";
 import { fetchAccountUsage } from "./account-usage.js";
 import { EndpointStore, registerEndpointRoutes } from "./endpoints.js";
-import { providerFor } from "./providers.js";
 import { DEFAULT_PLAN_MODELS, ModelCatalogSource, firstRunnable, pickRoute, type SignInCoverage } from "./models.js";
 import { knownWindow } from "./context-windows.js";
 import { registerNotifications, type NotifySession } from "./notify.js";
@@ -96,8 +95,7 @@ import { projectStrategy, registerComposerRoutes } from "./composer-routes.js";
 import { registerNativeRoutes } from "./native-routes.js";
 import { ContextSurfaces, contextApiOf } from "./context-surface.js";
 import { fullModelName, modelName } from "./models.js";
-import { TurnHosts } from "./hosted-turn.js";
-import { DurableSetting, durableRouteOf, registerDurableRoutes, routeSpec } from "./durable/routes.js";
+import { durableRouteOf, forgetRouteSetting, registerDurableRoutes, routeSpec } from "./durable/routes.js";
 import { ensureRuntime } from "./runtime.js";
 import { userHome } from "./instructions.js";
 import { replyImages } from "./reply-images.js";
@@ -182,16 +180,6 @@ export function registerChat(api: DaemonExtensionApi, agentVersion = "0.0.0", pa
     const id = endpointIdOf(vendor);
     return id === null ? null : endpoints.get(id)?.name ?? id;
   };
-  /** What every provider is made with: the sign-ins' tokens and each endpoint's address and key. */
-  const providerContext = () => ({
-    accountToken: accountToken(),
-    agentVersion,
-    chatgptToken: () => chatgpt.accessToken(),
-    endpoint: (id: string) => {
-      const e = endpoints.get(id);
-      return e ? { baseUrl: e.baseUrl, key: endpoints.key(id) } : null;
-    },
-  });
   // Who is signed in to Claude comes from the runtime's own `auth status`.
   /** When the Claude login was last asked: the model list waits for it only when that is a minute old. */
   let claudeCheckedAt = 0;
@@ -288,20 +276,17 @@ export function registerChat(api: DaemonExtensionApi, agentVersion = "0.0.0", pa
       const r = KEY_PROVIDER_IDS.includes(wants.vendor as KeyProviderId) ? routeOf(wants.vendor as KeyProviderId, wants.model) : null;
       if (!r) return { ...base, note: `Its file names ${a.model}, which nothing on this machine runs; it runs on the main agent's model.` };
       // A model only the Claude sign-in reaches runs as a session of its own in that runtime, as any subagent there does.
-      return { ...base, run: { model: wants.model, vendor: wants.vendor, route: r, provider: () => providerFor(settings, r, providerContext(), wants.vendor as KeyProviderId) } };
+      return { ...base, run: { model: wants.model, vendor: wants.vendor, route: r } };
     });
-    const run: NativeRun = { convention, loadout: l, composed: composeNative(l), helpers, skills: l.skills, sdkLoads: route() === "claude" };
+    const run: NativeRun = { convention, loadout: l, composed: composeNative(l), helpers, skills: l.skills };
     nativeCache = { at: Date.now(), key, run };
     return run;
   };
   // ue-mcp asks before each flow step as it runs when it offers "flows.stepApproval"; older daemons get the plan check.
   const stepHost = api as unknown as FlowStepHost;
-  // The durable runtime, per route: on by default for the routes in DURABLE_DEFAULT_ON, each can be turned off (durable/routes.ts).
-  const durableSetting = new DurableSetting(api.dataDir);
-  const durableRoute = () => {
-    const r = durableRouteOf(route(), settings.provider());
-    return durableSetting.on(r) ? r : null;
-  };
+  // Every route runs on the durable runtime (durable/routes.ts); the per-route setting it had before is forgotten.
+  forgetRouteSetting(api.dataDir);
+  const durableRoute = () => durableRouteOf(route(), settings.provider());
   const endpointOf = (id: string) => {
     const e = endpoints.get(id);
     return e ? { baseUrl: e.baseUrl, key: endpoints.key(id) } : null;
@@ -314,13 +299,11 @@ export function registerChat(api: DaemonExtensionApi, agentVersion = "0.0.0", pa
     dialogs,
     qa,
     store,
-    provider: () => providerFor(settings, route(), providerContext()),
     model: () => settings.model(),
     effort: () => settings.effort(),
     usage: () => settings.usage(),
     surfaces,
     subagentModel: () => settings.subagentModel(),
-    subscription: () => route() === "claude",
     ready: () => (signInsRead ? null : signInsReady),
     // A key names its vendor, since model names no longer do.
     route: () => {
@@ -338,14 +321,6 @@ export function registerChat(api: DaemonExtensionApi, agentVersion = "0.0.0", pa
     flows: new FlowCaller({ endpoint, subscribe: (listener) => api.events.subscribe((e) => listener(e)) }),
     flowStepApproval: () => offersStepApproval(stepHost),
     contextWindow: knownWindow,
-    // Claude sign-in turns run in host processes beside the bundle, so an update installs while they run.
-    turnHosts: new TurnHosts({
-      dataDir: api.dataDir,
-      projectDir: api.projectDir,
-      version: agentVersion,
-      script: packageDir ? path.join(packageDir, "dist", "turn-host.js") : null,
-      log: api.log,
-    }),
     durable: {
       route: durableRoute,
       routeSpec: (model, on) => {
@@ -374,15 +349,13 @@ export function registerChat(api: DaemonExtensionApi, agentVersion = "0.0.0", pa
       },
     },
   });
-  registerDurableRoutes(api, { setting: durableSetting, harness: () => runner.durableHarness(), inspect: () => runner.durableInspect() });
+  registerDurableRoutes(api, { harness: () => runner.durableHarness(), inspect: () => runner.durableInspect() });
   const unregisterSteps = offersStepApproval(stepHost) ? stepHost.flows!.approveSteps((r) => runner.approveFlowStep(r)) : () => {};
-  // Flow agent steps, such as the playtest flow's draft, run on the model picked here, on its route.
+  // Flow agent steps, such as the playtest flow's draft, run on the model picked here, on its route, in the durable harness.
   const unregisterModel = registerFlowModel(api as ModelHost, {
-    projectDir: api.projectDir,
     model: () => settings.model(),
     effort: () => settings.effort(),
-    subscription: () => route() === "claude",
-    provider: () => providerFor(settings, route(), providerContext()),
+    complete: (system, prompt, effort, signal) => runner.complete(system, prompt, effort, signal),
   });
   // A playtest's card hands it to a subagent the runner starts beside the session's turns.
   qa.setAssigner({ assign: (sid, description, prompt) => runner.assignSubagent(sid, description, prompt), stop: (sid, callId) => runner.stopSubagent(sid, callId) });
@@ -439,8 +412,6 @@ export function registerChat(api: DaemonExtensionApi, agentVersion = "0.0.0", pa
     dataDir: api.dataDir,
     busy: () => runner.activeSessions().length > 0,
     pinned: () => runner.pinnedSessions().length > 0,
-    // A Studio update also waits for turns in a turn host: the Studio after the cutover cannot take them over.
-    hosted: () => runner.hostedSessions().length > 0,
     interruptTurns: () => {
       for (const id of runner.activeSessions()) runner.interrupt(id, { by: "studio", why: "the user chose Restart now to install an update" });
     },

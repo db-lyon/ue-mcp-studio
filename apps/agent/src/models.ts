@@ -5,7 +5,7 @@
  * stands in. Each model names the sign-ins that can run it.
  */
 import { CLAUDE_SIGN_IN_AVAILABLE, DEFAULT_ROUTE_ORDER, KEY_PROVIDER_IDS, PROVIDERS, STUDIO_PLAN_AVAILABLE, endpointIdOf, endpointVendor, routesInOrder, type CustomEndpoint, type KeyProviderId, type ModelCatalog, type ModelOption, type ModelRoute, type RouteOrder, type SignInId, type VendorId } from "@ue-mcp-studio/shared";
-import { OPENAI_BASE_URLS } from "./openai-compat.js";
+import { OPENAI_BASE_URLS } from "./messages.js";
 import { knownWindow, rememberWindow } from "./context-windows.js";
 
 /**
