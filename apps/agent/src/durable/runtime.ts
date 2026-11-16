@@ -20,11 +20,26 @@ import type { PendingTool, SessionStore, StoredSession } from "../sessions.js";
 import type { MessageParam } from "../messages.js";
 import type { TokenUsage } from "../usage.js";
 import { toSubagent } from "../subagent-inbox.js";
+import { isContextOverflow } from "../compaction.js";
 import { HarnessClient, type HarnessClientOptions } from "./client.js";
 import { COMPLETE_PROTOCOL, type AgentSpec, type AgentStart, type EntryEvent, type HarnessMessage, type HarnessRequest, type RouteSpec, type UserContent } from "./protocol.js";
 
 /** How long a reply waits for a run it just stopped to report its end, before it starts anyway. */
 const STOP_END_WAIT_MS = 3000;
+
+/**
+ * Why a reply ended without an answer, and the way on from there: a run never
+ * ends at a dead end. A full conversation is compacted and continued; any
+ * other failure is retried by sending the next message, which picks the
+ * conversation up where it stopped.
+ */
+export function replyFailure(reason: string, detail?: string): string {
+  const what = `The reply ended without an answer (${reason})${detail ? `: ${detail}` : ""}.`;
+  if (isContextOverflow(new Error(`${reason} ${detail ?? ""}`)) || /context|too long|window/i.test(`${reason} ${detail ?? ""}`)) {
+    return `${what} The conversation is too long for the model. Use Compact now (or send /compact), then send your message again to go on from the summary; or start a new session and paste what it needs.`;
+  }
+  return `${what} Nothing is lost: send a message (or "continue") to retry, and the reply goes on from where it stopped. Stop ends a run that keeps going.`;
+}
 
 /** What the runtime needs of AgentRunner: the paths every route goes through. */
 export interface DurableHooks {
@@ -427,7 +442,7 @@ export class DurableTurns {
     }
     if (!wasReplying && s.status !== "running" && s.status !== "waiting") return;
     const f = m.failure;
-    const error = f && f.reason !== "aborted" ? `The reply ended without an answer (${f.reason})${f.detail ? `: ${f.detail}` : ""}.` : null;
+    const error = f && f.reason !== "aborted" ? replyFailure(f.reason, f.detail) : null;
     this.h.replyEnded(s, error);
   }
 

@@ -441,7 +441,8 @@ export class DurableEngine {
       thinkingLevel: thinkingOf(spec.effort),
       instructions: spec.system,
       tools,
-      maxTurns: spec.maxTurns ?? (kind === "child" ? 200 : null),
+      // No cap unless a helper's own file sets one: the user's Stop and compaction keep a long run in hand, on every route.
+      maxTurns: spec.maxTurns ?? null,
     } as never, CTX);
   }
 
@@ -703,22 +704,29 @@ export class DurableEngine {
 
   /** The report a subagent's run ended with: its last answer, or why it ended without one. */
   private async reportOf(conv: AnyConversation, settled: { status: string; reason?: string; detail?: string }): Promise<{ text: string; isError: boolean; stopped: boolean }> {
+    const last = await this.lastAnswer(conv);
     if (settled.status === "unanswered") {
       const stopped = settled.reason === "aborted";
-      return {
-        text: stopped ? "The user stopped this subagent before it finished. Do not redo its task unless the user asks." : `The subagent failed: ${settled.reason ?? "no answer"}${settled.detail ? ` (${settled.detail})` : ""}`,
-        isError: true,
-        stopped,
-      };
+      if (stopped) return { text: "The user stopped this subagent before it finished. Do not redo its task unless the user asks.", isError: true, stopped };
+      // What it had said so far goes with the failure, so the work it did is not lost to the main agent.
+      const failed = `The subagent failed: ${settled.reason ?? "no answer"}${settled.detail ? ` (${settled.detail})` : ""}`;
+      // And the way on: the task is not over because one run of it stopped.
+      const next = "Read back what it changed, then carry on: start a subagent again with the rest of the task and what it already did, or do the rest yourself.";
+      return { text: `${failed}.${last ? ` What it had reported so far:\n${last}\n\n` : " "}${next}`, isError: true, stopped };
     }
+    return { text: last ?? "The subagent finished without a report.", isError: false, stopped: false };
+  }
+
+  /** A conversation's latest answer with text in it, if any. */
+  private async lastAnswer(conv: AnyConversation): Promise<string | null> {
     const page = (await conv.entries({} as never, 20, undefined, CTX)) as unknown as { items: Array<{ model?: Array<Record<string, unknown>> }> };
     for (const e of page.items) {
       const m = e.model?.[0];
       if (m?.role !== "assistant") continue;
       const text = (Array.isArray(m.content) ? (m.content as Array<Record<string, unknown>>) : []).filter((c) => c.type === "text").map((c) => String(c.text ?? "")).join("");
-      if (text.trim()) return { text, isError: false, stopped: false };
+      if (text.trim()) return text;
     }
-    return { text: "The subagent finished without a report.", isError: false, stopped: false };
+    return null;
   }
 
   /** Messages the user sent a subagent that it never read: withdrawn, and named in its report to the main agent. */
