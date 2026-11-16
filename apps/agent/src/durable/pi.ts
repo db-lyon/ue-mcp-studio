@@ -545,17 +545,41 @@ export class DurableEngine {
     if (!rec) return;
     const main = await this.harness.conversation(rec.conv as never, CTX);
     const jobs: Array<Promise<unknown>> = [];
+    const stopped: string[] = [];
     if (children) {
       for (const [callId, c] of Object.entries(rec.children)) {
         // One the user assigned runs beside the main agent's runs: only stopping it stops it.
         if (c.assigned) continue;
         this.waiting.delete(callId);
         const conv = await this.harness.conversation(c.conv as never, CTX);
-        if (conv) jobs.push(conv.abort(CTX));
+        if (conv) {
+          jobs.push(conv.abort(CTX));
+          stopped.push(c.conv);
+        }
       }
     }
-    if (main) jobs.push(main.abort(CTX));
+    if (main) {
+      jobs.push(main.abort(CTX));
+      stopped.push(rec.conv);
+    }
     await Promise.all(jobs);
+    // Each stopped run's last entries and its end go out before this answers, so the daemon can start the next
+    // reply as soon as it has the answer, with no end of the old run still on its way.
+    for (const conv of stopped) await this.settle(conv);
+  }
+
+  /** Send a conversation's entries committed so far, and its run's end when the watch has not sent it yet. */
+  private async settle(conv: string): Promise<void> {
+    const w = this.watched.get(conv);
+    const where = this.byConv.get(conv);
+    if (!w || !where) return;
+    await this.pump(conv, true);
+    if (!w.running) return;
+    const live = (await this.harness.snapshot(LiveDoc as never, conv as never, CTX)) as { run?: unknown; runFailure?: { reason?: string; detail?: string } } | undefined;
+    if (live?.run) return;
+    w.running = false;
+    const failure = live?.runFailure;
+    this.host.emit({ t: "run", sessionId: where.sessionId, parent: where.parent, running: false, ...(failure?.reason ? { failure: { reason: failure.reason, ...(failure.detail ? { detail: failure.detail } : {}) } } : {}) });
   }
 
   async stopChild(sessionId: string, callId: string): Promise<boolean> {
