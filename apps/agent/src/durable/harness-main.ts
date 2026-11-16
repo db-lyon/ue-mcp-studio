@@ -126,6 +126,8 @@ export async function runHarness(launch: HarnessLaunch): Promise<{ close(): Prom
         return ret(sock, msg.id, () => engine.compact(msg.sessionId, msg.instructions));
       case "assign":
         return ret(sock, msg.id, () => engine.assign(msg.sessionId, msg.callId, msg.start));
+      case "fork":
+        return ret(sock, msg.id, () => engine.fork(msg.from, msg.to, msg.text, msg.fromEnd));
       case "inspect":
         return ret(sock, msg.id, async () => ({ version: launch.version, pid: process.pid, extension: extensionVersion, ...(await engine.inspect()) }));
       case "res": {

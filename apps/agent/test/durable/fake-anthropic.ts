@@ -24,7 +24,8 @@ export interface FakeTurn {
 export interface FakeAnthropic {
   base: string;
   /** `serverTools`: the types of the tools that run on the provider's side, such as its web search. */
-  requests: Array<{ model: string; tools: string[]; serverTools: string[]; toolResults: number; system: string }>;
+  /** `userText`: the request's messages as JSON. */
+  requests: Array<{ model: string; tools: string[]; serverTools: string[]; toolResults: number; system: string; userText: string }>;
   close(): Promise<void>;
 }
 
@@ -65,7 +66,7 @@ export async function startFakeAnthropic(script: (req: { toolResults: number; sy
     // A runtime's own side requests (a title, a quota check) carry none of Studio's tools: answered, not counted.
     const studio = tools.some((t) => /(^|__)ue_mcp$/.test(t));
     const serverTools = ((body.tools ?? []) as Array<{ type?: string }>).map((t) => t.type ?? "").filter((t) => t && t !== "custom");
-    requests.push({ model: String(body.model), tools, serverTools, toolResults: n, system });
+    requests.push({ model: String(body.model), tools, serverTools, toolResults: n, system, userText });
     if (log) fs.appendFileSync(log, `${JSON.stringify({ at: Date.now(), toolResults: n, studio, sub: system.includes("You are a subagent") })}\n`);
     const turn: FakeTurn = studio ? script({ toolResults: n, system, userText }) : { text: "ok" };
     // On the Claude runtime Studio's tools are MCP tools of the server "studio".

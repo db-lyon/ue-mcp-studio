@@ -607,6 +607,58 @@ export class DurableEngine {
     await conv.compact(instructions || undefined, CTX);
   }
 
+  /**
+   * An edited message (rewind) or a fork: a new conversation `to` that holds
+   * everything `from` had just before that message, as the model saw it (tool
+   * calls, results, images, summaries), and the same agent. The message is
+   * found by its text, `fromEnd` matches of it counted back from the newest.
+   * Null when it is not there (never placed, or written before the session
+   * moved to this runtime), or nothing came before it: the caller starts the
+   * conversation from Studio's own copy instead.
+   */
+  async fork(from: string, to: string, text: string, fromEnd: number): Promise<{ conv: string; at: string } | null> {
+    const wanted = text.trim();
+    if (!wanted) return null;
+    const doc = await this.sessions();
+    const rec = doc.sessions[from];
+    if (!rec) return null;
+    const conv = await this.harness.conversation(rec.conv as never, CTX);
+    if (!conv) return null;
+    type Entry = { id: unknown; kind: string; model?: Array<{ role?: string; content?: unknown }> };
+    const all: Entry[] = [];
+    let cursor: unknown;
+    do {
+      const page = (await conv.entries({ order: "ascending" } as never, 500, cursor as never, CTX)) as unknown as { items: Entry[]; next?: unknown };
+      all.push(...page.items);
+      cursor = page.next;
+    } while (cursor !== undefined);
+    const textOf = (e: Entry): string => {
+      const c = e.model?.[0]?.content;
+      return typeof c === "string" ? c : Array.isArray(c) ? (c as Array<{ type?: string; text?: string }>).filter((b) => b.type === "text").map((b) => b.text ?? "").join("") : "";
+    };
+    const matches = all.flatMap((e, i) => (e.kind === "pi.user" && textOf(e).includes(wanted) ? [i] : []));
+    const at = matches[matches.length - 1 - fromEnd];
+    if (at === undefined || at === 0) return null;
+    const headId = all[at - 1].id;
+    const head = String(headId);
+    const forked = await conv.fork(headId as never,{ ownership: { kind: "ownerless" } } as never, CTX);
+    const id = String((forked as unknown as { id: unknown }).id);
+    await this.harness.commit(async (tx) => {
+      const d = await (tx as unknown as { doc(t: unknown): Promise<SessionsDoc> }).doc(Sessions);
+      d.sessions[to] = { conv: id, children: {}, told: {} };
+      const search = d.search?.[rec.conv];
+      if (search !== undefined) (d.search ??= {})[id] = search;
+    }, CTX);
+    const search = this.searching.get(rec.conv);
+    if (search !== undefined) this.searching.set(id, search);
+    this.byConv.set(id, { sessionId: to, parent: null });
+    await this.watch(id);
+    const w = this.watched.get(id);
+    // What the fork holds from its parent was applied with the parent: only what comes after the head is new.
+    if (w && (!w.last || this.later(head, w.last))) w.last = head;
+    return { conv: id, at: head };
+  }
+
   /** Send the session's entries after the given ones, then its live state. */
   async sync(sessionId: string, after: Record<string, string>): Promise<void> {
     const doc = await this.sessions();
