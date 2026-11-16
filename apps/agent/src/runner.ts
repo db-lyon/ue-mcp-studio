@@ -219,8 +219,13 @@ type GateResult = null | { declined: string } | { stopped: true };
 export const REWOUND_NOTE = "The user edited an earlier message, so the conversation was cut back to it and continues from the edited message below. "
   + "Nothing done after it in the earlier version was undone: assets, levels and files it changed stay changed. Read their current state before relying on it.";
 
-/** How many model calls one subagent may make before it is stopped. */
-const SUBAGENT_STEPS = 200;
+/**
+ * No cap on a subagent's model calls unless its helper file sets one: the
+ * user's Stop and compaction keep a long run in hand. Sent to the durable
+ * harness as a number, since a harness from beta.37 or earlier reads a
+ * missing value as 200.
+ */
+export const NO_TURN_LIMIT = Number.MAX_SAFE_INTEGER;
 
 /** How long editor_restart waits for the editor to connect again after the daemon reports it started. */
 export const EDITOR_BACK_MS = 10 * 60_000;
@@ -1202,7 +1207,7 @@ export class AgentRunner {
       system: systemText,
       ...withSearch(reach, tools, !helper?.allowed || helper.allowed.has("web_search")),
       effort: (helper?.effort as Effort | null) ?? this.subagentEffort(),
-      maxTurns: helper?.maxTurns ?? SUBAGENT_STEPS,
+      maxTurns: helper?.maxTurns ?? NO_TURN_LIMIT,
     };
   }
 
@@ -3491,7 +3496,7 @@ ${result}`);
     // Its answer to the user who writes to it from its thread; a helper's file never takes it away.
     tools.push(REPLY_TOOL);
     run.replies = true;
-    const steps = helper?.maxTurns ?? SUBAGENT_STEPS;
+    const steps = helper?.maxTurns ?? NO_TURN_LIMIT;
     const base = withSurface(subagentSystem(this.o.host.projectDir, detached ? "automatic" : this.runsMode(), this.composed()), surf);
     const systemText = [base, helper ? `You are the project's ${helper.name} helper. Its own instructions follow.\n\n${helper.prompt}` : null, this.skillLines()].filter(Boolean).join("\n\n");
     const provider = helper?.run ? helper.run.provider : this.o.provider;
