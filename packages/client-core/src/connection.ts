@@ -55,6 +55,13 @@ export const ATTEMPT_MS = 45_000;
 /** The wait before attempts 2 and 3. */
 export const BACKOFF_MS = [5000, 15_000];
 export const MAX_ATTEMPTS = 3;
+/**
+ * After the attempts run out, Studio keeps trying on its own this often, a
+ * new round of attempts each time, so a daemon that could not start (a busy
+ * port, a slow disk) comes back without the user's Retry. Not without
+ * Node.js, and not where Studio cannot start ue-mcp at all.
+ */
+export const NEEDS_YOU_RETRY_MS = 60_000;
 /** Back in view after being hidden: this long of a quiet line while the stream reconnects, before any panel. */
 export const WAKE_GRACE_MS = 8000;
 /**
@@ -136,7 +143,12 @@ export function step(s: Conn, e: ConnEvent, canStart: boolean, opts: StepOptions
       if (e.ok) return same;
       return { conn: next(s, e.at, `The start command did not run${e.error ? `: ${e.error}` : "."}`), start: false };
     case "tick": {
-      if (s.hidden || s.phase === "connected" || s.phase === "needsYou" || e.at < s.deadline) return same;
+      // Needs you after a round of failed attempts: another round, on its own, once the slow wait ends.
+      if (s.phase === "needsYou") {
+        if (s.hidden || s.noNode || !canStart || s.deadline === 0 || e.at < s.deadline) return same;
+        return { conn: { ...attempt(s, 1, e.at), launched: true, deadline: e.at + ATTEMPT_MS }, start: true };
+      }
+      if (s.hidden || s.phase === "connected" || e.at < s.deadline) return same;
       if (s.phase === "reconnecting") return { conn: lost(s, "ue-mcp stopped answering without saying why", e.at), start: false };
       if (s.phase === "restarting") return { conn: lost(s, `${s.why.replace(/^ue-mcp is restarting/, "ue-mcp was restarting")} and did not come back`, e.at), start: false };
       if (s.phase === "lost") {
@@ -154,7 +166,7 @@ const cannotStart = "Studio cannot start ue-mcp from here. Run npx ue-mcp daemon
 
 /** The attempt after a failed one, or needs you after the last. */
 function next(s: Conn, at: number, failure: string): Conn {
-  if (s.attempt >= MAX_ATTEMPTS) return needsYou(s, `ue-mcp did not start after ${MAX_ATTEMPTS} attempts. ${failure}`);
+  if (s.attempt >= MAX_ATTEMPTS) return { ...needsYou(s, `ue-mcp did not start after ${MAX_ATTEMPTS} attempts. ${failure} Studio tries again every minute.`), deadline: at + NEEDS_YOU_RETRY_MS };
   return { ...attempt(s, s.attempt + 1, at + BACKOFF_MS[Math.min(s.attempt - 1, BACKOFF_MS.length - 1)]), failure };
 }
 
