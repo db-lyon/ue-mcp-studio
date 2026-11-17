@@ -113,6 +113,18 @@ describe("images in a reply", () => {
     expect(tile().dataset.phase).toBe("loaded");
   });
 
+  it("shows only the poster of a picture too large to send, and says where the file is", async () => {
+    const path = fresh("jpg");
+    answers.set("poster=1", () => new Response(new Uint8Array([9]), { headers: { "content-type": "image/jpeg" } }));
+    reply(path, "Huge", { [path]: { type: "image/jpeg", width: 8000, height: 6000, bytes: 40 * 1024 * 1024, frames: 1, animated: false, poster: true, tooLarge: true } });
+    await waitFor(() => expect(tile().dataset.phase).toBe("poster"));
+    expect(screen.getByText(/too large to show in full here/)).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Show in folder" })).toBeTruthy();
+    expect(tile().closest("a")).toBeNull();
+    expect(asked).toHaveLength(1);
+    expect(asked[0]).toContain("poster=1");
+  });
+
   it("gives a reply from an older Studio, without the picture's size, a 16:9 tile rather than a link", async () => {
     const path = "C:/Users/me/Vale/Saved/step04.jpg";
     answers.set("poster=1", () => new Promise<Response>(() => {}));

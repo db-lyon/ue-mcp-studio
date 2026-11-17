@@ -3,7 +3,7 @@
  * file link the same way: the viewer reads the file through the agent, and a
  * link inside a viewed file resolves against that file, with Back to return.
  */
-import { isMarkdownPath, type FileReadResponse } from "@ue-mcp-studio/shared";
+import { FILE_OUTSIDE_PROJECT, isMarkdownPath, type FileReadResponse } from "@ue-mcp-studio/shared";
 import { resolveFileLink } from "./links.js";
 
 /** A file to show: path as the link wrote it, already resolved against the file it was followed from. */
@@ -87,6 +87,12 @@ export class FileViewer {
 
 /** Under a file the viewer cannot show, on a paired device: where it can still be reached. */
 export const FILE_REFUSED_REMOTE = "On the computer, Studio can show this file in its folder. From here, ask the agent about it: it can read or convert the file.";
+
+/** Whether a viewer error is the refusal of a file outside the project, which Show in folder can still reach after a confirmation. */
+export const isOutsideProjectError = (error: string): boolean => error.startsWith(FILE_OUTSIDE_PROJECT);
+
+/** The question before a file outside the project is selected in its folder. */
+export const outsideProjectQuestion = (path: string): string => `${path} is outside this project. Studio will only select it in its folder, not read it. Show it in its folder?`;
 
 /** Why a paired device has no Open in editor: the editor opens on the computer, and the file's text is what it can take. */
 export const OPEN_IN_EDITOR_REMOTE = "Open in editor works from Studio on the computer.";

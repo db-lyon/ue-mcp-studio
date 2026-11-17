@@ -18,6 +18,7 @@ import {
   imageProgressLabel,
   imageTileCaption,
   imageTileSize,
+  imageTooLargeNote,
   type ReplyImageFetchers,
 } from "@ue-mcp-studio/client-core";
 import { localImagePath, projectImagePosterUrl, projectImageType, projectImageUrl, type ReplyImageInfo } from "@ue-mcp-studio/shared";
@@ -54,10 +55,11 @@ function ProjectImage({ path, alt, room }: { path: string; alt: string; room: nu
   const url = projectImageUrl(path);
   const key = `${project.device.id} ${url}`;
   const type = info?.type ?? projectImageType(path) ?? "image/png";
+  const tooLarge = info?.tooLarge === true;
   const fetchers = useMemo<ReplyImageFetchers>(() => ({
     poster: asksPoster(info) ? () => readDaemonPicture(project, projectImagePosterUrl(path), "image/jpeg") : null,
-    full: (progress) => readDaemonPicture(project, url, type, progress),
-  }), [project, path, url, type, info?.poster]);
+    full: tooLarge ? null : (progress) => readDaemonPicture(project, url, type, progress),
+  }), [project, path, url, type, info?.poster, tooLarge]);
   const total = info?.bytes ?? null;
   const state = useSyncExternalStore((fn) => replyImageLoads.subscribe(key, fn), () => replyImageLoads.get(key));
   useEffect(() => replyImageLoads.load(key, fetchers, total), [key, fetchers, total]);
@@ -92,13 +94,18 @@ function ProjectImage({ path, alt, room }: { path: string; alt: string; room: nu
           <Picture uri={state.full} alt={alt} maxWidth={box.width} maxHeight={box.height} fixed={box} framed={false} onDrawn={() => setDrawn(state.full)} />
         </View>
       ) : null}
-      {!shown && !state.failed ? (
+      {!shown && !state.failed && !tooLarge ? (
         <View testID="reply-image-status" accessibilityRole="progressbar" style={{ position: "absolute", left: 8, bottom: 8, maxWidth: box.width - 16, flexDirection: "row", alignItems: "center", gap: 7, paddingHorizontal: 9, paddingVertical: 4, borderRadius: 999, backgroundColor: "rgba(0,0,0,0.62)" }}>
           <Spinner small style={{ borderColor: "rgba(255,255,255,0.3)", borderTopColor: "#fff" }} />
           <Text numberOfLines={1} style={{ ...font(t, "sans", 500, 12), color: "#fff", flexShrink: 1 }}>{label}</Text>
         </View>
       ) : null}
-      {!shown && !state.failed && fraction !== null && fraction > 0 ? (
+      {tooLarge && info && !state.failed ? (
+        <View testID="reply-image-toolarge" style={{ position: "absolute", left: 0, right: 0, bottom: 0, paddingHorizontal: 10, paddingVertical: 6, backgroundColor: "rgba(0,0,0,0.62)" }}>
+          <Text style={{ ...font(t, "sans", 500, 12), color: "#fff" }}>{imageTooLargeNote(info, false)}</Text>
+        </View>
+      ) : null}
+      {!shown && !state.failed && !tooLarge && fraction !== null && fraction > 0 ? (
         <View style={{ position: "absolute", left: 0, right: 0, bottom: 0, height: 3, backgroundColor: "rgba(0,0,0,0.35)" }}>
           <View testID="reply-image-bar" style={{ width: `${Math.round(fraction * 100)}%`, height: 3, backgroundColor: t.c.accent }} />
         </View>

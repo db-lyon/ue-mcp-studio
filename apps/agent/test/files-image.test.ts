@@ -7,7 +7,8 @@ import type { DaemonExtensionApi } from "ue-mcp/daemon";
 import * as jpeg from "jpeg-js";
 import { IMAGE_READ_MAX_BYTES, POSTER_MAX_BYTES, localImagePath, projectImagePosterUrl, projectImageUrl } from "@ue-mcp-studio/shared";
 import { registerNativeRoutes } from "../src/native-routes.js";
-import { gifBytes } from "./image-fixtures.js";
+import { gifBytes, jpegBytes } from "./image-fixtures.js";
+import { imageInfoOf } from "../src/reply-images.js";
 
 type Reply = { status?: number; body?: unknown; headers?: Record<string, string> };
 let root: string;
@@ -85,6 +86,18 @@ describe("GET /files/image", () => {
     expect(fs.readdirSync(path.join(project, "Saved", "Captures"))).toEqual(["run.gif"]);
     const again = await image({ path: "Saved/Captures/run.gif", poster: "1" });
     expect(Buffer.compare(again.body as Buffer, body)).toBe(0);
+  });
+
+  it("answers the poster of an image too large to send whole, with the whole file refused and the way on named", async () => {
+    const big = path.join(project, "huge.jpg");
+    write(big, Buffer.concat([jpegBytes(64, 48), Buffer.alloc(IMAGE_READ_MAX_BYTES + 1)]));
+    const whole = await image({ path: "huge.jpg" });
+    expect(whole.status).toBe(413);
+    expect(JSON.stringify(whole.body)).toContain("Show in folder");
+    const r = await image({ path: "huge.jpg", poster: "1" });
+    expect(r.status ?? 200).toBe(200);
+    expect(r.headers?.["content-type"]).toBe("image/jpeg");
+    expect(imageInfoOf(big)).toMatchObject({ type: "image/jpeg", width: 64, height: 48, tooLarge: true, poster: true });
   });
 
   it("answers 422 for a poster of a file that does not decode", async () => {

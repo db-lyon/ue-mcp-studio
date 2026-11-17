@@ -257,6 +257,14 @@ async function readImage(file: string, buf: Buffer, mediaType: string): Promise<
   }
 }
 
+/** What to do with an image too large to open: shrink a copy with the shell, then read that. */
+export function imageTooLarge(file: string, bytes: number): string {
+  const out = path.join(path.dirname(file), `${path.basename(file, path.extname(file))}-small.jpg`);
+  return `${file} is ${bytes} bytes, too large an image to open here (at most ${MAX_IMAGE_FILE_BYTES / 1024 / 1024} MB). `
+    + `Make a smaller copy with the shell, then read the copy with read_file. For example: magick "${file}" -resize 2000x2000 "${out}" `
+    + `(ImageMagick), or ffmpeg -i "${file}" -vf scale=2000:-2 "${out}".`;
+}
+
 /** A text file with line numbers, or an image file as an image. */
 export async function readFile(projectDir: string, input: { path: string; offset?: number; limit?: number; column?: number }): Promise<LocalResult> {
   const file = resolvePath(projectDir, input.path);
@@ -277,7 +285,7 @@ export async function readFile(projectDir: string, input: { path: string; offset
     const mediaType = sniffImage(head);
     if (mediaType) return readImage(file, fs.readFileSync(file), mediaType);
   } else if (st?.isFile() && IMAGE_EXTENSIONS[path.extname(file).toLowerCase()]) {
-    return fail(`${file} is ${st.size} bytes, too large an image to open (at most ${MAX_IMAGE_FILE_BYTES / 1024 / 1024} MB)`);
+    return fail(imageTooLarge(file, st.size));
   }
   const start = Math.max(1, Math.floor(input.offset ?? 1));
   const limit = Math.max(1, Math.floor(input.limit ?? READ_LINES_DEFAULT));
@@ -503,7 +511,8 @@ export async function glob(projectDir: string, input: { pattern: string; path?: 
   if (hits.length === 0) return { text: `No files match ${input.pattern} under ${base}.${note}`, isError: false };
   hits.sort((a, b) => b.mtime - a.mtime);
   const shown = hits.slice(0, LIST_MAX);
-  const more = hits.length > shown.length ? `\n[${hits.length - shown.length} more not shown; narrow the pattern]` : "";
+  const saved = hits.length > shown.length ? saveResults("glob", hits.map((h) => h.rel)) : null;
+  const more = hits.length > shown.length ? `\n[${hits.length - shown.length} more not shown; narrow the pattern${savedNote(saved)}]` : "";
   return { text: `${hits.length} ${hits.length === 1 ? "file" : "files"} under ${base}, newest first:\n${shown.map((h) => h.rel).join("\n")}${more}${note}`, isError: false };
 }
 
@@ -526,7 +535,26 @@ export function ripgrep(): string | null {
   return (rgCache = r.status === 0 ? "rg" : null);
 }
 
-const capText = (s: string): string => (s.length > TEXT_MAX ? `${s.slice(0, TEXT_MAX)}\n[output cut at ${TEXT_MAX} characters; narrow the search]` : s);
+/** The most result lines kept for the saved file; past it the search is cut. */
+const SAVE_MAX = 20_000;
+
+/** Writes a full result list to a file in the temp folder, or null when it cannot be written. */
+function saveResults(kind: string, lines: string[]): string | null {
+  try {
+    const file = path.join(os.tmpdir(), "studio-search-output", `${kind}-${Date.now().toString(36)}-${process.pid}.txt`);
+    fs.mkdirSync(path.dirname(file), { recursive: true });
+    fs.writeFileSync(file, lines.join("\n") + "\n");
+    return file;
+  } catch {
+    return null;
+  }
+}
+
+const savedNote = (file: string | null): string => (file ? `; the full list is saved at ${file}, read it there with read_file or grep` : "");
+
+function capText(s: string, file: string | null = null): string {
+  return s.length > TEXT_MAX ? `${s.slice(0, TEXT_MAX)}\n[output cut at ${TEXT_MAX} characters; narrow the search${savedNote(file)}]` : s;
+}
 
 function grepRg(rg: string, target: string, isDir: boolean, input: GrepInput, signal?: AbortSignal): Promise<LocalResult> {
   const args = ["--line-number", "--no-heading", "--color", "never", "--max-columns", "400", "--max-columns-preview", "--hidden", "--glob", "!.git"];
@@ -547,7 +575,7 @@ function grepRg(rg: string, target: string, isDir: boolean, input: GrepInput, si
       while ((cut = buf.indexOf("\n")) >= 0) {
         const line = buf.slice(0, cut).replace(/\r$/, "");
         buf = buf.slice(cut + 1);
-        if (lines.length < GREP_MAX) lines.push(line.replace(/^\.\//, ""));
+        if (lines.length < SAVE_MAX) lines.push(line.replace(/^\.\//, ""));
         else if (!more) {
           more = true;
           child.kill();
@@ -566,8 +594,11 @@ function grepRg(rg: string, target: string, isDir: boolean, input: GrepInput, si
 
 function grepReport(target: string, pattern: string, lines: string[], more: boolean): LocalResult {
   if (lines.length === 0) return { text: `No matches for ${pattern} in ${target}.`, isError: false };
-  const tail = more ? `\n[more matches not shown after ${GREP_MAX}; narrow the pattern or the path]` : "";
-  return { text: capText(`Matches in ${target} (path:line:text):\n${lines.join("\n")}${tail}`), isError: false };
+  const over = more || lines.length > GREP_MAX;
+  const shown = lines.slice(0, GREP_MAX);
+  const saved = over || shown.join("\n").length > TEXT_MAX ? saveResults("grep", lines) : null;
+  const tail = over ? `\n[more matches not shown after ${GREP_MAX}; narrow the pattern or the path${savedNote(saved)}${more ? `; the saved list stops at ${SAVE_MAX} matches` : ""}]` : "";
+  return { text: capText(`Matches in ${target} (path:line:text):\n${shown.join("\n")}${tail}`, saved), isError: false };
 }
 
 /** grep without ripgrep: asynchronous reads, so the daemon keeps answering while it searches (#165). */
@@ -605,7 +636,7 @@ async function grepJs(target: string, isDir: boolean, input: GrepInput, signal?:
     const text = buf.toString("utf-8").split(/\r?\n/);
     for (let i = 0; i < text.length; i++) {
       if (!re.test(text[i])) continue;
-      if (lines.length >= GREP_MAX) return grepReport(target, input.pattern, lines, true);
+      if (lines.length >= SAVE_MAX) return grepReport(target, input.pattern, lines, true);
       lines.push(`${rel}:${i + 1}:${text[i].slice(0, 400)}`);
     }
   }

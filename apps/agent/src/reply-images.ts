@@ -12,7 +12,7 @@
 import * as crypto from "node:crypto";
 import * as fs from "node:fs";
 import * as path from "node:path";
-import { IMAGE_READ_MAX_BYTES, POSTER_EDGE, POSTER_MAX_BYTES, POSTER_MIN_BYTES, projectImageType, replyImagePaths, type ReplyImageInfo } from "@ue-mcp-studio/shared";
+import { IMAGE_POSTER_MAX_BYTES, IMAGE_READ_MAX_BYTES, POSTER_EDGE, POSTER_MAX_BYTES, POSTER_MIN_BYTES, projectImageType, replyImagePaths, type ReplyImageInfo } from "@ue-mcp-studio/shared";
 import { imageFacts, makePoster, sniffImage } from "./images.js";
 import { resolveProjectFile, type FileScope } from "./project-files.js";
 
@@ -27,6 +27,17 @@ const keyOf = (real: string, stat: fs.Stats): string => `${real}|${stat.size}|${
 /** Whether an image of this type and size gets a poster. BMP is not decoded here. */
 export const wantsPoster = (type: string, bytes: number): boolean => bytes >= POSTER_MIN_BYTES && type !== "image/bmp";
 
+/** The first `n` bytes of a file. */
+function readHead(file: string, n: number): Buffer {
+  const fd = fs.openSync(file, "r");
+  try {
+    const buf = Buffer.alloc(n);
+    return buf.subarray(0, fs.readSync(fd, buf, 0, n, 0));
+  } finally {
+    fs.closeSync(fd);
+  }
+}
+
 /** What a project image file is, or null when it is not one Studio shows or cannot be read. */
 export function imageInfoOf(real: string): ReplyImageInfo | null {
   let stat: fs.Stats;
@@ -35,14 +46,20 @@ export function imageInfoOf(real: string): ReplyImageInfo | null {
   } catch {
     return null;
   }
-  if (!stat.isFile() || stat.size > IMAGE_READ_MAX_BYTES) return null;
+  if (!stat.isFile() || stat.size > IMAGE_POSTER_MAX_BYTES) return null;
   const key = keyOf(real, stat);
   const hit = factsCache.get(key);
   if (hit !== undefined) return hit;
   let info: ReplyImageInfo | null = null;
   try {
-    const facts = imageFacts(fs.readFileSync(real));
-    if (facts) info = { ...facts, bytes: stat.size, ...(wantsPoster(facts.type, stat.size) ? { poster: true } : {}) };
+    if (stat.size > IMAGE_READ_MAX_BYTES) {
+      // Too large to send whole: its header gives the size, and the poster stands in for it.
+      const facts = imageFacts(readHead(real, 4 * 1024 * 1024));
+      if (facts) info = { ...facts, bytes: stat.size, poster: true, tooLarge: true };
+    } else {
+      const facts = imageFacts(fs.readFileSync(real));
+      if (facts) info = { ...facts, bytes: stat.size, ...(wantsPoster(facts.type, stat.size) ? { poster: true } : {}) };
+    }
   } catch {
     info = null;
   }

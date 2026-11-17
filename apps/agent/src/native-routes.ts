@@ -12,10 +12,10 @@ import { spawn } from "node:child_process";
 import * as fs from "node:fs";
 import * as path from "node:path";
 import type { DaemonExtensionApi } from "ue-mcp/daemon";
-import { CONVENTIONS, IMAGE_READ_MAX_BYTES, PROJECT_IMAGE_TYPES, conventionOf, openableInEditor, projectImageType, type Convention, type NativeOverview, type NativePreview, type NativeView, type WorkerView } from "@ue-mcp-studio/shared";
+import { CONVENTIONS, IMAGE_POSTER_MAX_BYTES, IMAGE_READ_MAX_BYTES, PROJECT_IMAGE_TYPES, conventionOf, openableInEditor, projectImageType, type Convention, type NativeOverview, type NativePreview, type NativeView, type WorkerView } from "@ue-mcp-studio/shared";
 import { loadout, type Loadout } from "./native.js";
 import { composeNative, modelOf, toolsFor } from "./native-runtime.js";
-import { readProjectFile, resolveProjectFile, type FileScope } from "./project-files.js";
+import { readProjectFile, resolveOutsideFile, resolveProjectFile, type FileScope } from "./project-files.js";
 import { posterFor } from "./reply-images.js";
 
 export interface NativeRouteOptions {
@@ -165,7 +165,8 @@ export function registerNativeRoutes(api: DaemonExtensionApi, o: NativeRouteOpti
     if (!type) return { status: 415, body: { error: `${r.shown} is not an image Studio shows (${Object.keys(PROJECT_IMAGE_TYPES).join(", ")}).` } };
     const stat = fs.statSync(r.real);
     if (!stat.isFile()) return { status: 400, body: { error: `${r.shown} is not a file.` } };
-    if (stat.size > IMAGE_READ_MAX_BYTES) return { status: 413, body: { error: `${r.shown} is ${(stat.size / 1048576).toFixed(1)} MB; Studio shows images up to ${IMAGE_READ_MAX_BYTES / 1048576} MB.` } };
+    // A file over the limit is not sent whole, but its poster still is: the way on is the first frame and Show in folder.
+    if (stat.size > IMAGE_READ_MAX_BYTES && !(req.query.poster === "1" && stat.size <= IMAGE_POSTER_MAX_BYTES)) return { status: 413, body: { error: `${r.shown} is ${(stat.size / 1048576).toFixed(1)} MB; Studio shows images up to ${IMAGE_READ_MAX_BYTES / 1048576} MB whole. Open it on the computer (Show in folder).` } };
     if (req.query.poster === "1") {
       if (!posters) return { status: 404, body: { error: "Posters are not kept here." } };
       try {
@@ -189,10 +190,12 @@ export function registerNativeRoutes(api: DaemonExtensionApi, o: NativeRouteOpti
   });
 
   // Any file in scope, selected in the file manager: the way on for one Studio cannot show or open (a video, a .uasset, a large image).
+  // With outside: true, a file outside the project too: the client asks the user first, and it is only selected, never read.
   api.route("POST", "/files/reveal", (req) => {
-    const b = req.body as { path?: unknown; from?: unknown } | undefined;
-    if (typeof b?.path !== "string" || !b.path) return { status: 400, body: { error: "body must be { path: string, from?: string }" } };
-    const r = resolveProjectFile(scope(), b.path, b.from);
+    const b = req.body as { path?: unknown; from?: unknown; outside?: unknown } | undefined;
+    if (typeof b?.path !== "string" || !b.path) return { status: 400, body: { error: "body must be { path: string, from?: string, outside?: boolean }" } };
+    let r = resolveProjectFile(scope(), b.path, b.from);
+    if (!r.ok && r.status === 403 && b.outside === true) r = resolveOutsideFile(scope(), b.path);
     if (!r.ok) return { status: r.status, body: { error: r.error } };
     (o.reveal ?? revealInFolder)(r.real);
     return { status: 204 };

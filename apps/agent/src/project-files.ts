@@ -6,7 +6,7 @@
  */
 import * as fs from "node:fs";
 import * as path from "node:path";
-import { FILE_SHOW_BYTES, type FileReadResponse } from "@ue-mcp-studio/shared";
+import { FILE_OUTSIDE_PROJECT, FILE_SHOW_BYTES, type FileReadResponse } from "@ue-mcp-studio/shared";
 import { repoRoot, shown } from "./native.js";
 
 /** The agents' folders in the home folder that Studio reads. */
@@ -44,6 +44,18 @@ function expand(p: string, base: string, home: string): string {
 }
 
 /**
+ * A file outside the project and the agent folders, for Show in folder only,
+ * after the user confirmed it: never read or opened, only selected in the file manager.
+ */
+export function resolveOutsideFile(scope: FileScope, request: unknown): Resolved {
+  if (typeof request !== "string" || !request.trim() || /[\0-\x1f]/.test(request)) return fail(400, "path is required");
+  const abs = expand(request, scope.projectDir, scope.home);
+  const real = realOrNull(abs);
+  if (!real) return fail(404, `${abs} does not exist.`);
+  return { ok: true, abs, real, shown: abs };
+}
+
+/**
  * A requested path as an existing file in scope. Relative paths resolve
  * against the project, or against the folder of `from` (a file the viewer
  * shows) when a link inside it is followed. A skill's folder is its SKILL.md.
@@ -58,7 +70,7 @@ export function resolveProjectFile(scope: FileScope, request: unknown, from?: un
   if (listed.has(path.join(abs, "SKILL.md"))) abs = path.join(abs, "SKILL.md");
   const roots = [projectDir, repoRoot(projectDir), ...HOME_AGENT_DIRS.map((d) => path.join(home, d))];
   const where = shown(projectDir, abs, home);
-  const refused = fail(403, `Studio shows files in the project and in ${HOME_AGENT_DIRS.map((d) => `~/${d}`).join(", ")}, not ${where}.`);
+  const refused = fail(403, `${FILE_OUTSIDE_PROJECT} and in ${HOME_AGENT_DIRS.map((d) => `~/${d}`).join(", ")}, not ${where}.`);
   if (!listed.has(abs) && !roots.some((r) => inside(path.resolve(r), abs))) return refused;
   const real = realOrNull(abs);
   if (!real) return fail(404, `${where} does not exist.`);

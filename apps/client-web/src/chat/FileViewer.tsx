@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState, useSyncExternalStore, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import { openableInEditor, projectImageType, projectImageUrl } from "@ue-mcp-studio/shared";
-import { FILE_REFUSED_REMOTE, FileViewer, OPEN_IN_EDITOR_REMOTE, fileLines, fileLinkTitle, rawFileNote, type FileView } from "@ue-mcp-studio/client-core";
+import { FILE_REFUSED_REMOTE, FileViewer, OPEN_IN_EDITOR_REMOTE, fileLines, fileLinkTitle, isOutsideProjectError, outsideProjectQuestion, rawFileNote, type FileView } from "@ue-mcp-studio/client-core";
 import { api } from "../api";
 import { onRemotePage } from "../connection";
 import { FileFromContext, FileViewerContext } from "./FileLink";
@@ -66,6 +66,12 @@ function FileRefused({ view }: { view: Extract<FileView, { status: "error" }> })
     );
   }
   const remote = onRemotePage();
+  // A file outside the project is refused for reading, but can be selected in its folder once the user has said yes.
+  const outside = isOutsideProjectError(view.error);
+  const reveal = () => {
+    if (outside && !window.confirm(outsideProjectQuestion(path))) return;
+    api.revealFile(path, undefined, outside).catch((e: Error) => setFailed(e.message));
+  };
   return (
     <div className="file-viewer-note">
       <p className="bad" role="alert">{view.error}</p>
@@ -73,7 +79,7 @@ function FileRefused({ view }: { view: Extract<FileView, { status: "error" }> })
         <p className="muted">{FILE_REFUSED_REMOTE}</p>
       ) : (
         <p className="row">
-          <button onClick={() => api.revealFile(path).catch((e: Error) => setFailed(e.message))}>Show in folder</button>
+          <button onClick={reveal}>Show in folder</button>
           {openableInEditor(path) && <OpenInEditor path={path} />}
         </p>
       )}
