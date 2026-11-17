@@ -45,28 +45,28 @@ export function SetupView({ state, refreshNode }: { state: HostState; refreshNod
       <header className="setup-head">
         <Mark size={40} />
         <div>
-          <div className="setup-product">UE-MCP</div>
+          <div className="setup-product">UE-MCP Launcher</div>
           <div className="dim small">Version {state.version}</div>
         </div>
       </header>
 
       {step === "welcome" && older && (
         <main className="setup-body">
-          <h1>UE-MCP {state.installed?.version} is installed</h1>
+          <h1>UE-MCP Launcher {state.installed?.version} is installed</h1>
           <p className="muted">{state.compare === "same" ? "This is the version you have." : `It is newer than this setup's ${state.version}, so nothing needs installing.`}</p>
           <footer className="setup-foot">
             <span className="spacer" />
             <button onClick={() => void h?.close()}>Close</button>
-            <button className="primary" onClick={() => void h?.launch()}>Open UE-MCP</button>
+            <button className="primary" onClick={() => void h?.launch()}>Open UE-MCP Launcher</button>
           </footer>
         </main>
       )}
 
       {step === "welcome" && !older && (
         <main className="setup-body">
-          <h1>{upgrade ? `Update UE-MCP to ${state.version}` : "Install UE-MCP"}</h1>
+          <h1>{upgrade ? `Update UE-MCP Launcher to ${state.version}` : "Install UE-MCP Launcher"}</h1>
           <p className="muted">
-            UE-MCP keeps your Unreal projects in one place. It adds Studio to a project, opens each project's Studio, keeps them up to date and shows what runs.
+            UE-MCP Launcher keeps your Unreal projects in one place. It adds Studio to a project, opens each project's Studio, keeps them up to date and shows what runs.
           </p>
           <div className="setup-check">
             <span className={`setup-dot ${state.node.ok ? "ok" : "warn"}`} aria-hidden />
@@ -86,7 +86,7 @@ export function SetupView({ state, refreshNode }: { state: HostState; refreshNod
 
       {step === "installing" && (
         <main className="setup-body">
-          <h1>{nodeJob?.running ? "Installing Node.js" : "Installing UE-MCP"}</h1>
+          <h1>{nodeJob?.running ? "Installing Node.js" : "Installing UE-MCP Launcher"}</h1>
           <div className="setup-progress" role="progressbar" aria-label="Installing"><span /></div>
           {nodeJob && <p className="dim small">{nodeJob.lines?.slice(-1)[0] ?? ""}</p>}
         </main>
@@ -94,12 +94,12 @@ export function SetupView({ state, refreshNode }: { state: HostState; refreshNod
 
       {step === "done" && (
         <main className="setup-body">
-          <h1>UE-MCP is installed</h1>
+          <h1>UE-MCP Launcher is installed</h1>
           <p className="muted">Find it in the Start menu. Add Studio to a project from its Projects list.</p>
           {error && <div className="banner warn small">{error}</div>}
           <label className="app-consent">
             <input type="checkbox" checked={open} onChange={(e) => setOpen(e.target.checked)} />
-            <span>Open UE-MCP now</span>
+            <span>Open UE-MCP Launcher now</span>
           </label>
           <footer className="setup-foot">
             <span className="spacer" />
@@ -110,7 +110,7 @@ export function SetupView({ state, refreshNode }: { state: HostState; refreshNod
 
       {step === "failed" && (
         <main className="setup-body">
-          <h1>UE-MCP was not installed</h1>
+          <h1>UE-MCP Launcher was not installed</h1>
           <div className="banner bad small" role="alert">{error}</div>
           <footer className="setup-foot">
             <span className="spacer" />
