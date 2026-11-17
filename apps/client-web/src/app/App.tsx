@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { host, onHostEvent, type HostState, type Live, type Newest, type ReportAnswer } from "./native";
-import { parseReport, readAt, type MachineReport } from "./model";
+import { parseReport, readAt, updateUeMcpCopy, withoutRemoved, type MachineProject, type MachineReport } from "./model";
 import { Mark } from "./Mark";
 import { ProjectsView } from "./Projects";
 import { ProjectDetail } from "./ProjectDetail";
@@ -37,6 +37,14 @@ export interface Machine {
   refreshNode: () => Promise<void>;
   /** Read the newest releases again, as after the channel changed. */
   refreshNewest: () => void;
+  /** Ask for the channel's newest ue-mcp again and read the report with it. */
+  updateUeMcp: () => Promise<void>;
+  /** The last Update ue-mcp press found no newer one. */
+  updated: boolean;
+  /** Take a project off the list; a failure is said in `notice`, never dropped. */
+  removeProject: (p: MachineProject) => Promise<boolean>;
+  notice: string | null;
+  dismissNotice: () => void;
 }
 
 function useMachine(): Machine {
@@ -51,7 +59,12 @@ function useMachine(): Machine {
   const again = useRef(false);
 
   // Until the first read answers, the last report shows, so the list is there at once.
-  const report = parseReport(answer ? (answer.ok ? answer.report : answer.cached) : cached ?? undefined);
+  const [removed, setRemoved] = useState<string[]>([]);
+  const [notice, setNotice] = useState<string | null>(null);
+  const [updated, setUpdated] = useState(false);
+  const fresh = !!answer && answer.ok;
+  const parsed = parseReport(answer ? (answer.ok ? answer.report : answer.cached) : cached ?? undefined);
+  const report = fresh ? parsed : withoutRemoved(parsed, removed);
   const stale = !!answer && !answer.ok && !!report;
   const cachedAt = answer && !answer.ok && answer.cachedAt ? Date.parse(answer.cachedAt) : NaN;
   const readAt = stale && Number.isFinite(cachedAt) ? cachedAt : okAt;
@@ -151,7 +164,45 @@ function useMachine(): Machine {
     };
   }, [keyList]);
 
-  return { state, answer, report, stale, live, loading, readAt, newest, refresh, refreshNode, refreshNewest };
+  const updateUeMcp = useCallback(async () => {
+    const h = host();
+    if (!h) return;
+    if (!h.updateuemcp) {
+      await refresh();
+      return;
+    }
+    setLoading(true);
+    try {
+      const a = await h.updateuemcp();
+      setAnswer(a);
+      if (a.ok) setOkAt(Date.now());
+      setUpdated(!a.ok && a.reason === "unsupported");
+    } finally {
+      setLoading(false);
+    }
+  }, [refresh]);
+
+  const removeProject = useCallback(
+    async (p: MachineProject) => {
+      const h = host();
+      if (!h) return false;
+      const r = await h.removeproject({ uproject: p.uproject });
+      if (!r.ok) {
+        setNotice(`${p.name} could not be removed from the list${r.error ? `: ${r.error}` : "."}`);
+        return false;
+      }
+      setNotice(null);
+      setRemoved((k) => (k.includes(p.key) ? k : [...k, p.key]));
+      await refresh();
+      return true;
+    },
+    [refresh],
+  );
+
+  return {
+    state, answer, report, stale, live, loading, readAt, newest, refresh, refreshNode, refreshNewest,
+    updateUeMcp, updated, removeProject, notice, dismissNotice: () => setNotice(null),
+  };
 }
 
 /** The UE-MCP app: its setup when not installed, else the projects on this computer and a small Settings screen. */
@@ -208,34 +259,55 @@ export function App({ initial = "projects" }: { initial?: Screen } = {}) {
 
 /** Why the report could not be read, above whatever is shown from an earlier one. */
 function ReportProblem({ m, onSettings }: { m: Machine; onSettings: () => void }) {
+  const notice = m.notice ? (
+    <div className="banner warn app-banner" role="alert">
+      <span>{m.notice}</span>
+      <button onClick={m.dismissNotice}>Dismiss</button>
+    </div>
+  ) : null;
   const a = m.answer;
-  if (!a || a.ok || m.loading) return null;
+  if (!a || a.ok || m.loading) return notice;
   const version = a.ueMcp?.replace(/^ue-mcp@/, "") ?? "";
-  if (a.reason === "unsupported" || a.reason === "version") {
+  if (a.reason === "unsupported") {
+    const copy = updateUeMcpCopy(version, a.need, m.updated);
     return (
       <section className="app-callout" role="status">
-        <h2>UE-MCP needs a newer ue-mcp</h2>
-        <p className="muted">
-          {a.reason === "unsupported"
-            ? `UE-MCP lists your projects with ue-mcp's projects command, and ue-mcp ${version} does not have it yet. It comes with the next ue-mcp release.`
-            : `ue-mcp ${version} reports projects in a form this UE-MCP does not read. Update UE-MCP in Settings.`}
-        </p>
-        {m.stale && <p className="dim small">Showing the list read {readAt(a.cachedAt)}.</p>}
+        {notice}
+        <h2>{copy.heading}</h2>
+        <p className="muted">{copy.body}</p>
+        {m.stale && <p className="dim small">Until then, this is the list read {readAt(a.cachedAt)}.</p>}
         <div className="row">
           {/* The update the text names is one press away, not a screen to find. */}
-          {a.reason === "version" && <button className="primary" onClick={onSettings}>Update UE-MCP</button>}
+          <button className="primary" onClick={() => (m.updated ? onSettings() : void m.updateUeMcp())}>{copy.action}</button>
+          <button onClick={() => void m.refresh()}>Check again</button>
+        </div>
+      </section>
+    );
+  }
+  if (a.reason === "version") {
+    return (
+      <section className="app-callout" role="status">
+        {notice}
+        <h2>Update UE-MCP to see your projects</h2>
+        <p className="muted">{`ue-mcp ${version} lists projects in a newer form than this UE-MCP reads.`}</p>
+        {m.stale && <p className="dim small">Until then, this is the list read {readAt(a.cachedAt)}.</p>}
+        <div className="row">
+          <button className="primary" onClick={onSettings}>Update UE-MCP</button>
           <button onClick={() => void m.refresh()}>Check again</button>
         </div>
       </section>
     );
   }
   return (
-    <div className="banner warn app-banner" role="alert">
-      <span>
-        {m.stale ? `Showing the list read ${readAt(a.cachedAt)}. ` : ""}
-        Your projects could not be read{a.error ? `: ${a.error}` : "."}
-      </span>
-      <button onClick={() => void m.refresh()}>Try again</button>
-    </div>
+    <>
+      {notice}
+      <div className="banner warn app-banner" role="alert">
+        <span>
+          {m.stale ? `Showing the list read ${readAt(a.cachedAt)}. ` : ""}
+          Your projects could not be read{a.error ? `: ${a.error}` : "."}
+        </span>
+        <button onClick={() => void m.refresh()}>Try again</button>
+      </div>
+    </>
   );
 }

@@ -172,8 +172,8 @@ export const APP_SCENARIOS: Record<string, AppScenario> = {
     report: { ok: false, reason: "node" },
   },
   "app-ue-mcp-old": {
-    title: "The ue-mcp release on npm has no projects command yet.",
-    report: { ok: false, reason: "unsupported", ueMcp: "ue-mcp@1.4.11" },
+    title: "The installed ue-mcp is older than the projects command: it says which version is installed and which is needed, with Update ue-mcp.",
+    report: { ok: false, reason: "unsupported", ueMcp: "ue-mcp@1.4.11", need: "1.4.14-beta.1" },
   },
   "app-report-offline": {
     title: "The report could not be read (offline), so the last one is shown, marked with when it was read.",

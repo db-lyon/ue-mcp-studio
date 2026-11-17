@@ -99,6 +99,29 @@ export function parseReport(text: string | undefined): MachineReport | null {
   }
 }
 
+/**
+ * An earlier report shown while a read fails, without the projects removed
+ * since: that report was read before they were taken off, so it still lists
+ * them. A report read now comes from ue-mcp and needs no filter.
+ */
+export function withoutRemoved(report: MachineReport | null, removed: readonly string[]): MachineReport | null {
+  if (!report || removed.length === 0) return report;
+  return { ...report, projects: report.projects.filter((p) => !removed.includes(p.key)) };
+}
+
+/** What the screen for a ue-mcp without the projects command says: the version installed, the one needed, and what Update does. */
+export function updateUeMcpCopy(installed: string, need: string | undefined, afterUpdate: boolean): { heading: string; body: string; action: string } {
+  const needed = need || "1.4.14";
+  const have = installed ? `ue-mcp ${installed} is installed` : "The installed ue-mcp is older";
+  return {
+    heading: "Update ue-mcp to see your projects",
+    body: afterUpdate
+      ? `${have}, and it is still the newest on your release channel. Listing projects needs ue-mcp ${needed} or newer. Switch the channel to Beta in Settings, or check again once a newer ue-mcp is released.`
+      : `${have}. Listing your projects needs ue-mcp ${needed} or newer.`,
+    action: afterUpdate ? "Open Settings" : "Update ue-mcp",
+  };
+}
+
 /** "Read at 14:05" for a cached report's time. */
 export function readAt(iso: string | undefined): string {
   const t = iso ? new Date(iso) : null;
