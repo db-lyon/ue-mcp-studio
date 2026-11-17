@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { App } from "./App";
 import { appSlot, type HostState, type IdeInfo, type Newest, type OpenIde } from "./native";
 import type { MachineProject, MachineReport } from "./model";
@@ -122,6 +122,22 @@ describe("unverified state", () => {
     answer();
     await waitFor(() => expect(within(rows[0]).queryByText("Checking editor")).toBeNull());
     expect(within(rows[0]).queryByText("Editor open")).toBeNull();
+  });
+
+  it("says a read is waiting on the one-time ue-mcp install, not just Reading, while the host installs it", async () => {
+    const h = fakeHost();
+    h.cachedreport.mockResolvedValue(JSON.stringify({ version: 1, ueMcp: "1.4.13", daemonDir: "D", projects: [withStudio], daemons: [] }) as never);
+    let answer!: () => void;
+    const first = h.report.getMockImplementation()!;
+    h.report.mockImplementationOnce(() => new Promise((r) => (answer = () => r(first() as never))));
+    render(<App />);
+    await projectRows();
+    act(() => void window.dispatchEvent(new CustomEvent("ue-app", { detail: "installing" })));
+    expect(await screen.findByRole("button", { name: "Installing ue-mcp (one time)" })).toBeTruthy();
+    act(() => void window.dispatchEvent(new CustomEvent("ue-app", { detail: "installed" })));
+    expect(await screen.findByRole("button", { name: "Reading" })).toBeTruthy();
+    answer();
+    expect(await screen.findByRole("button", { name: "Refresh" })).toBeTruthy();
   });
 
   it("says unknown, not the last value, when this session's read failed", async () => {

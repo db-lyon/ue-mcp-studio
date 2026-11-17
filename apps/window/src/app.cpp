@@ -282,14 +282,20 @@ std::vector<std::string> ueMcpVersionsInUse() {
  * (see uemcpinstall.h), made on first use. Empty for a channel tag, or when the
  * install failed: the caller then runs npx.
  */
+void appEvent(const char* name);
+
 std::wstring ueMcpScript(const std::wstring& npx, const std::wstring& spec) {
   if (uemcp::key(spec).empty()) return {};
   // One install at a time: two reads at startup must not race into one folder.
   static std::mutex installing;
   std::lock_guard<std::mutex> g(installing);
   return uemcp::ensure(join(dataDir(), L"ue-mcp"), spec, [&](const std::wstring& prefix) {
+    // The page says so while it runs, so a one-time install never looks like a slow read.
+    appEvent("installing");
     std::wstring npm = join(dirOf(npx), L"npm.cmd");
-    return capture(L"\"" + npm + L"\" install --prefix \"" + prefix + L"\" --min-release-age=0 --no-audit --no-fund --omit=dev " + spec, 300000).code == 0;
+    bool ok = capture(L"\"" + npm + L"\" install --prefix \"" + prefix + L"\" --min-release-age=0 --no-audit --no-fund --omit=dev " + spec, 300000).code == 0;
+    appEvent("installed");
+    return ok;
   }, ueMcpVersionsInUse);
 }
 
@@ -1088,6 +1094,9 @@ std::string install() {
   std::wstring lnk = startMenuShortcut();
   if (std::wstring was = startMenuShortcut(true); !was.empty()) DeleteFileW(was.c_str());
   if (lnk.empty() || !writeShortcut(lnk, exe)) return "The Start menu shortcut could not be written.";
+  // Install the channel's ue-mcp now, while setup is expected to take a moment, so the app's first read is not
+  // the one that waits for it. A failure here is not setup's: the app installs it on first use instead.
+  if (std::wstring npx = npxCmd(); !npx.empty()) ueMcpScript(npx, resolvedSpec());
   tellApp(L"\"" + exe + L"\" --relaunch");
   return {};
 }
@@ -1345,6 +1354,12 @@ std::string state() {
     v.set("installed", json::Value());
   }
   return answer(v);
+}
+
+/** Tell the page something it did not ask for (see HostEvent in native.ts), from any thread. */
+void appEvent(const char* name) {
+  auto* text = new std::wstring(widen(std::string("{\"appEvent\":\"") + name + "\"}"));
+  if (!gMain || !PostMessageW(gMain, kReply, 0, reinterpret_cast<LPARAM>(text))) delete text;
 }
 
 void reply(int id, const std::string& result) {

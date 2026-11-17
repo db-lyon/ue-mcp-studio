@@ -29,6 +29,8 @@ export interface Machine {
    * and are drawn as checking or unknown, never as fact.
    */
   verified: boolean;
+  /** A ue-mcp version is being installed into the app's own folder, once; reads wait for it. */
+  installing: boolean;
   live: Record<string, Live> | null;
   loading: boolean;
   /** When the report shown was read (ms), or null before the first read of this session answers. */
@@ -69,6 +71,7 @@ function useMachine(): Machine {
   const [removed, setRemoved] = useState<string[]>([]);
   const [notice, setNotice] = useState<string | null>(null);
   const [updated, setUpdated] = useState(false);
+  const [installing, setInstalling] = useState(false);
   const fresh = !!answer && answer.ok;
   const parsed = parseReport(answer ? (answer.ok ? answer.report : answer.cached) : cached ?? undefined);
   const report = fresh ? parsed : withoutRemoved(parsed, removed);
@@ -142,7 +145,10 @@ function useMachine(): Machine {
       void refresh();
     };
     const onVisible = () => document.visibilityState === "visible" && onFocus();
-    const off = onHostEvent((e) => (e === "focus" ? onFocus() : void refresh()));
+    const off = onHostEvent((e) => {
+      if (e === "installing" || e === "installed") return setInstalling(e === "installing");
+      return e === "focus" ? onFocus() : void refresh();
+    });
     window.addEventListener("focus", onFocus);
     document.addEventListener("visibilitychange", onVisible);
     return () => {
@@ -207,7 +213,7 @@ function useMachine(): Machine {
   );
 
   return {
-    state, answer, report, stale, verified: fresh, live, loading, readAt, newest, refresh, refreshNode, refreshNewest,
+    state, answer, report, stale, verified: fresh, installing, live, loading, readAt, newest, refresh, refreshNode, refreshNewest,
     updateUeMcp, updated, removeProject, notice, dismissNotice: () => setNotice(null),
   };
 }

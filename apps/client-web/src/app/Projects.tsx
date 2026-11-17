@@ -46,7 +46,7 @@ export function ProjectsView({ m, onOpen }: { m: Machine; onOpen: (key: string) 
           <input className="app-filter" type="search" placeholder="Filter" aria-label="Filter projects" value={query} onChange={(e) => setQuery(e.target.value)} />
         )}
         {m.readAt !== null && <span className="dim small app-read-at" title="The list reads again by itself when a project, daemon or Studio changes">{listReadAt(m.readAt)}</span>}
-        <button onClick={() => void m.refresh()} disabled={m.loading}>{m.loading ? <Busy>Reading</Busy> : "Refresh"}</button>
+        <button onClick={() => void m.refresh()} disabled={m.loading}>{m.loading ? <Busy>{m.installing ? "Installing ue-mcp (one time)" : "Reading"}</Busy> : "Refresh"}</button>
         <button className="primary" disabled={addBusy} onClick={() => void add()}>{addBusy ? <Busy>Adding</Busy> : "Add project"}</button>
       </header>
       {adding && <div className="banner bad small">{adding}</div>}
