@@ -196,6 +196,9 @@ describe("the Upgrade action", () => {
     await reply();
     await act(async () => void fireEvent.click(screen.getByRole("button", { name: "Upgrade to Remote" })));
     expect(screen.getByRole("alert").textContent).toBe("Plans cannot be bought yet.");
+    // Not a dead end: what still works, and where plans are announced.
+    expect(screen.getByText(/Plans are announced on ue-mcp.com/)).toBeTruthy();
+    expect(screen.getByRole("link", { name: "Open ue-mcp.com" }).getAttribute("href")).toBe("https://ue-mcp.com/");
     expect(opened).not.toHaveBeenCalled();
   });
 

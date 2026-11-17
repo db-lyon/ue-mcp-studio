@@ -94,7 +94,8 @@ export const AGENT_TOOL: Anthropic.Beta.BetaToolUnion = {
   description:
     "Hand a self-contained task to a subagent. It has the same tools: ue_mcp and editor_restart for the editor, "
     + "and the shell, file, search and web tools for the project's files, git and the internet. It reports back what it did. It sees only the prompt you write, so include every path, name and constraint it needs. "
-    + "Call agent several times in one message to run independent tasks at the same time; never give two subagents the same assets.",
+    + "Call agent several times in one message to run independent tasks at the same time; never give two subagents the same assets. "
+    + "A subagent cannot start subagents; when its report ends with NEEDS SUBAGENT lines, start each of those with this tool, using the description and prompt it gave.",
   input_schema: {
     type: "object",
     properties: {

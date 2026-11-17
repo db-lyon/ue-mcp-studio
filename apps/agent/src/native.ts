@@ -301,7 +301,7 @@ function capBytes(files: FoundFile[], max: number, notes: string[], tool: string
   for (const f of files) {
     const size = Buffer.byteLength(f.text, "utf-8");
     if (used + size > max) {
-      notes.push(`${f.path} is past ${tool}'s ${Math.round(max / 1024)} KiB limit for instruction files, so it is not read.`);
+      notes.push(`${f.path} is past ${tool}'s ${Math.round(max / 1024)} KiB limit for instruction files, so it is not read. Shorten it, or move part of it into a smaller file.`);
       continue;
     }
     used += size;

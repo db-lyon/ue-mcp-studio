@@ -81,6 +81,12 @@ export function AccountView() {
               <div style={{ width: `${pct}%`, height: "100%", background: pct >= 90 ? "var(--bad)" : "var(--accent)" }} />
             </div>
             <p>{fmt(u.billableTokens)} of {fmt(u.quota)} tokens ({pct}%), {fmt(u.remaining)} left</p>
+            {u.remaining <= 0 && (
+              <div className="banner warn small" role="status">
+                This period's tokens are used up. A model on your own API key or another sign-in keeps working: connect one under API keys or Sign-ins above, then choose it in the model picker. The plan's tokens return on {new Date(u.periodEnd).toLocaleDateString()}.
+                {state.manageUrl && <> <a href={state.manageUrl} target="_blank" rel="noreferrer"><button className="small-button">Manage plan</button></a></>}
+              </div>
+            )}
           </>
         ) : (
           <p>This plan has no hosted model tokens.</p>

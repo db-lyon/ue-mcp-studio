@@ -188,13 +188,14 @@ describe("POST /quick", () => {
     expect(fs.readFileSync(windowLocationFile(projectDir), "utf-8")).toBe("#/chat/s1\n");
   });
 
-  it("answers 409 and creates nothing when no model is connected", async () => {
-    const { created, events, post } = setup(false);
+  it("answers 409 and creates nothing when no model is connected, and points Studio at the model picker", async () => {
+    const { projectDir, created, events, post } = setup(false);
     const res = await post({ text: "hello" });
     expect(res.status).toBe(409);
-    expect(res.body).toEqual({ error: NO_MODEL });
+    expect(res.body).toEqual({ error: NO_MODEL, location: "#/settings/agents" });
     expect(created).toEqual([]);
-    expect(events).toEqual([]);
+    expect(events).toEqual([{ type: "session.focus", data: { section: "agents" } }]);
+    expect(fs.readFileSync(windowLocationFile(projectDir), "utf-8")).toBe("#/settings/agents\n");
   });
 
   it("answers 400 for a bad body", async () => {

@@ -120,6 +120,16 @@ describe("returning to Chat from another tab", () => {
     expect(screen.queryByText("Settings view")).toBeNull();
   });
 
+  it("an editor quick ask with no model connected opens the model picker's Settings section", async () => {
+    layout(false);
+    const view = render(<App />);
+    await leaveChatOpen();
+    m.events = [{ id: 1, type: "studio.session.focus", data: { section: "agents" }, at: 1 }];
+    view.rerender(<App />);
+    expect(await screen.findByText("Settings view")).toBeTruthy();
+    await waitFor(() => expect(window.location.hash).toBe("#/settings/agents"));
+  });
+
   it("a Chat never opened before mounts on first visit, from the location", async () => {
     layout(false);
     window.location.hash = "#/settings/general";
