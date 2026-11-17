@@ -30,6 +30,23 @@ describe("What's new", () => {
     expect(screen.getByText(/reports a modal's pickers/)).toBeTruthy();
   });
 
+  it("scrolls the notes in a body that can shrink, with the title and Close outside it", async () => {
+    renderArea("settings-whats-new", <WhatsNewSheet onClose={vi.fn()} />);
+    await settled();
+    const body = screen.getByTestId("whats-new-body");
+    const head = screen.getByTestId("whats-new-head");
+    expect(body.contains(head)).toBe(false);
+    expect(head.querySelector('[aria-label="Close"]')).not.toBeNull();
+    // A scroll container (not clipped), allowed to shrink inside the card's maxHeight.
+    const s = getComputedStyle(body);
+    expect(["auto", "scroll"]).toContain(s.overflowY);
+    expect(s.flexShrink).toBe("1");
+    // The notes and their folds live in the scrolling body.
+    expect(body.contains(screen.getByText("Editor dialogs"))).toBe(true);
+    fireEvent.click(screen.getByText("Editor dialogs"));
+    expect(body.contains(screen.getByText(/reports a modal's pickers/))).toBe(true);
+  });
+
   it("says when a part's notes could not be read, with Retry and the release page", async () => {
     const open = vi.spyOn(Linking, "openURL").mockResolvedValue(undefined as never);
     renderArea("settings-whats-new", <WhatsNewSheet onClose={vi.fn()} />);

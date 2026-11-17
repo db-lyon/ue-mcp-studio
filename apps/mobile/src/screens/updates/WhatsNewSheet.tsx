@@ -103,14 +103,15 @@ export function WhatsNewSheet({ onClose }: { onClose: () => void }) {
     <Modal visible transparent animationType="none" onRequestClose={onClose} statusBarTranslucent navigationBarTranslucent>
       <Pressable accessibilityLabel="Close" onPress={onClose} style={{ flex: 1, paddingTop: 8 + insets.top, paddingBottom: 8 + insets.bottom, paddingLeft: 8 + insets.left, paddingRight: 8 + insets.right, alignItems: "center", justifyContent: "center", backgroundColor: "rgba(0, 0, 0, 0.55)" }}>
         <Pressable accessibilityViewIsModal accessibilityLabel={WHATS_NEW_TITLE} testID="whats-new" onPress={() => undefined} style={{ width: "100%", maxWidth: 680, maxHeight: "100%", borderWidth: 1, borderColor: t.c.line, borderRadius: 10, backgroundColor: t.c.panel, shadowColor: "#000", shadowOpacity: 0.45, shadowRadius: 25, shadowOffset: { width: 0, height: 18 } }}>
-          <ScrollView style={pageScroll} contentContainerStyle={{ gap: 10, padding: 16 }}>
-            <View style={{ flexDirection: "row", alignItems: "center", gap: 10 }}>
-              <T accessibilityRole="header" style={[font(t, "sans", 600, 15, 1.2), { color: t.c.text }]}>
-                {WHATS_NEW_TITLE}
-              </T>
-              <Spacer />
-              <Button variant="ghost" title="Close" onPress={onClose} />
-            </View>
+          <View testID="whats-new-head" style={{ flexDirection: "row", alignItems: "center", gap: 10, paddingHorizontal: 16, paddingTop: 16, paddingBottom: 10 }}>
+            <T accessibilityRole="header" style={[font(t, "sans", 600, 15, 1.2), { color: t.c.text }]}>
+              {WHATS_NEW_TITLE}
+            </T>
+            <Spacer />
+            <Button variant="ghost" title="Close" onPress={onClose} />
+          </View>
+          {/* flexShrink lets the body give way to the card's maxHeight, so it scrolls instead of running off the screen. */}
+          <ScrollView testID="whats-new-body" style={[{ flexShrink: 1 }, pageScroll]} contentContainerStyle={{ gap: 10, paddingHorizontal: 16, paddingBottom: 16 }} nestedScrollEnabled keyboardShouldPersistTaps="handled">
             {w === undefined ? <Txt tone="muted">Loading</Txt> : null}
             {w === null ? (
               <Banner kind="bad" role="alert">
