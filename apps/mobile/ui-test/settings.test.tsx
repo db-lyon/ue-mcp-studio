@@ -223,6 +223,15 @@ describe("Settings > Models & accounts", () => {
     expect(writes()).toContainEqual(expect.objectContaining({ json: { routeOrder: "keys-first" } }));
   });
 
+  it("offers Retry on an endpoint whose models failed, which reads them again", async () => {
+    const { writes } = open("endpoints-populated", "models");
+    await settled(6);
+    expect(screen.getByText(/Showing the saved list and context windows/)).toBeTruthy();
+    fireEvent.click(screen.getByLabelText("Retry"));
+    await settled();
+    expect(writes()).toContainEqual(expect.objectContaining({ method: "POST", path: expect.stringMatching(/\/endpoints\/[a-z0-9-]+\/models$/) }));
+  });
+
   it("says when the endpoints cannot be read", async () => {
     open("endpoints-error", "models");
     await settled(6);
