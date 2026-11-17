@@ -9,7 +9,7 @@ import * as ImagePicker from "expo-image-picker";
 import * as DocumentPicker from "expo-document-picker";
 import * as Clipboard from "expo-clipboard";
 import { MAX_BYTES, formatBytes, isImage } from "@ue-mcp-studio/client-core";
-import type { Attachment } from "@ue-mcp-studio/shared";
+import { ATTACHMENT_PART_BYTES, type Attachment } from "@ue-mcp-studio/shared";
 import { useProjectNav } from "../../../nav";
 
 export { MAX_BYTES, attachmentUrl, formatBytes, isImage } from "@ue-mcp-studio/client-core";
@@ -36,6 +36,8 @@ export interface PendingFile {
   preview: string | null;
   state: "uploading" | "ready" | "error";
   error?: string;
+  /** Bytes sent so far of a file that goes up in parts. */
+  sent?: number;
   attachment?: Attachment;
 }
 
@@ -91,17 +93,21 @@ export async function pastedImage(): Promise<PickedFile[]> {
 /** Whether the clipboard holds an image, for Paste image in the Attach sheet. */
 export const clipboardHasImage = (): Promise<boolean> => Clipboard.hasImageAsync().catch(() => false);
 
-/** A picked file's bytes as base64: the picker's own when it read them, else read from its local uri. */
-export async function readBase64(file: PickedFile): Promise<string> {
-  if (file.base64) return file.base64;
-  // A local file: content:// or file:// on the phone, never the daemon.
-  const blob = await (await fetch(file.uri)).blob();
+/** A blob's bytes as base64, without the data URL prefix. */
+function readBlobBase64(blob: Blob): Promise<string> {
   return new Promise((resolve, reject) => {
     const r = new FileReader();
     r.onload = () => resolve(String(r.result).replace(/^data:[^,]*,/, ""));
     r.onerror = () => reject(new Error("could not read the file"));
     r.readAsDataURL(blob);
   });
+}
+
+/** A picked file's bytes as base64: the picker's own when it read them, else read from its local uri. */
+export async function readBase64(file: PickedFile): Promise<string> {
+  if (file.base64) return file.base64;
+  // A local file: content:// or file:// on the phone, never the daemon.
+  return readBlobBase64(await (await fetch(file.uri)).blob());
 }
 
 let counter = 0;
@@ -118,6 +124,29 @@ export function useAttachments(sessionId: string | null) {
 
   const patch = (key: string, p: Partial<PendingFile>) => setFiles((cur) => cur.map((f) => (f.key === key ? { ...f, ...p } : f)));
 
+  /** The picked files, kept while a chip is on screen so a failed upload can be sent again. */
+  const sources = useRef(new Map<string, PickedFile>());
+
+  /** Upload one file: whole when it fits one request, else read from the file a part at a time. */
+  const upload = (key: string, file: PickedFile, name: string, type: string) => {
+    if (!sessionId) return;
+    patch(key, { state: "uploading", error: undefined, sent: 0 });
+    const fail = (e: Error) => patch(key, { state: "error", error: e.message });
+    const ok = (attachment: Attachment) => patch(key, { state: "ready", attachment });
+    if (file.base64 || file.size <= ATTACHMENT_PART_BYTES) {
+      readBase64(file).then((data) => api.uploadAttachment(sessionId, { name, type, data })).then(ok, fail);
+      return;
+    }
+    // A large file is never held whole in JavaScript: its blob is sliced as each part goes.
+    fetch(file.uri)
+      .then((r) => r.blob())
+      .then((blob) => {
+        if (blob.size > MAX_BYTES) throw new Error(`larger than ${formatBytes(MAX_BYTES)}`);
+        return api.uploadAttachmentChunked(sessionId, { name, type, size: blob.size }, (offset, length) => readBlobBase64(blob.slice(offset, offset + length)), (sent) => patch(key, { sent }));
+      })
+      .then(ok, fail);
+  };
+
   const add = useCallback((list: PickedFile[]) => {
     if (!sessionId) return;
     for (const file of list) {
@@ -129,14 +158,33 @@ export function useAttachments(sessionId: string | null) {
         patch(key, { state: "error", error: `larger than ${formatBytes(MAX_BYTES)}` });
         continue;
       }
-      readBase64(file)
-        .then((data) => api.uploadAttachment(sessionId, { name: pending.name, type, data }))
-        .then((attachment) => patch(key, { state: "ready", attachment }), (e: Error) => patch(key, { state: "error", error: e.message }));
+      sources.current.set(key, file);
+      upload(key, file, pending.name, type);
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [sessionId, api]);
 
+  /** Send a failed file again, from its first part. */
+  const retry = useCallback((key: string) => {
+    const file = sources.current.get(key);
+    const f = live.current.find((x) => x.key === key);
+    if (file && f) upload(key, file, f.name, f.type);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [sessionId, api]);
+
+  /** Drop every file that failed, so the message can go without them. */
+  const removeFailed = useCallback(() => {
+    setFiles((cur) => {
+      for (const f of cur) if (f.state === "error") sources.current.delete(f.key);
+      return cur.filter((f) => f.state !== "error");
+    });
+  }, []);
+
   const remove = useCallback((key: string) => setFiles((cur) => cur.filter((x) => x.key !== key)), []);
-  const clear = useCallback(() => setFiles([]), []);
+  const clear = useCallback(() => {
+    sources.current.clear();
+    setFiles([]);
+  }, []);
   /** The web client's take and restore: a failed send gives its files back with the text. */
   const take = useCallback((): PendingFile[] => {
     const all = live.current;
@@ -155,6 +203,10 @@ export function useAttachments(sessionId: string | null) {
     clear,
     take,
     restore,
+    retry,
+    removeFailed,
+    /** Files that did not upload: Send waits for the user to retry or drop them, never leaves them out unannounced. */
+    failed: files.filter((f) => f.state === "error").length,
     uploading: files.some((f) => f.state === "uploading"),
     ready: files.flatMap((f) => (f.state === "ready" && f.attachment ? [f.attachment] : [])),
   };

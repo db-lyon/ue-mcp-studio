@@ -11,7 +11,7 @@
 import { createContext, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { Image, Linking, Modal, PanResponder, Platform, Pressable, StyleSheet, Text, TextInput, View, useWindowDimensions, type HostInstance, type LayoutChangeEvent, type TextInputInstance, type TextInputKeyPressEvent, type TextStyle } from "react-native";
 import Svg, { Circle, Path } from "react-native-svg";
-import { BAR_UTILITIES, QUEUE_HINT, MAX_LINES, MIN_HEIGHT, MIN_TRANSCRIPT, NUDGE, NUDGE_SAVE_MS, SEND_KEYS, STOP_KEYS, UTILITY_MORE_LABEL, UTILITY_TITLE, clampHeight, extOf, fitHeight, foldUtilities, formatBytes, moreLabel, utilityLabel, type BarUtilityId } from "@ue-mcp-studio/client-core";
+import { BAR_UTILITIES, MAX_BYTES, QUEUE_HINT, addingLabel, failedFilesNote, MAX_LINES, MIN_HEIGHT, MIN_TRANSCRIPT, NUDGE, NUDGE_SAVE_MS, SEND_KEYS, STOP_KEYS, UTILITY_MORE_LABEL, UTILITY_TITLE, clampHeight, extOf, fitHeight, foldUtilities, formatBytes, moreLabel, utilityLabel, type BarUtilityId } from "@ue-mcp-studio/client-core";
 import type { ActionListing, FlowListing, SlashCommand } from "@ue-mcp-studio/shared";
 import { Button, font, RemoveButton, Sheet, useAvoidedInsets, useInsets, useStyles, useTheme, type Theme } from "../../../ui";
 import { useAnchor } from "../../../ui/anchor";
@@ -66,7 +66,7 @@ export function composerRoom({ space, chrome }: { space: number | null | undefin
  * can still grow past. A double tap on the handle forgets it. `height` is the
  * saved one, `onHeight` saves.
  */
-export function Composer({ draft, onDraft, onBlur, placeholder, busy, canSend, onSend, onQueue, onSendNow, onStop, files, onAddFiles, onRemoveFile, picker, utilities = [], extras, space, height, onHeight, commands, flows, actions, mentions, children }: {
+export function Composer({ draft, onDraft, onBlur, placeholder, busy, canSend, onSend, onQueue, onSendNow, onStop, files, onAddFiles, onRemoveFile, onRetryFile, onRemoveFailed, picker, utilities = [], extras, space, height, onHeight, commands, flows, actions, mentions, children }: {
   draft: string;
   onDraft: (text: string) => void;
   onBlur: () => void;
@@ -83,6 +83,10 @@ export function Composer({ draft, onDraft, onBlur, placeholder, busy, canSend, o
   /** Files picked with Attach, or handed in from outside (a share to the app). */
   onAddFiles: (files: PickedFile[]) => void;
   onRemoveFile: (key: string) => void;
+  /** Send a failed file again. */
+  onRetryFile?: (key: string) => void;
+  /** Drop the files that failed, so the message can go without them. */
+  onRemoveFailed?: () => void;
   /** The model and the context meter: the bar's start. */
   picker: ReactNode;
   /** The session's utility buttons (Checkpoints, Subagents); the composer adds Attach and orders them. */
@@ -320,12 +324,19 @@ export function Composer({ draft, onDraft, onBlur, placeholder, busy, canSend, o
               <View key={f.key} style={[s.attachChip, f.state === "uploading" && { opacity: 0.7 }, f.state === "error" && { borderColor: t.c.bad }]} accessibilityHint={f.error ?? f.name}>
                 {f.preview ? <Image source={{ uri: f.preview }} style={s.attachImg} /> : <View style={s.attachExt}><Text style={s.attachExtText}>{extOf(f.name)}</Text></View>}
                 <Text style={s.attachName} numberOfLines={1}>{f.name}</Text>
-                <Text style={[s.attachSize, f.state === "error" && { color: t.c.bad }]} numberOfLines={1}>{f.state === "uploading" ? "adding" : f.state === "error" ? f.error : formatBytes(f.size)}</Text>
+                <Text style={[s.attachSize, f.state === "error" && { color: t.c.bad }]} numberOfLines={1}>{f.state === "uploading" ? addingLabel(f.size, f.sent) : f.state === "error" ? f.error : formatBytes(f.size)}</Text>
+                {f.state === "error" && onRetryFile && f.size <= MAX_BYTES ? <Button title="Retry" label={`Retry ${f.name}`} size="small" onPress={() => onRetryFile(f.key)} /> : null}
                 <RemoveButton label={`Remove ${f.name}`} onPress={() => onRemoveFile(f.key)} />
               </View>
             ))}
           </View>
         )}
+        {files.some((f) => f.state === "error") ? (
+          <View accessibilityRole="alert" style={{ gap: 6, paddingHorizontal: 4 }}>
+            <Text style={{ color: t.c.bad, fontSize: 13 }}>{failedFilesNote(files.filter((f) => f.state === "error").length)}</Text>
+            {onRemoveFailed ? <Button title="Send without" size="small" onPress={onRemoveFailed} /> : null}
+          </View>
+        ) : null}
         {mentions && <MentionChips draft={draft} onDraft={onDraft} />}
         {/* The mirror: the text laid out at the box's width, measured instead of the box. */}
         <View pointerEvents="none" style={[s.mirror, { left: 10 + insets.left + SHELL_INSET, right: 10 + insets.right + SHELL_INSET }]} aria-hidden importantForAccessibility="no-hide-descendants">

@@ -8,11 +8,12 @@
 import * as crypto from "node:crypto";
 import * as fs from "node:fs";
 import * as path from "node:path";
-import type { Attachment, AttachmentUpload } from "@ue-mcp-studio/shared";
+import { MAX_ATTACHMENT_BYTES, type Attachment, type AttachmentUpload } from "@ue-mcp-studio/shared";
 import { imageBlock, prepareImage, sniffImage } from "./images.js";
 
-/** The largest file the panel accepts. */
-export const MAX_ATTACHMENT_BYTES = 100 * 1024 * 1024;
+export { MAX_ATTACHMENT_BYTES };
+/** Images larger than this go in by path: reading and decoding one whole is for the shell to shrink first. */
+const MAX_INLINE_IMAGE_BYTES = 50 * 1024 * 1024;
 /** The model API's limit for one PDF. */
 const MAX_PDF_BYTES = 32 * 1024 * 1024;
 /** Text files larger than this go in by path, not inline. */
@@ -142,6 +143,9 @@ export async function contentFor(a: Attachment & { path: string }): Promise<unkn
     type: "text",
     text: `[Attached file] ${a.name} (${a.type}, ${kb(a.size)}), saved at ${a.path}. ${how}`,
   });
+  if (IMAGE_TYPES.has(a.type) && a.size > MAX_INLINE_IMAGE_BYTES) {
+    return [note("It is too large an image to show here; make a smaller copy with the shell (for example with ImageMagick or ffmpeg), then read the copy with read_file.")];
+  }
   if (IMAGE_TYPES.has(a.type)) {
     const bytes = fs.readFileSync(a.path);
     const type = sniffImage(bytes);

@@ -71,7 +71,7 @@ import type {
   RemoteStatus,
 } from "@ue-mcp-studio/shared";
 import { alive, fromUeMcp, recordDiag } from "./diag";
-import { notificationsOf, playtestsQuery, threadQuery, uploadInParts } from "@ue-mcp-studio/client-core";
+import { notificationsOf, playtestsQuery, threadQuery, uploadChunked, uploadInParts } from "@ue-mcp-studio/client-core";
 import { FILE_REVEAL_PATH } from "@ue-mcp-studio/shared";
 import type { AgentThreadPage, Notice, NotifyDelivery, NotifyDevice, ProjectNotifyUpdate } from "@ue-mcp-studio/shared";
 import { agentSettingsOf, catalogOf, contextOf, healthOf, installOf, nativeOf, settingsOf } from "./normalize";
@@ -256,6 +256,9 @@ export const api = {
     call<{ sessionId: string }>("POST", `/v1/ext/studio/sessions/${encodeURIComponent(id)}/transcript/${index}/edit`, { text, mode }),
   uploadAttachment: (id: string, upload: AttachmentUpload) =>
     uploadInParts((u) => call<unknown>("POST", `/v1/ext/studio/sessions/${encodeURIComponent(id)}/attachments`, u), upload),
+  /** A file of any size, read in parts as they go (see uploadChunked). */
+  uploadAttachmentChunked: (id: string, meta: { name: string; type: string; size: number }, read: (offset: number, length: number) => Promise<string>, progress?: (sent: number) => void) =>
+    uploadChunked((u) => call<unknown>("POST", `/v1/ext/studio/sessions/${encodeURIComponent(id)}/attachments`, u), meta, read, progress),
   videoLimits: () => call<VideoLimits>("GET", "/v1/ext/studio/video"),
   compressVideo: (id: string, attachmentId: string) =>
     call<Attachment>("POST", `/v1/ext/studio/sessions/${encodeURIComponent(id)}/attachments/${encodeURIComponent(attachmentId)}/compress`),
