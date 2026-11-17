@@ -39,8 +39,11 @@ export const isMarkdownPath = (path: string): boolean => /\.(md|markdown)$/i.tes
 /** Image types GET /v1/ext/studio/files/image serves from the project, by extension. */
 export const PROJECT_IMAGE_TYPES: Readonly<Record<string, string>> = { png: "image/png", jpg: "image/jpeg", jpeg: "image/jpeg", gif: "image/gif", webp: "image/webp", bmp: "image/bmp" };
 
-/** Images larger than this are refused. */
+/** Images larger than this are not sent whole; up to IMAGE_POSTER_MAX_BYTES they still get a poster. */
 export const IMAGE_READ_MAX_BYTES = 25 * 1024 * 1024;
+
+/** The largest image a poster is made from: the first frame of a file too large to send. */
+export const IMAGE_POSTER_MAX_BYTES = 200 * 1024 * 1024;
 
 /** The image type of a project path by its extension, or null for anything else. */
 export function projectImageType(path: string): string | null {
@@ -65,6 +68,9 @@ export function localImagePath(src: string | undefined | null): string | null {
   }
   return projectImageType(decoded) ? decoded : null;
 }
+
+/** How the refusal of a file outside the project begins; clients offer Show in folder after a confirmation. */
+export const FILE_OUTSIDE_PROJECT = "Studio shows files in the project";
 
 /** POST /v1/ext/studio/files/reveal { path, from? }: the file selected in the computer's file manager. Never remote. */
 export const FILE_REVEAL_PATH = "/v1/ext/studio/files/reveal";
@@ -104,6 +110,8 @@ export interface ReplyImageInfo {
   animated: boolean;
   /** GET projectImagePosterUrl(path) answers with its first frame; absent when it is small enough to load whole. */
   poster?: boolean;
+  /** Too large to send whole (over IMAGE_READ_MAX_BYTES): the chat shows its poster and says where the file is. */
+  tooLarge?: boolean;
 }
 
 /**

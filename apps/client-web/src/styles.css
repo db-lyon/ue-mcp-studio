@@ -749,6 +749,7 @@ button.small-button { padding: 0 4px; height: auto; font-size: inherit; }
 .md-image-bar > span { display: block; height: 100%; background: var(--accent); transition: width 0.2s linear; }
 .md-image-failed { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 8px; padding: 12px; text-align: center; font-size: 13px; }
 .md-image-failed .md-image-caption { color: var(--text); overflow: hidden; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; }
+.md-image-toolarge { position: absolute; left: 0; right: 0; bottom: 0; display: flex; flex-wrap: wrap; align-items: center; gap: 8px; padding: 6px 10px; background: rgba(0, 0, 0, 0.62); color: #fff; font-size: 12px; }
 .agent-link-row { display: flex; gap: 6px; align-items: stretch; }
 .agent-link-row .agent-link { flex: 1; min-width: 0; }
 .agent-stop { flex-shrink: 0; height: auto; padding: 0 12px; background: transparent; border: 1px solid var(--line); border-radius: 8px; color: var(--bad-text, var(--muted)); cursor: pointer; }

@@ -75,11 +75,15 @@ export interface ReplyImageState {
   failed: boolean;
 }
 
-/** How a client reads a picture: the poster (null when it has none), and the file, reporting bytes as they arrive. */
+/** How a client reads a picture: the poster (null when it has none), and the file (null for one too large to send), reporting bytes as they arrive. */
 export interface ReplyImageFetchers {
   poster: (() => Promise<string>) | null;
-  full: (progress: (received: number, total: number | null) => void) => Promise<string>;
+  full: ((progress: (received: number, total: number | null) => void) => Promise<string>) | null;
 }
+
+/** What the tile says under the poster of a picture too large to send: where the file is. */
+export const imageTooLargeNote = (info: Pick<ReplyImageInfo, "bytes">, onComputer: boolean): string =>
+  `${formatBytes(info.bytes)} is too large to show in full here. ${onComputer ? "It is on this computer." : "Open it on the computer."}`;
 
 const EMPTY: ReplyImageState = { poster: null, full: null, received: 0, total: null, failed: false };
 
@@ -121,7 +125,7 @@ export class ReplyImageLoads {
   /** Starts the picture's load unless it is loading, loaded, or failed (retry() for that). */
   load(key: string, fetchers: ReplyImageFetchers, total: number | null = null): void {
     const s = this.get(key);
-    if (this.running.has(key) || s.full || s.failed) return;
+    if (this.running.has(key) || s.full || s.failed || (s.poster && !fetchers.full)) return;
     void this.run(key, fetchers, total);
   }
 
@@ -136,6 +140,12 @@ export class ReplyImageLoads {
     this.running.add(key);
     this.set(key, { failed: false, received: 0, total });
     try {
+      // A picture too large to send has only its poster, which is the whole load.
+      if (!fetchers.full) {
+        if (!fetchers.poster) throw new Error("no poster");
+        this.set(key, { poster: await fetchers.poster() });
+        return;
+      }
       if (fetchers.poster && !this.get(key).poster) {
         const poster = fetchers.poster().then((uri) => this.set(key, { poster: uri }), () => undefined);
         let timer: ReturnType<typeof setTimeout> | undefined;

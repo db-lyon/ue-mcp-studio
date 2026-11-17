@@ -121,6 +121,16 @@ describe("images in a reply on the phone", () => {
     expect(pictures()).toHaveLength(1);
   });
 
+  it("shows only the poster of a picture too large to send, and says to open it on the computer", async () => {
+    const path = "Saved/Screenshots/huge.jpg";
+    const { asked, project } = serving("image/jpeg");
+    renderInProject(reply(`![Huge](${path})`, { [path]: { type: "image/jpeg", width: 8000, height: 6000, bytes: 40 * 1024 * 1024, frames: 1, animated: false, poster: true, tooLarge: true } }), fakeApi(), project);
+    await settle();
+    await settle();
+    expect(screen.getByText(/too large to show in full here. Open it on the computer/)).toBeTruthy();
+    expect(asked).toEqual([`/v1/ext/studio/files/image?path=${encodeURIComponent(path)}&poster=1`]);
+  });
+
   it("shows every format the computer shows inline: GIF, WebP, PNG and JPEG", async () => {
     for (const [ext, type] of [["gif", "image/gif"], ["webp", "image/webp"], ["png", "image/png"], ["jpg", "image/jpeg"]]) {
       const { project } = serving(type, (p) => (p.endsWith("&poster=1") ? once(new Uint8Array(0), "application/json", 404) : undefined));

@@ -11,9 +11,12 @@ import {
   imageProgress,
   imageProgressLabel,
   imageTileCaption,
+  imageTooLargeNote,
   type ReplyImageFetchers,
 } from "@ue-mcp-studio/client-core";
 import { projectImagePosterUrl, projectImageUrl, type ReplyImageInfo } from "@ue-mcp-studio/shared";
+import { api } from "../api";
+import { onRemotePage } from "../connection";
 
 /** What the daemon sent of the reply's images, by path; absent for a reply from an older Studio, and in the file viewer. */
 export const ReplyImagesContext = createContext<Record<string, ReplyImageInfo> | undefined>(undefined);
@@ -54,10 +57,11 @@ async function readPicture(url: string, progress?: (received: number, total: num
 export function ReplyImage({ path, alt }: { path: string; alt: string }) {
   const info = useContext(ReplyImagesContext)?.[path];
   const url = projectImageUrl(path);
+  const tooLarge = info?.tooLarge === true;
   const fetchers = useMemo<ReplyImageFetchers>(() => ({
     poster: asksPoster(info) ? () => readPicture(projectImagePosterUrl(path)) : null,
-    full: (progress) => readPicture(url, progress),
-  }), [path, url, info?.poster]);
+    full: tooLarge ? null : (progress) => readPicture(url, progress),
+  }), [path, url, info?.poster, tooLarge]);
   const total = info?.bytes ?? null;
   const state = useSyncExternalStore((fn) => replyImageLoads.subscribe(url, fn), () => replyImageLoads.get(url));
   useEffect(() => replyImageLoads.load(url, fetchers, total), [url, fetchers, total]);
@@ -76,13 +80,14 @@ export function ReplyImage({ path, alt }: { path: string; alt: string }) {
       {state.poster && !shown ? <img className="md-image-poster" src={state.poster} alt="" aria-hidden /> : null}
       {!state.poster && !shown && !state.failed ? <span className="md-image-kind" aria-hidden>{imageKind(info?.type ?? (/\.([a-z0-9]+)$/i.exec(path)?.[1] ?? ""))}</span> : null}
       {state.full ? <img className="md-image" src={state.full} alt={alt} onLoad={() => setDrawn(state.full)} /> : null}
-      {!shown && !state.failed ? (
+      {!shown && !state.failed && !tooLarge ? (
         <span className="md-image-status" role="status">
           <span className="spinner small" aria-hidden />
           <span>{progress ?? imageTileCaption(info, path)}</span>
         </span>
       ) : null}
-      {!shown && !state.failed && fraction !== null && fraction > 0 ? (
+      {tooLarge && info && !state.failed ? <TooLargeNote path={path} bytes={info.bytes} /> : null}
+      {!shown && !state.failed && !tooLarge && fraction !== null && fraction > 0 ? (
         <span className="md-image-bar" aria-hidden><span style={{ width: `${Math.round(fraction * 100)}%` }} /></span>
       ) : null}
       {state.failed ? (
@@ -95,5 +100,18 @@ export function ReplyImage({ path, alt }: { path: string; alt: string }) {
     </span>
   );
   // Full size on a click, from the computer's own route, once there is a picture to open.
-  return state.failed ? tile : <a className="md-image-link" href={url} target="_blank" rel="noreferrer" title={path}>{tile}</a>;
+  return state.failed || tooLarge ? tile : <a className="md-image-link" href={url} target="_blank" rel="noreferrer" title={path}>{tile}</a>;
+}
+
+/** On a picture too large to send: says so over its poster, and on the computer selects the file in its folder. */
+function TooLargeNote({ path, bytes }: { path: string; bytes: number }) {
+  const remote = onRemotePage();
+  const [error, setError] = useState<string | null>(null);
+  return (
+    <span className="md-image-toolarge">
+      <span>{imageTooLargeNote({ bytes }, !remote)}</span>
+      {remote ? null : <button type="button" className="small-button" onClick={() => api.revealFile(path).catch((e: Error) => setError(e.message))}>Show in folder</button>}
+      {error ? <span className="bad" role="alert">{error}</span> : null}
+    </span>
+  );
 }

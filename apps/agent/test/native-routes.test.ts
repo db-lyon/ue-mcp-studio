@@ -142,4 +142,15 @@ describe("Open file", () => {
     expect(call("POST /files/reveal", {}).status).toBe(400);
     expect(opened).toHaveLength(1);
   });
+
+  it("selects a file outside the project in its folder only when the client says it asked first", () => {
+    const call = setup();
+    const outside = path.join(root, "outside.txt");
+    fs.writeFileSync(outside, "x");
+    expect(call("POST /files/reveal", { path: outside }).status).toBe(403);
+    expect(opened).toEqual([]);
+    expect(call("POST /files/reveal", { path: outside, outside: true }).status).toBe(204);
+    expect(opened).toEqual([`reveal ${fs.realpathSync.native(outside)}`]);
+    expect(call("POST /files/reveal", { path: path.join(root, "missing.txt"), outside: true }).status).toBe(404);
+  });
 });
