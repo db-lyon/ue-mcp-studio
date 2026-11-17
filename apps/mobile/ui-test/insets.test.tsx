@@ -244,14 +244,15 @@ describe("pages scroll their end clear of the bar", () => {
 describe("dialogs drawn in their own Modal window", () => {
   it("the feedback dialog stays clear of both bars, and of the keyboard while it is up", () => {
     setSafeAreaInsets({ top: 30, bottom: BAR });
+    // The insets pad the frame around the card; the Close backdrop is a full-screen sibling behind it, so the card's scroll view is never inside a touchable.
+    const frame = () => screen.getByLabelText("Send feedback").parentElement!;
     const { unmount } = renderInProject(<FeedbackSheet onClose={none} />);
-    const backdrop = screen.getAllByLabelText("Close")[0];
-    expect(px(backdrop, "paddingBottom")).toBe(8 + BAR);
-    expect(px(backdrop, "paddingTop")).toBe(8 + 30);
+    expect(px(frame(), "paddingBottom")).toBe(8 + BAR);
+    expect(px(frame(), "paddingTop")).toBe(8 + 30);
     unmount();
     setKeyboardHeight(300);
     renderInProject(<FeedbackSheet onClose={none} />);
-    expect(px(screen.getAllByLabelText("Close")[0], "paddingBottom")).toBe(8 + 300);
+    expect(px(frame(), "paddingBottom")).toBe(8 + 300);
   });
 
   it("the changes sheet keeps clear of both bars", () => {
