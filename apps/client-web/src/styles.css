@@ -1043,6 +1043,9 @@ pre.diff .hunk { color: var(--accent-hi); display: block; }
 .whats-new-label { min-width: 0; overflow-wrap: anywhere; }
 .whats-new-label strong { font-weight: 600; }
 .whats-new-body { padding: var(--wn-pad); background: var(--bg); }
+/* An open part's notes scroll in a box of their own under its header, about half the screen tall (less on a short one). */
+.whats-new-part > .whats-new-body { max-height: 55vh; max-height: 55dvh; overflow-y: auto; overscroll-behavior: contain; -webkit-overflow-scrolling: touch; }
+@media (max-height: 639px) { .whats-new-part > .whats-new-body { max-height: 45vh; max-height: 45dvh; } }
 .whats-new-entry + .whats-new-entry { margin-top: 12px; padding-top: 12px; border-top: 1px solid var(--line); }
 .whats-new-version { gap: 8px; align-items: baseline; flex-wrap: wrap; margin-bottom: 6px; }
 .whats-new-version h3 { margin: 0; font: 600 13px/1.4 var(--mono); color: var(--text); }

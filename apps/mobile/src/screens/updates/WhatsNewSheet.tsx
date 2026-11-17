@@ -4,10 +4,21 @@
  * version, newest first. Notes that could not be read say so, with Retry and
  * the release page. The notes go through the renderer's release-notes mode:
  * client-core's sanitiser, <details> as folds, and only web links open.
+ *
+ * Scrolling on Android: an open part's notes are a scroll box of their own
+ * under the part's header, at most WHATS_NEW_BODY_SHARE of the screen tall,
+ * and the list of parts scrolls under the fixed title when the open parts
+ * overflow it. Every scroll view has a height bounded by a number taken from
+ * the window, and both set nestedScrollEnabled so the inner one scrolls before
+ * the outer. No touchable is an ancestor of a scroll view: a Pressable that
+ * becomes the JS responder makes its native view intercept every move of the
+ * gesture (JSResponderHandler.onInterceptTouchEvent), so a scroll view inside
+ * it is cancelled before it can scroll. The backdrop that closes the sheet is
+ * a sibling behind the card for that reason, as ui/Sheet does.
  */
 import { useBack } from "../../back";
 import { useCallback, useEffect, useState } from "react";
-import { Linking, Modal, Pressable, ScrollView, View } from "react-native";
+import { Linking, Modal, Pressable, ScrollView, StyleSheet, View, useWindowDimensions } from "react-native";
 import { NOTHING_NEW, WHATS_NEW_NO_NOTES, WHATS_NEW_PAGE, WHATS_NEW_TITLE, WHATS_NEW_UNAVAILABLE, componentRange, entryDate, moreLine, readWhatsNewWith, shownComponents, whatsNewError } from "@ue-mcp-studio/client-core";
 import type { WhatsNew, WhatsNewComponent } from "@ue-mcp-studio/shared";
 import { Banner, Button, Markdown, Spacer, bannerText, font, T, useSheetInsets, useTheme } from "../../ui";
@@ -18,7 +29,12 @@ import { useSettingsApi } from "../settings/hooks";
 
 const open = (url: string) => void Linking.openURL(url).catch(() => undefined);
 
-function Part({ c, startOpen, retry, retrying }: { c: WhatsNewComponent; startOpen: boolean; retry: () => void; retrying: boolean }) {
+/** The share of the screen's height an open part's notes may take before they scroll inside it; less on a short screen. */
+export function whatsNewBodyMax(screenHeight: number): number {
+  return Math.max(160, Math.round(screenHeight * (screenHeight < 640 ? 0.45 : 0.55)));
+}
+
+function Part({ c, startOpen, retry, retrying, bodyMax }: { c: WhatsNewComponent; startOpen: boolean; retry: () => void; retrying: boolean; bodyMax: number }) {
   const t = useTheme();
   const [isOpen, setOpen] = useState(startOpen);
   return (
@@ -35,7 +51,8 @@ function Part({ c, startOpen, retry, retrying }: { c: WhatsNewComponent; startOp
           </Txt>
         }
       >
-        <View style={{ padding: 12, backgroundColor: t.c.bg }}>
+        {/* The part's own scroll box: a numeric maxHeight, so it is bounded inside the Modal, and nested so it scrolls before the list around it. */}
+        <ScrollView testID={`whats-new-part-body-${c.part}`} style={[{ maxHeight: bodyMax, flexGrow: 0, backgroundColor: t.c.bg }, pageScroll]} contentContainerStyle={{ padding: 12 }} nestedScrollEnabled keyboardShouldPersistTaps="handled">
           {c.error ? (
             <Banner kind="bad" role="alert" style={{ marginBottom: 0 }}>
               <Txt size={12} style={{ color: bannerText(t, "bad") }}>
@@ -72,7 +89,7 @@ function Part({ c, startOpen, retry, retrying }: { c: WhatsNewComponent; startOp
               ) : null}
             </>
           )}
-        </View>
+        </ScrollView>
       </Details>
     </View>
   );
@@ -82,6 +99,10 @@ export function WhatsNewSheet({ onClose }: { onClose: () => void }) {
   const api = useSettingsApi();
   const t = useTheme();
   const insets = useSheetInsets();
+  const { height } = useWindowDimensions();
+  // Numbers, not percentages, so every height below is bounded on the phone.
+  const cardMax = Math.max(200, height - insets.top - insets.bottom - 16);
+  const bodyMax = whatsNewBodyMax(height);
   // undefined while the first read runs; null when the agent had no answer.
   const [w, setW] = useState<WhatsNew | null | undefined>(undefined);
   const [retrying, setRetrying] = useState(false);
@@ -101,8 +122,10 @@ export function WhatsNewSheet({ onClose }: { onClose: () => void }) {
   const parts = shownComponents(w ?? null);
   return (
     <Modal visible transparent animationType="none" onRequestClose={onClose} statusBarTranslucent navigationBarTranslucent>
-      <Pressable accessibilityLabel="Close" onPress={onClose} style={{ flex: 1, paddingTop: 8 + insets.top, paddingBottom: 8 + insets.bottom, paddingLeft: 8 + insets.left, paddingRight: 8 + insets.right, alignItems: "center", justifyContent: "center", backgroundColor: "rgba(0, 0, 0, 0.55)" }}>
-        <Pressable accessibilityViewIsModal accessibilityLabel={WHATS_NEW_TITLE} testID="whats-new" onPress={() => undefined} style={{ width: "100%", maxWidth: 680, maxHeight: "100%", borderWidth: 1, borderColor: t.c.line, borderRadius: 10, backgroundColor: t.c.panel, shadowColor: "#000", shadowOpacity: 0.45, shadowRadius: 25, shadowOffset: { width: 0, height: 18 } }}>
+      {/* The backdrop is a sibling behind the card, never a touchable around it: see the note at the top of this file. */}
+      <Pressable testID="whats-new-backdrop" accessibilityLabel="Close" onPress={onClose} style={[StyleSheet.absoluteFill, { backgroundColor: "rgba(0, 0, 0, 0.55)" }]} />
+      <View pointerEvents="box-none" style={{ flex: 1, paddingTop: 8 + insets.top, paddingBottom: 8 + insets.bottom, paddingLeft: 8 + insets.left, paddingRight: 8 + insets.right, alignItems: "center", justifyContent: "center" }}>
+        <View accessibilityViewIsModal accessibilityLabel={WHATS_NEW_TITLE} testID="whats-new" style={{ width: "100%", maxWidth: 680, maxHeight: cardMax, borderWidth: 1, borderColor: t.c.line, borderRadius: 10, backgroundColor: t.c.panel, shadowColor: "#000", shadowOpacity: 0.45, shadowRadius: 25, shadowOffset: { width: 0, height: 18 } }}>
           <View testID="whats-new-head" style={{ flexDirection: "row", alignItems: "center", gap: 10, paddingHorizontal: 16, paddingTop: 16, paddingBottom: 10 }}>
             <T accessibilityRole="header" style={[font(t, "sans", 600, 15, 1.2), { color: t.c.text }]}>
               {WHATS_NEW_TITLE}
@@ -110,8 +133,8 @@ export function WhatsNewSheet({ onClose }: { onClose: () => void }) {
             <Spacer />
             <Button variant="ghost" title="Close" onPress={onClose} />
           </View>
-          {/* flexShrink lets the body give way to the card's maxHeight, so it scrolls instead of running off the screen. */}
-          <ScrollView testID="whats-new-body" style={[{ flexShrink: 1 }, pageScroll]} contentContainerStyle={{ gap: 10, paddingHorizontal: 16, paddingBottom: 16 }} nestedScrollEnabled keyboardShouldPersistTaps="handled">
+          {/* The list of parts: shrinks to the card's numeric maxHeight and scrolls when the open parts overflow it. */}
+          <ScrollView testID="whats-new-body" style={[{ flexGrow: 0, flexShrink: 1 }, pageScroll]} contentContainerStyle={{ gap: 10, paddingHorizontal: 16, paddingBottom: 16 }} nestedScrollEnabled keyboardShouldPersistTaps="handled">
             {w === undefined ? <Txt tone="muted">Loading</Txt> : null}
             {w === null ? (
               <Banner kind="bad" role="alert">
@@ -125,11 +148,11 @@ export function WhatsNewSheet({ onClose }: { onClose: () => void }) {
             ) : null}
             {w && parts.length === 0 ? <Txt tone="muted">{NOTHING_NEW}</Txt> : null}
             {parts.map((c) => (
-              <Part key={c.part} c={c} startOpen={c === parts[0]} retry={retry} retrying={retrying} />
+              <Part key={c.part} c={c} startOpen={c === parts[0]} retry={retry} retrying={retrying} bodyMax={bodyMax} />
             ))}
           </ScrollView>
-        </Pressable>
-      </Pressable>
+        </View>
+      </View>
     </Modal>
   );
 }

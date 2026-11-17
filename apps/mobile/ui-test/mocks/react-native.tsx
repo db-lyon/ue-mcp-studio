@@ -5,10 +5,15 @@
  * "Text strings must be rendered within a <Text> component" and the second
  * throws in ReactAccessibilityDelegate, and either closes a release app
  * (build 10: accessibilityRole="treegrid" on the asset diff).
+ *
+ * A ScrollView also carries what decides whether it scrolls on Android, which
+ * react-native-web drops: data-nested-scroll-enabled, and data-inside-pressable
+ * when a Pressable is its ancestor (a Pressable that holds the JS responder
+ * intercepts the whole gesture natively, so the scroll view never scrolls).
  */
 import * as fs from "node:fs";
 import * as path from "node:path";
-import { Children, Fragment, forwardRef, isValidElement, type ComponentType, type ReactNode } from "react";
+import { Children, Fragment, createContext, forwardRef, isValidElement, useContext, type ComponentType, type ReactNode } from "react";
 // @ts-ignore react-native-web ships no types; the app types it as react-native.
 import * as RNW from "../../../../node_modules/react-native-web/dist/index.js";
 
@@ -58,9 +63,29 @@ function guard<P extends { children?: ReactNode; accessibilityRole?: unknown }>(
 }
 
 const R = RNW as unknown as Record<string, ComponentType<never>>;
+const InPressable = createContext(false);
+type Touchy = { children?: unknown; nestedScrollEnabled?: boolean; dataSet?: Record<string, unknown> };
+const GuardedScrollView = guard("ScrollView", R.ScrollView, false) as unknown as ComponentType<Touchy & { ref?: unknown }>;
+const GuardedPressable = guard("Pressable", R.Pressable, false) as unknown as ComponentType<Touchy & { ref?: unknown }>;
 export const View = guard("View", R.View, false);
-export const ScrollView = guard("ScrollView", R.ScrollView, false);
-export const Pressable = guard("Pressable", R.Pressable, false);
+export const ScrollView = Object.assign(
+  forwardRef<unknown, Touchy>((props, ref) => {
+    const inside = useContext(InPressable);
+    const dataSet = { ...props.dataSet, nestedScrollEnabled: props.nestedScrollEnabled ? "true" : undefined, insidePressable: inside ? "true" : undefined };
+    return <GuardedScrollView {...(props as object)} dataSet={dataSet} ref={ref} />;
+  }),
+  { displayName: "ScrollView" },
+);
+export const Pressable = Object.assign(
+  forwardRef<unknown, Touchy>((props, ref) => {
+    const kids = props.children as ReactNode | ((s: unknown) => ReactNode);
+    // The text rule reads the children as written, before they are wrapped in the provider below.
+    if (typeof kids !== "function") checkText("Pressable", kids);
+    const children = typeof kids === "function" ? (s: unknown) => <InPressable.Provider value>{kids(s)}</InPressable.Provider> : <InPressable.Provider value>{kids}</InPressable.Provider>;
+    return <GuardedPressable {...(props as object)} ref={ref}>{children}</GuardedPressable>;
+  }),
+  { displayName: "Pressable" },
+);
 export const TouchableOpacity = guard("TouchableOpacity", R.TouchableOpacity, false);
 export const KeyboardAvoidingView = guard("KeyboardAvoidingView", R.KeyboardAvoidingView, false);
 export const SafeAreaView = guard("SafeAreaView", R.SafeAreaView, false);
