@@ -7,6 +7,7 @@ import { ProjectDetail } from "./ProjectDetail";
 import { SettingsView } from "./Settings";
 import { SetupView } from "./Setup";
 import { NodeCard } from "./NodeCard";
+import { Busy } from "./BusyLabel";
 
 export type Screen = "projects" | "settings";
 
@@ -279,7 +280,7 @@ function ReportProblem({ m, onSettings }: { m: Machine; onSettings: () => void }
         <div className="row">
           {/* The update the text names is one press away, not a screen to find. */}
           <button className="primary" onClick={() => (m.updated ? onSettings() : void m.updateUeMcp())}>{copy.action}</button>
-          <button disabled={m.loading} onClick={() => void m.refresh()}>{m.loading ? "Checking" : "Check again"}</button>
+          <button disabled={m.loading} onClick={() => void m.refresh()}>{m.loading ? <Busy>Checking</Busy> : "Check again"}</button>
         </div>
       </section>
     );
@@ -293,7 +294,7 @@ function ReportProblem({ m, onSettings }: { m: Machine; onSettings: () => void }
         {m.stale && <p className="dim small">Until then, this is the list read {readAt(a.cachedAt)}.</p>}
         <div className="row">
           <button className="primary" onClick={onSettings}>Update UE-MCP</button>
-          <button disabled={m.loading} onClick={() => void m.refresh()}>{m.loading ? "Checking" : "Check again"}</button>
+          <button disabled={m.loading} onClick={() => void m.refresh()}>{m.loading ? <Busy>Checking</Busy> : "Check again"}</button>
         </div>
       </section>
     );
@@ -306,7 +307,7 @@ function ReportProblem({ m, onSettings }: { m: Machine; onSettings: () => void }
           {m.stale ? `Showing the list read ${readAt(a.cachedAt)}. ` : ""}
           Your projects could not be read{a.error ? `: ${a.error}` : "."}
         </span>
-        <button disabled={m.loading} onClick={() => void m.refresh()}>{m.loading ? "Checking" : "Try again"}</button>
+        <button disabled={m.loading} onClick={() => void m.refresh()}>{m.loading ? <Busy>Checking</Busy> : "Try again"}</button>
       </div>
     </>
   );

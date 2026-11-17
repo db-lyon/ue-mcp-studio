@@ -244,6 +244,48 @@ Captured capture(const std::wstring& line, DWORD timeoutMs) {
 }
 
 /**
+ * The installed entry script of a ue-mcp package spec, found once through npx
+ * and remembered. npx spends about 20 seconds resolving a package on every run
+ * while ue-mcp itself answers in about 2, so quick commands run the script with
+ * node directly. Empty when it cannot be found; callers then fall back to npx.
+ */
+std::wstring ueMcpScript(const std::wstring& npx, const std::wstring& spec) {
+  static std::map<std::wstring, std::wstring> found;
+  {
+    std::lock_guard<std::mutex> g(gLock);
+    auto it = found.find(spec);
+    if (it != found.end() && exists(it->second)) return it->second;
+  }
+  Captured w = capture(L"\"" + npx + L"\" -y --min-release-age=0 --package=" + spec + L" -c \"where ue-mcp.cmd\"", 120000);
+  std::wstring script;
+  for (const std::string& l : job::lines(w.out)) {
+    std::wstring bin = widen(l);  // ...\node_modules\.bin\ue-mcp.cmd
+    std::wstring candidate = join(join(join(dirOf(dirOf(bin)), L"ue-mcp"), L"dist"), L"index.js");
+    if (bin.find(L"\\.bin\\") != std::wstring::npos && exists(candidate)) {
+      script = candidate;
+      break;
+    }
+  }
+  if (!script.empty()) {
+    std::lock_guard<std::mutex> g(gLock);
+    found[spec] = script;
+  }
+  return script;
+}
+
+/** A ue-mcp command line: node on the resolved script when known, npx otherwise. */
+std::wstring ueMcpLine(const std::wstring& npx, const std::wstring& spec, const std::wstring& args) {
+  std::wstring script = ueMcpScript(npx, spec);
+  std::wstring node;
+  {
+    std::lock_guard<std::mutex> g(gLock);
+    node = gNode;
+  }
+  if (script.empty() || node.empty()) return job::npx(npx, spec, args);
+  return L"\"" + node + L"\" \"" + script + L"\" " + args;
+}
+
+/**
  * The exact ue-mcp version the channel's npm tag names, once a session; the
  * last one known when npm cannot say; empty when neither is known.
  */
@@ -481,7 +523,7 @@ std::string ensureDaemon(const std::string& key, const std::wstring& uproject) {
   std::wstring npx = npxCmd();
   if (npx.empty()) return "Node.js was not found.";
   if (!safeUproject(uproject)) return "The project file could not be used.";
-  Captured c = capture(job::npx(npx, resolvedSpec(), L"daemon start \"" + uproject + L"\""), 150000);
+  Captured c = capture(ueMcpLine(npx, resolvedSpec(), L"daemon start \"" + uproject + L"\""), 150000);
   if (c.code != 0) return "ue-mcp did not start: " + job::failureText(c.out + c.err);
   return readDaemon(key, d) ? std::string() : "ue-mcp started but has not published its address yet.";
 }
@@ -674,7 +716,7 @@ std::string readReport() {
     if (!known) {
       // An older ue-mcp takes an unknown first word for a project and starts a server, so ask its help first.
       // Only help that ran and listed its commands decides; any other run is a failure with its own error, never "missing".
-      Captured h = capture(job::npx(npx, spec, L"help"), 120000);
+      Captured h = capture(ueMcpLine(npx, spec, L"help"), 120000);
       bool listed = false;
       for (const std::string& l : job::lines(h.out)) {
         size_t i = l.find_first_not_of(' ');
@@ -688,8 +730,8 @@ std::string readReport() {
     }
   }
   if (!can) return failed("unsupported", "");
-  Captured r = capture(job::npx(npx, spec, L"projects --json"), 120000);
-  if (r.code == 0 && r.out.empty()) r = capture(job::npx(npx, spec, L"projects --json"), 120000);  // a run that exited clean and said nothing is read once more
+  Captured r = capture(ueMcpLine(npx, spec, L"projects --json"), 120000);
+  if (r.code == 0 && r.out.empty()) r = capture(ueMcpLine(npx, spec, L"projects --json"), 120000);  // a run that exited clean and said nothing is read once more
   json::Value report;
   if (r.code != 0 || !json::parse(r.out, report) || !report.isObject()) {
     std::string said = job::failureText(r.out + r.err);
@@ -1488,7 +1530,7 @@ std::string dispatch(int id, const std::string& method, const std::string& arg) 
     if (!safeUproject(target)) return okError("That file cannot be added.");
     std::wstring args = (method == "addproject" ? L"projects add \"" : L"projects remove \"") + target + L"\" --json";
     later(id, [npx, args] {
-      Captured c = capture(job::npx(npx, resolvedSpec(), args), 120000);
+      Captured c = capture(ueMcpLine(npx, resolvedSpec(), args), 120000);
       return okError(c.code == 0 ? "" : job::failureText(c.out + c.err));
     });
     return {};

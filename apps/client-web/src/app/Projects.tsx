@@ -4,6 +4,7 @@ import { host, type IdeInfo } from "./native";
 import { actionsOf, filterProjects, ideButton, ideOpens, listReadAt, nameHint, running, updatesOf, versionsOf, type MachineProject } from "./model";
 import { JobOutput } from "./NodeCard";
 import { useBusy } from "./busy";
+import { Busy } from "./BusyLabel";
 import { installing,projectActions, useIdes, useWorks, workTitle, type Work } from "./actions";
 
 /** A filter appears once the list is long enough to need one. */
@@ -44,8 +45,8 @@ export function ProjectsView({ m, onOpen }: { m: Machine; onOpen: (key: string) 
           <input className="app-filter" type="search" placeholder="Filter" aria-label="Filter projects" value={query} onChange={(e) => setQuery(e.target.value)} />
         )}
         {m.readAt !== null && <span className="dim small app-read-at" title="The list reads again by itself when a project, daemon or Studio changes">{listReadAt(m.readAt)}</span>}
-        <button onClick={() => void m.refresh()} disabled={m.loading}>{m.loading ? "Reading" : "Refresh"}</button>
-        <button className="primary" disabled={addBusy} onClick={() => void add()}>{addBusy ? "Adding" : "Add project"}</button>
+        <button onClick={() => void m.refresh()} disabled={m.loading}>{m.loading ? <Busy>Reading</Busy> : "Refresh"}</button>
+        <button className="primary" disabled={addBusy} onClick={() => void add()}>{addBusy ? <Busy>Adding</Busy> : "Add project"}</button>
       </header>
       {adding && <div className="banner bad small">{adding}</div>}
       {!m.report && m.loading && <Skeleton />}
@@ -53,7 +54,7 @@ export function ProjectsView({ m, onOpen }: { m: Machine; onOpen: (key: string) 
         <div className="app-empty">
           <h2>No projects yet</h2>
           <p className="muted">UE-MCP lists the projects Unreal Editor has opened on this computer. Open one in Unreal, or add its .uproject file here.</p>
-          <button className="primary" disabled={addBusy} onClick={() => void add()}>{addBusy ? "Adding" : "Add project"}</button>
+          <button className="primary" disabled={addBusy} onClick={() => void add()}>{addBusy ? <Busy>Adding</Busy> : "Add project"}</button>
         </div>
       )}
       {projects.length > 0 && shown.length === 0 && <p className="muted app-none">No project matches "{query}".</p>}
@@ -91,7 +92,7 @@ function HiddenProjects({ m }: { m: Machine }) {
           <li key={h.uproject} className="app-hidden-row">
             <span className="app-hidden-name">{h.name}</span>
             <span className="app-hidden-path" title={h.dir}>{h.dir}</span>
-            <button className="ghost small" disabled={showing} onClick={() => show(h.uproject)}>{showing && which === h.uproject ? "Showing" : "Show"}</button>
+            <button className="ghost small" disabled={showing} onClick={() => show(h.uproject)}>{showing && which === h.uproject ? <Busy>Showing</Busy> : "Show"}</button>
           </li>
         ))}
       </ul>
@@ -136,27 +137,27 @@ function ProjectRow({ p, all, m, work, busy, onOpen }: { p: MachineProject; all:
           {!p.ueMcp.setUp && <span className="app-chip dim">ue-mcp not set up</span>}
           {p.ueMcp.setUp && <DaemonChip p={p} m={m} work={work} act={act} />}
           {p.editor.running && <span className="app-chip warn">Editor open</span>}
-          {removing && <span className="app-chip dim" role="status">Hiding</span>}
+          {removing && <span className="app-chip dim" role="status"><Busy>Hiding</Busy></span>}
         </div>
       </div>
       <div className="app-row-actions">
         {u?.via && (
           <button className="primary" disabled={(u.via === "ue-mcp" && (p.editor.running || busy)) || pending("update")} title={u.line} onClick={() => void act.update()}>
-            {work?.watching ? "Updating in Studio" : pending("update") ? (u.via === "studio" ? "Opening" : "Updating") : "Update"}
+            {work?.watching ? <Busy>Updating in Studio</Busy> : pending("update") ? <Busy>{u.via === "studio" ? "Opening" : "Updating"}</Busy> : "Update"}
           </button>
         )}
         {a.openStudio && (
           <button className={u?.via ? "" : "primary"} disabled={pending("studio")} onClick={() => void act.openStudio()}>
-            {pending("studio") ? "Opening" : "Open Studio"}
+            {pending("studio") ? <Busy>Opening</Busy> : "Open Studio"}
           </button>
         )}
         {a.addStudio && (
           <button className={u?.via ? "" : "primary"} disabled={!!a.addBlocked} title={a.addBlocked ?? undefined} onClick={() => void act.addStudio()}>
-            {pending("install") ? "Adding Studio" : "Add Studio"}
+            {pending("install") ? <Busy>Adding Studio</Busy> : "Add Studio"}
           </button>
         )}
         <button disabled={!!a.launchBlocked || pending("launch")} title={a.launchBlocked ?? undefined} onClick={() => void act.launch()}>
-          {pending("launch") ? "Starting" : "Launch editor"}
+          {pending("launch") ? <Busy>Starting</Busy> : "Launch editor"}
         </button>
         <RowMenu p={p} act={act} onOpen={onOpen} onRemove={remove} removing={removing} />
       </div>
@@ -180,7 +181,7 @@ export function DaemonChip({ p, m, work, act }: { p: MachineProject; m: Machine;
         <span className="app-chip dim">Daemon stopped</span>
       )}
       <button className="ghost small app-chip-action" disabled={busy || !!work?.confirm} onClick={() => void (d ? act.stop() : act.start())}>
-        {busy ? (work?.kind === "start" ? "Starting" : "Stopping") : d ? "Stop" : "Start"}
+        {busy ? <Busy>{work?.kind === "start" ? "Starting" : "Stopping"}</Busy> : d ? "Stop" : "Start"}
       </button>
     </span>
   );
@@ -300,7 +301,7 @@ export function IdeButton({ p, act, work }: { p: MachineProject; act: Actions; w
   const pending = work?.kind === "ide" && !work.error && !work.needsFiles;
   return (
     <div className="app-menu app-split" ref={ref}>
-      <button disabled={!b.ide || pending} title={b.title} onClick={() => void act.openIde()}>{pending ? "Opening" : b.label}</button>
+      <button disabled={!b.ide || pending} title={b.title} onClick={() => void act.openIde()}>{pending ? <Busy>Opening</Busy> : b.label}</button>
       <button className="app-split-more" aria-label={`Open ${p.name} with`} aria-haspopup="menu" aria-expanded={open} onClick={() => setOpen(!open)}>
         <svg viewBox="0 0 20 20" aria-hidden="true"><path d="M5.5 8l4.5 4.5L14.5 8" /></svg>
       </button>

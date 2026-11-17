@@ -3,6 +3,7 @@ import type { Machine } from "./App";
 import { host, type AppUpdate, type Channel } from "./native";
 import { appUpdateLine, channelLabel } from "./model";
 import { useBusy } from "./busy";
+import { Busy } from "./BusyLabel";
 import { NodeCard, nodeLine } from "./NodeCard";
 
 /** What belongs to the computer rather than a project: UE-MCP itself and its channel, Node.js, and adding a project. */
@@ -36,7 +37,7 @@ export function SettingsView({ m }: { m: Machine }) {
             <div className="app-row-title"><span className="app-row-name">Node.js</span><span className="pill ok">{state.node.version}</span></div>
             <div className="muted small">{nodeLine(state)} ue-mcp runs on it.</div>
           </div>
-          <div className="app-row-actions"><button disabled={checkingNode} onClick={() => void runNode(() => m.refreshNode())}>{checkingNode ? "Checking" : "Check again"}</button></div>
+          <div className="app-row-actions"><button disabled={checkingNode} onClick={() => void runNode(() => m.refreshNode())}>{checkingNode ? <Busy>Checking</Busy> : "Check again"}</button></div>
         </div>
       ) : (
         <NodeCard state={state} refreshNode={m.refreshNode} onInstalled={() => void m.refresh()} />
@@ -47,7 +48,7 @@ export function SettingsView({ m }: { m: Machine }) {
           <div className="muted small">Projects Unreal Editor has opened are listed on their own. Add one it has not opened, by its .uproject file.</div>
           {adding && <div className="small muted">{adding}</div>}
         </div>
-        <div className="app-row-actions"><button disabled={addBusy} onClick={() => void add()}>{addBusy ? "Adding" : "Add project"}</button></div>
+        <div className="app-row-actions"><button disabled={addBusy} onClick={() => void add()}>{addBusy ? <Busy>Adding</Busy> : "Add project"}</button></div>
       </div>
     </section>
   );
@@ -114,7 +115,7 @@ export function AppUpdateCard({ version, onChannel }: { version: string; onChann
       </div>
       <div className="app-row-actions">
         {u?.ok && u.newer ? (
-          <button className="primary" disabled={installing} onClick={() => void install()}>{installing ? "Installing" : "Update UE-MCP"}</button>
+          <button className="primary" disabled={installing} onClick={() => void install()}>{installing ? <Busy>Installing</Busy> : "Update UE-MCP"}</button>
         ) : (
           <button onClick={check} disabled={!u}>Check again</button>
         )}

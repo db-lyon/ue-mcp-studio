@@ -4,6 +4,7 @@ import { host } from "./native";
 import { actionsOf, channelLabel, listReadAt, nameHint, running, updateHow, updatesOf, uptime, type MachineProject } from "./model";
 import { connectedTo, installing, projectActions, useWorks } from "./actions";
 import { useBusy } from "./busy";
+import { Busy } from "./BusyLabel";
 import { DaemonChip, IdeButton, WorkPanel } from "./Projects";
 
 /** One project: its versions and updates, its daemon with the log, and its editor. */
@@ -38,12 +39,12 @@ export function ProjectDetail({ p, m, onBack }: { p: MachineProject; m: Machine;
         </div>
         <div className="app-row-actions">
           {a.openStudio && (
-            <button className="primary" disabled={pending("studio")} onClick={() => void act.openStudio()}>{pending("studio") ? "Opening" : "Open Studio"}</button>
+            <button className="primary" disabled={pending("studio")} onClick={() => void act.openStudio()}>{pending("studio") ? <Busy>Opening</Busy> : "Open Studio"}</button>
           )}
           {a.addStudio && (
-            <button className="primary" disabled={!!a.addBlocked} title={a.addBlocked ?? undefined} onClick={() => void act.addStudio()}>{pending("install") ? "Adding Studio" : "Add Studio"}</button>
+            <button className="primary" disabled={!!a.addBlocked} title={a.addBlocked ?? undefined} onClick={() => void act.addStudio()}>{pending("install") ? <Busy>Adding Studio</Busy> : "Add Studio"}</button>
           )}
-          <button disabled={!!a.launchBlocked || pending("launch")} title={a.launchBlocked ?? undefined} onClick={() => void act.launch()}>{pending("launch") ? "Starting" : "Launch editor"}</button>
+          <button disabled={!!a.launchBlocked || pending("launch")} title={a.launchBlocked ?? undefined} onClick={() => void act.launch()}>{pending("launch") ? <Busy>Starting</Busy> : "Launch editor"}</button>
           <IdeButton p={p} act={act} work={work} />
           <button className="ghost" title={`Opens ${p.dir} with ${p.name}.uproject selected`} onClick={act.reveal}>Show in Explorer</button>
         </div>
@@ -88,7 +89,7 @@ export function ProjectDetail({ p, m, onBack }: { p: MachineProject; m: Machine;
             <div className="row">
               <span className="spacer" />
               <button className="primary" disabled={(u.via === "ue-mcp" && (p.editor.running || busy)) || pending("update")} onClick={() => void act.update()}>
-                {work?.watching ? "Updating in Studio" : pending("update") ? (u.via === "studio" ? "Opening Studio" : "Updating") : u.via === "studio" ? "Update in Studio" : "Update"}
+                {work?.watching ? <Busy>Updating in Studio</Busy> : pending("update") ? <Busy>{u.via === "studio" ? "Opening Studio" : "Updating"}</Busy> : u.via === "studio" ? "Update in Studio" : "Update"}
               </button>
             </div>
           </div>
@@ -109,7 +110,7 @@ export function ProjectDetail({ p, m, onBack }: { p: MachineProject; m: Machine;
 
       <div className="row app-detail-foot">
         <span className="spacer" />
-        <button className="ghost small" disabled={removing} onClick={() => void run(() => m.removeProject(p)).then((ok) => ok && onBack())}>{removing ? "Hiding" : "Hide this project"}</button>
+        <button className="ghost small" disabled={removing} onClick={() => void run(() => m.removeProject(p)).then((ok) => ok && onBack())}>{removing ? <Busy>Hiding</Busy> :"Hide this project"}</button>
       </div>
     </section>
   );
@@ -184,7 +185,7 @@ function DaemonLog({ id }: { id: string }) {
       <div className="row">
         <span className="small app-installs-head">Log</span>
         <span className="spacer" />
-        {lines && <button className="ghost small" disabled={opening} onClick={() => void run(async () => host()?.openlog({ key: id }))}>{opening ? "Opening" : "Open log file"}</button>}
+        {lines && <button className="ghost small" disabled={opening} onClick={() => void run(async () => host()?.openlog({ key: id }))}>{opening ? <Busy>Opening</Busy> : "Open log file"}</button>}
       </div>
       <pre ref={box} className="app-log-text" tabIndex={0} aria-label="Daemon log">{text === null ? "Reading" : lines || "No log yet: ue-mcp has not run for this project."}</pre>
     </div>
