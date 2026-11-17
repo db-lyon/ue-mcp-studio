@@ -3,7 +3,10 @@ import type { Machine } from "./App";
 import { host, type IdeInfo } from "./native";
 import { actionsOf, filterProjects, ideButton, ideOpens, listReadAt, nameHint, running, updatesOf, versionsOf, type MachineProject } from "./model";
 import { JobOutput } from "./NodeCard";
-import { installing, projectActions, useIdes, useWorks, workTitle, type Work } from "./actions";
+import { useBusy } from "./busy";
+import { Busy } from "./BusyLabel";
+import { Unverified } from "./Unverified";
+import { installing,projectActions, useIdes, useWorks, workTitle, type Work } from "./actions";
 
 /** A filter appears once the list is long enough to need one. */
 const FILTER_FROM = 7;
@@ -17,12 +20,14 @@ export function ProjectsView({ m, onOpen }: { m: Machine; onOpen: (key: string) 
   const shown = filterProjects(projects, query);
   const waiting = projects.filter((p) => updatesOf(p, m.newest)?.waiting.length).length;
 
-  const add = async () => {
-    setAdding(null);
-    const r = await host()?.addproject();
-    if (r && !r.ok && !r.cancelled) setAdding(r.error ?? "That project could not be added.");
-    if (r?.ok) void m.refresh();
-  };
+  const [addBusy, run] = useBusy();
+  const add = () =>
+    run(async () => {
+      setAdding(null);
+      const r = await host()?.addproject();
+      if (r && !r.ok && !r.cancelled) setAdding(r.error ?? "That project could not be added.");
+      if (r?.ok) void m.refresh();
+    });
 
   return (
     <section className="app-screen" aria-labelledby="projects-head">
@@ -41,8 +46,8 @@ export function ProjectsView({ m, onOpen }: { m: Machine; onOpen: (key: string) 
           <input className="app-filter" type="search" placeholder="Filter" aria-label="Filter projects" value={query} onChange={(e) => setQuery(e.target.value)} />
         )}
         {m.readAt !== null && <span className="dim small app-read-at" title="The list reads again by itself when a project, daemon or Studio changes">{listReadAt(m.readAt)}</span>}
-        <button onClick={() => void m.refresh()} disabled={m.loading}>{m.loading ? "Reading" : "Refresh"}</button>
-        <button className="primary" onClick={() => void add()}>Add project</button>
+        <button onClick={() => void m.refresh()} disabled={m.loading}>{m.loading ? <Busy>{m.installing ? "Installing ue-mcp (one time)" : "Reading"}</Busy> : "Refresh"}</button>
+        <button className="primary" disabled={addBusy} onClick={() => void add()}>{addBusy ? <Busy>Adding</Busy> : "Add project"}</button>
       </header>
       {adding && <div className="banner bad small">{adding}</div>}
       {!m.report && m.loading && <Skeleton />}
@@ -50,7 +55,7 @@ export function ProjectsView({ m, onOpen }: { m: Machine; onOpen: (key: string) 
         <div className="app-empty">
           <h2>No projects yet</h2>
           <p className="muted">UE-MCP lists the projects Unreal Editor has opened on this computer. Open one in Unreal, or add its .uproject file here.</p>
-          <button className="primary" onClick={() => void add()}>Add project</button>
+          <button className="primary" disabled={addBusy} onClick={() => void add()}>{addBusy ? <Busy>Adding</Busy> : "Add project"}</button>
         </div>
       )}
       {projects.length > 0 && shown.length === 0 && <p className="muted app-none">No project matches "{query}".</p>}
@@ -59,7 +64,40 @@ export function ProjectsView({ m, onOpen }: { m: Machine; onOpen: (key: string) 
           <ProjectRow key={p.key} p={p} all={projects} m={m} work={works[p.key] ?? null} busy={installing(works)} onOpen={() => onOpen(p.key)} />
         ))}
       </ul>
+      <HiddenProjects m={m} />
     </section>
+  );
+}
+
+/** Hidden projects, folded away and quiet: a Show button each puts one back on the list. */
+function HiddenProjects({ m }: { m: Machine }) {
+  const hidden = m.report?.hidden ?? [];
+  const [showing, run] = useBusy();
+  const [failed, setFailed] = useState<string | null>(null);
+  const [which, setWhich] = useState<string | null>(null);
+  if (hidden.length === 0) return null;
+  const show = (uproject: string) =>
+    void run(async () => {
+      setFailed(null);
+      setWhich(uproject);
+      const r = await host()?.addproject({ uproject });
+      if (r && !r.ok) setFailed(r.error ?? "That project could not be shown.");
+      if (r?.ok) await m.refresh();
+    });
+  return (
+    <details className="app-hidden dim small">
+      <summary>Hidden projects ({hidden.length})</summary>
+      {failed && <div className="banner bad small">{failed}</div>}
+      <ul className="app-hidden-list">
+        {hidden.map((h) => (
+          <li key={h.uproject} className="app-hidden-row">
+            <span className="app-hidden-name">{h.name}</span>
+            <span className="app-hidden-path" title={h.dir}>{h.dir}</span>
+            <button className="ghost small" disabled={showing} onClick={() => show(h.uproject)}>{showing && which === h.uproject ? <Busy>Showing</Busy> : "Show"}</button>
+          </li>
+        ))}
+      </ul>
+    </details>
   );
 }
 
@@ -71,9 +109,11 @@ function ProjectRow({ p, all, m, work, busy, onOpen }: { p: MachineProject; all:
   const hint = nameHint(p, all);
   const versions = versionsOf(p, m.live, m.report?.ueMcp ?? null);
   const pending = (k: Work["kind"]) => work?.kind === k && !work.error && !work.done;
+  const [removing, run] = useBusy();
+  const remove = () => void run(() => m.removeProject(p));
 
   return (
-    <li className="app-row app-project">
+    <li className="app-row app-project" aria-busy={removing || undefined} style={removing ? { opacity: 0.6 } : undefined}>
       <div className="app-row-main">
         <div className="app-row-title">
           <button className="app-row-open" onClick={onOpen} title={`Details for ${p.name}`}>
@@ -81,7 +121,7 @@ function ProjectRow({ p, all, m, work, busy, onOpen }: { p: MachineProject; all:
             {hint && <span className="app-row-hint dim">{hint}</span>}
           </button>
           {p.engine.version && <span className="app-engine">UE {p.engine.version}</span>}
-          {u?.pill && <span className={`pill ${u.tone}`} title={u.line}>{u.pill}</span>}
+          {m.verified ? u?.pill && <span className={`pill ${u.tone}`} title={u.line}>{u.pill}</span> : <Unverified m={m} what="updates" className="pill dim" />}
         </div>
         <div className="app-row-path dim small" title={p.dir}>{p.dir}</div>
         {versions.length > 0 && (
@@ -97,31 +137,33 @@ function ProjectRow({ p, all, m, work, busy, onOpen }: { p: MachineProject; all:
         <div className="app-chips">
           {!p.ueMcp.setUp && <span className="app-chip dim">ue-mcp not set up</span>}
           {p.ueMcp.setUp && <DaemonChip p={p} m={m} work={work} act={act} />}
-          {p.editor.running && <span className="app-chip warn">Editor open</span>}
+          {m.verified ? p.editor.running && <span className="app-chip warn">Editor open</span> : <Unverified m={m} what="editor" />}
+          {removing && <span className="app-chip dim" role="status"><Busy>Hiding</Busy></span>}
         </div>
       </div>
       <div className="app-row-actions">
-        {u?.via && (
-          <button className="primary" disabled={(u.via === "ue-mcp" && (p.editor.running || busy)) || pending("update")} title={u.line} onClick={() => void act.update()}>
-            {work?.watching ? "Updating in Studio" : pending("update") ? (u.via === "studio" ? "Opening" : "Updating") : "Update"}
+        {m.verified && u?.via && (
+          // View Updates: a Studio project's updates are on its Studio's Updates card; any other project's on its detail here, beside Update.
+          <button className="primary" disabled={u.via === "studio" && pending("update")} title={u.line} onClick={() => (u.via === "studio" ? void act.update() : onOpen())}>
+            {work?.watching ? <Busy>Updating in Studio</Busy> : pending("update") ? <Busy>{u.via === "studio" ? "Opening" : "Updating"}</Busy> : "View Updates"}
           </button>
         )}
         {a.openStudio && (
           <button className={u?.via ? "" : "primary"} disabled={pending("studio")} onClick={() => void act.openStudio()}>
-            {pending("studio") ? "Opening" : "Open Studio"}
+            {pending("studio") ? <Busy>Opening</Busy> : "Open Studio"}
           </button>
         )}
         {a.addStudio && (
           <button className={u?.via ? "" : "primary"} disabled={!!a.addBlocked} title={a.addBlocked ?? undefined} onClick={() => void act.addStudio()}>
-            {pending("install") ? "Adding Studio" : "Add Studio"}
+            {pending("install") ? <Busy>Adding Studio</Busy> : "Add Studio"}
           </button>
         )}
-        <button disabled={!!a.launchBlocked || pending("launch")} title={a.launchBlocked ?? undefined} onClick={() => void act.launch()}>
-          {pending("launch") ? "Starting" : "Launch editor"}
+        <button disabled={!m.verified || !!a.launchBlocked || pending("launch")} title={!m.verified ? "Checking whether the editor is already open" : a.launchBlocked ?? undefined} onClick={() => void act.launch()}>
+          {pending("launch") ? <Busy>Starting</Busy> : "Launch editor"}
         </button>
-        <RowMenu p={p} m={m} act={act} onOpen={onOpen} />
+        <RowMenu p={p} act={act} onOpen={onOpen} onRemove={remove} removing={removing} />
       </div>
-      {a.addStudio && p.editor.running && !mine && <p className="app-row-note dim small">{a.addBlocked}</p>}
+      {m.verified && a.addStudio && p.editor.running && !mine && <p className="app-row-note dim small">{a.addBlocked}</p>}
       <WorkPanel p={p} work={work} act={act} />
     </li>
   );
@@ -141,7 +183,7 @@ export function DaemonChip({ p, m, work, act }: { p: MachineProject; m: Machine;
         <span className="app-chip dim">Daemon stopped</span>
       )}
       <button className="ghost small app-chip-action" disabled={busy || !!work?.confirm} onClick={() => void (d ? act.stop() : act.start())}>
-        {busy ? (work?.kind === "start" ? "Starting" : "Stopping") : d ? "Stop" : "Start"}
+        {busy ? <Busy>{work?.kind === "start" ? "Starting" : "Stopping"}</Busy> : d ? "Stop" : "Start"}
       </button>
     </span>
   );
@@ -261,7 +303,7 @@ export function IdeButton({ p, act, work }: { p: MachineProject; act: Actions; w
   const pending = work?.kind === "ide" && !work.error && !work.needsFiles;
   return (
     <div className="app-menu app-split" ref={ref}>
-      <button disabled={!b.ide || pending} title={b.title} onClick={() => void act.openIde()}>{pending ? "Opening" : b.label}</button>
+      <button disabled={!b.ide || pending} title={b.title} onClick={() => void act.openIde()}>{pending ? <Busy>Opening</Busy> : b.label}</button>
       <button className="app-split-more" aria-label={`Open ${p.name} with`} aria-haspopup="menu" aria-expanded={open} onClick={() => setOpen(!open)}>
         <svg viewBox="0 0 20 20" aria-hidden="true"><path d="M5.5 8l4.5 4.5L14.5 8" /></svg>
       </button>
@@ -275,7 +317,7 @@ export function IdeButton({ p, act, work }: { p: MachineProject; act: Actions; w
 }
 
 /** The row's quieter actions: Open in IDE and Open with..., Show in Explorer, the detail, and leaving the list. */
-function RowMenu({ p, m, act, onOpen }: { p: MachineProject; m: Machine; act: Actions; onOpen: () => void }) {
+function RowMenu({ p, act, onOpen, onRemove, removing }: { p: MachineProject; act: Actions; onOpen: () => void; onRemove: () => void; removing: boolean }) {
   const { open, setOpen, ref } = useMenu();
   const info = useIdes(p, open);
   const b = ideButton(info, p);
@@ -292,7 +334,7 @@ function RowMenu({ p, m, act, onOpen }: { p: MachineProject; m: Machine; act: Ac
           <IdeChoices p={p} info={info} onPick={(id) => { setOpen(false); void act.openIde(id); }} />
           <div className="app-menu-sep" />
           <button role="menuitem" onClick={() => { setOpen(false); onOpen(); }}>Details</button>
-          <button role="menuitem" onClick={() => { setOpen(false); void m.removeProject(p); }}>Remove from list</button>
+          <button role="menuitem" disabled={removing} onClick={() => { setOpen(false); onRemove(); }}>Hide this project</button>
         </div>
       )}
     </div>

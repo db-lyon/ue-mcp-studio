@@ -3,6 +3,9 @@ import type { Machine } from "./App";
 import { host } from "./native";
 import { actionsOf, channelLabel, listReadAt, nameHint, running, updateHow, updatesOf, uptime, type MachineProject } from "./model";
 import { connectedTo, installing, projectActions, useWorks } from "./actions";
+import { useBusy } from "./busy";
+import { Busy } from "./BusyLabel";
+import { Unverified } from "./Unverified";
 import { DaemonChip, IdeButton, WorkPanel } from "./Projects";
 
 /** One project: its versions and updates, its daemon with the log, and its editor. */
@@ -16,6 +19,7 @@ export function ProjectDetail({ p, m, onBack }: { p: MachineProject; m: Machine;
   const u = updatesOf(p, m.newest);
   const hint = nameHint(p, m.report?.projects ?? []);
   const pending = (k: string) => work?.kind === k && !work.error && !work.done;
+  const [removing, run] = useBusy();
   const channel = channelLabel(m.newest?.channel ?? "stable");
 
   return (
@@ -30,18 +34,18 @@ export function ProjectDetail({ p, m, onBack }: { p: MachineProject; m: Machine;
             <h1 id="detail-head">{p.name}</h1>
             {hint && <span className="app-row-hint dim">{hint}</span>}
             {p.engine.version && <span className="app-engine">UE {p.engine.version}</span>}
-            {u?.pill && <span className={`pill ${u.tone}`}>{u.pill}</span>}
+            {m.verified ? u?.pill && <span className={`pill ${u.tone}`}>{u.pill}</span> : <Unverified m={m} what="updates" className="pill dim" />}
           </div>
           <p className="app-detail-path dim small">{p.dir}</p>
         </div>
         <div className="app-row-actions">
           {a.openStudio && (
-            <button className="primary" disabled={pending("studio")} onClick={() => void act.openStudio()}>{pending("studio") ? "Opening" : "Open Studio"}</button>
+            <button className="primary" disabled={pending("studio")} onClick={() => void act.openStudio()}>{pending("studio") ? <Busy>Opening</Busy> : "Open Studio"}</button>
           )}
           {a.addStudio && (
-            <button className="primary" disabled={!!a.addBlocked} title={a.addBlocked ?? undefined} onClick={() => void act.addStudio()}>{pending("install") ? "Adding Studio" : "Add Studio"}</button>
+            <button className="primary" disabled={!!a.addBlocked} title={a.addBlocked ?? undefined} onClick={() => void act.addStudio()}>{pending("install") ? <Busy>Adding Studio</Busy> : "Add Studio"}</button>
           )}
-          <button disabled={!!a.launchBlocked || pending("launch")} title={a.launchBlocked ?? undefined} onClick={() => void act.launch()}>{pending("launch") ? "Starting" : "Launch editor"}</button>
+          <button disabled={!m.verified || !!a.launchBlocked || pending("launch")} title={!m.verified ? "Checking whether the editor is already open" : a.launchBlocked ?? undefined} onClick={() => void act.launch()}>{pending("launch") ? <Busy>Starting</Busy> : "Launch editor"}</button>
           <IdeButton p={p} act={act} work={work} />
           <button className="ghost" title={`Opens ${p.dir} with ${p.name}.uproject selected`} onClick={act.reveal}>Show in Explorer</button>
         </div>
@@ -54,7 +58,7 @@ export function ProjectDetail({ p, m, onBack }: { p: MachineProject; m: Machine;
           <span className="dim small">Newest on {channel}</span>
           <span className="spacer" />
           {m.readAt !== null && <span className="dim small">{listReadAt(m.readAt)}</span>}
-          <button className="ghost small" disabled={!m.newest || m.loading} onClick={() => { m.refreshNewest(); void m.refresh(); }}>{m.newest && !m.loading ? "Check again" : "Checking"}</button>
+          <button className="ghost small" disabled={!m.newest || m.loading} onClick={() => { m.refreshNewest(); void m.refresh(); }}>{m.newest && !m.loading ? "Check again" : <Busy>Checking</Busy>}</button>
         </div>
         <table className="app-table">
           <thead>
@@ -76,7 +80,7 @@ export function ProjectDetail({ p, m, onBack }: { p: MachineProject; m: Machine;
           </tbody>
         </table>
         {u && <p className="muted small app-card-line">{u.line}</p>}
-        {u && u.waiting.length > 0 && (
+        {m.verified && u && u.waiting.length > 0 && (
           <div className="app-installs">
             <div className="small app-installs-head">What Update installs</div>
             <ul>
@@ -86,7 +90,7 @@ export function ProjectDetail({ p, m, onBack }: { p: MachineProject; m: Machine;
             <div className="row">
               <span className="spacer" />
               <button className="primary" disabled={(u.via === "ue-mcp" && (p.editor.running || busy)) || pending("update")} onClick={() => void act.update()}>
-                {work?.watching ? "Updating in Studio" : pending("update") ? (u.via === "studio" ? "Opening Studio" : "Updating") : u.via === "studio" ? "Update in Studio" : "Update"}
+                {work?.watching ? <Busy>Updating in Studio</Busy> : pending("update") ? <Busy>{u.via === "studio" ? "Opening Studio" : "Updating"}</Busy> : u.via === "studio" ? "Update in Studio" : "Update"}
               </button>
             </div>
           </div>
@@ -99,7 +103,7 @@ export function ProjectDetail({ p, m, onBack }: { p: MachineProject; m: Machine;
       <div className="app-card">
         <div className="app-card-head"><h2>Editor</h2></div>
         <div className="app-facts small">
-          <span><span className="dim">State</span> {p.editor.running ? `open${p.editor.pids.length ? `, pid ${p.editor.pids.join(", ")}` : ""}` : "not running"}</span>
+          <span><span className="dim">State</span> {!m.verified ? <Unverified m={m} what="editor" className="" /> : p.editor.running ? `open${p.editor.pids.length ? `, pid ${p.editor.pids.join(", ")}` : ""}` : "not running"}</span>
           <span><span className="dim">Engine</span> {p.engine.version ? `UE ${p.engine.version}` : p.engine.association ?? "unknown"}</span>
           <span className="app-facts-wide"><span className="dim">Project file</span> {p.uproject}</span>
         </div>
@@ -107,7 +111,7 @@ export function ProjectDetail({ p, m, onBack }: { p: MachineProject; m: Machine;
 
       <div className="row app-detail-foot">
         <span className="spacer" />
-        <button className="ghost small" onClick={() => void m.removeProject(p).then((ok) => ok && onBack())}>Remove from list</button>
+        <button className="ghost small" disabled={removing} onClick={() => void run(() => m.removeProject(p)).then((ok) => ok && onBack())}>{removing ? <Busy>Hiding</Busy> :"Hide this project"}</button>
       </div>
     </section>
   );
@@ -162,6 +166,7 @@ function DaemonCard({ p, m, act, work }: { p: MachineProject; m: Machine; act: R
 function DaemonLog({ id }: { id: string }) {
   const [text, setText] = useState<string | null>(null);
   const box = useRef<HTMLPreElement>(null);
+  const [opening, run] = useBusy();
   useEffect(() => {
     let gone = false;
     const read = () => void host()?.readlog({ key: id }).then((t) => !gone && setText(t));
@@ -181,7 +186,7 @@ function DaemonLog({ id }: { id: string }) {
       <div className="row">
         <span className="small app-installs-head">Log</span>
         <span className="spacer" />
-        {lines && <button className="ghost small" onClick={() => void host()?.openlog({ key: id })}>Open log file</button>}
+        {lines && <button className="ghost small" disabled={opening} onClick={() => void run(async () => host()?.openlog({ key: id }))}>{opening ? <Busy>Opening</Busy> : "Open log file"}</button>}
       </div>
       <pre ref={box} className="app-log-text" tabIndex={0} aria-label="Daemon log">{text === null ? "Reading" : lines || "No log yet: ue-mcp has not run for this project."}</pre>
     </div>

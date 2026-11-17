@@ -141,7 +141,8 @@ export interface AppHost {
   installnode(arg: { consent: "yes" }): Promise<Done>;
   openstudio(arg: { key: string; uproject: string; location?: string }): Promise<Done>;
   launcheditor(arg: { key: string; uproject: string; setUp: boolean }): Promise<Done>;
-  addproject(): Promise<Done>;
+  /** Without a uproject, opens a file picker; with one, adds (shows again) that project. */
+  addproject(arg?: { uproject: string }): Promise<Done>;
   removeproject(arg: { uproject: string }): Promise<Done>;
   readlog(arg: { key: string }): Promise<string>;
   openlog(arg: { key: string }): Promise<boolean>;
@@ -175,15 +176,16 @@ export function host(): AppHost | null {
  * What the host tells the page unasked: `changed` when a file the report
  * comes from changed (a daemon's discovery file, ~/.ue-mcp/state.json, a
  * project's .uproject, solution or plugin descriptors), once the burst has
- * settled; `focus` when the window is activated.
+ * settled; `focus` when the window is activated; `installing` and `installed`
+ * around the one-time install of a ue-mcp version into the app's own folder.
  */
-export type HostEvent = "changed" | "focus";
+export type HostEvent = "changed" | "focus" | "installing" | "installed";
 
 /** Hear the host's events; returns the unsubscribe. */
 export function onHostEvent(listener: (e: HostEvent) => void): () => void {
   const on = (e: Event) => {
     const d = (e as CustomEvent<unknown>).detail;
-    if (d === "changed" || d === "focus") listener(d);
+    if (d === "changed" || d === "focus" || d === "installing" || d === "installed") listener(d);
   };
   window.addEventListener("ue-app", on);
   return () => window.removeEventListener("ue-app", on);

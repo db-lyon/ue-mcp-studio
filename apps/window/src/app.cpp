@@ -42,6 +42,7 @@
 #include "ide.h"
 #include "job.h"
 #include "json.h"
+#include "uemcpinstall.h"
 #include "update.h"
 #include "watch.h"
 #include "ui-files.h"
@@ -152,7 +153,9 @@ std::wstring daemonDir() {
 int runAndWait(const std::wstring& exe, std::wstring line, DWORD timeoutMs) {
   STARTUPINFOW si = {sizeof si};
   PROCESS_INFORMATION pi = {};
-  if (!CreateProcessW(exe.c_str(), line.data(), nullptr, nullptr, FALSE, CREATE_NO_WINDOW, nullptr, nullptr, &si, &pi)) return -1;
+  // Never the app's own folder, which holds UE-MCP.exe (see wWinMain).
+  std::wstring home = env(L"USERPROFILE");
+  if (!CreateProcessW(exe.c_str(), line.data(), nullptr, nullptr, FALSE, CREATE_NO_WINDOW, nullptr, home.empty() ? nullptr : home.c_str(), &si, &pi)) return -1;
   CloseHandle(pi.hThread);
   DWORD r = WaitForSingleObject(pi.hProcess, timeoutMs);
   DWORD code = 1;
@@ -239,6 +242,73 @@ Captured capture(const std::wstring& line, DWORD timeoutMs) {
   c.code = r < 0 ? -1 : (readFile(exit, exitText) && !exitText.empty() && exitText[0] == '0' ? 0 : 1);
   for (const std::wstring& f : {out, err, exit}) DeleteFileW(f.c_str());
   return c;
+}
+
+/**
+ * The ue-mcp versions running daemons use, from their records in the daemon
+ * folder (a record whose process is gone does not count).
+ */
+std::vector<std::string> ueMcpVersionsInUse() {
+  std::wstring dir;
+  {
+    std::lock_guard<std::mutex> g(gLock);
+    dir = gDaemonDir;
+  }
+  if (dir.empty()) dir = join(join(env(L"USERPROFILE"), L".ue-mcp"), L"daemons");
+  std::vector<std::string> used;
+  WIN32_FIND_DATAW fd;
+  HANDLE h = FindFirstFileW(join(dir, L"*.json").c_str(), &fd);
+  if (h == INVALID_HANDLE_VALUE) return used;
+  do {
+    std::string text;
+    json::Value rec;
+    if (!readFile(join(dir, fd.cFileName), text) || !json::parse(text, rec) || !rec.isObject()) continue;
+    const json::Value* pid = rec.get("pid");
+    const json::Value* version = rec.get("version");
+    if (!pid || !pid->isNumber() || !version || !version->isString()) continue;
+    HANDLE p = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, FALSE, (DWORD)pid->n);
+    if (!p) continue;
+    DWORD code = 0;
+    bool alive = GetExitCodeProcess(p, &code) && code == STILL_ACTIVE;
+    CloseHandle(p);
+    if (alive) used.push_back(version->s);
+  } while (FindNextFileW(h, &fd));
+  FindClose(h);
+  return used;
+}
+
+/**
+ * The app's own install of the ue-mcp release or local tarball `spec` names
+ * (see uemcpinstall.h), made on first use. Empty for a channel tag, or when the
+ * install failed: the caller then runs npx.
+ */
+void appEvent(const char* name);
+
+std::wstring ueMcpScript(const std::wstring& npx, const std::wstring& spec) {
+  if (uemcp::key(spec).empty()) return {};
+  // One install at a time: two reads at startup must not race into one folder.
+  static std::mutex installing;
+  std::lock_guard<std::mutex> g(installing);
+  return uemcp::ensure(join(dataDir(), L"ue-mcp"), spec, [&](const std::wstring& prefix) {
+    // The page says so while it runs, so a one-time install never looks like a slow read.
+    appEvent("installing");
+    std::wstring npm = join(dirOf(npx), L"npm.cmd");
+    bool ok = capture(L"\"" + npm + L"\" install --prefix \"" + prefix + L"\" --min-release-age=0 --no-audit --no-fund --omit=dev " + spec, 300000).code == 0;
+    appEvent("installed");
+    return ok;
+  }, ueMcpVersionsInUse);
+}
+
+/** A ue-mcp command line: node on the resolved script when known, npx otherwise. */
+std::wstring ueMcpLine(const std::wstring& npx, const std::wstring& spec, const std::wstring& args) {
+  std::wstring script = ueMcpScript(npx, spec);
+  std::wstring node;
+  {
+    std::lock_guard<std::mutex> g(gLock);
+    node = gNode;
+  }
+  if (script.empty() || node.empty()) return job::npx(npx, spec, args);
+  return L"\"" + node + L"\" \"" + script + L"\" " + args;
 }
 
 /**
@@ -479,7 +549,7 @@ std::string ensureDaemon(const std::string& key, const std::wstring& uproject) {
   std::wstring npx = npxCmd();
   if (npx.empty()) return "Node.js was not found.";
   if (!safeUproject(uproject)) return "The project file could not be used.";
-  Captured c = capture(job::npx(npx, resolvedSpec(), L"daemon start \"" + uproject + L"\""), 150000);
+  Captured c = capture(ueMcpLine(npx, resolvedSpec(), L"daemon start \"" + uproject + L"\""), 150000);
   if (c.code != 0) return "ue-mcp did not start: " + job::failureText(c.out + c.err);
   return readDaemon(key, d) ? std::string() : "ue-mcp started but has not published its address yet.";
 }
@@ -672,7 +742,7 @@ std::string readReport() {
     if (!known) {
       // An older ue-mcp takes an unknown first word for a project and starts a server, so ask its help first.
       // Only help that ran and listed its commands decides; any other run is a failure with its own error, never "missing".
-      Captured h = capture(job::npx(npx, spec, L"help"), 120000);
+      Captured h = capture(ueMcpLine(npx, spec, L"help"), 120000);
       bool listed = false;
       for (const std::string& l : job::lines(h.out)) {
         size_t i = l.find_first_not_of(' ');
@@ -686,8 +756,8 @@ std::string readReport() {
     }
   }
   if (!can) return failed("unsupported", "");
-  Captured r = capture(job::npx(npx, spec, L"projects --json"), 120000);
-  if (r.code == 0 && r.out.empty()) r = capture(job::npx(npx, spec, L"projects --json"), 120000);  // a run that exited clean and said nothing is read once more
+  Captured r = capture(ueMcpLine(npx, spec, L"projects --json"), 120000);
+  if (r.code == 0 && r.out.empty()) r = capture(ueMcpLine(npx, spec, L"projects --json"), 120000);  // a run that exited clean and said nothing is read once more
   json::Value report;
   if (r.code != 0 || !json::parse(r.out, report) || !report.isObject()) {
     std::string said = job::failureText(r.out + r.err);
@@ -1024,6 +1094,9 @@ std::string install() {
   std::wstring lnk = startMenuShortcut();
   if (std::wstring was = startMenuShortcut(true); !was.empty()) DeleteFileW(was.c_str());
   if (lnk.empty() || !writeShortcut(lnk, exe)) return "The Start menu shortcut could not be written.";
+  // Install the channel's ue-mcp now, while setup is expected to take a moment, so the app's first read is not
+  // the one that waits for it. A failure here is not setup's: the app installs it on first use instead.
+  if (std::wstring npx = npxCmd(); !npx.empty()) ueMcpScript(npx, resolvedSpec());
   tellApp(L"\"" + exe + L"\" --relaunch");
   return {};
 }
@@ -1033,24 +1106,6 @@ bool launchInstalled(bool relaunch = false) {
   return createDetached(installedExe(), L"\"" + installedExe() + L"\"" + (relaunch ? L" --relaunch" : L""), installDir(), 0);
 }
 
-void removeTree(const std::wstring& dir) {
-  WIN32_FIND_DATAW fd;
-  HANDLE h = FindFirstFileW(join(dir, L"*").c_str(), &fd);
-  if (h != INVALID_HANDLE_VALUE) {
-    do {
-      std::wstring name = fd.cFileName;
-      if (name == L"." || name == L"..") continue;
-      std::wstring p = join(dir, name);
-      if (fd.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) removeTree(p);
-      else {
-        SetFileAttributesW(p.c_str(), FILE_ATTRIBUTE_NORMAL);
-        DeleteFileW(p.c_str());
-      }
-    } while (FindNextFileW(h, &fd));
-    FindClose(h);
-  }
-  RemoveDirectoryW(dir.c_str());
-}
 
 /** Uninstall, from a copy outside the install folder: the app, its shortcut, its entry and its own data. Never ~/.ue-mcp. */
 int uninstallRun(DWORD waitPid) {
@@ -1301,6 +1356,12 @@ std::string state() {
   return answer(v);
 }
 
+/** Tell the page something it did not ask for (see HostEvent in native.ts), from any thread. */
+void appEvent(const char* name) {
+  auto* text = new std::wstring(widen(std::string("{\"appEvent\":\"") + name + "\"}"));
+  if (!gMain || !PostMessageW(gMain, kReply, 0, reinterpret_cast<LPARAM>(text))) delete text;
+}
+
 void reply(int id, const std::string& result) {
   auto* text = new std::wstring(widen("{\"appReply\":" + std::to_string(id) + ",\"result\":" + result + "}"));
   if (!gMain || !PostMessageW(gMain, kReply, 0, reinterpret_cast<LPARAM>(text))) delete text;
@@ -1478,7 +1539,7 @@ std::string dispatch(int id, const std::string& method, const std::string& arg) 
   }
   if (method == "addproject" || method == "removeproject") {
     std::wstring target = uproject;
-    if (method == "addproject") {
+    if (method == "addproject" && uproject.empty()) {
       target = widen(pickProject());
       if (target.empty()) return "{\"ok\":false,\"cancelled\":true}";
     }
@@ -1486,7 +1547,7 @@ std::string dispatch(int id, const std::string& method, const std::string& arg) 
     if (!safeUproject(target)) return okError("That file cannot be added.");
     std::wstring args = (method == "addproject" ? L"projects add \"" : L"projects remove \"") + target + L"\" --json";
     later(id, [npx, args] {
-      Captured c = capture(job::npx(npx, resolvedSpec(), args), 120000);
+      Captured c = capture(ueMcpLine(npx, resolvedSpec(), args), 120000);
       return okError(c.code == 0 ? "" : job::failureText(c.out + c.err));
     });
     return {};
@@ -1889,6 +1950,11 @@ void cleanJobs() {
 
 int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR, int) {
   SetProcessDpiAwarenessContext(DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2);
+  // cmd.exe looks for a command in the current directory before PATH, and this
+  // app is UE-MCP.exe: run from its own folder, `ue-mcp` (npx's bin) resolved to
+  // the app itself, which printed nothing and exited 0. Every command this app
+  // starts inherits this, so cmd searches PATH only.
+  SetEnvironmentVariableW(L"NoDefaultCurrentDirectoryInExePath", L"1");
   int argc = 0;
   wchar_t** argv = CommandLineToArgvW(GetCommandLineW(), &argc);
   bool forceApp = false, uninstall = false, uninstallRunning = false;

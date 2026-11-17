@@ -90,15 +90,19 @@ export function UpdatesCard({ remote = onRemotePage() }: { remote?: boolean } = 
     <section className="card">
       <div className="row">
         <h2>Updates</h2>
-        <span className="spacer" />
-        {/* Always offered, whatever the state; held while a check or an update runs. */}
-        <button disabled={checking || working} onClick={load}>Check again</button>
       </div>
-      {!u && <p className="muted">Checking</p>}
+      {!u && (
+        <div className="row update-status">
+          <span className="muted">Checking</span>
+          <button className="check-again-link" disabled onClick={load}>Check again</button>
+        </div>
+      )}
       {u && (
         <div className="row update-status">
           <span className={`pill ${status.tone}`}>{status.pill}</span>
           <span className="muted" title={unchecked && !steps.length ? unchecked : undefined}>{status.line}</span>
+          {/* A link after the status line, always offered whatever the state; held while a check or an update runs. */}
+          <button className="check-again-link" disabled={checking || working} onClick={load}>Check again</button>
           <span className="spacer" />
           {/* Update, with What's new right under it and right-aligned to it: what the update brings, beside the button that brings it. */}
           {((steps.length > 0 && !remote) || offersWhatsNew(u)) && (

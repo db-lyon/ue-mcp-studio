@@ -12,7 +12,15 @@ export interface MachineReport {
   ueMcp: string;
   daemonDir: string;
   projects: MachineProject[];
+  /** Projects the user hid; absent from a report of an older ue-mcp. */
+  hidden?: HiddenProject[];
   daemons: MachineDaemon[];
+}
+
+export interface HiddenProject {
+  name: string;
+  uproject: string;
+  dir: string;
 }
 
 export interface MachineDaemon {

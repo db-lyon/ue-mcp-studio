@@ -7,6 +7,7 @@ import { ProjectDetail } from "./ProjectDetail";
 import { SettingsView } from "./Settings";
 import { SetupView } from "./Setup";
 import { NodeCard } from "./NodeCard";
+import { Busy } from "./BusyLabel";
 
 export type Screen = "projects" | "settings";
 
@@ -22,6 +23,14 @@ export interface Machine {
   report: MachineReport | null;
   /** The report shown is an earlier one, because this read failed. */
   stale: boolean;
+  /**
+   * The report shown came from a read this session. Until then (the list from
+   * the last run, or a failed read) its editor state and updates are unverified
+   * and are drawn as checking or unknown, never as fact.
+   */
+  verified: boolean;
+  /** A ue-mcp version is being installed into the app's own folder, once; reads wait for it. */
+  installing: boolean;
   live: Record<string, Live> | null;
   loading: boolean;
   /** When the report shown was read (ms), or null before the first read of this session answers. */
@@ -62,6 +71,7 @@ function useMachine(): Machine {
   const [removed, setRemoved] = useState<string[]>([]);
   const [notice, setNotice] = useState<string | null>(null);
   const [updated, setUpdated] = useState(false);
+  const [installing, setInstalling] = useState(false);
   const fresh = !!answer && answer.ok;
   const parsed = parseReport(answer ? (answer.ok ? answer.report : answer.cached) : cached ?? undefined);
   const report = fresh ? parsed : withoutRemoved(parsed, removed);
@@ -135,7 +145,10 @@ function useMachine(): Machine {
       void refresh();
     };
     const onVisible = () => document.visibilityState === "visible" && onFocus();
-    const off = onHostEvent((e) => (e === "focus" ? onFocus() : void refresh()));
+    const off = onHostEvent((e) => {
+      if (e === "installing" || e === "installed") return setInstalling(e === "installing");
+      return e === "focus" ? onFocus() : void refresh();
+    });
     window.addEventListener("focus", onFocus);
     document.addEventListener("visibilitychange", onVisible);
     return () => {
@@ -188,7 +201,7 @@ function useMachine(): Machine {
       if (!h) return false;
       const r = await h.removeproject({ uproject: p.uproject });
       if (!r.ok) {
-        setNotice(`${p.name} could not be removed from the list${r.error ? `: ${r.error}` : "."}`);
+        setNotice(`${p.name} could not be hidden${r.error ? `: ${r.error}` : "."}`);
         return false;
       }
       setNotice(null);
@@ -200,7 +213,7 @@ function useMachine(): Machine {
   );
 
   return {
-    state, answer, report, stale, live, loading, readAt, newest, refresh, refreshNode, refreshNewest,
+    state, answer, report, stale, verified: fresh, installing, live, loading, readAt, newest, refresh, refreshNode, refreshNewest,
     updateUeMcp, updated, removeProject, notice, dismissNotice: () => setNotice(null),
   };
 }
@@ -279,7 +292,7 @@ function ReportProblem({ m, onSettings }: { m: Machine; onSettings: () => void }
         <div className="row">
           {/* The update the text names is one press away, not a screen to find. */}
           <button className="primary" onClick={() => (m.updated ? onSettings() : void m.updateUeMcp())}>{copy.action}</button>
-          <button onClick={() => void m.refresh()}>Check again</button>
+          <button disabled={m.loading} onClick={() => void m.refresh()}>{m.loading ? <Busy>Checking</Busy> : "Check again"}</button>
         </div>
       </section>
     );
@@ -293,7 +306,7 @@ function ReportProblem({ m, onSettings }: { m: Machine; onSettings: () => void }
         {m.stale && <p className="dim small">Until then, this is the list read {readAt(a.cachedAt)}.</p>}
         <div className="row">
           <button className="primary" onClick={onSettings}>Update UE-MCP</button>
-          <button onClick={() => void m.refresh()}>Check again</button>
+          <button disabled={m.loading} onClick={() => void m.refresh()}>{m.loading ? <Busy>Checking</Busy> : "Check again"}</button>
         </div>
       </section>
     );
@@ -306,7 +319,7 @@ function ReportProblem({ m, onSettings }: { m: Machine; onSettings: () => void }
           {m.stale ? `Showing the list read ${readAt(a.cachedAt)}. ` : ""}
           Your projects could not be read{a.error ? `: ${a.error}` : "."}
         </span>
-        <button onClick={() => void m.refresh()}>Try again</button>
+        <button disabled={m.loading} onClick={() => void m.refresh()}>{m.loading ? <Busy>Checking</Busy> : "Try again"}</button>
       </div>
     </>
   );

@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { App } from "./App";
 import { appSlot, type HostState, type IdeInfo, type Newest, type OpenIde } from "./native";
 import type { MachineProject, MachineReport } from "./model";
@@ -30,7 +30,7 @@ const IDES: IdeInfo = {
   chosen: "vs:afb8a0c3", remembered: "", preferred: "", solution: "C:\\work\\ue-mcp\\tests\\ue_mcp\\ue_mcp.sln", workspace: null, source: true, generate: true,
 };
 
-function fakeHost(o: { newest?: Newest; live?: Record<string, { pid: number; port: number; version: string }>; health?: string; reports?: MachineProject[][]; ides?: IdeInfo; openide?: OpenIde } = {}) {
+function fakeHost(o: { newest?: Newest; live?: Record<string, { pid: number; port: number; version: string }>; health?: string; reports?: MachineProject[][]; ides?: IdeInfo; openide?: OpenIde; hidden?: Array<{ name: string; uproject: string; dir: string }> } = {}) {
   const reports = o.reports ?? [[withStudio, bare]];
   let read = 0;
   const app = {
@@ -39,7 +39,7 @@ function fakeHost(o: { newest?: Newest; live?: Record<string, { pid: number; por
     // Each read answers the next report in the list, then the last one again.
     report: vi.fn(async () => {
       const projects = reports[Math.min(read++, reports.length - 1)];
-      const r: MachineReport = { version: 1, ueMcp: "1.4.13", daemonDir: "D", projects, daemons: [] };
+      const r: MachineReport = { version: 1, ueMcp: "1.4.13", daemonDir: "D", projects, ...(o.hidden ? { hidden: o.hidden } : {}), daemons: [] };
       return { ok: true, report: JSON.stringify(r) };
     }),
     live: vi.fn(async () => o.live ?? {}),
@@ -105,7 +105,53 @@ describe("a ue-mcp without the projects command", () => {
   });
 });
 
-describe("Remove from list", () => {
+describe("unverified state", () => {
+  it("draws the last run's editor state and updates as checking until this session's read answers, then as fact", async () => {
+    const open = { ...withStudio, editor: { running: true, pids: [42] } };
+    const h = fakeHost({ reports: [[{ ...withStudio, editor: { running: false, pids: [] } }]] });
+    h.cachedreport.mockResolvedValue(JSON.stringify({ version: 1, ueMcp: "1.4.13", daemonDir: "D", projects: [open], daemons: [] }) as never);
+    let answer!: () => void;
+    const first = h.report.getMockImplementation()!;
+    h.report.mockImplementationOnce(() => new Promise((r) => (answer = () => r(first() as never))));
+    render(<App />);
+    const rows = await projectRows();
+    expect(within(rows[0]).queryByText("Editor open")).toBeNull();
+    expect(within(rows[0]).getByText("Checking editor")).toBeTruthy();
+    expect(within(rows[0]).getByText("Checking updates")).toBeTruthy();
+    expect((within(rows[0]).getByRole("button", { name: "Launch editor" }) as HTMLButtonElement).disabled).toBe(true);
+    answer();
+    await waitFor(() => expect(within(rows[0]).queryByText("Checking editor")).toBeNull());
+    expect(within(rows[0]).queryByText("Editor open")).toBeNull();
+  });
+
+  it("says a read is waiting on the one-time ue-mcp install, not just Reading, while the host installs it", async () => {
+    const h = fakeHost();
+    h.cachedreport.mockResolvedValue(JSON.stringify({ version: 1, ueMcp: "1.4.13", daemonDir: "D", projects: [withStudio], daemons: [] }) as never);
+    let answer!: () => void;
+    const first = h.report.getMockImplementation()!;
+    h.report.mockImplementationOnce(() => new Promise((r) => (answer = () => r(first() as never))));
+    render(<App />);
+    await projectRows();
+    act(() => void window.dispatchEvent(new CustomEvent("ue-app", { detail: "installing" })));
+    expect(await screen.findByRole("button", { name: "Installing ue-mcp (one time)" })).toBeTruthy();
+    act(() => void window.dispatchEvent(new CustomEvent("ue-app", { detail: "installed" })));
+    expect(await screen.findByRole("button", { name: "Reading" })).toBeTruthy();
+    answer();
+    expect(await screen.findByRole("button", { name: "Refresh" })).toBeTruthy();
+  });
+
+  it("says unknown, not the last value, when this session's read failed", async () => {
+    const open = { ...withStudio, editor: { running: true, pids: [42] } };
+    const h = fakeHost();
+    h.report.mockResolvedValue({ ok: false, reason: "failed", error: "offline", cached: JSON.stringify({ version: 1, ueMcp: "1.4.13", daemonDir: "D", projects: [open], daemons: [] }), cachedAt: "2026-11-11T23:37:00Z" } as never);
+    render(<App />);
+    const rows = await projectRows();
+    await waitFor(() => expect(within(rows[0]).getByText("Editor unknown")).toBeTruthy());
+    expect(within(rows[0]).queryByText("Editor open")).toBeNull();
+  });
+});
+
+describe("Hide this project", () => {
   it("keeps a removed project off an earlier list shown while the read fails", async () => {
     const h = fakeHost();
     const removeproject = vi.fn(async () => ({ ok: true }));
@@ -115,9 +161,29 @@ describe("Remove from list", () => {
     const first = await h.report.mock.results[0].value;
     h.report.mockResolvedValue({ ok: false, reason: "failed", error: "offline", cached: first.report, cachedAt: "2026-11-11T23:37:00Z" } as never);
     fireEvent.click(within(rows[0]).getByRole("button", { name: /more/i }));
-    fireEvent.click(screen.getByRole("menuitem", { name: "Remove from list" }));
+    fireEvent.click(screen.getByRole("menuitem", { name: "Hide this project" }));
     await waitFor(() => expect(removeproject).toHaveBeenCalledWith({ uproject: withStudio.uproject }));
     await waitFor(() => expect(document.querySelectorAll(".app-list > li.app-project")).toHaveLength(1));
+  });
+
+  it("shows Hiding on the row until the removal resolves, and ignores a second press", async () => {
+    const h = fakeHost();
+    let finish!: (v: { ok: boolean }) => void;
+    const removeproject = vi.fn(() => new Promise<{ ok: boolean }>((r) => { finish = r; }));
+    (h as Record<string, unknown>).removeproject = removeproject;
+    render(<App />);
+    const rows = await projectRows();
+    fireEvent.click(within(rows[0]).getByRole("button", { name: /more/i }));
+    fireEvent.click(screen.getByRole("menuitem", { name: "Hide this project" }));
+    expect(await within(rows[0]).findByText("Hiding")).toBeTruthy();
+    expect(rows[0].getAttribute("aria-busy")).toBe("true");
+    fireEvent.click(within(rows[0]).getByRole("button", { name: /more/i }));
+    const again = screen.getByRole("menuitem", { name: "Hide this project" }) as HTMLButtonElement;
+    expect(again.disabled).toBe(true);
+    fireEvent.click(again);
+    expect(removeproject).toHaveBeenCalledTimes(1);
+    finish({ ok: false });
+    await waitFor(() => expect(within(rows[0]).queryByText("Hiding")).toBeNull());
   });
 
   it("says why a removal failed instead of dropping it", async () => {
@@ -126,8 +192,60 @@ describe("Remove from list", () => {
     render(<App />);
     const rows = await projectRows();
     fireEvent.click(within(rows[0]).getByRole("button", { name: /more/i }));
-    fireEvent.click(screen.getByRole("menuitem", { name: "Remove from list" }));
-    expect(await screen.findByText(/could not be removed from the list: npm error code ETARGET/)).toBeTruthy();
+    fireEvent.click(screen.getByRole("menuitem", { name: "Hide this project" }));
+    expect(await screen.findByText(/could not be hidden: npm error code ETARGET/)).toBeTruthy();
+  });
+});
+
+describe("Hidden projects", () => {
+  const gone = { name: "Gone", uproject: "C:/p/Gone/Gone.uproject", dir: "C:/p/Gone" };
+
+  it("is absent with none hidden, and with a report that has no hidden list", async () => {
+    fakeHost();
+    render(<App />);
+    await projectRows();
+    expect(screen.queryByText(/Hidden projects/)).toBeNull();
+    cleanup();
+    fakeHost({ hidden: [] });
+    render(<App />);
+    await projectRows();
+    expect(screen.queryByText(/Hidden projects/)).toBeNull();
+  });
+
+  it("is a collapsed fold with a count, and Show restores through the host then reads again", async () => {
+    const h = fakeHost({ hidden: [gone] });
+    let finish!: (v: { ok: boolean }) => void;
+    const addproject = vi.fn(() => new Promise<{ ok: boolean }>((r) => { finish = r; }));
+    (h as Record<string, unknown>).addproject = addproject;
+    render(<App />);
+    await projectRows();
+    const fold = screen.getByText("Hidden projects (1)").closest("details") as HTMLDetailsElement;
+    expect(fold.open).toBe(false);
+    expect(screen.getByText("Gone")).toBeTruthy();
+    const reads = h.report.mock.calls.length;
+    fireEvent.click(screen.getByRole("button", { name: "Show", hidden: true }));
+    expect(await screen.findByRole("button", { name: "Showing", hidden: true })).toBeTruthy();
+    expect(addproject).toHaveBeenCalledWith({ uproject: gone.uproject });
+    finish({ ok: true });
+    await waitFor(() => expect(h.report.mock.calls.length).toBeGreaterThan(reads));
+  });
+});
+
+describe("Add project", () => {
+  it("is disabled and reads Adding until the picker resolves", async () => {
+    const h = fakeHost();
+    let finish!: (v: { ok: boolean; cancelled: boolean }) => void;
+    const addproject = vi.fn(() => new Promise<{ ok: boolean; cancelled: boolean }>((r) => { finish = r; }));
+    (h as Record<string, unknown>).addproject = addproject;
+    render(<App />);
+    await projectRows();
+    fireEvent.click(screen.getByRole("button", { name: "Add project" }));
+    const busy = (await screen.findByRole("button", { name: "Adding" })) as HTMLButtonElement;
+    expect(busy.disabled).toBe(true);
+    fireEvent.click(busy);
+    expect(addproject).toHaveBeenCalledTimes(1);
+    finish({ ok: false, cancelled: true });
+    await screen.findByRole("button", { name: "Add project" });
   });
 });
 
@@ -166,12 +284,22 @@ describe("the UE-MCP app's Projects", () => {
     await screen.findByText("The bridge plugin is updated");
   });
 
+  it("View Updates on a project without Studio opens its detail, where Update is", async () => {
+    fakeHost();
+    render(<App />);
+    const rows = await projectRows();
+    await waitFor(() => expect(within(rows[1]).getByRole("button", { name: "View Updates" })).toBeTruthy());
+    fireEvent.click(within(rows[1]).getByRole("button", { name: "View Updates" }));
+    await screen.findByText("What Update installs");
+    expect(screen.getByRole("button", { name: "Update" })).toBeTruthy();
+  });
+
   it("hands a Studio project's update to its Studio", async () => {
     const h = fakeHost();
     render(<App />);
     const rows = await projectRows();
-    await waitFor(() => expect(within(rows[0]).getByRole("button", { name: "Update" })).toBeTruthy());
-    fireEvent.click(within(rows[0]).getByRole("button", { name: "Update" }));
+    await waitFor(() => expect(within(rows[0]).getByRole("button", { name: "View Updates" })).toBeTruthy());
+    fireEvent.click(within(rows[0]).getByRole("button", { name: "View Updates" }));
     await waitFor(() => expect(h.openstudio).toHaveBeenCalledWith({ key: withStudio.key, uproject: withStudio.uproject, location: "#/settings/general" }));
   });
 
@@ -232,8 +360,8 @@ describe("the UE-MCP app's Projects", () => {
       fakeHost({ reports: [[withStudio, bare], [withStudio, bare], [withStudio, bare], [updated, bare]] });
       render(<App />);
       const rows = await projectRows();
-      await waitFor(() => expect(within(rows[0]).getByRole("button", { name: "Update" })).toBeTruthy());
-      fireEvent.click(within(rows[0]).getByRole("button", { name: "Update" }));
+      await waitFor(() => expect(within(rows[0]).getByRole("button", { name: "View Updates" })).toBeTruthy());
+      fireEvent.click(within(rows[0]).getByRole("button", { name: "View Updates" }));
       await screen.findByText(/Studio is running the update/);
       await waitFor(() => expect(document.querySelector(".app-list > li.app-project")!.textContent).toContain("Studio 0.1.35"));
       await waitFor(() => expect(screen.queryByText(/Studio is running the update/)).toBeNull());

@@ -6,7 +6,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { View } from "react-native";
 import { PLUGIN_OUTSIDE, REMOTE_UPDATES, WHATS_NEW_TITLE, checkFailure, offersWhatsNew, pluginOutside, updateStatus, updateFailureLine, readUpdatesWith, readyLine, updateRows, updateSteps, waiting, waitingSteps, type Updates } from "@ue-mcp-studio/client-core";
-import { Banner, Button, Card, Pill, Spacer, bannerText, labelFont, T, useTheme } from "../../ui";
+import { Banner, Card, Pill, bannerText, labelFont, T, useTheme } from "../../ui";
 import { Details } from "../settings/Details";
 import { Radio, Txt } from "../settings/controls";
 import { useSettingsApi } from "../settings/hooks";
@@ -72,8 +72,6 @@ export function UpdatesCard() {
         <T accessibilityRole="header" style={labelFont(t)}>
           Updates
         </T>
-        <Spacer />
-        <Button title="Check again" onPress={load} disabled={checking || working} />
       </View>
       {notes ? <WhatsNewSheet onClose={() => setNotes(false)} /> : null}
       {!u ? <Txt tone="muted" style={{ marginVertical: t.base.size }}>Checking</Txt> : null}
@@ -85,6 +83,16 @@ export function UpdatesCard() {
           </Pill>
           {/* The web's title (the check's error) names it for a screen reader. */}
           <Txt tone="muted" label={unchecked && !steps.length ? `${status.line} ${unchecked}` : undefined}>{status.line}</Txt>
+          {/* A link after the status line, as on the computer's card; held while a check or an update runs. */}
+          <Txt
+            testID="updates-check-again"
+            tone={checking || working ? "dim" : "accentHi"}
+            label="Check again"
+            onPress={checking || working ? undefined : load}
+            style={{ textDecorationLine: checking || working ? "none" : "underline", paddingVertical: 12, marginVertical: -12 }}
+          >
+            Check again
+          </Txt>
         </View>
       ) : null}
       {/* Where the computer's card has Update with What's new under it, right-aligned; a paired phone has no Update, so the link holds that place at the right. */}
