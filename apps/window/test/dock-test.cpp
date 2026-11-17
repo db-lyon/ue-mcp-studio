@@ -852,13 +852,18 @@ int main() {
     removeTree(root);
     makeDirs(root);
     int calls = 0;
-    auto good = [&](const std::wstring& prefix) {
-      ++calls;
+    std::string next = "1.4.14";  // the version the fake installer installs
+    // Writes what npm leaves: the entry script and the package's own package.json.
+    auto plant = [&](const std::wstring& prefix, const std::string& version) {
       std::wstring s = uemcp::scriptIn(prefix);
       makeDirs(dirOf(s));
-      return writeFile(s, "// ue-mcp");
+      return writeFile(s, "// ue-mcp") && writeFile(join(dirOf(dirOf(s)), L"package.json"), "{\"name\":\"ue-mcp\",\"version\":\"" + version + "\"}");
     };
-    auto noDaemons = [] { return std::vector<std::wstring>{}; };
+    auto good = [&](const std::wstring& prefix) {
+      ++calls;
+      return plant(prefix, next);
+    };
+    auto noDaemons = [] { return std::vector<std::string>{}; };
     auto childCount = [&]() {
       int n = 0;
       WIN32_FIND_DATAW fd;
@@ -872,21 +877,22 @@ int main() {
       return n;
     };
 
-    test("ue-mcp install: only an exact version is installed, never a tag or a tarball", [&] {
+    test("ue-mcp install: a channel tag or a missing tarball is never installed", [&] {
       calls = 0;
-      CHECK(uemcp::exactVersion(L"ue-mcp@1.4.14") == "1.4.14");
-      CHECK(uemcp::exactVersion(L"ue-mcp@1.4.14-beta.7") == "1.4.14-beta.7");
-      CHECK(uemcp::exactVersion(L"ue-mcp@beta").empty());
-      CHECK(uemcp::exactVersion(L"ue-mcp@latest").empty());
-      CHECK(uemcp::exactVersion(L"C:/x/ue-mcp-1.4.14.tgz").empty());
+      CHECK(uemcp::key(L"ue-mcp@1.4.14") == L"ue-mcp-1.4.14");
+      CHECK(uemcp::key(L"ue-mcp@1.4.14-beta.7") == L"ue-mcp-1.4.14-beta.7");
+      CHECK(uemcp::key(L"ue-mcp@beta").empty());
+      CHECK(uemcp::key(L"ue-mcp@latest").empty());
+      CHECK(uemcp::key(L"C:/nowhere/ue-mcp-1.4.14.tgz").empty());
       CHECK(uemcp::ensure(root, L"ue-mcp@beta", good, noDaemons).empty());
-      CHECK(uemcp::ensure(root, L"C:/x/ue-mcp-1.4.14.tgz", good, noDaemons).empty());
+      CHECK(uemcp::ensure(root, L"C:/nowhere/ue-mcp-1.4.14.tgz", good, noDaemons).empty());
       CHECK(calls == 0);
       CHECK(childCount() == 0);
     });
 
     test("ue-mcp install: installs once, then reuses the finished folder", [&] {
       calls = 0;
+      next = "1.4.14";
       std::wstring first = uemcp::ensure(root, L"ue-mcp@1.4.14", good, noDaemons);
       CHECK(first == uemcp::scriptIn(join(root, L"ue-mcp-1.4.14")));
       CHECK(exists(first));
@@ -911,22 +917,42 @@ int main() {
       makeDirs(dirOf(s));
       writeFile(s, "// cut off before its dependencies");
       calls = 0;
+      next = "1.5.0";
       CHECK(uemcp::ensure(root, L"ue-mcp@1.5.0", good, noDaemons) == s);
       CHECK(calls == 1);
-      CHECK(exists(uemcp::finishedIn(prefix)));
+      std::string marker;
+      CHECK(files::readFile(uemcp::finishedIn(prefix), marker) && marker == "1.5.0");
+    });
+
+    test("ue-mcp install: a local tarball installs once, and again only when the file changes", [&] {
+      std::wstring tgz = join(root, L"..\\uemcp-install-test-" + std::to_wstring(GetCurrentProcessId()) + L".tgz");
+      writeFile(tgz, "tarball one");
+      calls = 0;
+      next = "1.4.15-dev";
+      std::wstring first = uemcp::ensure(root, tgz, good, noDaemons);
+      CHECK(!first.empty() && exists(first));
+      CHECK(uemcp::ensure(root, tgz, good, noDaemons) == first);
+      CHECK(calls == 1);
+      Sleep(20);
+      writeFile(tgz, "tarball two, rebuilt");  // a new size and modified time
+      std::wstring second = uemcp::ensure(root, tgz, good, noDaemons);
+      CHECK(calls == 2);
+      CHECK(!second.empty() && second != first);
+      CHECK(!exists(first));  // the old tarball's copy is pruned
+      DeleteFileW(tgz.c_str());
     });
 
     test("ue-mcp install: a new version prunes older ones and leftovers, but keeps one a daemon uses", [&] {
       makeDirs(join(root, L"ue-mcp-1.3.0"));
       makeDirs(join(root, L"ue-mcp-1.6.0.partial-1-2"));
-      std::wstring held = uemcp::scriptIn(join(root, L"ue-mcp-1.4.14"));  // a version a running daemon was started from
-      makeDirs(dirOf(held));
-      writeFile(held, "// ue-mcp");
-      auto daemonOn = [] { return std::vector<std::wstring>{L"ue-mcp-1.4.14"}; };
+      std::wstring heldPrefix = join(root, L"ue-mcp-1.4.14");  // a finished install a running daemon was started from
+      plant(heldPrefix, "1.4.14");
+      writeFile(uemcp::finishedIn(heldPrefix), "1.4.14");
+      auto daemonOn = [] { return std::vector<std::string>{"1.4.14"}; };
+      next = "1.6.0";
       std::wstring s = uemcp::ensure(root, L"ue-mcp@1.6.0", good, daemonOn);
       CHECK(exists(s));
-      CHECK(exists(uemcp::scriptIn(join(root, L"ue-mcp-1.4.14"))));  // a running daemon's version
-      CHECK(!exists(join(root, L"ue-mcp-1.5.0")));
+      CHECK(exists(uemcp::scriptIn(heldPrefix)));  // a running daemon's version
       CHECK(!exists(join(root, L"ue-mcp-1.3.0")));
       CHECK(!exists(join(root, L"ue-mcp-1.6.0.partial-1-2")));
       CHECK(childCount() == 2);

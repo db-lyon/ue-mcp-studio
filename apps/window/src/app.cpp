@@ -248,14 +248,14 @@ Captured capture(const std::wstring& line, DWORD timeoutMs) {
  * The ue-mcp versions running daemons use, from their records in the daemon
  * folder (a record whose process is gone does not count).
  */
-std::vector<std::wstring> ueMcpVersionsInUse() {
+std::vector<std::string> ueMcpVersionsInUse() {
   std::wstring dir;
   {
     std::lock_guard<std::mutex> g(gLock);
     dir = gDaemonDir;
   }
   if (dir.empty()) dir = join(join(env(L"USERPROFILE"), L".ue-mcp"), L"daemons");
-  std::vector<std::wstring> used;
+  std::vector<std::string> used;
   WIN32_FIND_DATAW fd;
   HANDLE h = FindFirstFileW(join(dir, L"*.json").c_str(), &fd);
   if (h == INVALID_HANDLE_VALUE) return used;
@@ -271,19 +271,19 @@ std::vector<std::wstring> ueMcpVersionsInUse() {
     DWORD code = 0;
     bool alive = GetExitCodeProcess(p, &code) && code == STILL_ACTIVE;
     CloseHandle(p);
-    if (alive) used.push_back(uemcp::folder(version->s));
+    if (alive) used.push_back(version->s);
   } while (FindNextFileW(h, &fd));
   FindClose(h);
   return used;
 }
 
 /**
- * The app's own install of the exact ue-mcp version `spec` names (see
- * uemcpinstall.h), made on first use. Empty for a channel tag or a tarball, or
- * when the install failed: the caller then runs npx.
+ * The app's own install of the ue-mcp release or local tarball `spec` names
+ * (see uemcpinstall.h), made on first use. Empty for a channel tag, or when the
+ * install failed: the caller then runs npx.
  */
 std::wstring ueMcpScript(const std::wstring& npx, const std::wstring& spec) {
-  if (uemcp::exactVersion(spec).empty()) return {};
+  if (uemcp::key(spec).empty()) return {};
   // One install at a time: two reads at startup must not race into one folder.
   static std::mutex installing;
   std::lock_guard<std::mutex> g(installing);

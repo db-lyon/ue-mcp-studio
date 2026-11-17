@@ -26,36 +26,51 @@ using files::removeTree;
 using files::widen;
 using files::writeFile;
 
-/** The folder name a version is installed under. */
-inline std::wstring folder(const std::string& version) { return L"ue-mcp-" + widen(version); }
-
 /** The entry script inside an install prefix. */
 inline std::wstring scriptIn(const std::wstring& prefix) {
   return join(join(join(join(prefix, L"node_modules"), L"ue-mcp"), L"dist"), L"index.js");
 }
 
-/** The marker written once an install finished; a folder without it is never used. */
+/**
+ * The marker written once an install finished, holding the installed ue-mcp
+ * version; a folder without it is never used, and is pruned.
+ */
 inline std::wstring finishedIn(const std::wstring& prefix) { return join(prefix, L".installed"); }
 
 /**
- * The exact version a package spec names, or empty. Only `ue-mcp@<version>` is
- * installed: a channel tag (`ue-mcp@beta`) or a local tarball can change under
- * the same name, so those keep running through npx.
+ * The folder a spec installs into, or empty for one that is not installed.
+ * An exact registry version (`ue-mcp@1.4.14`) is named by that version. A local
+ * tarball is named by its size and modified time, so a rebuilt tarball at the
+ * same path is a new folder rather than a stale copy. A channel tag
+ * (`ue-mcp@beta`) names no fixed release, so it keeps running through npx.
  */
-inline std::string exactVersion(const std::wstring& spec) {
+inline std::wstring key(const std::wstring& spec) {
   std::string s = narrow(spec);
-  if (s.rfind("ue-mcp@", 0) != 0) return {};
-  std::string v = s.substr(7);
-  return ueupdate::validVersion(v) ? v : std::string();
+  if (s.rfind("ue-mcp@", 0) == 0) return ueupdate::validVersion(s.substr(7)) ? L"ue-mcp-" + spec.substr(7) : std::wstring();
+  if (spec.size() < 5 || _wcsicmp(spec.c_str() + spec.size() - 4, L".tgz") != 0) return {};
+  WIN32_FILE_ATTRIBUTE_DATA a;
+  if (!GetFileAttributesExW(spec.c_str(), GetFileExInfoStandard, &a) || (a.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY)) return {};
+  wchar_t name[64];
+  swprintf(name, 64, L"tgz-%08lx%08lx-%08lx%08lx", a.nFileSizeHigh, a.nFileSizeLow, a.ftLastWriteTime.dwHighDateTime, a.ftLastWriteTime.dwLowDateTime);
+  return name;
+}
+
+/** The version in an install's ue-mcp package.json, or empty. */
+inline std::string installedVersion(const std::wstring& prefix) {
+  std::string text;
+  json::Value pkg;
+  if (!files::readFile(join(join(join(prefix, L"node_modules"), L"ue-mcp"), L"package.json"), text) || !json::parse(text, pkg) || !pkg.isObject()) return {};
+  const json::Value* v = pkg.get("version");
+  return v && v->isString() ? v->s : std::string();
 }
 
 /**
- * Remove every folder under `root` except `keep` and the folders in `inUse`:
- * older versions, installs cut off midway, leftovers of an earlier removal. A
- * version a running daemon uses stays, since the daemon may still load files
- * from it.
+ * Remove every folder under `root` except `keep` and finished installs of a
+ * version in `inUse`: older versions, installs cut off midway, leftovers of an
+ * earlier removal. A version a running daemon uses stays, since the daemon may
+ * still load files from it.
  */
-inline void prune(const std::wstring& root, const std::wstring& keep, const std::vector<std::wstring>& inUse) {
+inline void prune(const std::wstring& root, const std::wstring& keep, const std::vector<std::string>& inUse) {
   WIN32_FIND_DATAW fd;
   HANDLE h = FindFirstFileW(join(root, L"*").c_str(), &fd);
   if (h == INVALID_HANDLE_VALUE) return;
@@ -63,7 +78,8 @@ inline void prune(const std::wstring& root, const std::wstring& keep, const std:
   do {
     std::wstring name = fd.cFileName;
     if (!(fd.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) || name == L"." || name == L".." || name == keep) continue;
-    if (std::find(inUse.begin(), inUse.end(), name) != inUse.end()) continue;
+    std::string version;
+    if (files::readFile(finishedIn(join(root, name)), version) && std::find(inUse.begin(), inUse.end(), version) != inUse.end()) continue;
     gone.push_back(join(root, name));
   } while (FindNextFileW(h, &fd));
   FindClose(h);
@@ -76,20 +92,20 @@ inline void prune(const std::wstring& root, const std::wstring& keep, const std:
  * cleanly. The install goes into a temporary folder that is moved into place
  * only once the entry script is there and the finished marker is written, so a
  * cut-off install is never mistaken for a good one. After a fresh install every
- * other folder is pruned, except those `inUse` names (asked only then). Empty
- * for a spec that is not an exact version, or when the install failed: the
+ * other folder is pruned, except versions `inUse` names (asked only then).
+ * Empty for a spec `key` does not install, or when the install failed: the
  * caller then uses npx.
  */
 inline std::wstring ensure(const std::wstring& root, const std::wstring& spec, const std::function<bool(const std::wstring&)>& install,
-                           const std::function<std::vector<std::wstring>()>& inUse) {
-  std::string version = exactVersion(spec);
-  if (version.empty()) return {};
-  std::wstring keep = folder(version);
+                           const std::function<std::vector<std::string>()>& inUse) {
+  std::wstring keep = key(spec);
+  if (keep.empty()) return {};
   std::wstring prefix = join(root, keep);
   if (exists(finishedIn(prefix)) && exists(scriptIn(prefix))) return scriptIn(prefix);
   std::wstring temp = join(root, keep + L".partial-" + std::to_wstring(GetCurrentProcessId()) + L"-" + std::to_wstring(GetTickCount64()));
   makeDirs(temp);
-  if (!install(temp) || !exists(scriptIn(temp)) || !writeFile(finishedIn(temp), version)) {
+  std::string version;
+  if (!install(temp) || !exists(scriptIn(temp)) || (version = installedVersion(temp)).empty() || !writeFile(finishedIn(temp), version)) {
     removeTree(temp);
     return {};
   }
