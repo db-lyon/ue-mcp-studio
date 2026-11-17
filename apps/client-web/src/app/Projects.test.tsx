@@ -238,12 +238,22 @@ describe("the UE-MCP app's Projects", () => {
     await screen.findByText("The bridge plugin is updated");
   });
 
+  it("View Updates on a project without Studio opens its detail, where Update is", async () => {
+    fakeHost();
+    render(<App />);
+    const rows = await projectRows();
+    await waitFor(() => expect(within(rows[1]).getByRole("button", { name: "View Updates" })).toBeTruthy());
+    fireEvent.click(within(rows[1]).getByRole("button", { name: "View Updates" }));
+    await screen.findByText("What Update installs");
+    expect(screen.getByRole("button", { name: "Update" })).toBeTruthy();
+  });
+
   it("hands a Studio project's update to its Studio", async () => {
     const h = fakeHost();
     render(<App />);
     const rows = await projectRows();
-    await waitFor(() => expect(within(rows[0]).getByRole("button", { name: "Update" })).toBeTruthy());
-    fireEvent.click(within(rows[0]).getByRole("button", { name: "Update" }));
+    await waitFor(() => expect(within(rows[0]).getByRole("button", { name: "View Updates" })).toBeTruthy());
+    fireEvent.click(within(rows[0]).getByRole("button", { name: "View Updates" }));
     await waitFor(() => expect(h.openstudio).toHaveBeenCalledWith({ key: withStudio.key, uproject: withStudio.uproject, location: "#/settings/general" }));
   });
 
@@ -304,8 +314,8 @@ describe("the UE-MCP app's Projects", () => {
       fakeHost({ reports: [[withStudio, bare], [withStudio, bare], [withStudio, bare], [updated, bare]] });
       render(<App />);
       const rows = await projectRows();
-      await waitFor(() => expect(within(rows[0]).getByRole("button", { name: "Update" })).toBeTruthy());
-      fireEvent.click(within(rows[0]).getByRole("button", { name: "Update" }));
+      await waitFor(() => expect(within(rows[0]).getByRole("button", { name: "View Updates" })).toBeTruthy());
+      fireEvent.click(within(rows[0]).getByRole("button", { name: "View Updates" }));
       await screen.findByText(/Studio is running the update/);
       await waitFor(() => expect(document.querySelector(".app-list > li.app-project")!.textContent).toContain("Studio 0.1.35"));
       await waitFor(() => expect(screen.queryByText(/Studio is running the update/)).toBeNull());

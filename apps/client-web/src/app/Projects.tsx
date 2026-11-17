@@ -142,8 +142,9 @@ function ProjectRow({ p, all, m, work, busy, onOpen }: { p: MachineProject; all:
       </div>
       <div className="app-row-actions">
         {u?.via && (
-          <button className="primary" disabled={(u.via === "ue-mcp" && (p.editor.running || busy)) || pending("update")} title={u.line} onClick={() => void act.update()}>
-            {work?.watching ? <Busy>Updating in Studio</Busy> : pending("update") ? <Busy>{u.via === "studio" ? "Opening" : "Updating"}</Busy> : "Update"}
+          // View Updates: a Studio project's updates are on its Studio's Updates card; any other project's on its detail here, beside Update.
+          <button className="primary" disabled={u.via === "studio" && pending("update")} title={u.line} onClick={() => (u.via === "studio" ? void act.update() : onOpen())}>
+            {work?.watching ? <Busy>Updating in Studio</Busy> : pending("update") ? <Busy>{u.via === "studio" ? "Opening" : "Updating"}</Busy> : "View Updates"}
           </button>
         )}
         {a.openStudio && (
