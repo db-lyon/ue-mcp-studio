@@ -94,6 +94,11 @@ function Studio({ daemon }: { daemon: DaemonState }) {
   useSessionFocus(daemon.events, (session) => {
     writeLocation({ tab: "Chat", session });
     setTab("Chat");
+  }, (to) => {
+    // No model is connected: the quick ask points at the model picker.
+    const next = sectionOf(to);
+    if (next) setSection(next);
+    setTab("Settings");
   });
   const [feedback, setFeedback] = useState(false);
   const narrow = useMedia(NARROW);

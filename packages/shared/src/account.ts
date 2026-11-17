@@ -66,6 +66,12 @@ export const REMOTE_PRICE = "$5 a month or $50 a year, before tax";
 /** The Upgrade action's billing choice, each with its price before tax. */
 export const REMOTE_INTERVAL_NAMES: Readonly<Record<BillingInterval, string>> = { month: "$5/month", year: "$50/year" };
 
+/** Where plans are announced: billing answers 503 until they can be bought, and there is no pricing page yet. */
+export const PLANS_SITE = "https://ue-mcp.com/";
+
+/** What follows a "billing is not available yet" refusal: what still works and where to look for when it opens. */
+export const BILLING_UNAVAILABLE_NEXT = "Studio's other features do not need a plan. Plans are announced on ue-mcp.com.";
+
 /**
  * Whether the account holds a plan with remote control at `now`: plan remote
  * or pro, status active or past_due, period end not passed. The gateway's own rule.

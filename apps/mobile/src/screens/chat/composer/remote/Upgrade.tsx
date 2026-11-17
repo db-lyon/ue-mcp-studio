@@ -5,7 +5,7 @@
 import { useState } from "react";
 import { Linking, View } from "react-native";
 import { HttpError } from "@ue-mcp-studio/client-core";
-import { BILLING_INTERVALS, REMOTE_INTERVAL_NAMES, UPGRADE_LABEL, type BillingInterval } from "@ue-mcp-studio/shared";
+import { BILLING_INTERVALS, BILLING_UNAVAILABLE_NEXT, PLANS_SITE, REMOTE_INTERVAL_NAMES, UPGRADE_LABEL, type BillingInterval } from "@ue-mcp-studio/shared";
 import { useProjectNav } from "../../../../nav";
 import { Banner, Button, Seg, T, useTheme } from "../../../../ui";
 import { small } from "../../../../chat/styles";
@@ -31,10 +31,13 @@ export function UpgradeAction() {
   const [busy, setBusy] = useState(false);
   const [note, setNote] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  // Billing is switched off: the refusal says so, and this says what still works and where plans will be announced.
+  const [unavailable, setUnavailable] = useState(false);
   const upgrade = async () => {
     setBusy(true);
     setError(null);
     setNote(null);
+    setUnavailable(false);
     try {
       let portal = false;
       const link = await api.billingCheckout({ plan: "remote", interval }).catch(async (e: unknown) => {
@@ -49,6 +52,7 @@ export function UpgradeAction() {
       setNote(portal ? PORTAL_OPENED : CHECKOUT_OPENED);
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
+      setUnavailable(e instanceof HttpError && e.status === 503);
     } finally {
       setBusy(false);
     }
@@ -65,6 +69,12 @@ export function UpgradeAction() {
         <Banner kind="bad" role="alert">
           <T style={[small(t), { color: t.c.badText }]}>{error}</T>
         </Banner>
+      ) : null}
+      {unavailable ? (
+        <View style={{ gap: 6 }}>
+          <T style={[small(t), { color: t.c.dim }]}>{BILLING_UNAVAILABLE_NEXT}</T>
+          <Button title="Open ue-mcp.com" size="small" onPress={() => void Linking.openURL(PLANS_SITE)} />
+        </View>
       ) : null}
     </View>
   );

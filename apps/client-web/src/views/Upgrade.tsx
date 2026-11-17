@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { BILLING_INTERVALS, REMOTE_INTERVAL_NAMES, UPGRADE_LABEL, type BillingInterval } from "@ue-mcp-studio/shared";
+import { BILLING_INTERVALS, BILLING_UNAVAILABLE_NEXT, PLANS_SITE, REMOTE_INTERVAL_NAMES, UPGRADE_LABEL, type BillingInterval } from "@ue-mcp-studio/shared";
 import { ApiError, api } from "../api";
 import { openExternal } from "../native";
 import { Seg } from "./settings/controls";
@@ -28,10 +28,13 @@ export function UpgradeAction() {
   const [busy, setBusy] = useState(false);
   const [note, setNote] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  // Billing is switched off: the refusal says so, and this says what still works and where plans will be announced.
+  const [unavailable, setUnavailable] = useState(false);
   const upgrade = async () => {
     setBusy(true);
     setError(null);
     setNote(null);
+    setUnavailable(false);
     try {
       let portal = false;
       const link = await api.billingCheckout({ plan: "remote", interval }).catch(async (e: unknown) => {
@@ -46,6 +49,7 @@ export function UpgradeAction() {
       setNote(portal ? PORTAL_OPENED : CHECKOUT_OPENED);
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
+      setUnavailable(e instanceof ApiError && e.status === 503);
     } finally {
       setBusy(false);
     }
@@ -58,6 +62,7 @@ export function UpgradeAction() {
       </div>
       {note && <p className="dim small" role="status">{note}</p>}
       {error && <div className="banner bad small" role="alert">{error}</div>}
+      {unavailable && <p className="dim small">{BILLING_UNAVAILABLE_NEXT} <a href={PLANS_SITE} target="_blank" rel="noreferrer">Open ue-mcp.com</a></p>}
     </div>
   );
 }

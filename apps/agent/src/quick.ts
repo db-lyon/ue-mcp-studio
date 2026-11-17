@@ -136,6 +136,21 @@ export function quickThread(d: SessionDetail, streaming = ""): QuickThread {
   };
 }
 
+/** The Settings section that holds the model picker. */
+const MODEL_SECTION = "agents";
+
+/** Point Studio at a Settings section: a window that starts later opens on it, one that is open follows the event. */
+function focusSection(api: Pick<DaemonExtensionApi, "events" | "log" | "projectDir">, section: string): void {
+  try {
+    const file = windowLocationFile(api.projectDir);
+    fs.mkdirSync(path.dirname(file), { recursive: true });
+    fs.writeFileSync(file, `#/settings/${section}\n`);
+  } catch (e) {
+    api.log.warn("could not write the window's location for the quick ask", e);
+  }
+  api.events.publish("session.focus", { section });
+}
+
 /** Point Studio at a session: a window that starts later opens on it, one that is open follows the event. */
 function focus(api: Pick<DaemonExtensionApi, "events" | "log" | "projectDir">, sessionId: string): void {
   try {
@@ -172,7 +187,11 @@ export function registerQuickRoute(api: Pick<DaemonExtensionApi, "route" | "even
   api.route("POST", "/quick", (req) => {
     const parsed = parseQuickRequest(req.body);
     if (typeof parsed === "string") return { status: 400, body: { error: parsed } };
-    if (!deps.connected()) return { status: 409, body: { error: NO_MODEL } };
+    // No model: the way on is the model picker, so Studio is pointed at it, the way a started session is shown.
+    if (!deps.connected()) {
+      focusSection(api, MODEL_SECTION);
+      return { status: 409, body: { error: NO_MODEL, location: `#/settings/${MODEL_SECTION}` } };
+    }
     const s = deps.create(quickTitle(parsed.text));
     deps.send(s.id, formatQuickMessage(parsed)).catch((e) => api.log.warn(`quick ask in session ${s.id} failed`, e));
     focus(api, s.id);

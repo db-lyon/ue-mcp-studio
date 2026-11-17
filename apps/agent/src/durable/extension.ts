@@ -37,6 +37,9 @@ const OUTPUT_LIMITS = { maxBytes: 2_000_000, maxLines: 100_000, retain: "head" a
 
 const text = (t: string) => [{ type: "text" as const, text: t }];
 
+/** What a subagent that asks for a subagent is told: not here, and how to get one. */
+export const SUBAGENT_CANNOT_NEST = "A subagent cannot start subagents of its own. Do what you can yourself, then end your report with a line \"NEEDS SUBAGENT: <description>: <the complete prompt>\" for each one you need; the agent that started you will run them.";
+
 export function createStudioExtension(kit: Kit, defs: ToolDef[]) {
   // #463 L3: local tools run here when the harness offers its tool task (for the approval hook) and the project folder.
   const local = !!(kit.hook && kit.ToolTask && kit.projectDir);
@@ -51,7 +54,7 @@ export function createStudioExtension(kit: Kit, defs: ToolDef[]) {
         outputLimits: OUTPUT_LIMITS,
         execute: async (args: Record<string, unknown>, api: { conversationId: unknown; callId: string }, context: { abortSignal?: AbortSignal }) => {
           const where = kit.whereIs(String(api.conversationId));
-          if (!where || where.parent) return { output: text("A subagent cannot start subagents of its own."), isError: true };
+          if (!where || where.parent) return { output: text(SUBAGENT_CANNOT_NEST), isError: true };
           const start = (await kit.request({ kind: "agent", sessionId: where.sessionId, callId: api.callId, input: args }, undefined, context.abortSignal)) as AgentStart;
           if (!start.ok) return { output: text(start.text), isError: true };
           const r = await kit.runSubagent(where.sessionId, api.callId, start, context.abortSignal);
