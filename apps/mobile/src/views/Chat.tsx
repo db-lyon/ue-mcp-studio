@@ -342,7 +342,7 @@ export function Chat({ nav, initialSession = null, onSettings, active = true }: 
   }, [pendingShare, detail?.id]);
 
   const [sent, setSent] = useState(0);
-  const canSend = !!selected && !disconnected && !attach.uploading && (draft.trim().length > 0 || attach.ready.length > 0);
+  const canSend = !!selected && !disconnected && !attach.uploading && attach.failed === 0 && (draft.trim().length > 0 || attach.ready.length > 0);
   /** Hand the composer's message to `how`: send, send now, or queue. The draft comes back if it fails. */
   const dispatch = (how: (id: string, text: string, files: string[]) => Promise<unknown>, follow: boolean) => {
     if (!selected || !canSend) return;
@@ -776,6 +776,8 @@ export function Chat({ nav, initialSession = null, onSettings, active = true }: 
                           files={attach.files}
                           onAddFiles={attach.add}
                           onRemoveFile={attach.remove}
+                          onRetryFile={attach.retry}
+                          onRemoveFailed={attach.removeFailed}
                           space={columnH > 0 ? columnH - cardsH : null}
                           height={settings?.composerHeight ?? null}
                           onHeight={(composerHeight) => void api.saveSettings({ composerHeight }).then(setSettings, fail)}

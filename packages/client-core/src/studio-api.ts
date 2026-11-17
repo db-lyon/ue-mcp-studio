@@ -52,7 +52,7 @@ import type {
 import { HttpError, readAll, requestJson, type Transport } from "./transport.js";
 import type { UpdateRun } from "./update-run.js";
 import { projectApi } from "./project-api.js";
-import { uploadInParts } from "./composer.js";
+import { uploadChunked, uploadInParts } from "./composer.js";
 
 const enc = encodeURIComponent;
 const S = "/v1/ext/studio";
@@ -165,6 +165,9 @@ export function studioApi(t: Transport) {
     updatesDeferredNow:() => send<{ ok?: boolean; error?: string }>("POST", `${S}/updates/deferred/now`),
     // The composer: attachments, @-mentions, and the /flow and /action launchers.
     uploadAttachment: (id: string, upload: AttachmentUpload) => uploadInParts((u) => send<unknown>("POST", `${session(id)}/attachments`, u), upload),
+    /** A file of any size, read in parts as they go (see uploadChunked). */
+    uploadAttachmentChunked: (id: string, meta: { name: string; type: string; size: number }, read: (offset: number, length: number) => Promise<string>, progress?: (sent: number) => void) =>
+      uploadChunked((u) => send<unknown>("POST", `${session(id)}/attachments`, u), meta, read, progress),
     // Videos in the chat: the size that plays for this account, and a smaller copy of one that does not.
     videoLimits: () => get<VideoLimits>(`${S}/video`),
     compressVideo: (id: string, attachmentId: string) => send<Attachment>("POST", `${session(id)}/attachments/${enc(attachmentId)}/compress`),

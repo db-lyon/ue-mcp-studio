@@ -1,5 +1,5 @@
 import { useEffect, useLayoutEffect, useRef, useState, type ReactNode, type RefObject } from "react";
-import { BAR_UTILITIES, QUEUE_HINT, MAX_LINES, MIN_HEIGHT, MIN_TRANSCRIPT, NUDGE, NUDGE_SAVE_MS, SEND_KEYS, STOP_KEYS, UTILITY_MORE_LABEL, UTILITY_TITLE, clampHeight, extOf, fitHeight, foldUtilities, formatBytes, moreLabel, utilityLabel, type BarUtilityId } from "@ue-mcp-studio/client-core";
+import { BAR_UTILITIES, MAX_BYTES, QUEUE_HINT, addingLabel, failedFilesNote, MAX_LINES, MIN_HEIGHT, MIN_TRANSCRIPT, NUDGE, NUDGE_SAVE_MS, SEND_KEYS, STOP_KEYS, UTILITY_MORE_LABEL, UTILITY_TITLE, clampHeight, extOf, fitHeight, foldUtilities, formatBytes, moreLabel, utilityLabel, type BarUtilityId } from "@ue-mcp-studio/client-core";
 import type { PendingFile } from "./attachments";
 import { useSlashMenu } from "./SlashMenu";
 import { MentionChips, useMentionMenu, type MentionSearchFn } from "./MentionMenu";
@@ -20,7 +20,7 @@ export { MAX_LINES, MIN_HEIGHT, MIN_TRANSCRIPT, NUDGE, NUDGE_SAVE_MS, clampHeigh
  * the dragged height is a minimum the content can still grow past. A double
  * click on the divider forgets it. `height` is the saved one, `onHeight` saves.
  */
-export function Composer({ draft, onDraft, onBlur, placeholder, busy, canSend, onSend, onQueue, onSendNow, onStop, files, onAddFiles, onRemoveFile, picker, utilities = [], extras, stage, height, onHeight, commands, flows, actions, mentions, children }: {
+export function Composer({ draft, onDraft, onBlur, placeholder, busy, canSend, onSend, onQueue, onSendNow, onStop, files, onAddFiles, onRemoveFile, onRetryFile, onRemoveFailed, picker, utilities = [], extras, stage, height, onHeight, commands, flows, actions, mentions, children }: {
   draft: string;
   onDraft: (text: string) => void;
   onBlur: () => void;
@@ -36,6 +36,10 @@ export function Composer({ draft, onDraft, onBlur, placeholder, busy, canSend, o
   files: PendingFile[];
   onAddFiles: (files: FileList | File[]) => void;
   onRemoveFile: (key: string) => void;
+  /** Send a failed file again. */
+  onRetryFile?: (key: string) => void;
+  /** Drop the files that failed, so the message can go without them. */
+  onRemoveFailed?: () => void;
   /** The model and the context meter: the bar's start. */
   picker: ReactNode;
   /** The session's utility buttons (Checkpoints, Subagents); the composer adds Attach and orders them. */
@@ -261,10 +265,17 @@ export function Composer({ draft, onDraft, onBlur, placeholder, busy, canSend, o
             <div key={f.key} className={`attach-chip ${f.state}`} title={f.error ?? f.name}>
               {f.preview ? <img src={f.preview} alt="" /> : <span className="attach-ext">{extOf(f.name)}</span>}
               <span className="attach-name">{f.name}</span>
-              <span className="dim small">{f.state === "uploading" ? "adding" : f.state === "error" ? f.error : formatBytes(f.size)}</span>
+              <span className="dim small">{f.state === "uploading" ? addingLabel(f.size, f.sent) : f.state === "error" ? f.error : formatBytes(f.size)}</span>
+              {f.state === "error" && onRetryFile && f.size <= MAX_BYTES && <button className="small-button" onClick={() => onRetryFile(f.key)}>Retry</button>}
               <button className="attach-remove" aria-label={`Remove ${f.name}`} onClick={() => onRemoveFile(f.key)}>{"×"}</button>
             </div>
           ))}
+        </div>
+      )}
+      {files.some((f) => f.state === "error") && (
+        <div className="attach-failed small" role="alert">
+          {failedFilesNote(files.filter((f) => f.state === "error").length)}
+          {onRemoveFailed && <> <button className="small-button" onClick={onRemoveFailed}>Send without</button></>}
         </div>
       )}
       {mentions && <MentionChips draft={draft} onDraft={onDraft} />}

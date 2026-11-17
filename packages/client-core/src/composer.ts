@@ -3,7 +3,7 @@
  * message box's height, and how a file waiting to be sent is described.
  * Shared by the web client's composer and the mobile app's.
  */
-import { ATTACHMENT_PART_BYTES, type Attachment, type AttachmentUpload } from "@ue-mcp-studio/shared";
+import { ATTACHMENT_PART_BYTES, MAX_ATTACHMENT_BYTES, type Attachment, type AttachmentUpload } from "@ue-mcp-studio/shared";
 
 /**
  * How much of the composer bar fits, widest first. Send and Stop never change;
@@ -139,6 +139,7 @@ export const isImage = (type: string): boolean => /^image\/(png|jpeg|gif|webp)$/
 /** 3 KB, 1.2 MB. */
 export function formatBytes(n: number): string {
   if (n < 1024 * 1024) return `${Math.max(1, Math.round(n / 1024))} KB`;
+  if (n >= 1024 * 1024 * 1024) return `${(n / 1024 / 1024 / 1024).toFixed(1)} GB`;
   return `${(n / 1024 / 1024).toFixed(1)} MB`;
 }
 
@@ -161,8 +162,41 @@ export async function uploadInParts(post: (upload: AttachmentUpload) => Promise<
   return last as Attachment;
 }
 
+/**
+ * Send a file of any size in parts, reading each part from the file only when it
+ * goes: `read(offset, length)` answers those bytes as base64. A file is never
+ * held whole in memory, so one past 100 MB goes the same way as a small one.
+ * A failed upload is started again from the first part (the Retry on its chip).
+ */
+export async function uploadChunked(
+  post: (upload: AttachmentUpload) => Promise<unknown>,
+  meta: { name: string; type: string; size: number },
+  read: (offset: number, length: number) => Promise<string>,
+  progress?: (sent: number) => void,
+): Promise<Attachment> {
+  // Whole base64 quads only, so each part decodes on its own.
+  const step = Math.floor(ATTACHMENT_PART_BYTES / 3) * 3;
+  const { name, type } = meta;
+  if (meta.size <= step) return (await post({ name, type, data: await read(0, meta.size) })) as Attachment;
+  const id = `u${Date.now().toString(36)}${Math.random().toString(36).slice(2, 10)}`;
+  const count = Math.ceil(meta.size / step);
+  let last: unknown = null;
+  for (let index = 0; index < count; index++) {
+    const length = Math.min(step, meta.size - index * step);
+    last = await post({ name, type, data: await read(index * step, length), part: { id, index, last: index === count - 1 } });
+    progress?.(Math.min(meta.size, (index + 1) * step));
+  }
+  return last as Attachment;
+}
+
+/** What a chip says while its file goes up: "adding", with how far along a file sent in parts is. */
+export const addingLabel = (size: number, sent?: number): string => (sent && size > 0 ? `adding ${Math.min(99, Math.floor((sent / size) * 100))}%` : "adding");
+
+/** Under the chips when files failed: why Send waits, and what to do. */
+export const failedFilesNote = (n: number): string => `${n === 1 ? "A file" : `${n} files`} did not upload, so the message is waiting. Retry ${n === 1 ? "it" : "them"}, or send without ${n === 1 ? "it" : "them"}.`;
+
 /** The largest file the agent accepts; matches MAX_ATTACHMENT_BYTES there. */
-export const MAX_BYTES = 100 * 1024 * 1024;
+export const MAX_BYTES = MAX_ATTACHMENT_BYTES;
 
 /** A file's extension as its chip shows it when there is no preview: up to four letters, FILE without one. */
 export const extOf = (name: string): string => (name.includes(".") ? name.split(".").pop()!.slice(0, 4).toUpperCase() : "FILE");

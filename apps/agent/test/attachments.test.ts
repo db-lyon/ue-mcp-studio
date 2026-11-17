@@ -2,7 +2,7 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import { describe, expect, it } from "vitest";
-import { AttachmentStore, contentFor, safeName } from "../src/attachments.js";
+import { AttachmentStore, MAX_ATTACHMENT_BYTES, contentFor, safeName } from "../src/attachments.js";
 import { toChatRequest } from "../src/openai-compat.js";
 import { pngBytes } from "./image-fixtures.js";
 
@@ -24,6 +24,14 @@ describe("attachments", () => {
 
   it("refuses an empty file", () => {
     expect(() => store().save("s", { name: "a.png", type: "image/png", data: "" })).toThrow(/empty/);
+  });
+
+  it("keeps a file past 100 MB gathered from parts, and offers a very large image by its path", async () => {
+    expect(MAX_ATTACHMENT_BYTES).toBeGreaterThan(100 * 1024 * 1024);
+    const huge = { id: "x", name: "scan.png", type: "image/png", size: 60 * 1024 * 1024, path: "C:/missing/scan.png" };
+    const only = await contentFor(huge);
+    expect(only).toHaveLength(1);
+    expect((only[0] as { text: string }).text).toMatch(/too large an image to show here; make a smaller copy/);
   });
 
   it("keeps names Windows can store", () => {

@@ -357,6 +357,9 @@ export interface AttachmentUpload {
 /** The most raw bytes one upload part carries: within MAX_REQUEST_BYTES once base64 and JSON. */
 export const ATTACHMENT_PART_BYTES = 4 * 1024 * 1024;
 
+/** The largest file the agent keeps, sent in parts of ATTACHMENT_PART_BYTES and written to disk as they arrive. */
+export const MAX_ATTACHMENT_BYTES = 2 * 1024 * 1024 * 1024;
+
 /** What became of a message the user wrote in a subagent's thread. */
 export type MessageDelivery = "waiting" | "read" | "main";
 

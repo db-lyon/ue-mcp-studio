@@ -882,6 +882,7 @@ button.small-button { padding: 0 4px; height: auto; font-size: inherit; }
 .attach-chip.uploading { opacity: 0.7; }
 .attach-chip.error { border-color: var(--bad); }
 .attach-chip.error .dim { color: var(--bad); }
+.attach-failed { color: var(--bad); padding: 2px 4px; }
 .attach-remove { width: 22px; height: 22px; padding: 0; display: grid; place-items: center; background: transparent; border-color: transparent; color: var(--muted); font-size: 15px; }
 .composer .attach-remove { height: 22px; }
 .attach-remove:hover:not(:disabled) { color: var(--text); background: var(--panel-3); border-color: transparent; }

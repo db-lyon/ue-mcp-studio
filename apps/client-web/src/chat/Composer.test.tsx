@@ -200,10 +200,54 @@ describe("adding files", () => {
   it("refuses a file over the limit without uploading it", () => {
     const { result } = renderHook(() => useAttachments("s1"));
     const huge = new File(["x"], "huge.mov", { type: "video/quicktime" });
-    Object.defineProperty(huge, "size", { value: 200 * 1024 * 1024 });
+    Object.defineProperty(huge, "size", { value: 3 * 1024 * 1024 * 1024 });
     act(() => result.current.add([huge]));
     expect(result.current.files[0].state).toBe("error");
     expect(api.uploadAttachment).not.toHaveBeenCalled();
+  });
+
+  it("sends a file past one request in parts read from the file, with no limit at 100 MB", async () => {
+    const read: Array<[number, number]> = [];
+    (api as unknown as { uploadAttachmentChunked: unknown }).uploadAttachmentChunked = vi.fn(async (_id: string, meta: { name: string; type: string; size: number }, reader: (o: number, l: number) => Promise<string>) => {
+      read.push([0, 3]);
+      await reader(0, 3);
+      return { id: "big", name: meta.name, type: meta.type, size: meta.size };
+    });
+    const { result } = renderHook(() => useAttachments("s1"));
+    const big = new File(["abcdef"], "scene.mov", { type: "video/quicktime" });
+    Object.defineProperty(big, "size", { value: 200 * 1024 * 1024 });
+    act(() => result.current.add([big]));
+    await waitFor(() => expect(result.current.ready).toHaveLength(1));
+    expect(api.uploadAttachment).not.toHaveBeenCalled();
+    expect(read).toHaveLength(1);
+  });
+
+  it("keeps a failed file with Retry, holds Send's count of failures, and drops them on request", async () => {
+    (api.uploadAttachment as ReturnType<typeof vi.fn>).mockRejectedValueOnce(new Error("network down"));
+    const { result } = renderHook(() => useAttachments("s1"));
+    act(() => result.current.add([new File(["abc"], "notes.txt", { type: "text/plain" })]));
+    await waitFor(() => expect(result.current.failed).toBe(1));
+    expect(result.current.files[0].error).toBe("network down");
+    act(() => result.current.retry(result.current.files[0].key));
+    await waitFor(() => expect(result.current.ready).toHaveLength(1));
+    expect(result.current.failed).toBe(0);
+    (api.uploadAttachment as ReturnType<typeof vi.fn>).mockRejectedValueOnce(new Error("again"));
+    act(() => result.current.add([new File(["abc"], "more.txt", { type: "text/plain" })]));
+    await waitFor(() => expect(result.current.failed).toBe(1));
+    act(() => result.current.removeFailed());
+    expect(result.current.files.map((f) => f.name)).toEqual(["notes.txt"]);
+  });
+
+  it("says why Send waits when a file failed, with Retry and Send without", () => {
+    const onRetryFile = vi.fn();
+    const onRemoveFailed = vi.fn();
+    const failed: PendingFile = { key: "f1", name: "notes.txt", type: "text/plain", size: 3, preview: null, state: "error", error: "network down" };
+    render(<Composer {...base} files={[failed]} onRetryFile={onRetryFile} onRemoveFailed={onRemoveFailed} />);
+    expect(screen.getByRole("alert").textContent).toMatch(/did not upload, so the message is waiting/);
+    fireEvent.click(screen.getByRole("button", { name: "Retry" }));
+    expect(onRetryFile).toHaveBeenCalledWith("f1");
+    fireEvent.click(screen.getByRole("button", { name: "Send without" }));
+    expect(onRemoveFailed).toHaveBeenCalled();
   });
 });
 

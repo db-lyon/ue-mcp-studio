@@ -99,6 +99,18 @@ describe("Composer", () => {
     expect(screen.queryByRole("button", { name: "Queue" })).toBeNull();
   });
 
+  it("says why Send waits when a file failed, with Retry and Send without", () => {
+    const files: PendingFile[] = [{ key: "a", name: "notes.txt", type: "text/plain", size: 10, preview: null, state: "error", error: "network down" }];
+    const onRetryFile = vi.fn();
+    const onRemoveFailed = vi.fn();
+    render(<Box files={files} onRetryFile={onRetryFile} onRemoveFailed={onRemoveFailed} />);
+    expect(screen.getByText(/did not upload, so the message is waiting/)).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Retry notes.txt" }));
+    expect(onRetryFile).toHaveBeenCalledWith("a");
+    fireEvent.click(screen.getByRole("button", { name: "Send without" }));
+    expect(onRemoveFailed).toHaveBeenCalled();
+  });
+
   it("shows attached files as chips, each with its state and a remove button", () => {
     const files: PendingFile[] = [
       { key: "a", name: "shot.png", type: "image/png", size: 3000, preview: null, state: "ready" },
@@ -558,13 +570,13 @@ describe("useAttachments", () => {
     renderInProject(<Probe />, a);
     const files: PickedFile[] = [
       { uri: "file:///p.jpg", name: "p.jpg", type: "image/jpeg", size: 3, base64: "AAAA" },
-      { uri: "file:///big", name: "big", type: "application/zip", size: 200 * 1024 * 1024 },
+      { uri: "file:///big", name: "big", type: "application/zip", size: 3 * 1024 * 1024 * 1024 },
     ];
     act(() => hook!.add(files));
     await settle();
     expect(a.uploadAttachment).toHaveBeenCalledWith("s1", { name: "p.jpg", type: "image/jpeg", data: "AAAA" });
     expect(hook!.ready).toEqual([{ id: "att1", name: "p.jpg", type: "image/jpeg", size: 3 }]);
     expect(hook!.files[1].state).toBe("error");
-    expect(hook!.files[1].error).toBe("larger than 100.0 MB");
+    expect(hook!.files[1].error).toBe("larger than 2.0 GB");
   });
 });

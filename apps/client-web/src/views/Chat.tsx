@@ -274,7 +274,7 @@ export function ChatView({ daemon, nav, active = true, onSettings }: {
   }).catch((e: Error) => failWith(() => void create(prompt))(e));
 
   const [sent, setSent] = useState(0);
-  const canSend = !!selected && !disconnected && !attach.uploading && (draft.trim().length > 0 || attach.ready.length > 0);
+  const canSend = !!selected && !disconnected && !attach.uploading && attach.failed === 0 && (draft.trim().length > 0 || attach.ready.length > 0);
   /** Hand the composer's message to `how`: send, send now, or queue. The draft comes back if it fails. */
   const dispatch = (how: (id: string, text: string, files: string[]) => Promise<unknown>, follow: boolean) => {
     if (!selected || !canSend) return;
@@ -415,27 +415,43 @@ export function ChatView({ daemon, nav, active = true, onSettings }: {
   }, fail);
 
   // Files dropped anywhere on the conversation are added to the message being written.
+  // With no session open, a dropped file starts one and goes into its first message.
   const hasFiles = (e: React.DragEvent) => Array.from(e.dataTransfer.types).includes("Files");
+  const canDrop = !!detail || !selected;
+  const droppedFirst = useRef<File[]>([]);
+  useEffect(() => {
+    if (selected && droppedFirst.current.length > 0) {
+      const files = droppedFirst.current;
+      droppedFirst.current = [];
+      attach.add(files);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selected]);
   const drop = {
     onDragEnter: (e: React.DragEvent) => {
-      if (!detail || !hasFiles(e)) return;
+      if (!canDrop || !hasFiles(e)) return;
       e.preventDefault();
       dragDepth.current++;
       setDragging(true);
     },
     onDragOver: (e: React.DragEvent) => {
-      if (detail && hasFiles(e)) e.preventDefault();
+      if (canDrop && hasFiles(e)) e.preventDefault();
     },
     onDragLeave: (e: React.DragEvent) => {
-      if (!detail || !hasFiles(e)) return;
+      if (!canDrop || !hasFiles(e)) return;
       dragDepth.current = Math.max(0, dragDepth.current - 1);
       if (dragDepth.current === 0) setDragging(false);
     },
     onDrop: (e: React.DragEvent) => {
-      if (!detail || !hasFiles(e)) return;
+      if (!canDrop || !hasFiles(e)) return;
       e.preventDefault();
       dragDepth.current = 0;
       setDragging(false);
+      if (!detail) {
+        droppedFirst.current = Array.from(e.dataTransfer.files);
+        void create();
+        return;
+      }
       attach.add(e.dataTransfer.files);
     },
   };
@@ -727,6 +743,8 @@ export function ChatView({ daemon, nav, active = true, onSettings }: {
               files={attach.files}
               onAddFiles={attach.add}
               onRemoveFile={attach.remove}
+              onRetryFile={attach.retry}
+              onRemoveFailed={attach.removeFailed}
               extras={<Slot name="composer.action" ctx={{ sessionId: detail.id, draft, setDraft, busy, addFiles: attach.add }} />}
               stage={stage}
               height={settings?.composerHeight ?? null}
