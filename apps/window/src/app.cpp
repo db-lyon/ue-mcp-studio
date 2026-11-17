@@ -244,33 +244,26 @@ Captured capture(const std::wstring& line, DWORD timeoutMs) {
 }
 
 /**
- * The installed entry script of a ue-mcp package spec, found once through npx
- * and remembered. npx spends about 20 seconds resolving a package on every run
- * while ue-mcp itself answers in about 2, so quick commands run the script with
- * node directly. Empty when it cannot be found; callers then fall back to npx.
+ * The entry script of ue-mcp for a package spec, installed into the app's own
+ * folder (`<data>\ue-mcp\<spec>`) once per spec and run with node from then on.
+ * npx would resolve the package with npm on every call, about 20 seconds each,
+ * while ue-mcp answers in about 2. A new channel version is a new spec, so it is
+ * installed beside the old one on first use. Empty when the install failed;
+ * callers then fall back to npx.
  */
 std::wstring ueMcpScript(const std::wstring& npx, const std::wstring& spec) {
-  static std::map<std::wstring, std::wstring> found;
-  {
-    std::lock_guard<std::mutex> g(gLock);
-    auto it = found.find(spec);
-    if (it != found.end() && exists(it->second)) return it->second;
-  }
-  Captured w = capture(L"\"" + npx + L"\" -y --min-release-age=0 --package=" + spec + L" -c \"where ue-mcp.cmd\"", 120000);
-  std::wstring script;
-  for (const std::string& l : job::lines(w.out)) {
-    std::wstring bin = widen(l);  // ...\node_modules\.bin\ue-mcp.cmd
-    std::wstring candidate = join(join(join(dirOf(dirOf(bin)), L"ue-mcp"), L"dist"), L"index.js");
-    if (bin.find(L"\\.bin\\") != std::wstring::npos && exists(candidate)) {
-      script = candidate;
-      break;
-    }
-  }
-  if (!script.empty()) {
-    std::lock_guard<std::mutex> g(gLock);
-    found[spec] = script;
-  }
-  return script;
+  std::wstring folder;
+  for (wchar_t c : spec) folder += (iswalnum(c) || c == L'.' || c == L'-') ? c : L'_';
+  std::wstring prefix = join(join(dataDir(), L"ue-mcp"), folder);
+  std::wstring script = join(join(join(join(prefix, L"node_modules"), L"ue-mcp"), L"dist"), L"index.js");
+  if (exists(script)) return script;
+  // One install at a time: two reads at startup must not race into one folder.
+  static std::mutex installing;
+  std::lock_guard<std::mutex> g(installing);
+  if (exists(script)) return script;
+  makeDirs(prefix);
+  capture(L"\"" + join(dirOf(npx), L"npm.cmd") + L"\" install --prefix \"" + prefix + L"\" --min-release-age=0 --no-audit --no-fund --omit=dev " + spec, 300000);
+  return exists(script) ? script : std::wstring();
 }
 
 /** A ue-mcp command line: node on the resolved script when known, npx otherwise. */
