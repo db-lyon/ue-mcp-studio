@@ -42,6 +42,7 @@
 #include "ide.h"
 #include "job.h"
 #include "json.h"
+#include "uemcpinstall.h"
 #include "update.h"
 #include "watch.h"
 #include "ui-files.h"
@@ -244,26 +245,52 @@ Captured capture(const std::wstring& line, DWORD timeoutMs) {
 }
 
 /**
- * The entry script of ue-mcp for a package spec, installed into the app's own
- * folder (`<data>\ue-mcp\<spec>`) once per spec and run with node from then on.
- * npx would resolve the package with npm on every call, about 20 seconds each,
- * while ue-mcp answers in about 2. A new channel version is a new spec, so it is
- * installed beside the old one on first use. Empty when the install failed;
- * callers then fall back to npx.
+ * The ue-mcp versions running daemons use, from their records in the daemon
+ * folder (a record whose process is gone does not count).
+ */
+std::vector<std::wstring> ueMcpVersionsInUse() {
+  std::wstring dir;
+  {
+    std::lock_guard<std::mutex> g(gLock);
+    dir = gDaemonDir;
+  }
+  if (dir.empty()) dir = join(join(env(L"USERPROFILE"), L".ue-mcp"), L"daemons");
+  std::vector<std::wstring> used;
+  WIN32_FIND_DATAW fd;
+  HANDLE h = FindFirstFileW(join(dir, L"*.json").c_str(), &fd);
+  if (h == INVALID_HANDLE_VALUE) return used;
+  do {
+    std::string text;
+    json::Value rec;
+    if (!readFile(join(dir, fd.cFileName), text) || !json::parse(text, rec) || !rec.isObject()) continue;
+    const json::Value* pid = rec.get("pid");
+    const json::Value* version = rec.get("version");
+    if (!pid || !pid->isNumber() || !version || !version->isString()) continue;
+    HANDLE p = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, FALSE, (DWORD)pid->n);
+    if (!p) continue;
+    DWORD code = 0;
+    bool alive = GetExitCodeProcess(p, &code) && code == STILL_ACTIVE;
+    CloseHandle(p);
+    if (alive) used.push_back(uemcp::folder(version->s));
+  } while (FindNextFileW(h, &fd));
+  FindClose(h);
+  return used;
+}
+
+/**
+ * The app's own install of the exact ue-mcp version `spec` names (see
+ * uemcpinstall.h), made on first use. Empty for a channel tag or a tarball, or
+ * when the install failed: the caller then runs npx.
  */
 std::wstring ueMcpScript(const std::wstring& npx, const std::wstring& spec) {
-  std::wstring folder;
-  for (wchar_t c : spec) folder += (iswalnum(c) || c == L'.' || c == L'-') ? c : L'_';
-  std::wstring prefix = join(join(dataDir(), L"ue-mcp"), folder);
-  std::wstring script = join(join(join(join(prefix, L"node_modules"), L"ue-mcp"), L"dist"), L"index.js");
-  if (exists(script)) return script;
+  if (uemcp::exactVersion(spec).empty()) return {};
   // One install at a time: two reads at startup must not race into one folder.
   static std::mutex installing;
   std::lock_guard<std::mutex> g(installing);
-  if (exists(script)) return script;
-  makeDirs(prefix);
-  capture(L"\"" + join(dirOf(npx), L"npm.cmd") + L"\" install --prefix \"" + prefix + L"\" --min-release-age=0 --no-audit --no-fund --omit=dev " + spec, 300000);
-  return exists(script) ? script : std::wstring();
+  return uemcp::ensure(join(dataDir(), L"ue-mcp"), spec, [&](const std::wstring& prefix) {
+    std::wstring npm = join(dirOf(npx), L"npm.cmd");
+    return capture(L"\"" + npm + L"\" install --prefix \"" + prefix + L"\" --min-release-age=0 --no-audit --no-fund --omit=dev " + spec, 300000).code == 0;
+  }, ueMcpVersionsInUse);
 }
 
 /** A ue-mcp command line: node on the resolved script when known, npx otherwise. */
@@ -1070,24 +1097,6 @@ bool launchInstalled(bool relaunch = false) {
   return createDetached(installedExe(), L"\"" + installedExe() + L"\"" + (relaunch ? L" --relaunch" : L""), installDir(), 0);
 }
 
-void removeTree(const std::wstring& dir) {
-  WIN32_FIND_DATAW fd;
-  HANDLE h = FindFirstFileW(join(dir, L"*").c_str(), &fd);
-  if (h != INVALID_HANDLE_VALUE) {
-    do {
-      std::wstring name = fd.cFileName;
-      if (name == L"." || name == L"..") continue;
-      std::wstring p = join(dir, name);
-      if (fd.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) removeTree(p);
-      else {
-        SetFileAttributesW(p.c_str(), FILE_ATTRIBUTE_NORMAL);
-        DeleteFileW(p.c_str());
-      }
-    } while (FindNextFileW(h, &fd));
-    FindClose(h);
-  }
-  RemoveDirectoryW(dir.c_str());
-}
 
 /** Uninstall, from a copy outside the install folder: the app, its shortcut, its entry and its own data. Never ~/.ue-mcp. */
 int uninstallRun(DWORD waitPid) {
