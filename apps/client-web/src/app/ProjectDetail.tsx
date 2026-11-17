@@ -3,6 +3,7 @@ import type { Machine } from "./App";
 import { host } from "./native";
 import { actionsOf, channelLabel, listReadAt, nameHint, running, updateHow, updatesOf, uptime, type MachineProject } from "./model";
 import { connectedTo, installing, projectActions, useWorks } from "./actions";
+import { useBusy } from "./busy";
 import { DaemonChip, IdeButton, WorkPanel } from "./Projects";
 
 /** One project: its versions and updates, its daemon with the log, and its editor. */
@@ -16,6 +17,7 @@ export function ProjectDetail({ p, m, onBack }: { p: MachineProject; m: Machine;
   const u = updatesOf(p, m.newest);
   const hint = nameHint(p, m.report?.projects ?? []);
   const pending = (k: string) => work?.kind === k && !work.error && !work.done;
+  const [removing, run] = useBusy();
   const channel = channelLabel(m.newest?.channel ?? "stable");
 
   return (
@@ -107,7 +109,7 @@ export function ProjectDetail({ p, m, onBack }: { p: MachineProject; m: Machine;
 
       <div className="row app-detail-foot">
         <span className="spacer" />
-        <button className="ghost small" onClick={() => void m.removeProject(p).then((ok) => ok && onBack())}>Remove from list</button>
+        <button className="ghost small" disabled={removing} onClick={() => void run(() => m.removeProject(p)).then((ok) => ok && onBack())}>{removing ? "Removing" : "Remove from list"}</button>
       </div>
     </section>
   );
@@ -162,6 +164,7 @@ function DaemonCard({ p, m, act, work }: { p: MachineProject; m: Machine; act: R
 function DaemonLog({ id }: { id: string }) {
   const [text, setText] = useState<string | null>(null);
   const box = useRef<HTMLPreElement>(null);
+  const [opening, run] = useBusy();
   useEffect(() => {
     let gone = false;
     const read = () => void host()?.readlog({ key: id }).then((t) => !gone && setText(t));
@@ -181,7 +184,7 @@ function DaemonLog({ id }: { id: string }) {
       <div className="row">
         <span className="small app-installs-head">Log</span>
         <span className="spacer" />
-        {lines && <button className="ghost small" onClick={() => void host()?.openlog({ key: id })}>Open log file</button>}
+        {lines && <button className="ghost small" disabled={opening} onClick={() => void run(async () => host()?.openlog({ key: id }))}>{opening ? "Opening" : "Open log file"}</button>}
       </div>
       <pre ref={box} className="app-log-text" tabIndex={0} aria-label="Daemon log">{text === null ? "Reading" : lines || "No log yet: ue-mcp has not run for this project."}</pre>
     </div>

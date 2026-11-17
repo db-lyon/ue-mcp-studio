@@ -3,7 +3,8 @@ import type { Machine } from "./App";
 import { host, type IdeInfo } from "./native";
 import { actionsOf, filterProjects, ideButton, ideOpens, listReadAt, nameHint, running, updatesOf, versionsOf, type MachineProject } from "./model";
 import { JobOutput } from "./NodeCard";
-import { installing, projectActions, useIdes, useWorks, workTitle, type Work } from "./actions";
+import { useBusy } from "./busy";
+import { installing,projectActions, useIdes, useWorks, workTitle, type Work } from "./actions";
 
 /** A filter appears once the list is long enough to need one. */
 const FILTER_FROM = 7;
@@ -17,12 +18,14 @@ export function ProjectsView({ m, onOpen }: { m: Machine; onOpen: (key: string) 
   const shown = filterProjects(projects, query);
   const waiting = projects.filter((p) => updatesOf(p, m.newest)?.waiting.length).length;
 
-  const add = async () => {
-    setAdding(null);
-    const r = await host()?.addproject();
-    if (r && !r.ok && !r.cancelled) setAdding(r.error ?? "That project could not be added.");
-    if (r?.ok) void m.refresh();
-  };
+  const [addBusy, run] = useBusy();
+  const add = () =>
+    run(async () => {
+      setAdding(null);
+      const r = await host()?.addproject();
+      if (r && !r.ok && !r.cancelled) setAdding(r.error ?? "That project could not be added.");
+      if (r?.ok) void m.refresh();
+    });
 
   return (
     <section className="app-screen" aria-labelledby="projects-head">
@@ -42,7 +45,7 @@ export function ProjectsView({ m, onOpen }: { m: Machine; onOpen: (key: string) 
         )}
         {m.readAt !== null && <span className="dim small app-read-at" title="The list reads again by itself when a project, daemon or Studio changes">{listReadAt(m.readAt)}</span>}
         <button onClick={() => void m.refresh()} disabled={m.loading}>{m.loading ? "Reading" : "Refresh"}</button>
-        <button className="primary" onClick={() => void add()}>Add project</button>
+        <button className="primary" disabled={addBusy} onClick={() => void add()}>{addBusy ? "Adding" : "Add project"}</button>
       </header>
       {adding && <div className="banner bad small">{adding}</div>}
       {!m.report && m.loading && <Skeleton />}
@@ -50,7 +53,7 @@ export function ProjectsView({ m, onOpen }: { m: Machine; onOpen: (key: string) 
         <div className="app-empty">
           <h2>No projects yet</h2>
           <p className="muted">UE-MCP lists the projects Unreal Editor has opened on this computer. Open one in Unreal, or add its .uproject file here.</p>
-          <button className="primary" onClick={() => void add()}>Add project</button>
+          <button className="primary" disabled={addBusy} onClick={() => void add()}>{addBusy ? "Adding" : "Add project"}</button>
         </div>
       )}
       {projects.length > 0 && shown.length === 0 && <p className="muted app-none">No project matches "{query}".</p>}
@@ -71,9 +74,11 @@ function ProjectRow({ p, all, m, work, busy, onOpen }: { p: MachineProject; all:
   const hint = nameHint(p, all);
   const versions = versionsOf(p, m.live, m.report?.ueMcp ?? null);
   const pending = (k: Work["kind"]) => work?.kind === k && !work.error && !work.done;
+  const [removing, run] = useBusy();
+  const remove = () => void run(() => m.removeProject(p));
 
   return (
-    <li className="app-row app-project">
+    <li className="app-row app-project" aria-busy={removing || undefined} style={removing ? { opacity: 0.6 } : undefined}>
       <div className="app-row-main">
         <div className="app-row-title">
           <button className="app-row-open" onClick={onOpen} title={`Details for ${p.name}`}>
@@ -98,6 +103,7 @@ function ProjectRow({ p, all, m, work, busy, onOpen }: { p: MachineProject; all:
           {!p.ueMcp.setUp && <span className="app-chip dim">ue-mcp not set up</span>}
           {p.ueMcp.setUp && <DaemonChip p={p} m={m} work={work} act={act} />}
           {p.editor.running && <span className="app-chip warn">Editor open</span>}
+          {removing && <span className="app-chip dim" role="status">Removing</span>}
         </div>
       </div>
       <div className="app-row-actions">
@@ -119,7 +125,7 @@ function ProjectRow({ p, all, m, work, busy, onOpen }: { p: MachineProject; all:
         <button disabled={!!a.launchBlocked || pending("launch")} title={a.launchBlocked ?? undefined} onClick={() => void act.launch()}>
           {pending("launch") ? "Starting" : "Launch editor"}
         </button>
-        <RowMenu p={p} m={m} act={act} onOpen={onOpen} />
+        <RowMenu p={p} act={act} onOpen={onOpen} onRemove={remove} removing={removing} />
       </div>
       {a.addStudio && p.editor.running && !mine && <p className="app-row-note dim small">{a.addBlocked}</p>}
       <WorkPanel p={p} work={work} act={act} />
@@ -275,7 +281,7 @@ export function IdeButton({ p, act, work }: { p: MachineProject; act: Actions; w
 }
 
 /** The row's quieter actions: Open in IDE and Open with..., Show in Explorer, the detail, and leaving the list. */
-function RowMenu({ p, m, act, onOpen }: { p: MachineProject; m: Machine; act: Actions; onOpen: () => void }) {
+function RowMenu({ p, act, onOpen, onRemove, removing }: { p: MachineProject; act: Actions; onOpen: () => void; onRemove: () => void; removing: boolean }) {
   const { open, setOpen, ref } = useMenu();
   const info = useIdes(p, open);
   const b = ideButton(info, p);
@@ -292,7 +298,7 @@ function RowMenu({ p, m, act, onOpen }: { p: MachineProject; m: Machine; act: Ac
           <IdeChoices p={p} info={info} onPick={(id) => { setOpen(false); void act.openIde(id); }} />
           <div className="app-menu-sep" />
           <button role="menuitem" onClick={() => { setOpen(false); onOpen(); }}>Details</button>
-          <button role="menuitem" onClick={() => { setOpen(false); void m.removeProject(p); }}>Remove from list</button>
+          <button role="menuitem" disabled={removing} onClick={() => { setOpen(false); onRemove(); }}>Remove from list</button>
         </div>
       )}
     </div>

@@ -120,6 +120,26 @@ describe("Remove from list", () => {
     await waitFor(() => expect(document.querySelectorAll(".app-list > li.app-project")).toHaveLength(1));
   });
 
+  it("shows Removing on the row until the removal resolves, and ignores a second press", async () => {
+    const h = fakeHost();
+    let finish!: (v: { ok: boolean }) => void;
+    const removeproject = vi.fn(() => new Promise<{ ok: boolean }>((r) => { finish = r; }));
+    (h as Record<string, unknown>).removeproject = removeproject;
+    render(<App />);
+    const rows = await projectRows();
+    fireEvent.click(within(rows[0]).getByRole("button", { name: /more/i }));
+    fireEvent.click(screen.getByRole("menuitem", { name: "Remove from list" }));
+    expect(await within(rows[0]).findByText("Removing")).toBeTruthy();
+    expect(rows[0].getAttribute("aria-busy")).toBe("true");
+    fireEvent.click(within(rows[0]).getByRole("button", { name: /more/i }));
+    const again = screen.getByRole("menuitem", { name: "Remove from list" }) as HTMLButtonElement;
+    expect(again.disabled).toBe(true);
+    fireEvent.click(again);
+    expect(removeproject).toHaveBeenCalledTimes(1);
+    finish({ ok: false });
+    await waitFor(() => expect(within(rows[0]).queryByText("Removing")).toBeNull());
+  });
+
   it("says why a removal failed instead of dropping it", async () => {
     const h = fakeHost();
     (h as Record<string, unknown>).removeproject = vi.fn(async () => ({ ok: false, error: "npm error code ETARGET" }));
@@ -128,6 +148,24 @@ describe("Remove from list", () => {
     fireEvent.click(within(rows[0]).getByRole("button", { name: /more/i }));
     fireEvent.click(screen.getByRole("menuitem", { name: "Remove from list" }));
     expect(await screen.findByText(/could not be removed from the list: npm error code ETARGET/)).toBeTruthy();
+  });
+});
+
+describe("Add project", () => {
+  it("is disabled and reads Adding until the picker resolves", async () => {
+    const h = fakeHost();
+    let finish!: (v: { ok: boolean; cancelled: boolean }) => void;
+    const addproject = vi.fn(() => new Promise<{ ok: boolean; cancelled: boolean }>((r) => { finish = r; }));
+    (h as Record<string, unknown>).addproject = addproject;
+    render(<App />);
+    await projectRows();
+    fireEvent.click(screen.getByRole("button", { name: "Add project" }));
+    const busy = (await screen.findByRole("button", { name: "Adding" })) as HTMLButtonElement;
+    expect(busy.disabled).toBe(true);
+    fireEvent.click(busy);
+    expect(addproject).toHaveBeenCalledTimes(1);
+    finish({ ok: false, cancelled: true });
+    await screen.findByRole("button", { name: "Add project" });
   });
 });
 

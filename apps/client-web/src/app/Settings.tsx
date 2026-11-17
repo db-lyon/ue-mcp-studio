@@ -2,20 +2,24 @@ import { useEffect, useState } from "react";
 import type { Machine } from "./App";
 import { host, type AppUpdate, type Channel } from "./native";
 import { appUpdateLine, channelLabel } from "./model";
+import { useBusy } from "./busy";
 import { NodeCard, nodeLine } from "./NodeCard";
 
 /** What belongs to the computer rather than a project: UE-MCP itself and its channel, Node.js, and adding a project. */
 export function SettingsView({ m }: { m: Machine }) {
   const [adding, setAdding] = useState<string | null>(null);
-  const add = async () => {
-    setAdding(null);
-    const r = await host()?.addproject();
-    if (r && !r.ok && !r.cancelled) setAdding(r.error ?? "That project could not be added.");
-    if (r?.ok) {
-      setAdding("Added. It is on Projects.");
-      void m.refresh();
-    }
-  };
+  const [addBusy, runAdd] = useBusy();
+  const [checkingNode, runNode] = useBusy();
+  const add = () =>
+    runAdd(async () => {
+      setAdding(null);
+      const r = await host()?.addproject();
+      if (r && !r.ok && !r.cancelled) setAdding(r.error ?? "That project could not be added.");
+      if (r?.ok) {
+        setAdding("Added. It is on Projects.");
+        void m.refresh();
+      }
+    });
   const state = m.state!;
   return (
     <section className="app-screen app-settings" aria-labelledby="settings-head">
@@ -32,7 +36,7 @@ export function SettingsView({ m }: { m: Machine }) {
             <div className="app-row-title"><span className="app-row-name">Node.js</span><span className="pill ok">{state.node.version}</span></div>
             <div className="muted small">{nodeLine(state)} ue-mcp runs on it.</div>
           </div>
-          <div className="app-row-actions"><button onClick={() => void m.refreshNode()}>Check again</button></div>
+          <div className="app-row-actions"><button disabled={checkingNode} onClick={() => void runNode(() => m.refreshNode())}>{checkingNode ? "Checking" : "Check again"}</button></div>
         </div>
       ) : (
         <NodeCard state={state} refreshNode={m.refreshNode} onInstalled={() => void m.refresh()} />
@@ -43,7 +47,7 @@ export function SettingsView({ m }: { m: Machine }) {
           <div className="muted small">Projects Unreal Editor has opened are listed on their own. Add one it has not opened, by its .uproject file.</div>
           {adding && <div className="small muted">{adding}</div>}
         </div>
-        <div className="app-row-actions"><button onClick={() => void add()}>Add project</button></div>
+        <div className="app-row-actions"><button disabled={addBusy} onClick={() => void add()}>{addBusy ? "Adding" : "Add project"}</button></div>
       </div>
     </section>
   );
@@ -104,6 +108,7 @@ export function AppUpdateCard({ version, onChannel }: { version: string; onChann
               {channelLabel(c)}
             </label>
           ))}
+          {switching && <span className="dim small" role="status">Saving</span>}
         </div>
         <div className="dim small">The channel is one choice for this computer: UE-MCP, Studio in every project and ue-mcp follow it.</div>
       </div>
