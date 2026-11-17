@@ -1,6 +1,6 @@
-// UE-MCP-Launcher.exe: the UE-MCP Launcher app and its setup, one program.
+// UE-MCP.exe: the UE-MCP app and its setup, one program.
 //
-// Installed under %LOCALAPPDATA%\Programs\UE-MCP Launcher and started from there, it is
+// Installed under %LOCALAPPDATA%\Programs\UE-MCP and started from there, it is
 // the app: this computer's Unreal projects, their updates and the daemons
 // running for them. Started from anywhere else, it is the setup that installs
 // it there. Its page is compiled into the exe (ui-files.h) and served at
@@ -75,8 +75,8 @@ constexpr ULONG_PTR kCopyArgs = 0x55454D43;  // "UEMC"
 // ---------------------------------------------------------------- paths and state
 
 std::wstring localAppData() { return env(L"LOCALAPPDATA"); }
-std::wstring installDir() { return join(join(localAppData(), L"Programs"), L"UE-MCP Launcher"); }
-std::wstring installedExe() { return join(installDir(), L"UE-MCP-Launcher.exe"); }
+std::wstring installDir() { return join(join(localAppData(), L"Programs"), L"UE-MCP"); }
+std::wstring installedExe() { return join(installDir(), L"UE-MCP.exe"); }
 std::wstring dataDir() { return join(localAppData(), L"UE-MCP"); }
 std::wstring jobsDir() { return join(dataDir(), L"jobs"); }
 std::wstring reportCache() { return join(dataDir(), L"report.json"); }
@@ -1053,7 +1053,7 @@ int uninstallRun(DWORD waitPid) {
       CloseHandle(p);
     }
   }
-  tellApp(L"UE-MCP-Launcher.exe --quit");
+  tellApp(L"UE-MCP.exe --quit");
   for (int i = 0; i < 100 && runningApp(); ++i) Sleep(100);
   // The app that just quit can hold its exe and folder for a moment after its window goes.
   std::wstring exe = installedExe();
@@ -1195,7 +1195,7 @@ std::string appUpdate(bool installIt) {
     return answer(v);
   }
   makeDirs(dataDir());
-  std::wstring setup = join(dataDir(), L"UE-MCP-Launcher-Setup-" + widen(version->s) + L".exe");
+  std::wstring setup = join(dataDir(), L"UE-MCP-Setup-" + widen(version->s) + L".exe");
   if (!writeFile(setup, d.body) || !createDetached(setup, L"\"" + setup + L"\" /S", dataDir(), 0)) {
     v.set("ok", json::Value::boolean(false));
     v.set("error", json::Value::str("The new version could not be started."));

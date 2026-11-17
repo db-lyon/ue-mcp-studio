@@ -688,7 +688,7 @@ int main() {
     const char* body = R"([
       {"tag_name":"v0.1.35-beta.9","draft":false,"prerelease":true,"assets":[{"name":"latest.json"}]},
       {"tag_name":"v0.1.36-beta.1","draft":true,"prerelease":true,"assets":[{"name":"latest.json"}]},
-      {"tag_name":"v0.1.35-beta.10","draft":false,"prerelease":true,"assets":[{"name":"latest.json"},{"name":"UE-MCP-Launcher-Setup.exe"}]},
+      {"tag_name":"v0.1.35-beta.10","draft":false,"prerelease":true,"assets":[{"name":"latest.json"},{"name":"UE-MCP-Setup.exe"}]},
       {"tag_name":"v0.1.35-beta.11","draft":false,"prerelease":true,"assets":[{"name":"notes.md"}]},
       {"tag_name":"v0.1.34","draft":false,"prerelease":false,"assets":[{"name":"latest.json"}]},
       {"tag_name":"v0.1.35-beta.12\"&calc","draft":false,"assets":[{"name":"latest.json"}]}
