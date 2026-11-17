@@ -152,7 +152,9 @@ std::wstring daemonDir() {
 int runAndWait(const std::wstring& exe, std::wstring line, DWORD timeoutMs) {
   STARTUPINFOW si = {sizeof si};
   PROCESS_INFORMATION pi = {};
-  if (!CreateProcessW(exe.c_str(), line.data(), nullptr, nullptr, FALSE, CREATE_NO_WINDOW, nullptr, nullptr, &si, &pi)) return -1;
+  // Never the app's own folder, which holds UE-MCP.exe (see wWinMain).
+  std::wstring home = env(L"USERPROFILE");
+  if (!CreateProcessW(exe.c_str(), line.data(), nullptr, nullptr, FALSE, CREATE_NO_WINDOW, nullptr, home.empty() ? nullptr : home.c_str(), &si, &pi)) return -1;
   CloseHandle(pi.hThread);
   DWORD r = WaitForSingleObject(pi.hProcess, timeoutMs);
   DWORD code = 1;
@@ -1889,6 +1891,11 @@ void cleanJobs() {
 
 int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR, int) {
   SetProcessDpiAwarenessContext(DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2);
+  // cmd.exe looks for a command in the current directory before PATH, and this
+  // app is UE-MCP.exe: run from its own folder, `ue-mcp` (npx's bin) resolved to
+  // the app itself, which printed nothing and exited 0. Every command this app
+  // starts inherits this, so cmd searches PATH only.
+  SetEnvironmentVariableW(L"NoDefaultCurrentDirectoryInExePath", L"1");
   int argc = 0;
   wchar_t** argv = CommandLineToArgvW(GetCommandLineW(), &argc);
   bool forceApp = false, uninstall = false, uninstallRunning = false;
