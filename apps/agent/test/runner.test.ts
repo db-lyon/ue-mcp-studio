@@ -200,6 +200,42 @@ describe("attachments in a message", () => {
   });
 });
 
+describe("a file the API refuses", () => {
+  it("is replaced by a note naming where it is saved, the turn goes on, and the session is not poisoned", async () => {
+    const refusing = new ScriptedModel([
+      () => { throw new Error('400 {"error":{"message":"messages.0.content.1.image: Could not process image"}}'); },
+      () => text("Seen without it."),
+      () => text("Still fine."),
+    ]);
+    const s = store.create();
+    const file = path.join(root, "ref.png");
+    fs.writeFileSync(file, pngBytes(4, 4));
+    const runner = runnerWith(refusing);
+    await runner.send(s.id, "use this", [{ id: "a1", name: "ref.png", type: "image/png", size: 3, path: file }]);
+    const first = store.get(s.id)!;
+    expect(first.status).toBe("idle");
+    expect(first.error ?? null).toBeNull();
+    // The second request has the note, not the image, and still the path from the attachment's own note.
+    const second = JSON.stringify(refusing.requests[1].messages[0].content);
+    expect(second).not.toContain('"type":"image"');
+    expect(second).toContain("Not sent: the model's API refused this file");
+    expect(second).toContain("saved at");
+    expect(first.transcript.some((t) => t.kind === "note" && /refused an attached file/.test(t.text))).toBe(true);
+    // A later message goes through: the conversation holds no refused block any more.
+    await runner.send(s.id, "and now?");
+    expect(JSON.stringify(refusing.requests[2].messages)).not.toContain('"type":"image"');
+    expect(store.get(s.id)!.status).toBe("idle");
+  });
+
+  it("does not repeat when nothing can be replaced", async () => {
+    const refusing = new ScriptedModel([() => { throw new Error("Could not process image"); }]);
+    const s = store.create();
+    await runnerWith(refusing).send(s.id, "no file here");
+    expect(store.get(s.id)!.status).toBe("error");
+    expect(refusing.requests).toHaveLength(1);
+  });
+});
+
 describe("images a tool shows the model", () => {
   it("go to the model in the tool result, and into the transcript as the session's files", async () => {
     fs.writeFileSync(path.join(host.projectDir, "shot.png"), pngBytes(12, 6));
