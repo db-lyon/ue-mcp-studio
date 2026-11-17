@@ -7,8 +7,10 @@
  * statically, so the exe needs nothing installed but the WebView2 Runtime
  * Windows ships with.
  *
- * On other platforms there is nothing to build: Studio opens in the system
- * browser there.
+ * On Linux it builds apps/window/dist/studio-window, the same window with GTK 4
+ * and WebKitGTK 6.0 (apps/window/src/linux/main.cpp), when pkg-config finds
+ * their development files; without them it says so and skips, and Studio opens
+ * in the system browser. On other platforms there is nothing to build.
  */
 import * as crypto from "node:crypto";
 import * as fs from "node:fs";
@@ -26,13 +28,34 @@ const WEBVIEW2 = {
   sha256: "f492bbf547d0da329553b6727435b677579b1e9f91cc9e4a1ad029366d5f23d0",
 };
 
-if (process.platform !== "win32") {
-  console.log("studio-window.exe is Windows only; skipped");
+const version = JSON.parse(fs.readFileSync(path.join(ROOT, "package.json"), "utf-8")).version;
+if (!/^[0-9A-Za-z.-]+$/.test(version)) throw new Error(`unexpected version ${version}`);
+
+if (process.platform === "linux") {
+  const libs = ["gtk4", "webkitgtk-6.0"];
+  const pc = spawnSync("pkg-config", ["--cflags", "--libs", ...libs], { encoding: "utf-8" });
+  if (pc.error || pc.status !== 0) {
+    if (process.env.STUDIO_WINDOW_REQUIRED) throw new Error(`studio-window needs the development files of ${libs.join(" and ")}: ${pc.stderr || pc.error?.message}`);
+    console.log(`studio-window needs the development files of ${libs.join(" and ")} (gtk4-devel and webkitgtk6.0-devel on Fedora, libgtk-4-dev and libwebkitgtk-6.0-dev on Debian and Ubuntu); skipped`);
+    process.exit(0);
+  }
+  fs.mkdirSync(OUT, { recursive: true });
+  const exe = path.join(OUT, "studio-window");
+  const args = [
+    "-std=c++17", "-O2", "-Wall", "-Wextra", "-Werror", `-DSTUDIO_WINDOW_VERSION="${version}"`,
+    path.join(APP, "src", "linux", "main.cpp"), "-o", exe,
+    ...pc.stdout.trim().split(/\s+/),
+  ];
+  const r = spawnSync(process.env.CXX || "g++", args, { stdio: "inherit" });
+  if (r.status !== 0) throw new Error(`building studio-window failed (${r.status ?? r.error?.message})`);
+  console.log(`built ${path.relative(ROOT, exe)} ${version}`);
   process.exit(0);
 }
 
-const version = JSON.parse(fs.readFileSync(path.join(ROOT, "package.json"), "utf-8")).version;
-if (!/^[0-9A-Za-z.-]+$/.test(version)) throw new Error(`unexpected version ${version}`);
+if (process.platform !== "win32") {
+  console.log("studio-window is built on Windows and Linux; skipped");
+  process.exit(0);
+}
 
 /** The WebView2 SDK's headers and static loader, downloaded once and checked. */
 async function webview2() {

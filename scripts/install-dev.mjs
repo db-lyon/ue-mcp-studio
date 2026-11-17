@@ -5,6 +5,7 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { fileURLToPath } from "node:url";
 import { signBundle } from "ue-mcp/daemon";
+import { copyWindowSource } from "./window-source.mjs";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const webDist = path.join(root, "apps", "client-web", "dist");
@@ -39,11 +40,14 @@ fs.writeFileSync(path.join(staging, "package.json"), JSON.stringify({ ...agentPk
 // Runtime dependencies resolve from the workspace's node_modules.
 fs.symlinkSync(path.join(root, "node_modules"), path.join(staging, "node_modules"), "junction");
 fs.cpSync(webDist, path.join(staging, "ui"), { recursive: true });
-const windowExe = path.join(root, "apps", "window", "dist", "studio-window.exe");
+const windowName = process.platform === "win32" ? "studio-window.exe" : "studio-window";
+const windowExe = path.join(root, "apps", "window", "dist", windowName);
 if (fs.existsSync(windowExe)) {
   fs.mkdirSync(path.join(staging, "bin"), { recursive: true });
-  fs.copyFileSync(windowExe, path.join(staging, "bin", "studio-window.exe"));
+  fs.copyFileSync(windowExe, path.join(staging, "bin", windowName));
 }
+// The Linux window's source, which the agent builds from where the package has no binary for this platform.
+copyWindowSource(root, staging);
 const manifest = signBundle(path.join(staging, "ui"), { name: "studio", version, api: { min: 1, max: 1 } }, fs.readFileSync(keyFile, "utf-8"));
 fs.renameSync(staging, target);
 // Earlier dev installs only; releases stay.
