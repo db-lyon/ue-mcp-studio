@@ -57,6 +57,8 @@ export function SetupView({ state, refreshNode }: { state: HostState; refreshNod
           <footer className="setup-foot">
             <span className="spacer" />
             <button onClick={() => void h?.close()}>Close</button>
+            {/* Same version is not the same build: a local build keeps the version number, so offer to install it anyway. */}
+            {state.compare === "same" && <button onClick={() => void install()}>Reinstall</button>}
             <button className="primary" onClick={() => void h?.launch()}>Open UE-MCP Launcher</button>
           </footer>
         </main>
