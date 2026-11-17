@@ -119,10 +119,10 @@ describe("the UE-MCP row in Settings", () => {
   });
 
   it("shows the version here, the channel and the channel's newest", () => {
-    expect(appUpdateLine("0.1.35-beta.5", null, "beta", false)).toBe("UE-MCP 0.1.35-beta.5, on Beta.");
-    expect(appUpdateLine("0.1.35-beta.5", { ok: true, channel: "beta", version: "0.1.35-beta.6", newer: true }, "beta", false)).toBe("UE-MCP 0.1.35-beta.6 is ready to install from Beta. You have 0.1.35-beta.5.");
-    expect(appUpdateLine("0.1.35-beta.6", { ok: true, channel: "beta", version: "0.1.35-beta.6", newer: false }, "beta", false)).toBe("UE-MCP 0.1.35-beta.6, the newest on Beta.");
-    expect(appUpdateLine("0.1.35-beta.6", { ok: true, channel: "stable", version: "0.1.34", newer: false }, "stable", false)).toBe("UE-MCP 0.1.35-beta.6. The newest on Stable is 0.1.34.");
+    expect(appUpdateLine("0.1.35-beta.5", null, "beta", false)).toBe("UE-MCP Launcher 0.1.35-beta.5, on Beta.");
+    expect(appUpdateLine("0.1.35-beta.5", { ok: true, channel: "beta", version: "0.1.35-beta.6", newer: true }, "beta", false)).toBe("UE-MCP Launcher 0.1.35-beta.6 is ready to install from Beta. You have 0.1.35-beta.5.");
+    expect(appUpdateLine("0.1.35-beta.6", { ok: true, channel: "beta", version: "0.1.35-beta.6", newer: false }, "beta", false)).toBe("UE-MCP Launcher 0.1.35-beta.6, the newest on Beta.");
+    expect(appUpdateLine("0.1.35-beta.6", { ok: true, channel: "stable", version: "0.1.34", newer: false }, "stable", false)).toBe("UE-MCP Launcher 0.1.35-beta.6. The newest on Stable is 0.1.34.");
   });
 
   it("names Open in IDE for the project's IDE and says what it opens", () => {
@@ -147,9 +147,9 @@ describe("the UE-MCP row in Settings", () => {
   });
 
   it("names the channel the check read over the one picked, and says why a check failed", () => {
-    expect(appUpdateLine("0.1.35", { ok: true, channel: "stable", version: "0.1.35", newer: false }, "beta", false)).toBe("UE-MCP 0.1.35, the newest on Stable.");
+    expect(appUpdateLine("0.1.35", { ok: true, channel: "stable", version: "0.1.35", newer: false }, "beta", false)).toBe("UE-MCP Launcher 0.1.35, the newest on Stable.");
     expect(appUpdateLine("0.1.35", { ok: false, channel: "beta", error: "GitHub's rate limit for release checks was reached." }, "beta", false)).toBe("Could not check Beta: GitHub's rate limit for release checks was reached.");
-    expect(appUpdateLine("0.1.35", { ok: true, version: "0.1.36", newer: true }, "beta", true)).toBe("Installing. UE-MCP restarts when it is done.");
+    expect(appUpdateLine("0.1.35", { ok: true, version: "0.1.36", newer: true }, "beta", true)).toBe("Installing. UE-MCP Launcher restarts when it is done.");
   });
 
   it("an earlier report shown while a read fails leaves out the projects removed since", () => {
