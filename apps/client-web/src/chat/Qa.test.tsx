@@ -470,10 +470,40 @@ describe("the collapsed card", () => {
   it("offers Review on a loop that stopped for the user, and Assign again only in the open card", () => {
     const loop = { id: "l1", state: "needs_you", attempts: [], baseline: "c0", startedAt: "", blocker: { kind: "no_progress", reason: "Nothing changed", evidence: [] } };
     collapsed({ ...runOf({ state: "finished", steps: STEPS.map((s) => ({ ...s, status: "failed" })) }), assignment: { callId: "c", sessionId: "s1", state: "done", at: "", loop } as QaRun["assignment"] }, { sessionId: "s1" });
-    expect(screen.queryByRole("button", { name: /Assign/ })).toBeNull();
+    expect(screen.queryByRole("button", { name: /Assign|Try again/ })).toBeNull();
     expect(screen.queryByRole("button", { name: "Run again" })).toBeNull();
     fireEvent.click(screen.getByRole("button", { name: "Review" }));
-    expect(screen.getByRole("button", { name: "Assign again" })).toBeTruthy();
+    // A guard stopped it, so the button says what it does: go on anyway.
+    expect(screen.getByRole("button", { name: "Try again anyway" })).toBeTruthy();
+  });
+
+  it("offers Continue on a loop that used up its attempts", () => {
+    const loop = { id: "l1", state: "needs_you", attempts: [], baseline: "c0", startedAt: "", blocker: { kind: "attempts", reason: "Still fails after 8 attempts", evidence: [] } };
+    collapsed({ ...runOf({ state: "finished", steps: STEPS.map((s) => ({ ...s, status: "failed" })) }), assignment: { callId: "c", sessionId: "s1", state: "done", at: "", loop } as QaRun["assignment"] }, { sessionId: "s1" });
+    fireEvent.click(screen.getByRole("button", { name: "Review" }));
+    expect(screen.getByRole("button", { name: "Continue" })).toBeTruthy();
+  });
+
+  it("asks before running a loop without checkpoints, and runs it when the user agrees", async () => {
+    const e = Object.assign(new Error("The loop did not start. Review is off. It can run without checkpoints, but then nothing it changes can be reverted."), { body: { withoutCheckpoints: true } });
+    m.qaAssign.mockRejectedValueOnce(e).mockResolvedValue({ run: runOf({ state: "finished", steps: STEPS.map((s) => ({ ...s, status: "failed" })) }) });
+    const ask = vi.spyOn(window, "confirm").mockReturnValue(true);
+    collapsed(runOf({ state: "finished", steps: STEPS.map((s) => ({ ...s, status: "failed" })) }), { sessionId: "s1" });
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "Assign to subagent" }));
+    });
+    expect(ask).toHaveBeenCalled();
+    expect(m.qaAssign).toHaveBeenLastCalledWith(RUN, null, true);
+    ask.mockRestore();
+  });
+
+  it("offers Start the editor on an error that says the editor is down", async () => {
+    m.qaAssign.mockRejectedValueOnce(new Error("the editor is not connected, so the script cannot be read"));
+    collapsed(runOf({ state: "finished", steps: STEPS.map((s) => ({ ...s, status: "failed" })) }), { sessionId: "s1" });
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "Assign to subagent" }));
+    });
+    expect(screen.getByRole("button", { name: "Start the editor" })).toBeTruthy();
   });
 
   it("brings the card into view when it opens, and clears a step's mark after a moment", () => {

@@ -168,6 +168,21 @@ export function decide(f: AttemptFacts): Decision {
 /** The most attempts one loop makes before it stops for the user. */
 export const MAX_ATTEMPTS = 8;
 
+/** What a loop the user chose to go on with carries from the one that stopped: why, how far it got, and what still failed. */
+export interface LoopCarry {
+  reason: string;
+  attempts: number;
+  failing: string[];
+}
+
+/** The carry of a loop that stopped for the user with steps still failing, or null. */
+export function carryOf(loop: QaLoop | undefined): LoopCarry | null {
+  if (!loop || loop.state !== "needs_you") return null;
+  const last = [...loop.attempts].reverse().find((a) => a.failing.length > 0);
+  if (!last) return null;
+  return { reason: loop.blocker?.reason ?? "it needed the user.", attempts: loop.attempts.length, failing: last.failing };
+}
+
 const BLOCKED_LINES = [
   "If you reach something you cannot fix, stop and end your report with exactly one line:",
   "  BLOCKED: contradiction: <the step, and the design or other step it contradicts>",
@@ -187,9 +202,10 @@ export function firstBrief(run: QaRun): string {
 }
 
 /** A later attempt: why steps failed, what to change, then run it again. */
-export function fixBrief(run: QaRun, n: number, failing: FailingStep[]): string {
+export function fixBrief(run: QaRun, n: number, failing: FailingStep[], earlier?: LoopCarry): string {
   return [
     `The user assigned you the playtest "${run.scriptName}" to make it pass. This is attempt ${n} of a loop: Studio runs attempts until every step passes or it stops for the user, at most ${MAX_ATTEMPTS} attempts.`,
+    ...(earlier ? [`An earlier loop made ${earlier.attempts} attempt${earlier.attempts === 1 ? "" : "s"} and stopped: ${earlier.reason} The user chose to go on, so change the approach rather than repeat what it tried.`] : []),
     `The last attempt's run ${run.runId} did not pass:`,
     ...failing.map((f) => `- ${f.line}`),
     "",
@@ -312,7 +328,19 @@ export interface LoopOptions {
   notify: (sessionId: string, loop: QaLoop, run: QaRun) => void;
   now?: () => number;
   log?: { warn(message: string, detail?: unknown): void };
+  /** A loop that stopped for the user, which this one goes on from: its first attempt fixes what still failed. */
+  carry?: LoopCarry | null;
 }
+
+/** The checkpoints of a loop the user chose to run without them: nothing is taken, so nothing can be reverted. */
+export const NO_CHECKPOINTS: LoopCheckpoints = {
+  checkpoint: async () => ({ id: "" }),
+  changes: async () => [],
+  restore: async () => {
+    throw new Error("this loop ran without checkpoints, so there is nothing to restore");
+  },
+  mark: () => undefined,
+};
 
 const iso = (ms: number): string => new Date(ms).toISOString();
 
@@ -372,7 +400,8 @@ export class PlaytestLoop {
 
   private async run(): Promise<void> {
     let previous: string[] | null = null;
-    let failing: FailingStep[] = [];
+    const carry = this.o.carry ?? null;
+    let failing: FailingStep[] = carry ? carry.failing.map((line, i) => ({ index: -1, signature: `carried:${i}`, line })) : [];
     const seenBuildFailures = new Set<unknown>();
     const unsubscribe = this.o.events.subscribe((e) => {
       if (!this.current) return;
@@ -394,7 +423,7 @@ export class PlaytestLoop {
         const run = this.o.card.holder(this.loop.id);
         if (!run) throw new Error("the playtest's card is gone");
         const before = n === 1 ? this.loop.baseline : this.loop.attempts[n - 2].after ?? this.loop.baseline;
-        const prompt = n === 1 ? firstBrief(run) : fixBrief(run, n, failing);
+        const prompt = n === 1 && !carry ? firstBrief(run) : fixBrief(run, n, failing, n === 1 ? carry ?? undefined : undefined);
         const startRun = run.runId;
         this.attemptCrashed = false;
         this.attemptBuildFailed = false;

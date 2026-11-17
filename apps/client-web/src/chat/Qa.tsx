@@ -37,7 +37,12 @@ import {
   PATH_MARKS,
   QA_VERDICTS,
   STARTING,
+  WITHOUT_CHECKPOINTS_QUESTION,
   agentEvidenceText,
+  assignAgainLabel,
+  assignAgainTitle,
+  isEditorDownError,
+  offersWithoutCheckpoints,
   evidenceText,
   judgeLabel,
   marksOf,
@@ -184,7 +189,7 @@ export interface QaCardActions {
   /** Start playtest, offered on an ended run too: it runs the script again. */
   start?: (o: RunOptions) => Promise<{ run: QaRun }>;
   /** Assign to subagent, for a run whose card is in no session yet. */
-  assign?: () => Promise<{ run: QaRun }>;
+  assign?: (withoutCheckpoints?: boolean) => Promise<{ run: QaRun }>;
   /** Edit and Delete for any saved script: its steps as saved, then pie(script_update) or pie(script_delete). */
   script?: { read: () => Promise<QaRun>; save: (steps: QaScriptStep[], map?: string) => Promise<void>; remove: () => Promise<void> };
 }
@@ -331,12 +336,24 @@ export function QaCard({ run: saved, form: own, onDismiss, actions: outside, met
   const assignment = run.assignment;
   const assigned = assignment?.state === "running";
   const assignSession = run.sessionId ?? live?.sessionId ?? null;
+  /** The editor is down: start it, and clear the error that said so. */
+  const startEditor = () => {
+    api.editor("start").then(() => setError(null), (e: Error) => setError(e.message));
+  };
+  const runAssign = (withoutCheckpoints: boolean): Promise<void> =>
+    (assigned ? api.qaCancelAssign(run.runId)
+      : outside?.assign && !run.sessionId ? (withoutCheckpoints ? outside.assign(true) : outside.assign())
+      : withoutCheckpoints ? api.qaAssign(run.runId, run.sessionId ? null : assignSession, true)
+      : api.qaAssign(run.runId, run.sessionId ? null : assignSession))
+      .then((r) => setRun((c) => (r.run.runId === c.runId ? newerRun(r.run, c) : r.run)), (e: Error) => {
+        // Checkpoints off: the loop can still run, once the user has agreed that nothing can be reverted.
+        if (!assigned && !withoutCheckpoints && offersWithoutCheckpoints(e) && window.confirm(WITHOUT_CHECKPOINTS_QUESTION)) return runAssign(true);
+        setError(e.message);
+      });
   const toggleAssign = () => {
     setAssigning(true);
     setError(null);
-    (assigned ? api.qaCancelAssign(run.runId) : outside?.assign && !run.sessionId ? outside.assign() : api.qaAssign(run.runId, run.sessionId ? null : assignSession))
-      .then((r) => setRun((c) => (r.run.runId === c.runId ? newerRun(r.run, c) : r.run)), (e: Error) => setError(e.message))
-      .finally(() => setAssigning(false));
+    void runAssign(false).finally(() => setAssigning(false));
   };
 
   /** End loop on a loop that is waiting for the user: it is closed, and no longer needs them. */
@@ -407,7 +424,7 @@ export function QaCard({ run: saved, form: own, onDismiss, actions: outside, met
   const stopButton = stoppable && <IconButton label={`Stop playtest ${run.scriptName}`} disabled={working || !!offline} title={offline ?? "Stop: end the run now"} onClick={stop} glyph={GLYPH.stop} />;
   const cancelAssigned = assigned && <IconButton label={assignment?.loop ? "End the loop" : "Cancel the subagent"} disabled={assigning || !!offline} title={offline} onClick={toggleAssign} glyph={GLYPH.cancel} />;
   const assignButton = canAssign && !assigned
-    ? <IconButton label={needsYouLoop ? "Assign again" : "Assign to subagent"} disabled={assigning || !!offline} onClick={toggleAssign} title={offline ?? "Assign to subagent: it runs the playtest, fixes what fails and runs it again until every step passes, or stops and asks for you"} glyph={GLYPH.assign} />
+    ? <IconButton label={needsYouLoop ? assignAgainLabel(needsYouLoop) : "Assign to subagent"} disabled={assigning || !!offline} onClick={toggleAssign} title={offline ?? assignAgainTitle(needsYouLoop ?? undefined)} glyph={GLYPH.assign} />
     // Greyed out, not missing: a press says why under the card, where a touch screen shows it too.
     : assignWaits && <IconButton label="Assign to subagent" title={assignWaits} waiting expanded={whyAssign} onClick={() => setWhyAssign(!whyAssign)} glyph={GLYPH.assign} />;
   const endLoop = needsYouLoop && <IconButton label="End loop" disabled={assigning || !!offline} title={offline ?? "End loop: it stops waiting for you, and its attempts stay to review and revert"} onClick={closeLoop} glyph={GLYPH.cancel} />;
@@ -519,7 +536,12 @@ export function QaCard({ run: saved, form: own, onDismiss, actions: outside, met
           </div>
         )}
         {whyAssign && assignWaits && <div className="qa-waits small dim" role="note">{assignWaits}</div>}
-        {error && panel !== "edit" && <div className="banner bad small">{error}</div>}
+        {error && panel !== "edit" && (
+          <div className="banner bad small">
+            {error}
+            {isEditorDownError(error) && <> <button className="small-button" onClick={startEditor}>Start the editor</button></>}
+          </div>
+        )}
       </div>
       {open && <div className="qa-body-wrap">
       <div className="qa-body" id={`qa-body-${run.runId}`} ref={body}>

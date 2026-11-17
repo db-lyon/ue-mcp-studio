@@ -57,7 +57,7 @@ import {
   type QaVerdict,
   type RestoreOutcome,
 } from "@ue-mcp-studio/shared";
-import { PlaytestLoop, attentionText, type LoopCheckpoints } from "./playtest-loop.js";
+import { NO_CHECKPOINTS, PlaytestLoop, attentionText, carryOf, type LoopCheckpoints } from "./playtest-loop.js";
 import { type ElicitParams, type ElicitResult, type FormBroker } from "./forms.js";
 import type { SessionStore } from "./sessions.js";
 import type { AgentHost } from "./tools.js";
@@ -551,7 +551,7 @@ export class QaBroker {
    * the user has open for a run started elsewhere. Without checkpoints the
    * loop does not start, and the answer says why.
    */
-  async assign(runId: string, body: unknown): Promise<{ run: QaRun } | { error: string; status: number }> {
+  async assign(runId: string, body: unknown): Promise<{ run: QaRun } | { error: string; status: number; withoutCheckpoints?: true }> {
     const run = this.runs.get(runId);
     if (!run) return { error: `Studio has no run ${runId}`, status: 404 };
     const asked = (body as { sessionId?: unknown } | undefined)?.sessionId;
@@ -562,12 +562,17 @@ export class QaBroker {
     if (run.assignment?.state === "running") return { error: "a subagent is already running this playtest", status: 409 };
     const support = this.o.loop;
     const why = !support ? "Assign to subagent needs checkpoints, and this Studio has none to give it." : support.blocked?.(sessionId) ?? null;
-    if (why) return { error: `The loop did not start. ${why}`, status: 409 };
+    // Checkpoints guard the project's files. Without them the loop can still run, once the user has said they accept that.
+    const unguarded = (body as { withoutCheckpoints?: unknown } | undefined)?.withoutCheckpoints === true;
+    if (why && !unguarded) return { error: `The loop did not start. ${why} It can run without checkpoints, but then nothing it changes can be reverted.`, status: 409, withoutCheckpoints: true };
+    let checkpoints = why ? NO_CHECKPOINTS : support!.checkpoints;
     let baseline: string;
     try {
-      baseline = (await support!.checkpoints.checkpoint(`Playtest ${run.scriptName}: before the loop`)).id;
+      baseline = (await checkpoints.checkpoint(`Playtest ${run.scriptName}: before the loop`)).id;
     } catch (e) {
-      return { error: `The loop did not start: its first checkpoint failed. ${e instanceof Error ? e.message : String(e)}`, status: 409 };
+      if (!unguarded) return { error: `The loop did not start: its first checkpoint failed. ${e instanceof Error ? e.message : String(e)} It can run without checkpoints, but then nothing it changes can be reverted.`, status: 409, withoutCheckpoints: true };
+      baseline = "";
+      checkpoints = NO_CHECKPOINTS;
     }
     const current = this.runs.get(runId) ?? run;
     const loop = new PlaytestLoop({
@@ -580,7 +585,8 @@ export class QaBroker {
         save: (id, l, state, callId) => this.saveLoop(id, l, state, callId),
         transcript: (sid) => this.o.store.get(sid)?.transcript ?? [],
       },
-      checkpoints: support!.checkpoints,
+      checkpoints,
+      carry: carryOf(run.assignment?.loop),
       agents: { assign: (sid, d, p) => assigner.assign(sid, d, p), stop: (sid, c) => assigner.stop(sid, c) },
       events: this.o.host.events,
       projectDir: this.o.host.projectDir,
@@ -882,7 +888,7 @@ export function registerQa(api: DaemonExtensionApi, store: SessionStore, forms?:
   });
   api.route("POST", "/qa/runs/:id/assign", async (req) => {
     const r = await broker.assign(id(req), req.body);
-    return "error" in r ? { status: r.status, body: { error: r.error } } : { body: r };
+    return "error" in r ? { status: r.status, body: { error: r.error, ...(r.withoutCheckpoints ? { withoutCheckpoints: true } : {}) } } : { body: r };
   });
   api.route("POST", "/qa/runs/:id/loop/revert", async (req) => {
     const r = await broker.revertLoop(id(req), req.body);

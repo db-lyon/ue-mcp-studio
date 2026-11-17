@@ -13,7 +13,11 @@ import { Alert, Platform, Pressable, ScrollView, View, type ViewStyle, Text } fr
 import {
   QA_VERDICTS,
   STARTING,
+  WITHOUT_CHECKPOINTS_QUESTION,
   agentEvidenceText,
+  assignAgainLabel,
+  isEditorDownError,
+  offersWithoutCheckpoints,
   cardControls,
   evidenceText,
   expectLine,
@@ -46,7 +50,7 @@ import { StepText } from "./StepText";
 /** What a card drawn outside a session (the Playtests page) does instead of the session's own calls. */
 export interface QaCardActions {
   start?: (o: RunOptions) => Promise<{ run: QaRun }>;
-  assign?: () => Promise<{ run: QaRun }>;
+  assign?: (withoutCheckpoints?: boolean) => Promise<{ run: QaRun }>;
   script?: { read: () => Promise<QaRun>; save: (steps: QaScriptStep[], map?: string) => Promise<void>; remove: () => Promise<void> };
 }
 
@@ -212,12 +216,31 @@ export function QaCard({ run: saved, form: own, onDismiss, actions: outside, met
     open,
   });
 
+  const runAssign = (withoutCheckpoints: boolean): Promise<void> =>
+    (assigned ? api.qaCancelAssign(run.runId)
+      : outside?.assign && !run.sessionId ? (withoutCheckpoints ? outside.assign(true) : outside.assign())
+      : withoutCheckpoints ? api.qaAssign(run.runId, run.sessionId ? null : assignSession, true)
+      : api.qaAssign(run.runId, run.sessionId ? null : assignSession))
+      .then(take, (e: Error) => {
+        // Checkpoints off: the loop can still run, once the user has agreed that nothing can be reverted.
+        if (!assigned && !withoutCheckpoints && offersWithoutCheckpoints(e)) {
+          return new Promise<void>((resolve) => {
+            Alert.alert("Run without checkpoints?", WITHOUT_CHECKPOINTS_QUESTION, [
+              { text: "Cancel", style: "cancel", onPress: () => (setError(e.message), resolve()) },
+              { text: "Run without", onPress: () => void runAssign(true).then(resolve) },
+            ]);
+          });
+        }
+        setError(e.message);
+      });
   const toggleAssign = () => {
     setAssigning(true);
     setError(null);
-    (assigned ? api.qaCancelAssign(run.runId) : outside?.assign && !run.sessionId ? outside.assign() : api.qaAssign(run.runId, run.sessionId ? null : assignSession))
-      .then(take, (e: Error) => setError(e.message))
-      .finally(() => setAssigning(false));
+    void runAssign(false).finally(() => setAssigning(false));
+  };
+  /** The editor is down: start it, and clear the error that said so. */
+  const startEditor = () => {
+    api.editor("start").then(() => setError(null), (e: Error) => setError(e.message));
   };
   const closeLoop = () => {
     setAssigning(true);
@@ -286,7 +309,7 @@ export function QaCard({ run: saved, form: own, onDismiss, actions: outside, met
     );
   if (stoppable) ownActions.push(<IconButton key="stop" label={`Stop playtest ${run.scriptName}`} disabled={working || off} onPress={stop} glyph="stop" />);
   if (assigned) ownActions.push(<IconButton key="cancel" label={assignment?.loop ? "End the loop" : "Cancel the subagent"} disabled={assigning || off} onPress={toggleAssign} glyph="cancel" />);
-  if (canAssign && !assigned) ownActions.push(<IconButton key="assign" label={needsYouLoop ? "Assign again" : "Assign to subagent"} disabled={assigning || off} onPress={toggleAssign} glyph="assign" />);
+  if (canAssign && !assigned) ownActions.push(<IconButton key="assign" label={needsYouLoop ? assignAgainLabel(needsYouLoop) : "Assign to subagent"} disabled={assigning || off} onPress={toggleAssign} glyph="assign" />);
   // Greyed out, not missing: a press says why it waits, as the web's tooltip does.
   else if (assignWaits) ownActions.push(<IconButton key="assign" label="Assign to subagent" style={{ opacity: 0.45 }} onPress={() => Alert.alert("Assign to subagent", assignWaits)} glyph="assign" />);
   if (needsYouLoop) ownActions.push(<IconButton key="end" label="End loop" disabled={assigning || off} onPress={closeLoop} glyph="cancel" />);
@@ -399,6 +422,7 @@ export function QaCard({ run: saved, form: own, onDismiss, actions: outside, met
         {error && panel !== "edit" ? (
           <Banner kind="bad" style={{ marginBottom: 0 }}>
             <T style={[s.small, { color: bannerText(t, "bad") }]}>{error}</T>
+            {isEditorDownError(error) ? <SmallButton title="Start the editor" onPress={startEditor} /> : null}
           </Banner>
         ) : null}
       </View>

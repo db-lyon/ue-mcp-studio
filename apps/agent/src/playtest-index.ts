@@ -46,6 +46,8 @@ export interface PlaytestIndexHost {
 const LIST_TTL_MS = 15_000;
 /** The most results files read, newest first. */
 const MAX_RESULTS = 300;
+/** The most runs a page asking for older ones can read. */
+const MAX_LIMIT = 5000;
 /** The most never-run scripts whose steps are read for the page. */
 const MAX_READS = 60;
 /** How long a bridge without pie(script_runs) is left alone before it is asked again, as after an update. */
@@ -93,7 +95,7 @@ export class PlaytestIndex {
    * The runs ue-mcp lists with pie(script_runs), newest first, or null when
    * there is no editor, or the daemon or the bridge has no such action.
    */
-  private async listedRuns(): Promise<QaRun[] | null> {
+  private async listedRuns(limit: number): Promise<QaRun[] | null> {
     if (this.now() - this.noRunsAction < NO_RUNS_ACTION_MS) return null;
     if (!this.o.host.editors().some((e) => e.connected)) return null;
     let known: boolean | null = null;
@@ -106,7 +108,7 @@ export class PlaytestIndex {
       this.noRunsAction = this.now();
       return null;
     }
-    const r = await this.o.host.callAction("pie", "script_runs", { limit: MAX_RESULTS }).catch(() => null);
+    const r = await this.o.host.callAction("pie", "script_runs", { limit }).catch(() => null);
     const b = r ? answerBody(r) : null;
     if (!b || !Array.isArray(b.runs)) {
       // An editor built before the action answers that it does not know it.
@@ -123,7 +125,7 @@ export class PlaytestIndex {
   }
 
   /** The runs results.json files record, newest first, each read again only when its file changed. */
-  private disk(): QaRun[] {
+  private disk(limit: number): QaRun[] {
     const root = path.join(this.o.host.projectDir, "Saved", "MCPObservations");
     let dirs: Array<{ file: string; mtime: number }>;
     try {
@@ -142,7 +144,7 @@ export class PlaytestIndex {
     }
     dirs.sort((a, b) => b.mtime - a.mtime);
     const runs: QaRun[] = [];
-    for (const { file, mtime } of dirs.slice(0, MAX_RESULTS)) {
+    for (const { file, mtime } of dirs.slice(0, limit)) {
       let hit = this.results.get(file);
       if (!hit || hit.mtime !== mtime) {
         let run: QaRun | null = null;
@@ -178,11 +180,12 @@ export class PlaytestIndex {
   }
 
   /** Every playtest script, each with its newest run, the card to act on, and the session they are in. */
-  async index(opts: { fresh?: boolean } = {}): Promise<PlaytestIndexAnswer> {
+  async index(opts: { fresh?: boolean; limit?: number } = {}): Promise<PlaytestIndexAnswer> {
+    const limit = Math.min(MAX_LIMIT, Math.max(MAX_RESULTS, Math.floor(opts.limit ?? MAX_RESULTS)));
     const listed = await this.scripts(!!opts.fresh);
     const studio = this.o.broker.all().filter((r) => r.script !== "inline");
     const known = new Set(studio.map((r) => r.runId));
-    const recorded = (await this.listedRuns()) ?? this.disk();
+    const recorded = (await this.listedRuns(limit)) ?? this.disk(limit);
     const runs = [...studio, ...recorded.filter((r) => r.script !== "inline" && !known.has(r.runId))];
 
     const byScript = new Map<string, QaRun[]>();
@@ -218,7 +221,8 @@ export class PlaytestIndex {
       });
     }
     entries.sort(playtestOrder);
-    return { playtests: entries, listed: listed !== null };
+    // Runs past the limit are not read; the page offers older ones, up to MAX_LIMIT.
+    return { playtests: entries, listed: listed !== null, ...(recorded.length >= limit && limit < MAX_LIMIT ? { more: true } : {}) };
   }
 
   /**
@@ -284,7 +288,8 @@ function scriptOf(v: unknown): string | null {
 export function registerPlaytestIndex(api: DaemonExtensionApi, index: PlaytestIndex): void {
   api.route("GET", "/qa/playtests", async (req) => {
     const q = (req.query ?? {}) as Record<string, unknown>;
-    return { body: await index.index({ fresh: q.fresh === "1" }) };
+    const limit = Number(q.limit);
+    return { body: await index.index({ fresh: q.fresh === "1", ...(Number.isFinite(limit) && limit > 0 ? { limit } : {}) }) };
   });
   api.route("POST", "/qa/playtests/card", async (req) => {
     const r = await index.card(req.body);

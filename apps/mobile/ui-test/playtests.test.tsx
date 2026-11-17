@@ -169,7 +169,7 @@ describe("QaCard", () => {
     expect(api.qaRevertLoop).toHaveBeenCalledWith(RUNS.loopNeedsYou.runId, undefined);
     press("End loop");
     expect(api.qaCancelAssign).toHaveBeenCalledWith(RUNS.loopNeedsYou.runId);
-    expect(screen.getByLabelText("Assign again")).toBeTruthy();
+    expect(screen.getByLabelText(/^(Assign again|Try again anyway|Continue)$/)).toBeTruthy();
   });
 
   it("draws an away editor's card as last known, its actions off", () => {

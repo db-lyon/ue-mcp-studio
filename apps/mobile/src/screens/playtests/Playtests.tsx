@@ -14,6 +14,7 @@ import {
   PLAYTEST_FILTERS,
   PLAYTEST_RELOAD_MS,
   PLAYTEST_RELOAD_ON,
+  PLAYTEST_RUNS_PAGE,
   defaultPlaytestFilter,
   playtestFilterOf,
   playtestTarget,
@@ -35,12 +36,14 @@ export const FILTER_KEY = "studio.playtests.filter";
 /** What a page of cards reads from the daemon: its recent events and whether its stream is up. */
 export type Daemonish = { events: StreamEvent[]; streaming: boolean };
 
-export function usePlaytestIndex({ events, streaming }: Daemonish): { index: PlaytestIndexAnswer | null; error: string | null; reload: (fresh?: boolean) => void } {
+export function usePlaytestIndex({ events, streaming }: Daemonish): { index: PlaytestIndexAnswer | null; error: string | null; reload: (fresh?: boolean) => void; older?: () => void } {
   const { api } = useProjectNav();
   const [index, setIndex] = useState<PlaytestIndexAnswer | null>(null);
   const [error, setError] = useState<string | null>(null);
+  /** How many runs the page reads; raised by Show older runs and kept for later reads. */
+  const limit = useRef(0);
   const reload = (fresh = false) =>
-    void api.qaPlaytests(fresh).then(
+    void (limit.current ? api.qaPlaytests(fresh, limit.current) : api.qaPlaytests(fresh)).then(
       (r) => {
         setIndex(r);
         setError(null);
@@ -58,7 +61,11 @@ export function usePlaytestIndex({ events, streaming }: Daemonish): { index: Pla
     return () => clearTimeout(timer);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [last?.id]);
-  return { index, error, reload };
+  const older = () => {
+    limit.current = (limit.current || PLAYTEST_RUNS_PAGE) + PLAYTEST_RUNS_PAGE;
+    reload(true);
+  };
+  return { index, error, reload, older };
 }
 
 /** The page on its own, reading the project's events and index itself. */
@@ -75,7 +82,16 @@ export function PlaytestsView({ daemon, index: source, onOpenSession, onChat }: 
   const s = useStyles(styles);
   const insets = useSheetInsets();
   const { events, streaming } = daemon;
-  const { index, error, reload } = source;
+  const { index, error, reload, older } = source;
+  const { api: projectApi } = useProjectNav();
+  const [starting, setStarting] = useState(false);
+  const [startError, setStartError] = useState<string | null>(null);
+  /** The editor is down: start it, and read the list again once it is up. */
+  const startEditor = () => {
+    setStarting(true);
+    setStartError(null);
+    projectApi.editor("start").then(() => reload(true), (e: Error) => setStartError(e.message)).finally(() => setStarting(false));
+  };
   const all = useMemo(() => (index?.playtests ?? []).filter((e) => !e.deleted), [index]);
   const counts = useMemo(() => Object.fromEntries(PLAYTEST_FILTERS.map((f) => [f.id, all.filter((e) => playtestMatches(e, f.id)).length])) as Record<PlaytestFilter, number>, [all]);
   const [picked, setPicked] = useState<PlaytestFilter | null>(null);
@@ -153,6 +169,8 @@ export function PlaytestsView({ daemon, index: source, onOpenSession, onChat }: 
       {index && !index.listed ? (
         <Banner kind="warn" >
           <T style={[s.small, { color: bannerText(t, "warn") }]}>The editor is not connected: scripts that have never run are missing, and runs, verdicts and subagents are unavailable until it is back.</T>
+          <SmallButton title={starting ? "Starting the editor" : "Start the editor"} disabled={starting} onPress={startEditor} />
+          {startError ? <T style={[s.small, { color: bannerText(t, "bad") }]}>{startError}</T> : null}
         </Banner>
       ) : null}
       {!index && !error ? <T style={[s.small, { color: t.c.dim, marginVertical: 13.5 }]}>Loading playtests</T> : null}
@@ -180,6 +198,7 @@ export function PlaytestsView({ daemon, index: source, onOpenSession, onChat }: 
           </RevealContext.Provider>
         </AssetLinksContext.Provider>
       </QaContext.Provider>
+      {index?.more && older ? <SmallButton title="Show older runs" onPress={older} /> : null}
       </View>
     </ScrollView>
     <NavBarBacking />
@@ -224,8 +243,9 @@ export function PlaytestRow({ entry, offline = false, onOpenSession, onChanged }
       onChanged();
       return r;
     },
-    assign: async () => {
-      const r = await api.qaAssign((await card()).runId, null);
+    assign: async (withoutCheckpoints) => {
+      const runId = (await card()).runId;
+      const r = withoutCheckpoints ? await api.qaAssign(runId, null, true) : await api.qaAssign(runId, null);
       onChanged();
       return r;
     },
