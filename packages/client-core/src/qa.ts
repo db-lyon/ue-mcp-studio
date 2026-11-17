@@ -190,8 +190,47 @@ export function loopHeadline(loop: QaLoop): string {
   if (loop.state === "passed") return `Passed after ${plural(n, "attempt")}.`;
   if (loop.state === "stopped") return `The loop was stopped after ${plural(n, "attempt")}. Each attempt's changes can still be reverted.`;
   if (loop.state === "failed") return `The loop stopped on an error: ${loop.error ?? "unknown"}`;
-  return `The loop is paused after ${plural(n, "attempt")}, waiting for you. Assign again to let it go on, or End loop.`;
+  return `The loop is paused after ${plural(n, "attempt")}, waiting for you. ${assignAgainLabel(loop)} to let it go on, or End loop.`;
 }
+
+/**
+ * What the button that starts the loop again says after it stopped for the user.
+ * A loop that used up its attempts is continued; one that stopped on a guard
+ * (no progress, crashes, builds) is tried again anyway. Either goes on from what
+ * still failed, with a fresh budget of attempts.
+ */
+export function assignAgainLabel(loop: QaLoop | undefined): string {
+  const kind = loop?.blocker?.kind;
+  if (kind === "attempts") return "Continue";
+  if (kind === "no_progress" || kind === "crashes" || kind === "builds") return "Try again anyway";
+  return "Assign again";
+}
+
+/** What the button promises, for its tooltip. */
+export function assignAgainTitle(loop: QaLoop | undefined): string {
+  const kind = loop?.blocker?.kind;
+  if (kind === "attempts") return "Continue: more attempts, starting from what still fails";
+  if (kind === "no_progress" || kind === "crashes" || kind === "builds") return "Try again anyway: the subagent goes on from what still fails, with the earlier stop in its brief";
+  return "Assign to subagent: it runs the playtest, fixes what fails and runs it again until every step passes, or stops and asks for you";
+}
+
+/** The query of the Playtests page's index: fresh, and how many runs to read (the default when absent). */
+export const playtestsQuery = (fresh: boolean, limit?: number): string => {
+  const parts = [...(fresh ? ["fresh=1"] : []), ...(limit ? [`limit=${limit}`] : [])];
+  return parts.length ? `?${parts.join("&")}` : "";
+};
+
+/** How many more runs "Show older runs" reads. */
+export const PLAYTEST_RUNS_PAGE = 300;
+
+/** Whether a refused call says it can run without checkpoints once the user agrees. */
+export const offersWithoutCheckpoints = (e: unknown): boolean => (e as { body?: { withoutCheckpoints?: unknown } } | null)?.body?.withoutCheckpoints === true;
+
+/** The question before a loop runs with nothing to revert to. */
+export const WITHOUT_CHECKPOINTS_QUESTION = "Checkpoints are off for this session, so the subagent's changes cannot be reverted. Run the loop without them?";
+
+/** Whether an error is that the editor is down, where Start the editor is the way on. */
+export const isEditorDownError = (message: string | null | undefined): boolean => !!message && /the editor is not connected/i.test(message);
 
 /** The pill a loop puts beside the run's own status. */
 export function loopPill(loop: QaLoop): { text: string; tone: QaPill["tone"] } {

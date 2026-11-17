@@ -71,7 +71,7 @@ import type {
   RemoteStatus,
 } from "@ue-mcp-studio/shared";
 import { alive, fromUeMcp, recordDiag } from "./diag";
-import { notificationsOf, threadQuery, uploadInParts } from "@ue-mcp-studio/client-core";
+import { notificationsOf, playtestsQuery, threadQuery, uploadInParts } from "@ue-mcp-studio/client-core";
 import { FILE_REVEAL_PATH } from "@ue-mcp-studio/shared";
 import type { AgentThreadPage, Notice, NotifyDelivery, NotifyDevice, ProjectNotifyUpdate } from "@ue-mcp-studio/shared";
 import { agentSettingsOf, catalogOf, contextOf, healthOf, installOf, nativeOf, settingsOf } from "./normalize";
@@ -282,7 +282,7 @@ export const api = {
   answerForm: (id: string, answer: { action: "accept"; content: Record<string, unknown> } | { action: "decline" | "cancel" }) =>
     call<void>("POST", `/v1/ext/studio/forms/${encodeURIComponent(id)}`, answer),
   qaRuns: () => call<{ runs: QaRun[] }>("GET", "/v1/ext/studio/qa/runs"),
-  qaPlaytests: (fresh = false) => call<PlaytestIndexAnswer>("GET", `/v1/ext/studio/qa/playtests${fresh ? "?fresh=1" : ""}`),
+  qaPlaytests: (fresh = false, limit?: number) => call<PlaytestIndexAnswer>("GET", `/v1/ext/studio/qa/playtests${playtestsQuery(fresh, limit)}`),
   qaPlaytestCard: (script: string) => call<{ run: QaRun }>("POST", "/v1/ext/studio/qa/playtests/card", { script }),
   qaPlaytestScript: (script: string) => call<{ run: QaRun }>("GET", `/v1/ext/studio/qa/playtests/script?script=${encodeURIComponent(script)}`),
   qaPlaytestSave: (script: string, steps: QaScriptStep[], map?: string) => call<{ script: string }>("PUT", "/v1/ext/studio/qa/playtests/script", { script, steps, ...(map !== undefined ? { map } : {}) }),
@@ -291,8 +291,8 @@ export const api = {
     call<{ answer: Record<string, unknown>; run: QaRun | null }>("GET", `/v1/ext/studio/qa/runs/${encodeURIComponent(runId)}/status${sinceSeq === undefined ? "" : `?since_seq=${sinceSeq}`}`),
   qaVerdict: (runId: string, step: number, verdict: QaVerdict, note?: string) =>
     call<{ run: QaRun }>("POST", `/v1/ext/studio/qa/runs/${encodeURIComponent(runId)}/verdict`, note ? { step, verdict, note } : { step, verdict }),
-  qaAssign: (runId: string, sessionId?: string | null) =>
-    call<{ run: QaRun }>("POST", `/v1/ext/studio/qa/runs/${encodeURIComponent(runId)}/assign`, sessionId ? { sessionId } : {}),
+  qaAssign: (runId: string, sessionId?: string | null, withoutCheckpoints?: boolean) =>
+    call<{ run: QaRun }>("POST", `/v1/ext/studio/qa/runs/${encodeURIComponent(runId)}/assign`, { ...(sessionId ? { sessionId } : {}), ...(withoutCheckpoints ? { withoutCheckpoints } : {}) }),
   qaCancelAssign: (runId: string) => call<{ run: QaRun }>("DELETE", `/v1/ext/studio/qa/runs/${encodeURIComponent(runId)}/assign`),
   qaRevertLoop: (runId: string, attempt?: number) =>
     call<{ run: QaRun; outcome: RestoreOutcome }>("POST", `/v1/ext/studio/qa/runs/${encodeURIComponent(runId)}/loop/revert`, attempt === undefined ? {} : { attempt }),

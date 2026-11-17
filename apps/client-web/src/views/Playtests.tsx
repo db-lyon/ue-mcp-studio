@@ -15,7 +15,7 @@ import {
   type PlaytestIndexAnswer,
   type QaRun,
 } from "@ue-mcp-studio/shared";
-import { PLAYTEST_FILTERS as FILTERS, PLAYTEST_RELOAD_MS as RELOAD_MS, PLAYTEST_RELOAD_ON as RELOAD_ON, defaultPlaytestFilter, playtestFilterOf, playtestTarget, playtestWhen } from "@ue-mcp-studio/client-core";
+import { PLAYTEST_RUNS_PAGE, PLAYTEST_FILTERS as FILTERS, PLAYTEST_RELOAD_MS as RELOAD_MS, PLAYTEST_RELOAD_ON as RELOAD_ON, defaultPlaytestFilter, playtestFilterOf, playtestTarget, playtestWhen } from "@ue-mcp-studio/client-core";
 import { api } from "../api";
 
 export { ranAgo } from "@ue-mcp-studio/client-core";
@@ -34,11 +34,13 @@ function readFilter(): PlaytestFilter | null {
 }
 
 /** The project's playtests, read again as runs change. */
-export function usePlaytestIndex(daemon: Pick<DaemonState, "events" | "streaming">): { index: PlaytestIndexAnswer | null; error: string | null; reload: (fresh?: boolean) => void } {
+export function usePlaytestIndex(daemon: Pick<DaemonState, "events" | "streaming">): { index: PlaytestIndexAnswer | null; error: string | null; reload: (fresh?: boolean) => void; older?: () => void } {
   const [index, setIndex] = useState<PlaytestIndexAnswer | null>(null);
   const [error, setError] = useState<string | null>(null);
+  /** How many runs the page reads; raised by Show older runs and kept for later reads. */
+  const limit = useRef(0);
   const reload = (fresh = false) => {
-    api.qaPlaytests(fresh).then((r) => {
+    (limit.current ? api.qaPlaytests(fresh, limit.current) : api.qaPlaytests(fresh)).then((r) => {
       setIndex(r);
       setError(null);
     }, (e: Error) => setError(e.message));
@@ -57,7 +59,11 @@ export function usePlaytestIndex(daemon: Pick<DaemonState, "events" | "streaming
     const t = setTimeout(() => reload(), RELOAD_MS);
     return () => clearTimeout(t);
   }, [last?.id]);
-  return { index, error, reload };
+  const older = () => {
+    limit.current = (limit.current || PLAYTEST_RUNS_PAGE) + PLAYTEST_RUNS_PAGE;
+    reload(true);
+  };
+  return { index, error, reload, older };
 }
 
 export function PlaytestsView({ daemon, index: source, onOpenSession, onChat }: {
@@ -69,7 +75,15 @@ export function PlaytestsView({ daemon, index: source, onOpenSession, onChat }: 
   /** Go to the Chat tab, where a playtest is asked for. */
   onChat?: () => void;
 }) {
-  const { index, error, reload } = source;
+  const { index, error, reload, older } = source;
+  const [starting, setStarting] = useState(false);
+  const [startError, setStartError] = useState<string | null>(null);
+  /** The editor is down: start it, and read the list again once it is up. */
+  const startEditor = () => {
+    setStarting(true);
+    setStartError(null);
+    api.editor("start").then(() => reload(true), (e: Error) => setStartError(e.message)).finally(() => setStarting(false));
+  };
   // A deleted script is gone from the project, so it is gone from the page.
   const all = useMemo(() => (index?.playtests ?? []).filter((e) => !e.deleted), [index]);
   const counts = useMemo(() => Object.fromEntries(FILTERS.map((f) => [f.id, all.filter((e) => playtestMatches(e, f.id)).length])) as Record<PlaytestFilter, number>, [all]);
@@ -112,7 +126,11 @@ export function PlaytestsView({ daemon, index: source, onOpenSession, onChat }: 
       {rows.length > 0 && <PathLegend runs={rows.map(playtestShown).filter((r): r is QaRun => !!r)} />}
       {error && <div className="banner bad small" role="alert">{error}</div>}
       {index && !index.listed && (
-        <div className="banner warn small">The editor is not connected: scripts that have never run are missing, and runs, verdicts and subagents are unavailable until it is back.</div>
+        <div className="banner warn small">
+          The editor is not connected: scripts that have never run are missing, and runs, verdicts and subagents are unavailable until it is back.
+          {" "}<button className="small-button" disabled={starting} onClick={startEditor}>{starting ? "Starting the editor" : "Start the editor"}</button>
+          {startError && <span className="bad"> {startError}</span>}
+        </div>
       )}
       {!index && !error && <p className="dim small">Loading playtests</p>}
       {index && rows.length === 0 && (all.length === 0 ? (
@@ -129,6 +147,7 @@ export function PlaytestsView({ daemon, index: source, onOpenSession, onChat }: 
         </div>
         </AssetLinksContext.Provider>
       </QaContext.Provider>
+      {index?.more && older && <p><button className="small-button" onClick={older}>Show older runs</button></p>}
     </div>
   );
 }
@@ -156,9 +175,9 @@ export function PlaytestRow({ entry, offline = false, onOpenSession, onChanged }
       onChanged();
       return r;
     },
-    assign: async () => {
+    assign: async (withoutCheckpoints) => {
       const c = await card();
-      const r = await api.qaAssign(c.runId, null);
+      const r = withoutCheckpoints ? await api.qaAssign(c.runId, null, true) : await api.qaAssign(c.runId, null);
       onChanged();
       return r;
     },

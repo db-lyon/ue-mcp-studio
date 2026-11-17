@@ -433,6 +433,55 @@ describe("the hard blockers", () => {
     expect(h.loop()).toMatchObject({ state: "needs_you", blocker: { kind: "attempts", reason: `The playtest still fails after ${MAX_ATTEMPTS} attempts.` } });
     expect(h.loop().attempts).toHaveLength(MAX_ATTEMPTS);
   });
+
+  it("Continue after the attempts ran out goes on from what still failed, with a fresh budget", async () => {
+    const plan: Attempt[] = [
+      ...Array.from({ length: MAX_ATTEMPTS }, (_, i) => ({ run: [{ status: "failed", evidence: { at_end: 10, reason: `x${i}` } } as StepState, PASS], files: { a: String(i) } })),
+      { files: { "Content/BP_Door.uasset": "v2" }, run: [PASS, PASS] },
+    ];
+    const h = setup(plan);
+    await assign(h);
+    await ended(h);
+    expect(h.loop().blocker?.kind).toBe("attempts");
+    const again = await h.broker.assign(h.card().runId, {});
+    if ("error" in again) throw new Error(again.error);
+    await until(() => h.prompts.length > MAX_ATTEMPTS && h.loop().state !== "running");
+    expect(h.loop().state).toBe("passed");
+    // It starts by fixing, not by only running, and carries why the earlier loop stopped.
+    const first = h.prompts[MAX_ATTEMPTS];
+    expect(first).not.toMatch(/only run the playtest/);
+    expect(first).toMatch(/An earlier loop made 8 attempts and stopped: The playtest still fails after 8 attempts\./);
+    expect(first).toMatch(/x7/);
+  });
+
+  it("Try again anyway after no progress does not stop on the same failure again at once", async () => {
+    const same = { run: [OPEN_FAIL, PASS] as StepState[], files: { a: "1" } };
+    const h = setup([{ run: [OPEN_FAIL, PASS] }, same, { ...same, files: { a: "2" } }, { files: { b: "1" }, run: [PASS, PASS] }]);
+    await assign(h);
+    await ended(h);
+    expect(h.loop().blocker?.kind).toBe("no_progress");
+    const again = await h.broker.assign(h.card().runId, {});
+    if ("error" in again) throw new Error(again.error);
+    await until(() => h.prompts.length > 3 && h.loop().state !== "running");
+    expect(h.loop().state).toBe("passed");
+    expect(h.prompts[2]).toMatch(/An earlier loop made 2 attempts and stopped: No progress/);
+  });
+});
+
+describe("a session with no checkpoints", () => {
+  it("asks first, then runs the loop without them once the user says so, with nothing to revert", async () => {
+    const h = setup([{ run: [PASS, PASS] }]);
+    support.blocked = () => "Review is off for this session.";
+    const refused = await h.broker.assign(`${BASE}00`, {});
+    expect(refused).toMatchObject({ status: 409, withoutCheckpoints: true, error: expect.stringMatching(/Review is off.*without checkpoints/) });
+    const r = await h.broker.assign(`${BASE}00`, { withoutCheckpoints: true });
+    if ("error" in r) throw new Error(r.error);
+    await ended(h);
+    expect(h.loop()).toMatchObject({ state: "passed", baseline: "" });
+    expect(h.loop().attempts[0].after).toBe("");
+    expect(support.marks).toEqual([]);
+    expect(await h.broker.revertLoop(h.card().runId, {})).toMatchObject({ status: 409, error: "nothing to revert" });
+  });
 });
 
 describe("Cancel and revert", () => {

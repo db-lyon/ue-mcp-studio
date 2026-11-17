@@ -54,6 +54,8 @@ export interface PlaytestIndexAnswer {
   playtests: PlaytestEntry[];
   /** Whether the editor listed the project's scripts; without it, scripts that never ran are missing. */
   listed: boolean;
+  /** Older runs than the page read exist: ask again with a larger limit. */
+  more?: boolean;
 }
 
 /** The run a page row shows: the newest run, else the card, else the saved script. */

@@ -146,6 +146,17 @@ describe("the project's playtests", () => {
     expect(r.playtests.some((e) => e.script === "inline")).toBe(false);
   });
 
+  it("reads more than 300 runs when the page asks for older ones, and says when there are more", async () => {
+    const { index } = setup();
+    scriptRuns = ok({ runs: [{ ...runAnswer("jump_listed", JUMP, "finished", ["passed"]), started_at: "2026-10-25T03:00:00.000Z" }] });
+    expect((await index.index()).more).toBeUndefined();
+    await index.index({ limit: 900 });
+    expect(calls.filter((c) => c.action === "script_runs").map((c) => c.args)).toEqual([{ limit: 300 }, { limit: 900 }]);
+    // A full page means older runs may exist.
+    scriptRuns = ok({ runs: Array.from({ length: 300 }, (_, i) => ({ ...runAnswer(`jump_${i}`, JUMP, "finished", ["passed"]), started_at: `2026-10-25T03:${String(i % 60).padStart(2, "0")}:00.000Z` })) });
+    expect((await index.index()).more).toBe(true);
+  });
+
   it("takes the runs ue-mcp lists with pie(script_runs) when the bridge has it, over the results files", async () => {
     const { index } = setup();
     results("jump_file", JUMP, "finished", ["failed", "failed"], "2026-10-25T00:00:00.000Z");

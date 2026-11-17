@@ -5,6 +5,7 @@
  */
 import type { AssetOpenResponse, AssetRef, AssetResolveResponse, BusyState, FlowListing, FlowRunRequest, PendingForm, PlaytestIndexAnswer, QaRun, QaScriptStep, QaVerdict, RestoreOutcome } from "@ue-mcp-studio/shared";
 import { requestJson, type Transport } from "./transport.js";
+import { playtestsQuery } from "./qa.js";
 import type { EditorOp } from "./editor.js";
 import type { RunOptions } from "./qa.js";
 
@@ -30,14 +31,14 @@ export function projectApi(t: Transport) {
     forms: (sessionId: string) => get<{ forms: PendingForm[] }>(`${S}/forms?session=${enc(sessionId)}`),
     answerForm: (id: string, answer: FormAnswer) => send<void>("POST", `${S}/forms/${enc(id)}`, answer),
     qaRuns: () => get<{ runs: QaRun[] }>(`${S}/qa/runs`),
-    qaPlaytests: (fresh = false) => get<PlaytestIndexAnswer>(`${S}/qa/playtests${fresh ? "?fresh=1" : ""}`),
+    qaPlaytests: (fresh = false, limit?: number) => get<PlaytestIndexAnswer>(`${S}/qa/playtests${playtestsQuery(fresh, limit)}`),
     qaPlaytestCard: (script: string) => send<{ run: QaRun }>("POST", `${S}/qa/playtests/card`, { script }),
     qaPlaytestScript: (script: string) => get<{ run: QaRun }>(`${S}/qa/playtests/script?script=${enc(script)}`),
     qaPlaytestSave: (script: string, steps: QaScriptStep[], map?: string) => send<{ script: string }>("PUT", `${S}/qa/playtests/script`, { script, steps, ...(map !== undefined ? { map } : {}) }),
     qaPlaytestDelete: (script: string) => send<{ script: string }>("DELETE", `${S}/qa/playtests/script?script=${enc(script)}`),
     qaStatus: (runId: string, sinceSeq?: number) => get<{ answer: Record<string, unknown>; run: QaRun | null }>(`${runPath(runId)}/status${sinceSeq === undefined ? "" : `?since_seq=${sinceSeq}`}`),
     qaVerdict: (runId: string, step: number, verdict: QaVerdict, note?: string) => send<{ run: QaRun }>("POST", `${runPath(runId)}/verdict`, note ? { step, verdict, note } : { step, verdict }),
-    qaAssign: (runId: string, sessionId?: string | null) => send<{ run: QaRun }>("POST", `${runPath(runId)}/assign`, sessionId ? { sessionId } : {}),
+    qaAssign: (runId: string, sessionId?: string | null, withoutCheckpoints?: boolean) => send<{ run: QaRun }>("POST", `${runPath(runId)}/assign`, { ...(sessionId ? { sessionId } : {}), ...(withoutCheckpoints ? { withoutCheckpoints } : {}) }),
     qaCancelAssign: (runId: string) => send<{ run: QaRun }>("DELETE", `${runPath(runId)}/assign`),
     qaRevertLoop: (runId: string, attempt?: number) => send<{ run: QaRun; outcome: RestoreOutcome }>("POST", `${runPath(runId)}/loop/revert`, attempt === undefined ? {} : { attempt }),
     qaStop: (runId: string) => send<{ run: QaRun }>("POST", `${runPath(runId)}/stop`),
