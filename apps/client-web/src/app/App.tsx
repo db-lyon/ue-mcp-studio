@@ -23,6 +23,12 @@ export interface Machine {
   report: MachineReport | null;
   /** The report shown is an earlier one, because this read failed. */
   stale: boolean;
+  /**
+   * The report shown came from a read this session. Until then (the list from
+   * the last run, or a failed read) its editor state and updates are unverified
+   * and are drawn as checking or unknown, never as fact.
+   */
+  verified: boolean;
   live: Record<string, Live> | null;
   loading: boolean;
   /** When the report shown was read (ms), or null before the first read of this session answers. */
@@ -201,7 +207,7 @@ function useMachine(): Machine {
   );
 
   return {
-    state, answer, report, stale, live, loading, readAt, newest, refresh, refreshNode, refreshNewest,
+    state, answer, report, stale, verified: fresh, live, loading, readAt, newest, refresh, refreshNode, refreshNewest,
     updateUeMcp, updated, removeProject, notice, dismissNotice: () => setNotice(null),
   };
 }

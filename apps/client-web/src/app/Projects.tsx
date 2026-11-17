@@ -5,6 +5,7 @@ import { actionsOf, filterProjects, ideButton, ideOpens, listReadAt, nameHint, r
 import { JobOutput } from "./NodeCard";
 import { useBusy } from "./busy";
 import { Busy } from "./BusyLabel";
+import { Unverified } from "./Unverified";
 import { installing,projectActions, useIdes, useWorks, workTitle, type Work } from "./actions";
 
 /** A filter appears once the list is long enough to need one. */
@@ -120,7 +121,7 @@ function ProjectRow({ p, all, m, work, busy, onOpen }: { p: MachineProject; all:
             {hint && <span className="app-row-hint dim">{hint}</span>}
           </button>
           {p.engine.version && <span className="app-engine">UE {p.engine.version}</span>}
-          {u?.pill && <span className={`pill ${u.tone}`} title={u.line}>{u.pill}</span>}
+          {m.verified ? u?.pill && <span className={`pill ${u.tone}`} title={u.line}>{u.pill}</span> : <Unverified m={m} what="updates" className="pill dim" />}
         </div>
         <div className="app-row-path dim small" title={p.dir}>{p.dir}</div>
         {versions.length > 0 && (
@@ -136,12 +137,12 @@ function ProjectRow({ p, all, m, work, busy, onOpen }: { p: MachineProject; all:
         <div className="app-chips">
           {!p.ueMcp.setUp && <span className="app-chip dim">ue-mcp not set up</span>}
           {p.ueMcp.setUp && <DaemonChip p={p} m={m} work={work} act={act} />}
-          {p.editor.running && <span className="app-chip warn">Editor open</span>}
+          {m.verified ? p.editor.running && <span className="app-chip warn">Editor open</span> : <Unverified m={m} what="editor" />}
           {removing && <span className="app-chip dim" role="status"><Busy>Hiding</Busy></span>}
         </div>
       </div>
       <div className="app-row-actions">
-        {u?.via && (
+        {m.verified && u?.via && (
           // View Updates: a Studio project's updates are on its Studio's Updates card; any other project's on its detail here, beside Update.
           <button className="primary" disabled={u.via === "studio" && pending("update")} title={u.line} onClick={() => (u.via === "studio" ? void act.update() : onOpen())}>
             {work?.watching ? <Busy>Updating in Studio</Busy> : pending("update") ? <Busy>{u.via === "studio" ? "Opening" : "Updating"}</Busy> : "View Updates"}
@@ -157,12 +158,12 @@ function ProjectRow({ p, all, m, work, busy, onOpen }: { p: MachineProject; all:
             {pending("install") ? <Busy>Adding Studio</Busy> : "Add Studio"}
           </button>
         )}
-        <button disabled={!!a.launchBlocked || pending("launch")} title={a.launchBlocked ?? undefined} onClick={() => void act.launch()}>
+        <button disabled={!m.verified || !!a.launchBlocked || pending("launch")} title={!m.verified ? "Checking whether the editor is already open" : a.launchBlocked ?? undefined} onClick={() => void act.launch()}>
           {pending("launch") ? <Busy>Starting</Busy> : "Launch editor"}
         </button>
         <RowMenu p={p} act={act} onOpen={onOpen} onRemove={remove} removing={removing} />
       </div>
-      {a.addStudio && p.editor.running && !mine && <p className="app-row-note dim small">{a.addBlocked}</p>}
+      {m.verified && a.addStudio && p.editor.running && !mine && <p className="app-row-note dim small">{a.addBlocked}</p>}
       <WorkPanel p={p} work={work} act={act} />
     </li>
   );

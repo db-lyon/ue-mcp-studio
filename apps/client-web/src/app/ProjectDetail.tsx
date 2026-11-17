@@ -5,6 +5,7 @@ import { actionsOf, channelLabel, listReadAt, nameHint, running, updateHow, upda
 import { connectedTo, installing, projectActions, useWorks } from "./actions";
 import { useBusy } from "./busy";
 import { Busy } from "./BusyLabel";
+import { Unverified } from "./Unverified";
 import { DaemonChip, IdeButton, WorkPanel } from "./Projects";
 
 /** One project: its versions and updates, its daemon with the log, and its editor. */
@@ -33,7 +34,7 @@ export function ProjectDetail({ p, m, onBack }: { p: MachineProject; m: Machine;
             <h1 id="detail-head">{p.name}</h1>
             {hint && <span className="app-row-hint dim">{hint}</span>}
             {p.engine.version && <span className="app-engine">UE {p.engine.version}</span>}
-            {u?.pill && <span className={`pill ${u.tone}`}>{u.pill}</span>}
+            {m.verified ? u?.pill && <span className={`pill ${u.tone}`}>{u.pill}</span> : <Unverified m={m} what="updates" className="pill dim" />}
           </div>
           <p className="app-detail-path dim small">{p.dir}</p>
         </div>
@@ -44,7 +45,7 @@ export function ProjectDetail({ p, m, onBack }: { p: MachineProject; m: Machine;
           {a.addStudio && (
             <button className="primary" disabled={!!a.addBlocked} title={a.addBlocked ?? undefined} onClick={() => void act.addStudio()}>{pending("install") ? <Busy>Adding Studio</Busy> : "Add Studio"}</button>
           )}
-          <button disabled={!!a.launchBlocked || pending("launch")} title={a.launchBlocked ?? undefined} onClick={() => void act.launch()}>{pending("launch") ? <Busy>Starting</Busy> : "Launch editor"}</button>
+          <button disabled={!m.verified || !!a.launchBlocked || pending("launch")} title={!m.verified ? "Checking whether the editor is already open" : a.launchBlocked ?? undefined} onClick={() => void act.launch()}>{pending("launch") ? <Busy>Starting</Busy> : "Launch editor"}</button>
           <IdeButton p={p} act={act} work={work} />
           <button className="ghost" title={`Opens ${p.dir} with ${p.name}.uproject selected`} onClick={act.reveal}>Show in Explorer</button>
         </div>
@@ -57,7 +58,7 @@ export function ProjectDetail({ p, m, onBack }: { p: MachineProject; m: Machine;
           <span className="dim small">Newest on {channel}</span>
           <span className="spacer" />
           {m.readAt !== null && <span className="dim small">{listReadAt(m.readAt)}</span>}
-          <button className="ghost small" disabled={!m.newest || m.loading} onClick={() => { m.refreshNewest(); void m.refresh(); }}>{m.newest && !m.loading ? "Check again" : "Checking"}</button>
+          <button className="ghost small" disabled={!m.newest || m.loading} onClick={() => { m.refreshNewest(); void m.refresh(); }}>{m.newest && !m.loading ? "Check again" : <Busy>Checking</Busy>}</button>
         </div>
         <table className="app-table">
           <thead>
@@ -79,7 +80,7 @@ export function ProjectDetail({ p, m, onBack }: { p: MachineProject; m: Machine;
           </tbody>
         </table>
         {u && <p className="muted small app-card-line">{u.line}</p>}
-        {u && u.waiting.length > 0 && (
+        {m.verified && u && u.waiting.length > 0 && (
           <div className="app-installs">
             <div className="small app-installs-head">What Update installs</div>
             <ul>
@@ -102,7 +103,7 @@ export function ProjectDetail({ p, m, onBack }: { p: MachineProject; m: Machine;
       <div className="app-card">
         <div className="app-card-head"><h2>Editor</h2></div>
         <div className="app-facts small">
-          <span><span className="dim">State</span> {p.editor.running ? `open${p.editor.pids.length ? `, pid ${p.editor.pids.join(", ")}` : ""}` : "not running"}</span>
+          <span><span className="dim">State</span> {!m.verified ? <Unverified m={m} what="editor" className="" /> : p.editor.running ? `open${p.editor.pids.length ? `, pid ${p.editor.pids.join(", ")}` : ""}` : "not running"}</span>
           <span><span className="dim">Engine</span> {p.engine.version ? `UE ${p.engine.version}` : p.engine.association ?? "unknown"}</span>
           <span className="app-facts-wide"><span className="dim">Project file</span> {p.uproject}</span>
         </div>

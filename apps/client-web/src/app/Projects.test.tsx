@@ -105,6 +105,36 @@ describe("a ue-mcp without the projects command", () => {
   });
 });
 
+describe("unverified state", () => {
+  it("draws the last run's editor state and updates as checking until this session's read answers, then as fact", async () => {
+    const open = { ...withStudio, editor: { running: true, pids: [42] } };
+    const h = fakeHost({ reports: [[{ ...withStudio, editor: { running: false, pids: [] } }]] });
+    h.cachedreport.mockResolvedValue(JSON.stringify({ version: 1, ueMcp: "1.4.13", daemonDir: "D", projects: [open], daemons: [] }) as never);
+    let answer!: () => void;
+    const first = h.report.getMockImplementation()!;
+    h.report.mockImplementationOnce(() => new Promise((r) => (answer = () => r(first() as never))));
+    render(<App />);
+    const rows = await projectRows();
+    expect(within(rows[0]).queryByText("Editor open")).toBeNull();
+    expect(within(rows[0]).getByText("Checking editor")).toBeTruthy();
+    expect(within(rows[0]).getByText("Checking updates")).toBeTruthy();
+    expect((within(rows[0]).getByRole("button", { name: "Launch editor" }) as HTMLButtonElement).disabled).toBe(true);
+    answer();
+    await waitFor(() => expect(within(rows[0]).queryByText("Checking editor")).toBeNull());
+    expect(within(rows[0]).queryByText("Editor open")).toBeNull();
+  });
+
+  it("says unknown, not the last value, when this session's read failed", async () => {
+    const open = { ...withStudio, editor: { running: true, pids: [42] } };
+    const h = fakeHost();
+    h.report.mockResolvedValue({ ok: false, reason: "failed", error: "offline", cached: JSON.stringify({ version: 1, ueMcp: "1.4.13", daemonDir: "D", projects: [open], daemons: [] }), cachedAt: "2026-11-11T23:37:00Z" } as never);
+    render(<App />);
+    const rows = await projectRows();
+    await waitFor(() => expect(within(rows[0]).getByText("Editor unknown")).toBeTruthy());
+    expect(within(rows[0]).queryByText("Editor open")).toBeNull();
+  });
+});
+
 describe("Hide this project", () => {
   it("keeps a removed project off an earlier list shown while the read fails", async () => {
     const h = fakeHost();
