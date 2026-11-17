@@ -932,6 +932,9 @@ button.danger-button { color: var(--bad); border-color: var(--bad); }
 .update-actions { display: flex; flex-direction: column; align-items: flex-end; gap: 2px; margin-left: auto; }
 .update-actions .whats-new-open { padding: 2px 0; min-height: 0; border: 0; background: none; color: var(--accent-hi, var(--accent)); font: 500 12px/1.4 var(--sans); }
 .update-actions .whats-new-open:hover:not(:disabled) { background: none; border: 0; color: var(--text); text-decoration: underline; }
+.update-status .check-again-link { padding: 0; min-height: 0; border: 0; background: none; color: var(--accent-hi, var(--accent)); font: inherit; text-decoration: underline; text-underline-offset: 2px; cursor: pointer; }
+.update-status .check-again-link:hover:not(:disabled) { background: none; border: 0; color: var(--text); }
+.update-status .check-again-link:disabled { color: var(--dim, var(--muted)); text-decoration: none; cursor: default; }
 .update-channel { gap: 14px; margin-top: 8px; }
 .update-details { margin-top: 8px; }
 .tab-dot { display: inline-block; width: 6px; height: 6px; margin: 0 0 6px 4px; border-radius: 50%; background: var(--accent); vertical-align: middle; }
