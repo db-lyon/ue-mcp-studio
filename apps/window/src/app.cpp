@@ -213,6 +213,7 @@ std::wstring npxCmd() {
 struct Captured {
   int code = -1;
   bool timedOut = false;
+  std::string detail;
   std::string out;
   std::string err;
 };
@@ -230,9 +231,11 @@ Captured capture(const std::wstring& line, DWORD timeoutMs) {
   Captured c;
   int r = runAndWait(cmdExe(), L"\"" + cmdExe() + L"\" /d /s /c \"" + job::wrap(line, out, exit, err) + L"\"", timeoutMs);
   std::string exitText;
-  readFile(out, c.out);
-  readFile(err, c.err);
+  bool readOut = readFile(out, c.out), readErr = readFile(err, c.err);
   c.timedOut = r < 0;
+  // What a failed read reports, so the cause is in the banner and not a guess: the line that ran and what came back.
+  c.detail = "ran " + narrow(line) + "; cmd.exe returned " + std::to_string(r) + "; stdout " + (readOut ? std::to_string(c.out.size()) + " bytes" : "unreadable") +
+             ", stderr " + (readErr ? std::to_string(c.err.size()) + " bytes" : "unreadable");
   c.code = r < 0 ? -1 : (readFile(exit, exitText) && !exitText.empty() && exitText[0] == '0' ? 0 : 1);
   for (const std::wstring& f : {out, err, exit}) DeleteFileW(f.c_str());
   return c;
@@ -684,10 +687,16 @@ std::string readReport() {
   }
   if (!can) return failed("unsupported", "");
   Captured r = capture(job::npx(npx, spec, L"projects --json"), 120000);
+  if (r.code == 0 && r.out.empty()) r = capture(job::npx(npx, spec, L"projects --json"), 120000);  // a run that exited clean and said nothing is read once more
   json::Value report;
   if (r.code != 0 || !json::parse(r.out, report) || !report.isObject()) {
-    std::string why = r.code == 0 ? "ue-mcp answered, but not with a project list: " + job::failureText(r.out + r.err) : job::whyFailed(r.out + r.err, r.code, r.timedOut, 120);
-    return failed("failed", why);
+    std::string said = job::failureText(r.out + r.err);
+    std::string why = r.code == 0 ? "ue-mcp answered, but not with a project list" + (said.empty() ? std::string(" (it printed nothing)") : ": " + said)
+                                  : job::whyFailed(r.out + r.err, r.code, r.timedOut, 120);
+    makeDirs(dataDir());
+    writeFile(join(dataDir(), L"last-failed-read.out"), r.out);
+    writeFile(join(dataDir(), L"last-failed-read.err"), r.err);
+    return failed("failed", why + " [" + r.detail + "]");
   }
   const json::Value* ver = report.get("version");
   if (!ver || !ver->isNumber() || (int)ver->n != kReportVersion) {
