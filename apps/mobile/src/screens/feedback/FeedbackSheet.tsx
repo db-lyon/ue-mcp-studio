@@ -6,7 +6,7 @@
  */
 import { useBack } from "../../back";
 import { useEffect, useState } from "react";
-import { Linking, Modal, Pressable, ScrollView, TextInput, View } from "react-native";
+import { Linking, Modal, Pressable, ScrollView, StyleSheet, TextInput, View, useWindowDimensions } from "react-native";
 import Svg, { Path } from "react-native-svg";
 import { feedbackLinkOf, type FeedbackReport, type FeedbackResult } from "@ue-mcp-studio/shared";
 import { Banner, Button, Input, Spacer, bannerText, font, T, useSheetInsets, useTheme } from "../../ui";
@@ -20,6 +20,9 @@ export function FeedbackSheet({ onClose, initial }: { onClose: () => void; initi
   const api = useSettingsApi();
   const t = useTheme();
   const insets = useSheetInsets();
+  const { height } = useWindowDimensions();
+  // A number, not a percentage, so the card and its scroll view are bounded on the phone.
+  const cardMax = Math.max(200, height - insets.top - insets.bottom - 16);
   const [kind, setKind] = useState<FeedbackReport["kind"]>("problem");
   const [title, setTitle] = useState(initial?.title ?? "");
   const [description, setDescription] = useState(initial?.description ?? "");
@@ -52,9 +55,11 @@ export function FeedbackSheet({ onClose, initial }: { onClose: () => void; initi
   return (
     <Modal visible transparent animationType="none" onRequestClose={onClose} statusBarTranslucent navigationBarTranslucent>
       {/* Clear of both bars, and of the keyboard while a field has it up. */}
-      <Pressable accessibilityLabel="Close" onPress={onClose} style={{ flex: 1, paddingTop: 8 + insets.top, paddingBottom: 8 + insets.bottom, paddingLeft: 8 + insets.left, paddingRight: 8 + insets.right, alignItems: "center", justifyContent: "center", backgroundColor: "rgba(0, 0, 0, 0.55)" }}>
-        <Pressable accessibilityViewIsModal accessibilityLabel="Send feedback" onPress={() => undefined} style={{ width: "100%", maxWidth: 580, maxHeight: "100%", borderWidth: 1, borderColor: t.c.line, borderRadius: 10, backgroundColor: t.c.panel, shadowColor: "#000", shadowOpacity: 0.45, shadowRadius: 25, shadowOffset: { width: 0, height: 18 } }}>
-          <ScrollView style={pageScroll} contentContainerStyle={{ gap: 12, padding: 16 }} keyboardShouldPersistTaps="handled">
+      {/* The backdrop is a sibling behind the card, never a touchable around the scroll view: on Android a Pressable that holds the responder cancels the scroll inside it. */}
+      <Pressable accessibilityLabel="Close" onPress={onClose} style={[StyleSheet.absoluteFill, { backgroundColor: "rgba(0, 0, 0, 0.55)" }]} />
+      <View pointerEvents="box-none" style={{ flex: 1, paddingTop: 8 + insets.top, paddingBottom: 8 + insets.bottom, paddingLeft: 8 + insets.left, paddingRight: 8 + insets.right, alignItems: "center", justifyContent: "center" }}>
+        <View accessibilityViewIsModal accessibilityLabel="Send feedback" style={{ width: "100%", maxWidth: 580, maxHeight: cardMax, borderWidth: 1, borderColor: t.c.line, borderRadius: 10, backgroundColor: t.c.panel, shadowColor: "#000", shadowOpacity: 0.45, shadowRadius: 25, shadowOffset: { width: 0, height: 18 } }}>
+          <ScrollView style={[{ flexGrow: 0, flexShrink: 1 }, pageScroll]} contentContainerStyle={{ gap: 12, padding: 16 }} nestedScrollEnabled keyboardShouldPersistTaps="handled">
             <T style={[font(t, "sans", 600, 15, 1.2), { color: t.c.text }]}>Send feedback</T>
             {result?.filed ? (
               <>
@@ -146,8 +151,8 @@ export function FeedbackSheet({ onClose, initial }: { onClose: () => void; initi
               </>
             )}
           </ScrollView>
-        </Pressable>
-      </Pressable>
+        </View>
+      </View>
     </Modal>
   );
 }
