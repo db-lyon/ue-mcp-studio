@@ -1480,7 +1480,7 @@ std::string dispatch(int id, const std::string& method, const std::string& arg) 
   }
   if (method == "addproject" || method == "removeproject") {
     std::wstring target = uproject;
-    if (method == "addproject") {
+    if (method == "addproject" && uproject.empty()) {
       target = widen(pickProject());
       if (target.empty()) return "{\"ok\":false,\"cancelled\":true}";
     }

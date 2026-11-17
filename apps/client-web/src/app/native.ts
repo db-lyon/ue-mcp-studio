@@ -141,7 +141,8 @@ export interface AppHost {
   installnode(arg: { consent: "yes" }): Promise<Done>;
   openstudio(arg: { key: string; uproject: string; location?: string }): Promise<Done>;
   launcheditor(arg: { key: string; uproject: string; setUp: boolean }): Promise<Done>;
-  addproject(): Promise<Done>;
+  /** Without a uproject, opens a file picker; with one, adds (shows again) that project. */
+  addproject(arg?: { uproject: string }): Promise<Done>;
   removeproject(arg: { uproject: string }): Promise<Done>;
   readlog(arg: { key: string }): Promise<string>;
   openlog(arg: { key: string }): Promise<boolean>;

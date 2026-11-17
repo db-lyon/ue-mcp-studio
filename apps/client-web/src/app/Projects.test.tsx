@@ -30,7 +30,7 @@ const IDES: IdeInfo = {
   chosen: "vs:afb8a0c3", remembered: "", preferred: "", solution: "C:\\work\\ue-mcp\\tests\\ue_mcp\\ue_mcp.sln", workspace: null, source: true, generate: true,
 };
 
-function fakeHost(o: { newest?: Newest; live?: Record<string, { pid: number; port: number; version: string }>; health?: string; reports?: MachineProject[][]; ides?: IdeInfo; openide?: OpenIde } = {}) {
+function fakeHost(o: { newest?: Newest; live?: Record<string, { pid: number; port: number; version: string }>; health?: string; reports?: MachineProject[][]; ides?: IdeInfo; openide?: OpenIde; hidden?: Array<{ name: string; uproject: string; dir: string }> } = {}) {
   const reports = o.reports ?? [[withStudio, bare]];
   let read = 0;
   const app = {
@@ -39,7 +39,7 @@ function fakeHost(o: { newest?: Newest; live?: Record<string, { pid: number; por
     // Each read answers the next report in the list, then the last one again.
     report: vi.fn(async () => {
       const projects = reports[Math.min(read++, reports.length - 1)];
-      const r: MachineReport = { version: 1, ueMcp: "1.4.13", daemonDir: "D", projects, daemons: [] };
+      const r: MachineReport = { version: 1, ueMcp: "1.4.13", daemonDir: "D", projects, ...(o.hidden ? { hidden: o.hidden } : {}), daemons: [] };
       return { ok: true, report: JSON.stringify(r) };
     }),
     live: vi.fn(async () => o.live ?? {}),
@@ -105,7 +105,7 @@ describe("a ue-mcp without the projects command", () => {
   });
 });
 
-describe("Remove from list", () => {
+describe("Hide this project", () => {
   it("keeps a removed project off an earlier list shown while the read fails", async () => {
     const h = fakeHost();
     const removeproject = vi.fn(async () => ({ ok: true }));
@@ -115,12 +115,12 @@ describe("Remove from list", () => {
     const first = await h.report.mock.results[0].value;
     h.report.mockResolvedValue({ ok: false, reason: "failed", error: "offline", cached: first.report, cachedAt: "2026-11-11T23:37:00Z" } as never);
     fireEvent.click(within(rows[0]).getByRole("button", { name: /more/i }));
-    fireEvent.click(screen.getByRole("menuitem", { name: "Remove from list" }));
+    fireEvent.click(screen.getByRole("menuitem", { name: "Hide this project" }));
     await waitFor(() => expect(removeproject).toHaveBeenCalledWith({ uproject: withStudio.uproject }));
     await waitFor(() => expect(document.querySelectorAll(".app-list > li.app-project")).toHaveLength(1));
   });
 
-  it("shows Removing on the row until the removal resolves, and ignores a second press", async () => {
+  it("shows Hiding on the row until the removal resolves, and ignores a second press", async () => {
     const h = fakeHost();
     let finish!: (v: { ok: boolean }) => void;
     const removeproject = vi.fn(() => new Promise<{ ok: boolean }>((r) => { finish = r; }));
@@ -128,16 +128,16 @@ describe("Remove from list", () => {
     render(<App />);
     const rows = await projectRows();
     fireEvent.click(within(rows[0]).getByRole("button", { name: /more/i }));
-    fireEvent.click(screen.getByRole("menuitem", { name: "Remove from list" }));
-    expect(await within(rows[0]).findByText("Removing")).toBeTruthy();
+    fireEvent.click(screen.getByRole("menuitem", { name: "Hide this project" }));
+    expect(await within(rows[0]).findByText("Hiding")).toBeTruthy();
     expect(rows[0].getAttribute("aria-busy")).toBe("true");
     fireEvent.click(within(rows[0]).getByRole("button", { name: /more/i }));
-    const again = screen.getByRole("menuitem", { name: "Remove from list" }) as HTMLButtonElement;
+    const again = screen.getByRole("menuitem", { name: "Hide this project" }) as HTMLButtonElement;
     expect(again.disabled).toBe(true);
     fireEvent.click(again);
     expect(removeproject).toHaveBeenCalledTimes(1);
     finish({ ok: false });
-    await waitFor(() => expect(within(rows[0]).queryByText("Removing")).toBeNull());
+    await waitFor(() => expect(within(rows[0]).queryByText("Hiding")).toBeNull());
   });
 
   it("says why a removal failed instead of dropping it", async () => {
@@ -146,8 +146,42 @@ describe("Remove from list", () => {
     render(<App />);
     const rows = await projectRows();
     fireEvent.click(within(rows[0]).getByRole("button", { name: /more/i }));
-    fireEvent.click(screen.getByRole("menuitem", { name: "Remove from list" }));
-    expect(await screen.findByText(/could not be removed from the list: npm error code ETARGET/)).toBeTruthy();
+    fireEvent.click(screen.getByRole("menuitem", { name: "Hide this project" }));
+    expect(await screen.findByText(/could not be hidden: npm error code ETARGET/)).toBeTruthy();
+  });
+});
+
+describe("Hidden projects", () => {
+  const gone = { name: "Gone", uproject: "C:/p/Gone/Gone.uproject", dir: "C:/p/Gone" };
+
+  it("is absent with none hidden, and with a report that has no hidden list", async () => {
+    fakeHost();
+    render(<App />);
+    await projectRows();
+    expect(screen.queryByText(/Hidden projects/)).toBeNull();
+    cleanup();
+    fakeHost({ hidden: [] });
+    render(<App />);
+    await projectRows();
+    expect(screen.queryByText(/Hidden projects/)).toBeNull();
+  });
+
+  it("is a collapsed fold with a count, and Show restores through the host then reads again", async () => {
+    const h = fakeHost({ hidden: [gone] });
+    let finish!: (v: { ok: boolean }) => void;
+    const addproject = vi.fn(() => new Promise<{ ok: boolean }>((r) => { finish = r; }));
+    (h as Record<string, unknown>).addproject = addproject;
+    render(<App />);
+    await projectRows();
+    const fold = screen.getByText("Hidden projects (1)").closest("details") as HTMLDetailsElement;
+    expect(fold.open).toBe(false);
+    expect(screen.getByText("Gone")).toBeTruthy();
+    const reads = h.report.mock.calls.length;
+    fireEvent.click(screen.getByRole("button", { name: "Show", hidden: true }));
+    expect(await screen.findByRole("button", { name: "Showing", hidden: true })).toBeTruthy();
+    expect(addproject).toHaveBeenCalledWith({ uproject: gone.uproject });
+    finish({ ok: true });
+    await waitFor(() => expect(h.report.mock.calls.length).toBeGreaterThan(reads));
   });
 });
 

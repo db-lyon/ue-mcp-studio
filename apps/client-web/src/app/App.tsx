@@ -188,7 +188,7 @@ function useMachine(): Machine {
       if (!h) return false;
       const r = await h.removeproject({ uproject: p.uproject });
       if (!r.ok) {
-        setNotice(`${p.name} could not be removed from the list${r.error ? `: ${r.error}` : "."}`);
+        setNotice(`${p.name} could not be hidden${r.error ? `: ${r.error}` : "."}`);
         return false;
       }
       setNotice(null);

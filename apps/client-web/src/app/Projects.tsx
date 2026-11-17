@@ -62,7 +62,40 @@ export function ProjectsView({ m, onOpen }: { m: Machine; onOpen: (key: string) 
           <ProjectRow key={p.key} p={p} all={projects} m={m} work={works[p.key] ?? null} busy={installing(works)} onOpen={() => onOpen(p.key)} />
         ))}
       </ul>
+      <HiddenProjects m={m} />
     </section>
+  );
+}
+
+/** Hidden projects, folded away and quiet: a Show button each puts one back on the list. */
+function HiddenProjects({ m }: { m: Machine }) {
+  const hidden = m.report?.hidden ?? [];
+  const [showing, run] = useBusy();
+  const [failed, setFailed] = useState<string | null>(null);
+  const [which, setWhich] = useState<string | null>(null);
+  if (hidden.length === 0) return null;
+  const show = (uproject: string) =>
+    void run(async () => {
+      setFailed(null);
+      setWhich(uproject);
+      const r = await host()?.addproject({ uproject });
+      if (r && !r.ok) setFailed(r.error ?? "That project could not be shown.");
+      if (r?.ok) await m.refresh();
+    });
+  return (
+    <details className="app-hidden dim small">
+      <summary>Hidden projects ({hidden.length})</summary>
+      {failed && <div className="banner bad small">{failed}</div>}
+      <ul className="app-hidden-list">
+        {hidden.map((h) => (
+          <li key={h.uproject} className="app-hidden-row">
+            <span className="app-hidden-name">{h.name}</span>
+            <span className="app-hidden-path" title={h.dir}>{h.dir}</span>
+            <button className="ghost small" disabled={showing} onClick={() => show(h.uproject)}>{showing && which === h.uproject ? "Showing" : "Show"}</button>
+          </li>
+        ))}
+      </ul>
+    </details>
   );
 }
 
@@ -103,7 +136,7 @@ function ProjectRow({ p, all, m, work, busy, onOpen }: { p: MachineProject; all:
           {!p.ueMcp.setUp && <span className="app-chip dim">ue-mcp not set up</span>}
           {p.ueMcp.setUp && <DaemonChip p={p} m={m} work={work} act={act} />}
           {p.editor.running && <span className="app-chip warn">Editor open</span>}
-          {removing && <span className="app-chip dim" role="status">Removing</span>}
+          {removing && <span className="app-chip dim" role="status">Hiding</span>}
         </div>
       </div>
       <div className="app-row-actions">
@@ -298,7 +331,7 @@ function RowMenu({ p, act, onOpen, onRemove, removing }: { p: MachineProject; ac
           <IdeChoices p={p} info={info} onPick={(id) => { setOpen(false); void act.openIde(id); }} />
           <div className="app-menu-sep" />
           <button role="menuitem" onClick={() => { setOpen(false); onOpen(); }}>Details</button>
-          <button role="menuitem" disabled={removing} onClick={() => { setOpen(false); onRemove(); }}>Remove from list</button>
+          <button role="menuitem" disabled={removing} onClick={() => { setOpen(false); onRemove(); }}>Hide this project</button>
         </div>
       )}
     </div>

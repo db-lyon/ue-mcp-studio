@@ -109,7 +109,7 @@ export function ProjectDetail({ p, m, onBack }: { p: MachineProject; m: Machine;
 
       <div className="row app-detail-foot">
         <span className="spacer" />
-        <button className="ghost small" disabled={removing} onClick={() => void run(() => m.removeProject(p)).then((ok) => ok && onBack())}>{removing ? "Removing" : "Remove from list"}</button>
+        <button className="ghost small" disabled={removing} onClick={() => void run(() => m.removeProject(p)).then((ok) => ok && onBack())}>{removing ? "Hiding" : "Hide this project"}</button>
       </div>
     </section>
   );
