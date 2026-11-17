@@ -1014,13 +1014,18 @@ pre.diff .hunk { color: var(--accent-hi); display: block; }
 /* Feedback: a report for Studio's tracker. */
 .overlay-card.feedback { width: min(580px, 100%); }
 /* What's new: an accordion per part, each release's notes under its version, in the Updates card's type. */
-.overlay-card.whats-new { width: min(680px, 100%); max-height: min(86vh, 100%); gap: 10px; }
+.overlay-card.whats-new { width: min(680px, 100%); max-height: min(86vh, 100%); gap: 10px; overflow: hidden; }
+.overlay-card.whats-new > * { flex: none; }
+/* The head stays put; the parts scroll under it, so long notes can be reached at any height. */
+.overlay-card.whats-new > .whats-new-parts { flex: 1 1 auto; min-height: 0; overflow-y: auto; overscroll-behavior: contain; -webkit-overflow-scrolling: touch; }
 /*
  * Colour marks the levels, not indentation (which costs a phone its width): each part is a box with its
  * header on the lighter --panel-2 and its content on the darker --bg, both full width. A fold inside the
  * notes is a box of its own on the content: header on --panel-2, content back on --panel.
  */
 .whats-new-parts { --wn-caret: 12px; --wn-gap: 8px; --wn-pad: 12px; display: flex; flex-direction: column; gap: 8px; }
+/* A part never gives up height to its neighbours (it clips its own content): the list scrolls instead. */
+.whats-new-parts > * { flex: none; }
 .whats-new-part, .whats-new-fold { border: 1px solid var(--line); border-radius: 8px; overflow: hidden; }
 /* The caret sits on the label's first line however tall the summary is (a touch screen makes it 44px). */
 .whats-new-part > summary, .whats-new-fold > summary { list-style: none; display: flex; align-items: flex-start; gap: var(--wn-gap); cursor: pointer; color: var(--text); line-height: 1.5; background: var(--panel-2); }
