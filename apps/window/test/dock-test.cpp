@@ -516,6 +516,25 @@ int main() {
     CHECK(conn::elapsed(65000) == "1m 05s");
   });
 
+  test("versions compare by semver, a prerelease before its release", [] {
+    CHECK(ueupdate::compareVersion("1.4.14-beta.7", "1.4.14") < 0);
+    CHECK(ueupdate::compareVersion("1.4.14-beta.7", "1.4.14-beta.1") > 0);
+    CHECK(ueupdate::compareVersion("1.4.14-beta.10", "1.4.14-beta.9") > 0);
+    CHECK(ueupdate::compareVersion("1.4.13", "1.4.14-beta.1") < 0);
+    CHECK(ueupdate::compareVersion("1.10.0", "1.9.9") > 0);
+    CHECK(ueupdate::compareVersion("1.4.14", "1.4.14") == 0);
+  });
+
+  test("the projects command is decided by version, prereleases included", [] {
+    CHECK(ueupdate::hasProjectsCommand("1.4.14-beta.1"));
+    CHECK(ueupdate::hasProjectsCommand("1.4.14-beta.7"));
+    CHECK(ueupdate::hasProjectsCommand("1.4.14"));
+    CHECK(ueupdate::hasProjectsCommand("2.0.0"));
+    CHECK(!ueupdate::hasProjectsCommand("1.4.13"));
+    CHECK(!ueupdate::hasProjectsCommand("1.4.14-alpha.1"));
+    CHECK(!ueupdate::hasProjectsCommand("latest"));
+  });
+
   test("the refused screen's update takes only a release version", [] {
     CHECK(ueupdate::validVersion("1.4.11"));
     CHECK(ueupdate::validVersion("1.4.11-beta.8"));

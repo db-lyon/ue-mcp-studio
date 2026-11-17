@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { actionsOf, appUpdateLine, channelLabel, filterProjects, ideButton, ideOpens, installedKey, nameHint, parseReport, running, studioOf, updateHow, updatesOf, uptime, versionsOf, type MachineProject } from "./model";
+import { actionsOf, appUpdateLine, channelLabel, filterProjects, ideButton, ideOpens, installedKey, nameHint, parseReport, running, studioOf, updateHow, updatesOf, updateUeMcpCopy, uptime, versionsOf, withoutRemoved, type MachineProject } from "./model";
 
 const project = (o: Partial<MachineProject> = {}): MachineProject => ({
   name: "Vale",
@@ -150,5 +150,23 @@ describe("the UE-MCP row in Settings", () => {
     expect(appUpdateLine("0.1.35", { ok: true, channel: "stable", version: "0.1.35", newer: false }, "beta", false)).toBe("UE-MCP 0.1.35, the newest on Stable.");
     expect(appUpdateLine("0.1.35", { ok: false, channel: "beta", error: "GitHub's rate limit for release checks was reached." }, "beta", false)).toBe("Could not check Beta: GitHub's rate limit for release checks was reached.");
     expect(appUpdateLine("0.1.35", { ok: true, version: "0.1.36", newer: true }, "beta", true)).toBe("Installing. UE-MCP restarts when it is done.");
+  });
+
+  it("an earlier report shown while a read fails leaves out the projects removed since", () => {
+    const report = { version: 1 as const, ueMcp: "1.4.14", daemonDir: "d", projects: [project(), project({ name: "Harbor", key: "1111111111111111" })], daemons: [] };
+    expect(withoutRemoved(report, ["0e9f3c9aae1e89bb"])?.projects.map((p) => p.name)).toEqual(["Harbor"]);
+    expect(withoutRemoved(report, [])).toBe(report);
+    expect(withoutRemoved(null, ["x"])).toBeNull();
+  });
+
+  it("the update screen names the installed and needed ue-mcp in plain words, with an update that does it", () => {
+    const c = updateUeMcpCopy("1.4.11", "1.4.14-beta.1", false);
+    expect(c.heading).toBe("Update ue-mcp to see your projects");
+    expect(c.body).toBe("ue-mcp 1.4.11 is installed. Listing your projects needs ue-mcp 1.4.14-beta.1 or newer.");
+    expect(c.action).toBe("Update ue-mcp");
+    const after = updateUeMcpCopy("1.4.11", "1.4.14-beta.1", true);
+    expect(after.body).toContain("still the newest on your release channel");
+    expect(after.action).toBe("Open Settings");
+    expect(c.heading).not.toMatch(/UE-MCP needs/);
   });
 });

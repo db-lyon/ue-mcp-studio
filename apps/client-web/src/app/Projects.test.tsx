@@ -81,10 +81,53 @@ describe("a report this app cannot read", () => {
     const h = fakeHost();
     h.report.mockResolvedValue({ ok: false, reason: "version", ueMcp: "ue-mcp@2.0.0" } as never);
     render(<App />);
-    await screen.findByRole("heading", { name: "UE-MCP needs a newer ue-mcp" });
+    await screen.findByRole("heading", { name: "Update UE-MCP to see your projects" });
     expect(screen.getByRole("button", { name: "Check again" })).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: "Update UE-MCP" }));
     await waitFor(() => expect(document.querySelector(".app-nav-item.active")?.textContent).toContain("Settings"));
+  });
+});
+
+describe("a ue-mcp without the projects command", () => {
+  it("names the installed and needed versions, and Update ue-mcp fetches the newest and reads the list with it", async () => {
+    const h = fakeHost();
+    const ok = h.report.getMockImplementation()!;
+    h.report.mockResolvedValueOnce({ ok: false, reason: "unsupported", ueMcp: "ue-mcp@1.4.13", need: "1.4.14-beta.1" } as never);
+    const updateuemcp = vi.fn(ok);
+    (h as Record<string, unknown>).updateuemcp = updateuemcp;
+    render(<App />);
+    await screen.findByRole("heading", { name: "Update ue-mcp to see your projects" });
+    expect(screen.getByText("ue-mcp 1.4.13 is installed. Listing your projects needs ue-mcp 1.4.14-beta.1 or newer.")).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Update ue-mcp" }));
+    await waitFor(() => expect(updateuemcp).toHaveBeenCalled());
+    expect(await projectRows()).toHaveLength(2);
+    expect(screen.queryByRole("heading", { name: "Update ue-mcp to see your projects" })).toBeNull();
+  });
+});
+
+describe("Remove from list", () => {
+  it("keeps a removed project off an earlier list shown while the read fails", async () => {
+    const h = fakeHost();
+    const removeproject = vi.fn(async () => ({ ok: true }));
+    (h as Record<string, unknown>).removeproject = removeproject;
+    render(<App />);
+    const rows = await projectRows();
+    const first = await h.report.mock.results[0].value;
+    h.report.mockResolvedValue({ ok: false, reason: "failed", error: "offline", cached: first.report, cachedAt: "2026-11-11T23:37:00Z" } as never);
+    fireEvent.click(within(rows[0]).getByRole("button", { name: /more/i }));
+    fireEvent.click(screen.getByRole("menuitem", { name: "Remove from list" }));
+    await waitFor(() => expect(removeproject).toHaveBeenCalledWith({ uproject: withStudio.uproject }));
+    await waitFor(() => expect(document.querySelectorAll(".app-list > li.app-project")).toHaveLength(1));
+  });
+
+  it("says why a removal failed instead of dropping it", async () => {
+    const h = fakeHost();
+    (h as Record<string, unknown>).removeproject = vi.fn(async () => ({ ok: false, error: "npm error code ETARGET" }));
+    render(<App />);
+    const rows = await projectRows();
+    fireEvent.click(within(rows[0]).getByRole("button", { name: /more/i }));
+    fireEvent.click(screen.getByRole("menuitem", { name: "Remove from list" }));
+    expect(await screen.findByText(/could not be removed from the list: npm error code ETARGET/)).toBeTruthy();
   });
 });
 

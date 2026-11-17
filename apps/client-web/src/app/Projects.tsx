@@ -292,7 +292,7 @@ function RowMenu({ p, m, act, onOpen }: { p: MachineProject; m: Machine; act: Ac
           <IdeChoices p={p} info={info} onPick={(id) => { setOpen(false); void act.openIde(id); }} />
           <div className="app-menu-sep" />
           <button role="menuitem" onClick={() => { setOpen(false); onOpen(); }}>Details</button>
-          <button role="menuitem" onClick={() => { setOpen(false); void host()?.removeproject({ uproject: p.uproject }).then(() => m.refresh()); }}>Remove from list</button>
+          <button role="menuitem" onClick={() => { setOpen(false); void m.removeProject(p); }}>Remove from list</button>
         </div>
       )}
     </div>

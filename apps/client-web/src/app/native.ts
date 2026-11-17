@@ -25,6 +25,8 @@ export interface ReportAnswer {
   error?: string;
   /** The ue-mcp package spec the host ran. */
   ueMcp?: string;
+  /** The oldest ue-mcp with the projects command. */
+  need?: string;
   /** The last good report, when this read failed. */
   cached?: string;
   cachedAt?: string;
@@ -125,6 +127,8 @@ export interface AppHost {
   getstate(): Promise<HostState>;
   refreshnode(): Promise<HostState>;
   report(): Promise<ReportAnswer>;
+  /** Ask npm for the channel's newest ue-mcp again and read the report with it. Older hosts lack it. */
+  updateuemcp?(): Promise<ReportAnswer>;
   /** The last report read, as its JSON, or null. */
   cachedreport(): Promise<string | null>;
   job(id: number): Promise<JobState>;

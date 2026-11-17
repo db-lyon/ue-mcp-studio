@@ -650,22 +650,35 @@ std::string readReport() {
   if (npx.empty()) return failed("node", "");
   std::wstring spec = resolvedSpec();
   v.set("ueMcp", json::Value::str(narrow(spec)));
-  bool known, can = false;
-  {
-    std::lock_guard<std::mutex> g(gLock);
-    known = gCanReport.count(spec) > 0;
-    if (known) can = gCanReport[spec];
-  }
-  if (!known) {
-    // An older ue-mcp takes an unknown first word for a project and starts a server, so ask its help first.
-    Captured h = capture(job::npx(npx, spec, L"help"), 120000);
-    if (h.code != 0 && h.out.empty()) return failed("failed", job::failureText(h.out + h.err));
-    for (const std::string& l : job::lines(h.out)) {
-      size_t i = l.find_first_not_of(' ');
-      if (i != std::string::npos && l.compare(i, 9, "projects ") == 0) can = true;
+  v.set("need", json::Value::str(ueupdate::kProjectsSince));
+  // A release spec is decided by its version: 1.4.14-beta.1 and later have the
+  // command, prereleases included. Only another spec (a dev tarball) is asked.
+  std::string exact = narrow(spec).rfind("ue-mcp@", 0) == 0 ? narrow(spec).substr(7) : std::string();
+  bool can = false;
+  if (ueupdate::validVersion(exact)) {
+    can = ueupdate::hasProjectsCommand(exact);
+  } else {
+    bool known;
+    {
+      std::lock_guard<std::mutex> g(gLock);
+      known = gCanReport.count(spec) > 0;
+      if (known) can = gCanReport[spec];
     }
-    std::lock_guard<std::mutex> g(gLock);
-    gCanReport[spec] = can;
+    if (!known) {
+      // An older ue-mcp takes an unknown first word for a project and starts a server, so ask its help first.
+      // Only help that ran and listed its commands decides; any other run is a failure with its own error, never "missing".
+      Captured h = capture(job::npx(npx, spec, L"help"), 120000);
+      bool listed = false;
+      for (const std::string& l : job::lines(h.out)) {
+        size_t i = l.find_first_not_of(' ');
+        if (i == std::string::npos) continue;
+        if (l.compare(i, 9, "Commands:") == 0) listed = true;
+        if (l.compare(i, 9, "projects ") == 0) can = true;
+      }
+      if (h.code != 0 || !listed) return failed("failed", job::failureText(h.out + h.err));
+      std::lock_guard<std::mutex> g(gLock);
+      gCanReport[spec] = can;
+    }
   }
   if (!can) return failed("unsupported", "");
   Captured r = capture(job::npx(npx, spec, L"projects --json"), 120000);
@@ -1338,6 +1351,19 @@ std::string dispatch(int id, const std::string& method, const std::string& arg) 
     later(id, readReport);
     return {};
   }
+  if (method == "updateuemcp") {
+    // The version is resolved once a session; this asks npm for the channel's newest again, then reads with it.
+    later(id, [] {
+      {
+        std::lock_guard<std::mutex> g(gLock);
+        gResolved = false;
+        gExact.clear();
+        gCanReport.clear();
+      }
+      return readReport();
+    });
+    return {};
+  }
   if (method == "cachedreport") {
     // The last report read, shown at once while a new one is read.
     std::string cached;
@@ -1554,7 +1580,7 @@ const wchar_t* kShim = LR"JS((function () {
       done(d.result);
     }
   });
-  var names = ["getstate", "refreshnode", "report", "cachedreport", "job", "daemon", "live", "install", "startdaemon", "stopdaemon", "updatebridge",
+  var names = ["getstate", "refreshnode", "report", "updateuemcp", "cachedreport", "job", "daemon", "live", "install", "startdaemon", "stopdaemon", "updatebridge",
     "installnode", "openstudio", "launcheditor", "addproject", "removeproject", "readlog", "openlog", "openfolder", "openurl",
     "ides", "openide", "projectfiles", "reveal",
     "getchannel", "setchannel", "appupdate", "newest", "setup", "launch", "close"];
