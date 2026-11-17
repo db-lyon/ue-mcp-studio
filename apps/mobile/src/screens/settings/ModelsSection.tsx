@@ -198,6 +198,7 @@ function EndpointsCard() {
   const [list, setList] = useState<CustomEndpoint[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [absent, setAbsent] = useState(false);
+  const [busy, setBusy] = useState<string | null>(null);
   const load = () =>
     api.endpoints().then(
       (r) => {
@@ -207,6 +208,20 @@ function EndpointsCard() {
       (e: Error) => (notThere(e) ? setAbsent(true) : setError(e.message)),
     );
   useEffect(() => void load(), [api]);
+  // Reading a list again changes no setting, so the computer lets a paired phone do it.
+  const readModels = (id: string) => {
+    setBusy(id);
+    api.listEndpointModels(id).then(
+      () => {
+        setBusy(null);
+        void load();
+      },
+      (e: Error) => {
+        setBusy(null);
+        setError(e.message);
+      },
+    );
+  };
   if (absent) return null;
   return (
     <Card>
@@ -235,9 +250,12 @@ function EndpointsCard() {
               <PathText p={e.baseUrl} dim />
             </View>
             {e.listError ? (
-              <Txt size={12} tone="warn" style={{ marginTop: 4 }}>
-                Could not read its models: {e.listError}. {e.models.length ? "Showing the saved list and context windows." : "Add them in Edit."}
-              </Txt>
+              <View style={{ marginTop: 4, flexDirection: "row", flexWrap: "wrap", alignItems: "center", gap: 8 }}>
+                <Txt size={12} tone="warn" style={{ flex: 1, minWidth: 0 }}>
+                  Could not read its models: {e.listError}. {e.models.length ? "Showing the saved list and context windows." : "Add them in Edit."}
+                </Txt>
+                <Button title="Retry" disabled={busy === e.id} onPress={() => readModels(e.id)} />
+              </View>
             ) : null}
             {e.models.length > 0 ? (
               <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 4, marginTop: 6 }}>
@@ -248,7 +266,7 @@ function EndpointsCard() {
             ) : null}
           </View>
           <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 6, width: "100%", paddingLeft: 22 }}>
-            <Button title="Read models" disabled />
+            <Button title={busy === e.id ? "Reading" : "Read models"} disabled={busy === e.id} onPress={() => readModels(e.id)} />
             <Button title="Edit" disabled />
             <Button title="Remove" disabled />
           </View>

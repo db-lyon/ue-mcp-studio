@@ -10,6 +10,7 @@ import type {
   AgentSettings,
   ClientContextStrategy,
   Convention,
+  CustomEndpoint,
   CustomEndpointList,
   DialogMode,
   FeedbackMode,
@@ -72,6 +73,8 @@ export function settingsApi(t: Transport) {
     contextStrategy: () => get<unknown>(`${S}/context-strategy`).then(contextOf) as Promise<ClientContextStrategy>,
     config: () => get<StudioConfigFile>(`${S}/config`),
     endpoints: () => get<CustomEndpointList>(`${S}/endpoints`),
+    /** Read an endpoint's /models again: the computer allows it to a paired client, since it changes no setting. */
+    listEndpointModels: (id: string) => send<CustomEndpoint>("POST", `${S}/endpoints/${enc(id)}/models`),
     signIn: (id: "claude" | "chatgpt" | "studio") => get<StudioSignIn>(`${S}/signin/${id}`),
     account: () => get<StudioAccountResponse>(`${S}/account`),
     billingPortal: () => get<{ url: string }>(`${S}/billing/portal`),

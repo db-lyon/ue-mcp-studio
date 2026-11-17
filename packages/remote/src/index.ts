@@ -123,7 +123,9 @@ const DENY: Array<{ path: RegExp; except?: string[] }> = [
   { path: /^\/v1\/ext\/studio\/refusal\/update\/?$/i },
   { path: /^\/v1\/ext\/studio\/version-notice\/update\/?$/i },
   // Where prompts go and what ue-mcp runs: model endpoints, vendor sign-ins, ue-mcp.yml and its context strategy. Reading them stays allowed.
-  { path: /^\/v1\/ext\/studio\/endpoints(\/.*)?$/i, except: ["GET"] },
+  { path: /^\/v1\/ext\/studio\/endpoints(?!\/[a-z0-9-]+\/models\/?$)(\/.*)?$/i, except: ["GET"] },
+  // Reading an endpoint's /models again changes no setting, so a paired client may Retry a failed read.
+  { path: /^\/v1\/ext\/studio\/endpoints\/[a-z0-9-]+\/models\/?$/i, except: ["GET", "POST"] },
   { path: /^\/v1\/ext\/studio\/signin(\/.*)?$/i, except: ["GET"] },
   // The ue-mcp account's sign-ins and its ways to sign in (email, GitHub) change on the computer.
   { path: /^\/v1\/ext\/studio\/auth(\/.*)?$/i, except: ["GET"] },

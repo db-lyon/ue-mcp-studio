@@ -161,6 +161,13 @@ describe("remotePath", () => {
     for (const [m, p] of refused) expect(remotePath(m, p), `${m} ${p}`).toBeNull();
   });
 
+  it("lets a paired client read an endpoint's models again, which changes nothing, and no other write to it", () => {
+    for (const p of ["/v1/ext/studio/endpoints/abc/models", "/v1/ext/studio/endpoints/abc/models/"]) expect(remotePath("POST", p), p).toBe(p);
+    for (const m of ["PUT", "PATCH", "DELETE"]) expect(remotePath(m, "/v1/ext/studio/endpoints/abc/models"), m).toBeNull();
+    expect(remotePath("POST", "/v1/ext/studio/endpoints/abc/models/x")).toBeNull();
+    expect(remotePath("POST", "/v1/ext/studio/endpoints/abc")).toBeNull();
+  });
+
   it("lets a paired browser read endpoints, sign-ins and ue-mcp.yml, and change none of them", () => {
     for (const p of ["/v1/ext/studio/endpoints", "/v1/ext/studio/signin/claude", "/v1/ext/studio/config", "/v1/ext/studio/context-strategy"]) {
       expect(remotePath("GET", p), p).toBe(p);
@@ -171,7 +178,6 @@ describe("remotePath", () => {
         "/v1/ext/studio/endpoints",
         "/v1/ext/studio/endpoints/",
         "/v1/ext/studio/endpoints/abc",
-        "/v1/ext/studio/endpoints/abc/models",
         "/v1/ext/studio/signin/claude",
         "/v1/ext/studio/signin/chatgpt",
         "/v1/ext/studio/signin/studio",
