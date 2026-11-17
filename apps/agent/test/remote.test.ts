@@ -539,7 +539,7 @@ describe("remote control, sealed end to end", () => {
       ["POST", "/v1/ext/studio/endpoints"],
       ["PUT", "/v1/ext/studio/endpoints/abc"],
       ["DELETE", "/v1/ext/studio/endpoints/abc"],
-      ["POST", "/v1/ext/studio/endpoints/abc/models"],
+      // POST .../endpoints/:id/models only reads the endpoint's models, so a paired device may (see packages/remote).
       ["POST", "/v1/ext/studio/signin/claude"],
       ["DELETE", "/v1/ext/studio/signin/claude"],
       ["PUT", "/v1/ext/studio/config"],
