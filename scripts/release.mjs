@@ -9,7 +9,7 @@
  * the UI with the release key from ~/.ue-mcp-studio/keys, adds the third-party
  * notices (scripts/notices.mjs), and writes release/studio-<version>.zip plus
  * release/latest.json, the manifest `ue-mcp install studio` follows and the
- * editor plugin fetches on first start, and release/UE-MCP-Setup.exe, the
+ * editor plugin fetches on first start, and release/UE-MCP-Launcher-Setup.exe, the
  * UE-MCP app, which installs itself when run (apps/window/src/app.cpp).
  * latest.json names it under `app`, which is how an installed app updates.
  * The editor plugin is its own package, released from
@@ -105,9 +105,9 @@ fs.writeFileSync(path.join(ext, "THIRD_PARTY_NOTICES.txt"), renderNotices().text
 const manifest = signBundle(path.join(ext, "ui"), { name: "studio", version, api: { min: 1, max: 1 } }, fs.readFileSync(RELEASE_KEY, "utf-8"));
 
 // 3. The UE-MCP app, built with the window, under one name so releases/latest/download/<name> always resolves.
-const SETUP = "UE-MCP-Setup.exe";
-const appExe = path.join(ROOT, "apps", "window", "dist", "UE-MCP.exe");
-if (!fs.existsSync(appExe)) throw new Error("no apps/window/dist/UE-MCP.exe: a release is built on Windows, with the C++ tools");
+const SETUP = "UE-MCP-Launcher-Setup.exe";
+const appExe = path.join(ROOT, "apps", "window", "dist", "UE-MCP-Launcher.exe");
+if (!fs.existsSync(appExe)) throw new Error("no apps/window/dist/UE-MCP-Launcher.exe: a release is built on Windows, with the C++ tools");
 fs.copyFileSync(appExe, path.join(OUT, SETUP));
 // STUDIO_SIGNTOOL is a sign command with $f where the file goes; unset, the app ships unsigned.
 const sign = process.env.STUDIO_SIGNTOOL;

@@ -36,7 +36,7 @@ describe("the UE-MCP row: the release channel", () => {
   it("shows the shared channel, the version here and the channel's newest", async () => {
     fakeHost("stable", { stable: "0.1.34", beta: "0.1.35-beta.6" });
     render(<AppUpdateCard version="0.1.35-beta.5" />);
-    await screen.findByText("UE-MCP 0.1.35-beta.5. The newest on Stable is 0.1.34.");
+    await screen.findByText("UE-MCP Launcher 0.1.35-beta.5. The newest on Stable is 0.1.34.");
     expect((screen.getByRole("radio", { name: "Stable" }) as HTMLInputElement).checked).toBe(true);
     expect((screen.getByRole("radio", { name: "Beta" }) as HTMLInputElement).checked).toBe(false);
     expect(screen.getByRole("radiogroup", { name: "Release channel" })).toBeTruthy();
@@ -48,12 +48,12 @@ describe("the UE-MCP row: the release channel", () => {
     render(<AppUpdateCard version="0.1.35-beta.5" />);
     await screen.findByText(/The newest on Stable/);
     fireEvent.click(screen.getByRole("radio", { name: "Beta" }));
-    await screen.findByText("UE-MCP 0.1.35-beta.6 is ready to install from Beta. You have 0.1.35-beta.5.");
+    await screen.findByText("UE-MCP Launcher 0.1.35-beta.6 is ready to install from Beta. You have 0.1.35-beta.5.");
     expect(h.app.setchannel).toHaveBeenCalledWith({ channel: "beta" });
     expect(h.channel()).toBe("beta");
     expect(h.calls.slice(-2)).toEqual(["set beta", "check beta"]);
     fireEvent.click(screen.getByRole("button", { name: "Update UE-MCP" }));
-    await screen.findByText("Installing. UE-MCP restarts when it is done.");
+    await screen.findByText("Installing. UE-MCP Launcher restarts when it is done.");
     expect(h.calls.at(-1)).toBe("install beta");
   });
 
@@ -69,7 +69,7 @@ describe("the UE-MCP row: the release channel", () => {
   it("opens on Beta when Studio chose it", async () => {
     fakeHost("beta", { stable: "0.1.34", beta: "0.1.35-beta.5" });
     render(<AppUpdateCard version="0.1.35-beta.5" />);
-    await screen.findByText("UE-MCP 0.1.35-beta.5, the newest on Beta.");
+    await screen.findByText("UE-MCP Launcher 0.1.35-beta.5, the newest on Beta.");
     expect((screen.getByRole("radio", { name: "Beta" }) as HTMLInputElement).checked).toBe(true);
   });
 

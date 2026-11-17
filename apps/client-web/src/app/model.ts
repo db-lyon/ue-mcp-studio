@@ -282,10 +282,10 @@ export function channelLabel(c: Channel): string {
 /** The UE-MCP row's line: the version here, the channel and its newest release, or why it was not checked. */
 export function appUpdateLine(version: string, u: AppUpdate | null, channel: Channel, installing: boolean): string {
   const on = channelLabel(u?.channel ?? channel);
-  if (installing) return "Installing. UE-MCP restarts when it is done.";
-  if (!u) return `UE-MCP ${version}, on ${on}.`;
+  if (installing) return "Installing. UE-MCP Launcher restarts when it is done.";
+  if (!u) return `UE-MCP Launcher ${version}, on ${on}.`;
   if (!u.ok) return `Could not check ${on}: ${u.error ?? "no answer"}`;
-  if (u.newer) return `UE-MCP ${u.version} is ready to install from ${on}. You have ${version}.`;
-  if (!u.version || u.version === version) return `UE-MCP ${version}, the newest on ${on}.`;
-  return `UE-MCP ${version}. The newest on ${on} is ${u.version}.`;
+  if (u.newer) return `UE-MCP Launcher ${u.version} is ready to install from ${on}. You have ${version}.`;
+  if (!u.version || u.version === version) return `UE-MCP Launcher ${version}, the newest on ${on}.`;
+  return `UE-MCP Launcher ${version}. The newest on ${on} is ${u.version}.`;
 }
