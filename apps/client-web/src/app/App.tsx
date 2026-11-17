@@ -220,10 +220,10 @@ export function App({ initial = "projects" }: { initial?: Screen } = {}) {
   };
   return (
     <div className="app-shell">
-      <nav className="app-rail" aria-label="UE-MCP">
+      <nav className="app-rail" aria-label="UE-MCP Launcher">
         <div className="app-brand">
           <Mark size={22} />
-          <span className="app-brand-name">UE-MCP</span>
+          <span className="app-brand-name">UE-MCP Launcher</span>
         </div>
         <ul className="app-nav">
           {SCREENS.map((s) => (
@@ -236,7 +236,7 @@ export function App({ initial = "projects" }: { initial?: Screen } = {}) {
           ))}
         </ul>
         <div className="app-rail-foot dim small">
-          <span>UE-MCP {m.state.version}</span>
+          <span>UE-MCP Launcher {m.state.version}</span>
           {m.report && <span>ue-mcp {m.report.ueMcp}</span>}
         </div>
       </nav>

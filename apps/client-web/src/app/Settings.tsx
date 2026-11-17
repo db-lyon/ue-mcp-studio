@@ -92,7 +92,7 @@ export function AppUpdateCard({ version, onChannel }: { version: string; onChann
     <div className="app-row app-update app-self">
       <div className="app-row-main">
         <div className="app-row-title">
-          <span className="app-row-name">UE-MCP</span>
+          <span className="app-row-name">UE-MCP Launcher</span>
           <span className={`pill ${u?.ok && !u.newer ? "ok" : "warn"}`}>{pill}</span>
         </div>
         <div className="muted small">{appUpdateLine(version, u, channel, installing)}</div>

@@ -551,7 +551,7 @@ int main() {
   test("the refused screen's update runs the target release's own apply, its exit to a file", [] {
     std::wstring c = ueupdate::command(L"C:\\node\\npx.cmd", L"1.4.11-beta.8", L"D:\\My Game\\Game.uproject", L"D:\\out.log", L"D:\\out.exit");
     CHECK(c == L"\"C:\\node\\npx.cmd\" -y --min-release-age=0 ue-mcp@1.4.11-beta.8 update \"D:\\My Game\\Game.uproject\" --apply-only"
-               L" > \"D:\\out.log\" 2>&1 && (echo 0)> \"D:\\out.exit\" || (echo 1)> \"D:\\out.exit\"");
+               L" < NUL > \"D:\\out.log\" 2>&1 && (echo 0)> \"D:\\out.exit\" || (echo 1)> \"D:\\out.exit\"");
   });
 
   test("the refused screen's update result: nothing while it runs, then ok or what the CLI said", [] {
@@ -570,8 +570,11 @@ int main() {
   });
 
   test("a job keeps its output and exit code in files, stderr apart when asked", [] {
-    CHECK(job::wrap(L"x", L"o", L"e") == L"x > \"o\" 2>&1 && (echo 0)> \"e\" || (echo 1)> \"e\"");
-    CHECK(job::wrap(L"x", L"o", L"e", L"r") == L"x > \"o\" 2> \"r\" && (echo 0)> \"e\" || (echo 1)> \"e\"");
+    CHECK(job::wrap(L"x", L"o", L"e") == L"x < NUL > \"o\" 2>&1 && (echo 0)> \"e\" || (echo 1)> \"e\"");
+    CHECK(job::wrap(L"x", L"o", L"e", L"r") == L"x < NUL > \"o\" 2> \"r\" && (echo 0)> \"e\" || (echo 1)> \"e\"");
+    CHECK(job::whyFailed("", -1, true, 120) == "ue-mcp gave no answer within 120 seconds.");
+    CHECK(job::whyFailed("", 1, false, 120) == "ue-mcp ended with code 1 and printed nothing.");
+    CHECK(job::whyFailed("npm error boom\n", 1, false, 120) == "boom");
     CHECK(job::npx(L"C:\\n\\npx.cmd", job::spec(L"beta", L""), L"projects --json") ==
           L"\"C:\\n\\npx.cmd\" -y --min-release-age=0 --package=ue-mcp@beta ue-mcp projects --json");
     CHECK(job::spec(L"beta", L"1.4.13") == L"ue-mcp@1.4.13");

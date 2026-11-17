@@ -11,7 +11,8 @@ namespace job {
 
 /** `line`, its output to `out` (stderr too, unless `err` names its own file), then 0 or 1 to `exitFile`. */
 inline std::wstring wrap(const std::wstring& line, const std::wstring& out, const std::wstring& exitFile, const std::wstring& err = {}) {
-  std::wstring redirect = err.empty() ? L" > \"" + out + L"\" 2>&1" : L" > \"" + out + L"\" 2> \"" + err + L"\"";
+  // stdin is NUL: a windowless app has no stdin, and npx's child then waits on a handle that never answers.
+  std::wstring redirect = err.empty() ? L" < NUL > \"" + out + L"\" 2>&1" : L" < NUL > \"" + out + L"\" 2> \"" + err + L"\"";
   return line + redirect + L" && (echo 0)> \"" + exitFile + L"\" || (echo 1)> \"" + exitFile + L"\"";
 }
 
@@ -63,6 +64,14 @@ inline std::string failureText(const std::string& output) {
     text += l;
   }
   return text.size() > 2000 ? text.substr(text.size() - 2000) : text;
+}
+
+/** Why a run failed, never empty: npm's or the command's own words, else the timeout or exit code. */
+inline std::string whyFailed(const std::string& output, int code, bool timedOut, int seconds) {
+  std::string text = failureText(output);
+  if (!text.empty()) return text;
+  if (timedOut) return "ue-mcp gave no answer within " + std::to_string(seconds) + " seconds.";
+  return "ue-mcp ended with code " + std::to_string(code) + " and printed nothing.";
 }
 
 /** A project key as ue-mcp writes it: 16 lower-case hex characters. */

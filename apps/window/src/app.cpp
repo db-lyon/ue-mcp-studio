@@ -212,6 +212,7 @@ std::wstring npxCmd() {
 
 struct Captured {
   int code = -1;
+  bool timedOut = false;
   std::string out;
   std::string err;
 };
@@ -231,6 +232,7 @@ Captured capture(const std::wstring& line, DWORD timeoutMs) {
   std::string exitText;
   readFile(out, c.out);
   readFile(err, c.err);
+  c.timedOut = r < 0;
   c.code = r < 0 ? -1 : (readFile(exit, exitText) && !exitText.empty() && exitText[0] == '0' ? 0 : 1);
   for (const std::wstring& f : {out, err, exit}) DeleteFileW(f.c_str());
   return c;
@@ -675,7 +677,7 @@ std::string readReport() {
         if (l.compare(i, 9, "Commands:") == 0) listed = true;
         if (l.compare(i, 9, "projects ") == 0) can = true;
       }
-      if (h.code != 0 || !listed) return failed("failed", job::failureText(h.out + h.err));
+      if (h.code != 0 || !listed) return failed("failed", job::whyFailed(h.out + h.err, h.code, h.timedOut, 120));
       std::lock_guard<std::mutex> g(gLock);
       gCanReport[spec] = can;
     }
@@ -683,7 +685,10 @@ std::string readReport() {
   if (!can) return failed("unsupported", "");
   Captured r = capture(job::npx(npx, spec, L"projects --json"), 120000);
   json::Value report;
-  if (r.code != 0 || !json::parse(r.out, report) || !report.isObject()) return failed("failed", job::failureText(r.out + r.err));
+  if (r.code != 0 || !json::parse(r.out, report) || !report.isObject()) {
+    std::string why = r.code == 0 ? "ue-mcp answered, but not with a project list: " + job::failureText(r.out + r.err) : job::whyFailed(r.out + r.err, r.code, r.timedOut, 120);
+    return failed("failed", why);
+  }
   const json::Value* ver = report.get("version");
   if (!ver || !ver->isNumber() || (int)ver->n != kReportVersion) {
     v.set("reportVersion", ver && ver->isNumber() ? *ver : json::Value());
@@ -911,10 +916,11 @@ std::string openIde(const std::string& key, const std::wstring& uproject, const 
 
 // ---------------------------------------------------------------- install, upgrade, uninstall
 
-std::wstring startMenuShortcut() {
+/** The Start menu shortcut; `old` is the one earlier versions wrote, removed on install and uninstall. */
+std::wstring startMenuShortcut(bool old = false) {
   PWSTR programs = nullptr;
   std::wstring out;
-  if (SUCCEEDED(SHGetKnownFolderPath(FOLDERID_Programs, 0, nullptr, &programs))) out = join(programs, L"UE-MCP.lnk");
+  if (SUCCEEDED(SHGetKnownFolderPath(FOLDERID_Programs, 0, nullptr, &programs))) out = join(programs, old ? L"UE-MCP.lnk" : L"UE-MCP Launcher.lnk");
   CoTaskMemFree(programs);
   return out;
 }
@@ -924,7 +930,7 @@ bool writeShortcut(const std::wstring& lnk, const std::wstring& target) {
   if (FAILED(CoCreateInstance(CLSID_ShellLink, nullptr, CLSCTX_INPROC_SERVER, IID_PPV_ARGS(&link)))) return false;
   link->SetPath(target.c_str());
   link->SetWorkingDirectory(dirOf(target).c_str());
-  link->SetDescription(L"Your Unreal projects, their updates and ue-mcp");
+  link->SetDescription(L"UE-MCP Launcher: your Unreal projects, their updates and ue-mcp");
   ComPtr<IPropertyStore> props;
   if (SUCCEEDED(link.As(&props))) {
     PROPVARIANT pv;
@@ -993,7 +999,7 @@ std::string install() {
   }
   HKEY k;
   if (RegCreateKeyExW(HKEY_CURRENT_USER, kUninstallKey, 0, nullptr, 0, KEY_SET_VALUE, nullptr, &k, nullptr) != ERROR_SUCCESS) return "The uninstall entry could not be written.";
-  setString(k, L"DisplayName", L"UE-MCP");
+  setString(k, L"DisplayName", L"UE-MCP Launcher");
   setString(k, L"DisplayVersion", widen(STUDIO_WINDOW_VERSION));
   setString(k, L"Publisher", L"ue-mcp");
   setString(k, L"URLInfoAbout", L"https://ue-mcp.com");
@@ -1007,6 +1013,7 @@ std::string install() {
   if (GetFileAttributesExW(exe.c_str(), GetFileExInfoStandard, &a)) setDword(k, L"EstimatedSize", (DWORD)(a.nFileSizeLow / 1024));
   RegCloseKey(k);
   std::wstring lnk = startMenuShortcut();
+  if (std::wstring was = startMenuShortcut(true); !was.empty()) DeleteFileW(was.c_str());
   if (lnk.empty() || !writeShortcut(lnk, exe)) return "The Start menu shortcut could not be written.";
   tellApp(L"\"" + exe + L"\" --relaunch");
   return {};
@@ -1038,7 +1045,7 @@ void removeTree(const std::wstring& dir) {
 
 /** Uninstall, from a copy outside the install folder: the app, its shortcut, its entry and its own data. Never ~/.ue-mcp. */
 int uninstallRun(DWORD waitPid) {
-  if (!gSilent && MessageBoxW(nullptr, L"Remove UE-MCP from this computer?\n\nYour projects, ue-mcp and Studio stay as they are.", L"UE-MCP", MB_OKCANCEL | MB_ICONQUESTION) != IDOK) return 1;
+  if (!gSilent && MessageBoxW(nullptr, L"Remove UE-MCP Launcher from this computer?\n\nYour projects, ue-mcp and Studio stay as they are.", L"UE-MCP Launcher", MB_OKCANCEL | MB_ICONQUESTION) != IDOK) return 1;
   if (waitPid) {
     HANDLE p = OpenProcess(SYNCHRONIZE, FALSE, waitPid);
     if (p) {
@@ -1058,9 +1065,10 @@ int uninstallRun(DWORD waitPid) {
   }
   std::wstring lnk = startMenuShortcut();
   if (!lnk.empty()) DeleteFileW(lnk.c_str());
+  if (std::wstring was = startMenuShortcut(true); !was.empty()) DeleteFileW(was.c_str());
   RegDeleteTreeW(HKEY_CURRENT_USER, kUninstallKey);
   removeTree(dataDir());
-  if (!gSilent) MessageBoxW(nullptr, L"UE-MCP was removed.", L"UE-MCP", MB_OK | MB_ICONINFORMATION);
+  if (!gSilent) MessageBoxW(nullptr, L"UE-MCP Launcher was removed.", L"UE-MCP Launcher", MB_OK | MB_ICONINFORMATION);
   // This copy in the temp folder goes once it has exited.
   std::wstring self = selfPath();
   createDetached(cmdExe(), L"\"" + cmdExe() + L"\" /d /c ping -n 3 127.0.0.1 >nul & del /f /q \"" + self + L"\"", {}, CREATE_NO_WINDOW);
@@ -1661,8 +1669,8 @@ void resize() {
 }
 
 void noWebView() {
-  if (MessageBoxW(gMain, L"UE-MCP needs the Microsoft Edge WebView2 Runtime, which is not installed.\n\nOpen Microsoft's download page? Its Evergreen installer needs no admin rights.",
-                  L"UE-MCP", MB_YESNO | MB_ICONWARNING) == IDYES) {
+  if (MessageBoxW(gMain, L"UE-MCP Launcher needs the Microsoft Edge WebView2 Runtime, which is not installed.\n\nOpen Microsoft's download page? Its Evergreen installer needs no admin rights.",
+                  L"UE-MCP Launcher", MB_YESNO | MB_ICONWARNING) == IDYES) {
     openExternal(kWebView2Download);
   }
   DestroyWindow(gMain);
@@ -1937,7 +1945,7 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR, int) {
   w = std::min<int>(w, work.right - work.left);
   h = std::min<int>(h, work.bottom - work.top);
   DWORD style = gMode == Mode::App ? WS_OVERLAPPEDWINDOW : (WS_OVERLAPPED | WS_CAPTION | WS_SYSMENU | WS_MINIMIZEBOX);
-  gMain = CreateWindowExW(0, kMainClass, gMode == Mode::App ? L"UE-MCP" : L"UE-MCP Setup", style | WS_CLIPCHILDREN, work.left + (work.right - work.left - w) / 2,
+  gMain = CreateWindowExW(0, kMainClass, gMode == Mode::App ? L"UE-MCP Launcher" : L"UE-MCP Launcher Setup", style | WS_CLIPCHILDREN, work.left + (work.right - work.left - w) / 2,
                           work.top + (work.bottom - work.top - h) / 2, w, h, nullptr, nullptr, instance, nullptr);
   if (!gMain) return 1;
   applyChrome();
