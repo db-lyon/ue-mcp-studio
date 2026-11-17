@@ -21,6 +21,7 @@ import { AUTO_COMPACT_FRACTION, EMPTY_TOTALS, contextTokens, contextWindowOf, es
 import type { ContentBlock, ModelProvider, ModelTurn, MessageParam, WebSearchRecord } from "./providers.js";
 import { promptTokens, usageTokens, type TokenUsage } from "./usage.js";
 import { DEFAULT_SESSION_TITLE, SessionStore, hasConversation, transcriptMessages, type PendingTool, type StoredContext, type StoredSession } from "./sessions.js";
+import { dropRejectedBlocks, isRejectedContent } from "./rejected-content.js";
 import { compactedMessages, conversationText, estimateMessagesTokens, isCompactedSummary, isContextOverflow, summaryInstruction, summaryRequest } from "./compaction.js";
 import type { QueuedMessage, ReplyImageInfo } from "@ue-mcp-studio/shared";
 import type { CardEntry, CardPost } from "@ue-mcp-studio/extension-api";
@@ -559,6 +560,7 @@ export class AgentRunner {
       },
       canon: (name, input) => this.surface().canon(name, input),
       replyEnded: (s, error) => this.replyEnded(s, error),
+      resendWithoutRefused: (s, why) => this.resendWithoutRefused(s, why),
       replying: this.replying,
       active: this.active,
       refreshFree: (s) => this.refreshFree(s),
@@ -868,6 +870,33 @@ export class AgentRunner {
     return true;
   }
 
+  /**
+   * The API refused a file in the last request: its blocks are replaced by a note that says where the file is saved,
+   * and the user is told. False when there was nothing to replace, so the same refusal does not repeat.
+   */
+  private dropRefused(s: StoredSession, e: unknown): boolean {
+    const why = e instanceof Error ? e.message : String(e);
+    if (dropRejectedBlocks(s.messages, why) === 0) return false;
+    this.addEntry(s, { kind: "note", text: `The model's API refused an attached file (${why.replace(/\s+/g, " ").slice(0, 200)}). It was left out of the message and the model was told where it is saved, so the conversation goes on without it.`, at: now() });
+    this.o.store.save(s);
+    return true;
+  }
+
+  /**
+   * A durable reply ended because the API refused a file. The conversation is read back from the harness, the refused
+   * file replaced by a note, and the message sent again. False when it was not about a file or nothing could be replaced.
+   */
+  private async resendWithoutRefused(s: StoredSession, why: string): Promise<boolean> {
+    if (!isRejectedContent(new Error(why))) return false;
+    if (s.durable) await this.durable?.release(s, "harness");
+    if (!this.dropRefused(s, new Error(why))) return false;
+    const last = s.messages[s.messages.length - 1];
+    if (last?.role !== "user") return false;
+    s.messages.pop();
+    await this.reply(s, typeof last.content === "string" ? [{ type: "text", text: last.content }] : [...(last.content as unknown[])]);
+    return true;
+  }
+
   /** Save the session and tell the client an entry or a context changed in place. */
   private changed(s: StoredSession, agent: string | null): void {
     this.o.store.save(s);
@@ -891,11 +920,18 @@ export class AgentRunner {
       try {
         return await this.durable.compact(s, instructions.trim());
       } catch (e) {
-        // The failure lands on the session, where the user sees it with the way on, not only in the log.
+        // Not a dead end: Studio summarises the conversation itself, rebuilt from the transcript, and the session goes on from the summary.
         const why = e instanceof Error ? e.message : String(e);
-        this.addEntry(s, { kind: "compaction", at: now(), trigger: "manual", state: "failed", before: 0, error: `${why} Nothing was compacted. Use Compact now to try again, or start a new session and paste what it needs.` } as CompactionEntry);
-        this.o.store.save(s);
-        throw e;
+        this.o.host.log.warn(`session ${s.id}: the durable runtime could not compact (${why}); Studio summarises it instead`);
+        try {
+          await this.durable.release(s, "transcript");
+        } catch (releaseError) {
+          // Neither could be done: the failure lands on the session, where the user sees it with the way on.
+          this.addEntry(s, { kind: "compaction", at: now(), trigger: "manual", state: "failed", before: 0, error: `${why} Nothing was compacted. Use Compact now to try again, or start a new session and paste what it needs.` } as CompactionEntry);
+          this.o.store.save(s);
+          throw releaseError;
+        }
+        this.addEntry(s, { kind: "note", text: `The durable runtime could not compact this conversation (${why}), so Studio summarises it instead.`, at: now() });
       }
     }
     const onClaude = !!this.o.subscription?.();
@@ -1502,7 +1538,15 @@ export class AgentRunner {
     s.model = this.o.model();
     s.route = this.o.route?.() ?? null;
     // The route's setting selects the durable runtime: the reply runs in the harness, whatever the route.
-    if (this.durable && this.o.durable?.route() && this.durable.available()) return this.durable.reply(s, content);
+    if (this.durable && this.o.durable?.route() && this.durable.available()) {
+      const failed = await this.durable.reply(s, content);
+      if (failed === null) return;
+      // The harness did not take the reply (down, restarting, refused): not a dead end. The conversation is rebuilt from the
+      // transcript, which has every message the user and the agent wrote, and the reply runs on Studio's own loop.
+      this.o.host.log.warn(`session ${s.id}: ${failed}; the reply runs on Studio's own loop`);
+      await this.durable.release(s, "transcript");
+      this.addEntry(s, { kind: "note", text: `${failed} This reply runs on Studio's own loop instead, from the conversation as written. Tool results from earlier turns may be shortened.`, at: now() });
+    }
     // Back on another runtime: its conversation is rebuilt from the harness, and a later move to the durable one starts again from that.
     if (s.durable) await this.durable?.release(s, "harness");
     if (onClaude) {
@@ -3409,6 +3453,7 @@ ${result}`);
     }
     this.replying.add(id);
     let overflowed = false;
+    let refusedFile = false;
     let cutOffs = 0;
     try {
       for (;;) {
@@ -3437,6 +3482,11 @@ ${result}`);
             controller.signal,
           );
         } catch (e) {
+          // A file the API refuses is replaced by a note saying where it is saved, and the request goes again, so the session is not poisoned.
+          if (!controller.signal.aborted && !refusedFile && isRejectedContent(e) && this.dropRefused(s, e)) {
+            refusedFile = true;
+            continue;
+          }
           // Refused as too long, as on a model with a smaller window than the last: compact, then send once more.
           if (controller.signal.aborted || overflowed || !isContextOverflow(e)) throw e;
           overflowed = true;
@@ -3445,6 +3495,7 @@ ${result}`);
         }
         // A request went through after compacting: a later overflow in a long turn gets its own compaction.
         overflowed = false;
+        refusedFile = false;
         if (controller.signal.aborted) return;
         this.count(s, usageTokens(turn.usage), null);
         this.spend(s, turn.usage, conv.model);

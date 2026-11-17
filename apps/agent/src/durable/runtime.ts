@@ -67,6 +67,8 @@ export interface DurableHooks {
   spentLedger(s: StoredSession, agent: string | null, u: TokenUsage, model: string): void;
   canon(name: string, input: Record<string, unknown>): { name: string; input: Record<string, unknown> };
   replyEnded(s: StoredSession, error: string | null): void;
+  /** A reply ended because the API refused a file: the file is replaced by a note and the message sent again. False when that does not apply. */
+  resendWithoutRefused(s: StoredSession, why: string): Promise<boolean>;
   replying: Set<string>;
   active: Map<string, AbortController>;
   refreshFree(s: StoredSession): void;
@@ -192,7 +194,7 @@ export class DurableTurns {
    * The main agent replies to `content` on this runtime: a new run, or, when
    * one is running (the main agent waits only on subagents), steered into it.
    */
-  async reply(s: StoredSession, content: unknown[]): Promise<void> {
+  async reply(s: StoredSession, content: unknown[]): Promise<string | null> {
     if (this.stopping.has(s.id)) {
       // A run just stopped (Send now, an edit): its end can still be on its way, and must not be taken for this reply's end.
       // A harness that settles its stops sends that end before it answers the stop, so once the stop is answered
@@ -219,9 +221,11 @@ export class DurableTurns {
       // The conversation so far, without the message this reply answers.
       await this.move(s, s.messages.slice(0, -1));
       await this.client.call("submit", { sessionId: keyOf(s), requestId: crypto.randomUUID(), content: userContent(content), agent: this.h.mainSpec(), whenBusy: "steer" });
+      return null;
     } catch (e) {
       if (this.h.active.get(s.id) === controller) this.h.active.delete(s.id);
-      this.h.replyEnded(s, `The durable runtime could not start the reply: ${e instanceof Error ? e.message : String(e)}`);
+      // Not ended here: the caller goes on with Studio's own loop, which can run the reply from the transcript.
+      return `The durable runtime could not start the reply: ${e instanceof Error ? e.message : String(e)}`;
     }
   }
 
@@ -565,6 +569,14 @@ export class DurableTurns {
     if (!wasReplying && s.status !== "running" && s.status !== "waiting") return;
     const f = m.failure;
     const error = f && f.reason !== "aborted" ? replyFailure(f.reason, f.detail) : null;
+    if (error && f) {
+      // A file the API refused would fail every later turn the same way: it is replaced and the message goes again.
+      void this.h.resendWithoutRefused(s, `${f.reason} ${f.detail ?? ""}`).then(
+        (again) => again || this.h.replyEnded(s, error),
+        () => this.h.replyEnded(s, error),
+      );
+      return;
+    }
     this.h.replyEnded(s, error);
   }
 
