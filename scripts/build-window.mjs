@@ -125,7 +125,7 @@ const rc = [
   `      VALUE "FileVersion", "${version}"`,
   '      VALUE "ProductName", "UE-MCP"',
   `      VALUE "ProductVersion", "${version}"`,
-  '      VALUE "OriginalFilename", "UE-MCP-Launcher.exe"',
+  '      VALUE "OriginalFilename", "UE-MCP.exe"',
   "    END",
   "  END",
   '  BLOCK "VarFileInfo"',
@@ -151,7 +151,7 @@ const header = [
   "",
 ].join("\n");
 fs.writeFileSync(path.join(appBuild, "ui-files.h"), header);
-const appExe = path.join(OUT, "UE-MCP-Launcher.exe");
+const appExe = path.join(OUT, "UE-MCP.exe");
 const appRes = path.join(appBuild, "app.res");
 const appCl = [
   `rc /nologo /fo "${appRes}" "${path.join(appBuild, "app.rc")}"`, "&&",
@@ -166,7 +166,7 @@ const appCl = [
   "winhttp.lib", "bcrypt.lib", "uuid.lib", "propsys.lib", "comdlg32.lib",
 ].join(" ");
 const a = spawnSync(process.env.ComSpec ?? "cmd.exe", ["/d", "/s", "/c", `""${vcvars()}" >nul 2>&1 && ${appCl}"`], { stdio: "inherit", windowsVerbatimArguments: true });
-if (a.status !== 0) throw new Error(`building UE-MCP-Launcher.exe failed (${a.status})`);
+if (a.status !== 0) throw new Error(`building UE-MCP.exe failed (${a.status})`);
 console.log(`built ${path.relative(ROOT, appExe)} ${version} (${files.length} page files)`);
 
 // The docked-mode protocol's unit tests, run by apps/window/test/dock.test.ts. Not shipped.
