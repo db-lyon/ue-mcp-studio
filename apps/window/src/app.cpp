@@ -1482,7 +1482,8 @@ std::string dispatch(int id, const std::string& method, const std::string& arg) 
     if (npx.empty()) return okError("Node.js was not found.");
     if (!safeUproject(uproject)) return okError("The project file could not be used.");
     std::wstring args = method == "install" ? L"install studio \"" + uproject + L"\"" : method == "startdaemon" ? L"daemon start \"" + uproject + L"\"" : L"daemon stop \"" + uproject + L"\"";
-    later(id, [npx, args] { return jobAnswer(startJob(job::npx(npx, resolvedSpec(), args)), "The command did not start."); });
+    // The app's own ue-mcp, as reads use: npx would spend about 20 seconds resolving the package before Add Studio starts.
+    later(id, [npx, args] { return jobAnswer(startJob(ueMcpLine(npx, resolvedSpec(), args)), "The command did not start."); });
     return {};
   }
   if (method == "updatebridge") {
