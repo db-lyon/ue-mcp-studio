@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { actionsOf, appUpdateLine, channelLabel, filterProjects, ideButton, ideOpens, installedKey, nameHint, parseReport, running, studioOf, updateHow, updatesOf, updateUeMcpCopy, uptime, versionsOf, withoutRemoved, type MachineProject } from "./model";
+import { actionsOf, appUpdateLine, channelLabel, engineBlocked, filterProjects, ideButton, ideOpens, installedKey, nameHint, parseReport, running, studioOf, updateHow, updatesOf, updateUeMcpCopy, uptime, versionsOf, withoutRemoved, type MachineProject } from "./model";
 
 const project = (o: Partial<MachineProject> = {}): MachineProject => ({
   name: "Vale",
@@ -58,6 +58,16 @@ describe("the UE-MCP app's model", () => {
     expect(actionsOf(project(), false, true)).toMatchObject({ addBlocked: "Another install is running.", launchBlocked: null });
     expect(actionsOf(project(), true, false).launchBlocked).toMatch(/install/);
     expect(actionsOf(project({ extensions: { studio: "0.1.35" } }), false, false)).toMatchObject({ openStudio: true, addStudio: false });
+  });
+
+  it("blocks Add Studio, saying how to proceed, on an engine the editor plugin has no build for", () => {
+    const old = project({ ueMcp: { setUp: false, bridge: null, config: false }, engine: { association: "5.5", version: "5.5" } });
+    const why = actionsOf(old, false, false, ["5.9", "5.7", "5.8"]).addBlocked;
+    expect(why).toBe("Studio runs on UE 5.7, 5.8 and 5.9, and Vale uses 5.5. Switch its engine (right-click Vale.uproject, Switch Unreal Engine Version), then Refresh.");
+    expect(engineBlocked(project(), ["5.7", "5.8"])).toBeNull();
+    expect(engineBlocked(old, undefined)).toBeNull();
+    expect(engineBlocked(project({ engine: { association: null, version: null } }), ["5.7"])).toBeNull();
+    expect(actionsOf(project({ editor: { running: true, pids: [1] }, engine: { association: "5.5", version: "5.5" } }), false, false, ["5.7"]).addBlocked).toBe("Close Vale in Unreal first.");
   });
 
   it("filters by name, folder or engine", () => {

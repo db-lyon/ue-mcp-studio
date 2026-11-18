@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import type { Machine } from "./App";
 import { host } from "./native";
-import { actionsOf, channelLabel, listReadAt, nameHint, running, updateHow, updatesOf, uptime, type MachineProject } from "./model";
+import { actionsOf, channelLabel, engineBlocked, listReadAt, nameHint, running, updateHow, updatesOf, uptime, type MachineProject } from "./model";
 import { connectedTo, installing, projectActions, useWorks } from "./actions";
 import { useBusy } from "./busy";
 import { Busy } from "./BusyLabel";
@@ -14,7 +14,8 @@ export function ProjectDetail({ p, m, onBack }: { p: MachineProject; m: Machine;
   const work = works[p.key] ?? null;
   const busy = installing(works);
   const mine = (work?.kind === "install" || work?.kind === "update") && !!work.job?.running;
-  const a = actionsOf(p, mine && work?.kind === "install", busy && !mine);
+  const a = actionsOf(p, mine && work?.kind === "install", busy && !mine, m.newest?.pluginEngines);
+  const engine = engineBlocked(p, m.newest?.pluginEngines);
   const act = projectActions(p, m, work);
   const u = updatesOf(p, m.newest);
   const hint = nameHint(p, m.report?.projects ?? []);
@@ -50,6 +51,7 @@ export function ProjectDetail({ p, m, onBack }: { p: MachineProject; m: Machine;
           <button className="ghost" title={`Opens ${p.dir} with ${p.name}.uproject selected`} onClick={act.reveal}>Show in Explorer</button>
         </div>
       </header>
+      {a.addStudio && !p.editor.running && !mine && !busy && engine && <p className="dim small">{engine}</p>}
       {work && work.kind !== "update" && <div className="app-detail-work"><WorkPanel p={p} work={work} act={act} /></div>}
 
       <div className="app-card">

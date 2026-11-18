@@ -1318,6 +1318,14 @@ std::string newestVersions() {
     json::Value plugin;
     std::string version = releaseVersion(pluginUrl, plugin, pluginWhy, "The editor plugin's release");
     if (!version.empty()) v.set("plugin", json::Value::str(version));
+    // The engines it has a build for, so Add Studio can say up front when a project's engine has none.
+    if (const json::Value* files = plugin.get("files"); !version.empty() && files && files->isObject()) {
+      json::Value engines;
+      engines.kind = json::Value::Kind::Array;
+      engines.a = std::make_shared<json::Array>();
+      for (const auto& [engine, build] : *files->o) engines.a->push_back(json::Value::str(engine));
+      v.set("pluginEngines", engines);
+    }
   }
   if (!pluginWhy.empty()) errors.set("plugin", json::Value::str(pluginWhy));
   v.set("errors", errors);
