@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import type { Machine } from "./App";
 import { host, type IdeInfo } from "./native";
-import { actionsOf, filterProjects, ideButton, ideOpens, listReadAt, nameHint, running, updatesOf, versionsOf, type MachineProject } from "./model";
+import { actionsOf, engineBlocked, filterProjects, ideButton, ideOpens, listReadAt, nameHint, running, updatesOf, versionsOf, type MachineProject } from "./model";
 import { JobOutput } from "./NodeCard";
 import { useBusy } from "./busy";
 import { Busy } from "./BusyLabel";
@@ -103,10 +103,11 @@ function HiddenProjects({ m }: { m: Machine }) {
 
 function ProjectRow({ p, all, m, work, busy, onOpen }: { p: MachineProject; all: MachineProject[]; m: Machine; work: Work | null; busy: boolean; onOpen: () => void }) {
   const mine = (work?.kind === "install" || work?.kind === "update") && !!work.job?.running;
-  const a = actionsOf(p, mine && work?.kind === "install", busy && !mine);
+  const a = actionsOf(p, mine && work?.kind === "install", busy && !mine, m.newest?.pluginEngines);
   const act = projectActions(p, m, work);
   const u = updatesOf(p, m.newest);
   const hint = nameHint(p, all);
+  const engine = engineBlocked(p, m.newest?.pluginEngines);
   const versions = versionsOf(p, m.live, m.report?.ueMcp ?? null);
   const pending = (k: Work["kind"]) => work?.kind === k && !work.error && !work.done;
   const [removing, run] = useBusy();
@@ -164,6 +165,7 @@ function ProjectRow({ p, all, m, work, busy, onOpen }: { p: MachineProject; all:
         <RowMenu p={p} act={act} onOpen={onOpen} onRemove={remove} removing={removing} />
       </div>
       {m.verified && a.addStudio && p.editor.running && !mine && <p className="app-row-note dim small">{a.addBlocked}</p>}
+      {a.addStudio && !p.editor.running && !mine && !busy && engine && <p className="app-row-note dim small">{engine}</p>}
       <WorkPanel p={p} work={work} act={act} />
     </li>
   );

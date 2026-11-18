@@ -67,13 +67,30 @@ export function running(p: MachineProject, live: Record<string, Live> | null): L
 }
 
 /** What a row offers, and why an action waits. */
-/** `installing`: this project's install runs; `busy`: another project's does, and installs run one at a time. */
-export function actionsOf(p: MachineProject, installing: boolean, busy: boolean): { openStudio: boolean; addStudio: boolean; addBlocked: string | null; launchBlocked: string | null } {
+/** "5.7", "5.7 and 5.8", "5.7, 5.8 and 5.9". */
+function listed(items: string[]): string {
+  return items.length < 2 ? items.join("") : `${items.slice(0, -1).join(", ")} and ${items[items.length - 1]}`;
+}
+
+/**
+ * Why Studio cannot be added to this project's engine, with what to do, or
+ * null. `engines` are the UE versions the editor plugin has builds for; while
+ * they or the project's engine are unknown, the install itself decides.
+ */
+export function engineBlocked(p: MachineProject, engines: string[] | undefined): string | null {
+  const v = p.engine.version;
+  if (!engines?.length || !v || engines.includes(v)) return null;
+  const sorted = [...engines].sort((a, b) => a.localeCompare(b, undefined, { numeric: true }));
+  return `Studio runs on UE ${listed(sorted)}, and ${p.name} uses ${v}. Switch its engine (right-click ${p.name}.uproject, Switch Unreal Engine Version), then Refresh.`;
+}
+
+/** `installing`: this project's install runs; `busy`: another project's does, and installs run one at a time. `engines`: see engineBlocked. */
+export function actionsOf(p: MachineProject, installing: boolean, busy: boolean, engines?: string[]): { openStudio: boolean; addStudio: boolean; addBlocked: string | null; launchBlocked: string | null } {
   const s = studioOf(p);
   return {
     openStudio: s.installed,
     addStudio: !s.installed,
-    addBlocked: installing ? "Adding Studio." : busy ? "Another install is running." : p.editor.running ? `Close ${p.name} in Unreal first.` : null,
+    addBlocked: installing ? "Adding Studio." : busy ? "Another install is running." : p.editor.running ? `Close ${p.name} in Unreal first.` : engineBlocked(p, engines),
     launchBlocked: installing ? "Wait for the install to finish." : p.editor.running ? `${p.name} is open in Unreal.` : null,
   };
 }

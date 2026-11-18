@@ -82,6 +82,8 @@ export interface Newest {
   ueMcp?: string;
   studio?: string;
   plugin?: string;
+  /** The UE versions the newest editor plugin has a build for; absent from an older host. */
+  pluginEngines?: string[];
   errors?: { ueMcp?: string; studio?: string; plugin?: string };
 }
 
