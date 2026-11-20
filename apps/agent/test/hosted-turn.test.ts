@@ -221,6 +221,91 @@ describe("a turn in a host process across a daemon restart", () => {
   }, 20_000);
 });
 
+describe("stopping a turn in a host process (#1902)", () => {
+  it("hands the turn's stop to the editor call in flight, and the next turn's calls run on a signal of their own", async () => {
+    const signals: AbortSignal[] = [];
+    host.callAction = async (category: string, action: string, _args?: Record<string, unknown>, opts?: { signal?: AbortSignal }) => {
+      const signal = opts?.signal;
+      if (signal) signals.push(signal);
+      // The first call is a long one the editor is still running when the user stops the turn.
+      if (signals.length === 1 && signal) await new Promise((r) => signal.addEventListener("abort", r, { once: true }));
+      return { isError: false, content: [{ type: "text", text: JSON.stringify({ success: true, category, action }) }] };
+    };
+    let late: Awaited<ReturnType<FakeBinary["call"]>> | null = null;
+    sdk.script = async (b) => {
+      b.emit({ type: "system", subtype: "init", session_id: "sdk-stop" });
+      if (sdk.prompts.length === 1) {
+        await use(b, "slow", "ue_mcp", { action: "call", category: "asset", method: "import", args: {} });
+        // The stopped binary still asks: the call does not run.
+        late = await use(b, "late", "ue_mcp", { action: "call", category: "asset", method: "delete", args: {} });
+      } else {
+        await use(b, "next", "ue_mcp", { action: "call", category: "level", method: "get_outliner", args: {} });
+      }
+      b.emit({ type: "result", subtype: "success", is_error: false, session_id: "sdk-stop" });
+    };
+    const d = daemon();
+    const s = d.store.create();
+    const first = d.runner.send(s.id, "import it");
+    await until(() => signals.length === 1);
+    d.runner.stop(s.id);
+    await first;
+    expect(signals[0].aborted).toBe(true);
+    expect(d.store.get(s.id)!.status).toBe("stopped");
+    await until(() => listRecords(host.dataDir).length === 0);
+    expect(late === null || late!.isError).toBe(true);
+
+    await d.runner.send(s.id, "look around");
+    await until(() => d.store.get(s.id)!.status === "idle");
+    expect(signals).toHaveLength(2);
+    expect(signals[1].aborted).toBe(false);
+    expect(outcome(d.store.get(s.id)!, "next")).toMatchObject({ outcome: "done" });
+    expect(outcome(d.store.get(s.id)!, "late")?.outcome ?? "stopped").not.toBe("done");
+  }, 20_000);
+
+  it("stops, never takes over, a host whose turn the session no longer runs, and nothing it asks for runs", async () => {
+    let calls = 0;
+    host.callAction = async (category: string, action: string) => {
+      calls++;
+      return { isError: false, content: [{ type: "text", text: JSON.stringify({ success: true, category, action }) }] };
+    };
+    let release: (() => void) | null = null;
+    sdk.script = async (b) => {
+      b.emit({ type: "system", subtype: "init", session_id: "sdk-stale" });
+      b.emit(assistant("m1", [{ type: "text", text: "Starting." }]));
+      await new Promise<void>((r) => (release = r));
+      await use(b, "stale", "ue_mcp", { action: "call", category: "level", method: "place_actor", args: { label: "Ghost" } });
+      b.emit(assistant("m2", [{ type: "text", text: "Placed it." }]));
+      b.emit({ type: "result", subtype: "success", is_error: false, session_id: "sdk-stale" });
+    };
+    const d1 = daemon();
+    const s = d1.store.create();
+    const turn = d1.runner.send(s.id, "place a ghost");
+    await until(() => texts(d1.store.get(s.id)!).includes("Starting."));
+    // The daemon stopped the turn, but the stop never reached its host and the host's record stayed:
+    // the session says the turn is over while the host still runs it.
+    crash(d1.runner);
+    await turn;
+    const saved = new SessionStore(host.dataDir);
+    const stopped = saved.get(s.id)!;
+    delete stopped.hostTurn;
+    stopped.status = "stopped";
+    saved.save(stopped);
+    expect(listRecords(host.dataDir)).toHaveLength(1);
+
+    const d2 = daemon();
+    d2.runner.recover();
+    // Stopped by the next daemon instead of taken over.
+    await until(() => listRecords(host.dataDir).length === 0);
+    release!();
+    await new Promise((r) => setTimeout(r, 200));
+    expect(calls).toBe(0);
+    const after = d2.store.get(s.id)!;
+    expect(after.status).not.toBe("running");
+    expect(texts(after)).not.toContain("Placed it.");
+    expect(d2.runner.activeSessions()).toEqual([]);
+  }, 20_000);
+});
+
 describe("steering on the Claude sign-in through host processes", () => {
   const sub = (b: FakeBinary) => String(b.options.systemPrompt).includes("You are a subagent");
 

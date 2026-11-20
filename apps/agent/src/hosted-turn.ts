@@ -98,6 +98,26 @@ export interface TurnHostsOptions {
 
 const HELLO_MS = 10_000;
 const OP_MS = 30_000;
+/** How long a host gets to confirm a stop before its process is ended. */
+const ABORT_CONFIRM_MS = 5_000;
+
+/** What a stopped turn's host is answered for a call it still makes: nothing ran. */
+const STOPPED_CALL: ToolExecution = { text: "The turn was stopped, so this call did not run.", isError: true, outcome: "error", touched: [], saved: [] };
+
+/** Callbacks for a link that only stops its host: every event is ignored, and every call is answered as not run. */
+function stoppedCallbacks(signal: AbortSignal): HostedCallbacks {
+  const notRun = async (): Promise<ToolExecution> => STOPPED_CALL;
+  const ignore = (): void => {};
+  return {
+    signal,
+    onSession: ignore,
+    onDelta: ignore,
+    onAssistant: ignore,
+    onToolResults: ignore,
+    runTool: notRun,
+    lostTool: notRun,
+  } as unknown as HostedCallbacks;
+}
 
 /** A detached Node process running the host script: it outlives this daemon, and has no window or pipes tied to it. */
 function launchDetached(script: string, cwd: string): (file: string) => { exited: () => boolean; kill: () => void } {
@@ -126,8 +146,40 @@ export class TurnHosts {
 
   /** The newest host record of a session, if any. */
   recordFor(session: string): TurnHostRecord | null {
-    const mine = listRecords(this.o.dataDir).filter((r) => r.session === session).sort((a, b) => b.startedAt.localeCompare(a.startedAt));
-    return mine[0] ?? null;
+    return this.recordsFor(session)[0] ?? null;
+  }
+
+  /** Every host record of a session, newest first. */
+  recordsFor(session: string): TurnHostRecord[] {
+    return listRecords(this.o.dataDir).filter((r) => r.session === session).sort((a, b) => b.startedAt.localeCompare(a.startedAt));
+  }
+
+  /**
+   * Stop a host whose turn nobody takes over: told to abort, and ended by its
+   * process id when it does not confirm. A host that cannot be reached is not
+   * killed, since its pid may belong to another process by now; its files are
+   * removed so no daemon takes it over, and its calls are never answered, so
+   * nothing it asks for runs.
+   */
+  async stop(record: TurnHostRecord): Promise<void> {
+    const r = readRecord(recordFile(this.o.dataDir, record.host)) ?? record;
+    if (!r.ended && pidAlive(r.pid)) {
+      const stopped = new AbortController();
+      stopped.abort();
+      const link = new HostLink(this.o, record, stoppedCallbacks(stopped.signal), Number.MAX_SAFE_INTEGER);
+      try {
+        await link.connect();
+        await link.run().done;
+        return;
+      } catch (e) {
+        this.o.log.warn(`could not reach the stale turn host ${record.host} of session ${record.session}; its files are removed so no daemon takes it over`, e);
+      }
+    }
+    try {
+      removeHostFiles(this.o.dataDir, record.host);
+    } catch (e) {
+      this.o.log.warn(`could not remove the files of the stale turn host ${record.host}`, e);
+    }
   }
 
   /** The sessions a live host runs a conversation for, attached or not; a subagent's host counts for its session. */
@@ -228,6 +280,8 @@ class HostLink {
   private liveShown = false;
   /** The protocol the host said in its hello: what it can be asked. */
   private protocol = 1;
+  /** The host's process id, as its hello gave it on a connection that proved it is this host. */
+  private hostPid: number | null = null;
   private readonly stoppersShown = new Set<string>();
   private readonly ops = new Map<string, (v: unknown) => void>();
   private readonly inflight = new Set<string>();
@@ -244,10 +298,14 @@ class HostLink {
   run(): HostedRun {
     // Stop: the host ends the turn, and the runner, which has ended it already, is answered at once, as in the daemon.
     const onAbort = () => {
-      void this.op("abort");
-      fs.rmSync(recordFile(this.o.dataDir, this.record.host), { force: true });
+      void this.abortHost();
+      // Without its record no later daemon takes the stopped turn over, even if the host outlives the stop.
+      try {
+        fs.rmSync(recordFile(this.o.dataDir, this.record.host), { force: true });
+      } catch (e) {
+        this.o.log.warn(`session ${this.record.session}: could not remove the stopped turn host's record`, e);
+      }
       this.settle(null);
-      setTimeout(() => this.close(), 3000).unref?.();
     };
     if (this.cb.signal.aborted) onAbort();
     else this.cb.signal.addEventListener("abort", onAbort, { once: true });
@@ -261,6 +319,28 @@ class HostLink {
         this.settle(DETACHED);
       },
     };
+  }
+
+  /**
+   * Tell the host to abort its turn. A host that does not confirm, because the
+   * op could not be sent or no answer came, is ended by the process id its
+   * hello proved, so a stopped turn cannot go on calling tools (#1902).
+   */
+  private async abortHost(): Promise<void> {
+    const confirmed = (await this.op("abort", undefined, ABORT_CONFIRM_MS)) === true;
+    if (!confirmed) {
+      const pid = this.hostPid;
+      // Never this process: a host run in process (the tests) shares its pid.
+      if (pid && pid !== process.pid && pidAlive(pid)) {
+        try {
+          process.kill(pid);
+          this.o.log.warn(`session ${this.record.session}: the turn host ${this.record.host} did not confirm the stop, so its process ${pid} was ended`);
+        } catch (e) {
+          this.o.log.warn(`session ${this.record.session}: the turn host ${this.record.host} did not confirm the stop, and its process ${pid} could not be ended`, e);
+        }
+      }
+    }
+    setTimeout(() => this.close(), 3000).unref?.();
   }
 
   private settle(r: HostedResult): void {
@@ -304,6 +384,7 @@ class HostLink {
           // The pid and the record could belong to another process by now: the host proves itself by its session and id.
           const ours = msg.session === this.record.session && msg.host === this.record.host;
           if (ours) this.protocol = typeof msg.protocol === "number" ? msg.protocol : 1;
+          if (ours && typeof msg.pid === "number") this.hostPid = msg.pid;
           done(ours, ours ? undefined : "the socket is not this session's turn host");
         } else if (msg.t === "refused") done(false, String(msg.why ?? "refused"));
         else this.handle(sock, msg);
@@ -380,12 +461,12 @@ class HostLink {
     };
   }
 
-  /** Ask the host's turn for something; null when the host cannot be reached. */
-  private op(op: HostOp, args?: Record<string, unknown>): Promise<unknown> {
+  /** Ask the host's turn for something; null when the host cannot be reached or does not answer within `ms`. */
+  private op(op: HostOp, args?: Record<string, unknown>, ms = OP_MS): Promise<unknown> {
     const id = crypto.randomUUID();
     if (!sendLine(this.sock, { t: "op", id, op, ...(args ? { args } : {}) })) return Promise.resolve(null);
     return new Promise((resolve) => {
-      const timer = setTimeout(() => finish(null), OP_MS);
+      const timer = setTimeout(() => finish(null), ms);
       const finish = (v: unknown) => {
         clearTimeout(timer);
         this.ops.delete(id);
@@ -398,7 +479,12 @@ class HostLink {
   /** A call the host's turn made into Studio's tools: run here, answered over the socket that is current then. */
   private request(r: { id: string; callId: string; name: string; input: Record<string, unknown>; started: boolean }): void {
     // A call this daemon is running already, sent again after a dropped connection.
-    if (this.inflight.has(r.id) || this.settled) return;
+    if (this.inflight.has(r.id)) return;
+    if (this.settled) {
+      // The turn was stopped: a call it still makes runs nothing, and the host hears so instead of waiting on it.
+      if (!this.detached) sendLine(this.sock, { t: "res", id: r.id, exec: STOPPED_CALL });
+      return;
+    }
     this.inflight.add(r.id);
     const run = r.started
       ? this.cb.lostTool(r.callId, r.name, r.input)
