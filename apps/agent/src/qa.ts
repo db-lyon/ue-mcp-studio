@@ -60,7 +60,7 @@ import {
 import { NO_CHECKPOINTS, PlaytestLoop, attentionText, carryOf, type LoopCheckpoints } from "./playtest-loop.js";
 import { type ElicitParams, type ElicitResult, type FormBroker } from "./forms.js";
 import type { SessionStore } from "./sessions.js";
-import type { AgentHost } from "./tools.js";
+import type { AgentHost, TurnCallOptions } from "./tools.js";
 import type { PlaytestStore } from "./playtest-store.js";
 
 const CAPTURE_TYPES: Record<string, string> = { ".png": "image/png", ".jpg": "image/jpeg", ".jpeg": "image/jpeg", ".webp": "image/webp" };
@@ -80,7 +80,7 @@ export function keepRunFields(args: Record<string, unknown>): Record<string, unk
 }
 
 export interface QaHost {
-  callAction(category: string, action: string, args?: Record<string, unknown>, opts?: { elicit?: (p: ElicitParams) => Promise<ElicitResult> }): Promise<ActionResult>;
+  callAction(category: string, action: string, args?: Record<string, unknown>, opts?: { elicit?: (p: ElicitParams) => Promise<ElicitResult>; signal?: AbortSignal }): Promise<ActionResult>;
   editors(): Array<{ connected: boolean }>;
   events: {
     publish(type: string, data?: Record<string, unknown>): unknown;
@@ -238,20 +238,20 @@ export class QaBroker {
 
   /** The host a session's turn runs on: a run its calls start gets a card in its transcript. */
   wrap(host: AgentHost, sessionId: string, opts: { assigned?: boolean } = {}): AgentHost {
-    const callAction = async (category: string, action: string, args: Record<string, unknown> = {}): Promise<ActionResult> => {
+    const callAction = async (category: string, action: string, args: Record<string, unknown> = {}, turn?: TurnCallOptions): Promise<ActionResult> => {
       if (category === "pie" && (action === "script_create" || action === "script_update")) return this.drafting(host, sessionId, action, args);
       if (category === "pie" && action === "script_delete") {
-        const r = await host.callAction(category, action, args);
+        const r = await host.callAction(category, action, args, turn);
         if (!failure(r, json(r)) && typeof args.path === "string") this.deleted(args.path);
         return r;
       }
-      if (category !== "pie" || !STARTS.has(action)) return host.callAction(category, action, args);
+      if (category !== "pie" || !STARTS.has(action)) return host.callAction(category, action, args, turn);
       // Manual: the agent's own run is refused; the card's Start playtest and an assigned subagent are the user's.
       if (!opts.assigned && this.o.playtests?.runs() === "manual") return refusedRun();
       const call: Inflight = { sessionId, action };
       this.inflight.push(call);
       try {
-        const r = await host.callAction(category, action, keepRunFields(args));
+        const r = await host.callAction(category, action, keepRunFields(args), turn);
         const body = json(r);
         // An answer that still has no script names the one the call ran.
         const script = typeof args.script === "string" && args.script ? args.script : null;

@@ -11,7 +11,7 @@
  */
 import type { ActionResult } from "ue-mcp/daemon";
 import type { BusyCall, BusyState, EditorOperation, EditorOperationFailure } from "@ue-mcp-studio/shared";
-import type { AgentHost } from "./tools.js";
+import type { AgentHost, TurnCallOptions } from "./tools.js";
 import { firstFailedStep, stepReason, type OperationStep } from "./operation-result.js";
 
 /** Lookups that the daemon answers itself; they never wait on the editor. */
@@ -118,11 +118,11 @@ export class BusyTracker {
 
   /** The host a session's turn runs on: the same, with each editor call it makes tracked. */
   wrap(host: AgentHost, sessionId: string): AgentHost {
-    const callAction = async (category: string, action: string, args?: Record<string, unknown>): Promise<ActionResult> => {
-      if (LOCAL.has(`${category}.${action}`)) return host.callAction(category, action, args);
+    const callAction = async (category: string, action: string, args?: Record<string, unknown>, opts?: TurnCallOptions): Promise<ActionResult> => {
+      if (LOCAL.has(`${category}.${action}`)) return host.callAction(category, action, args, opts);
       const id = this.start({ category, action, source: "studio", sessionId });
       try {
-        return await host.callAction(category, action, args);
+        return await host.callAction(category, action, args, opts);
       } finally {
         this.finish(id);
       }

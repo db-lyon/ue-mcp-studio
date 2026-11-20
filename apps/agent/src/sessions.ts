@@ -57,8 +57,11 @@ export interface StoredSession {
   /**
    * A Claude sign-in reply running in a host process: the last host event
    * applied and the reply's own bookkeeping, so the next daemon replays from there.
+   * `host` names the host process the reply runs in: the next daemon takes over
+   * that one alone, and stops any other host of the session (absent from a
+   * session saved by an earlier Studio).
    */
-  hostTurn?: { seq: number; lastId: string | null; background: string[] };
+  hostTurn?: { seq: number; lastId: string | null; background: string[]; host?: string };
   /**
    * Each subagent still running, by agent call id, as a restart needs it: in
    * the background (its call answered already), started by the user, the last

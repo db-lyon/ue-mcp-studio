@@ -32,7 +32,7 @@ import {
   type NativeDialogFacts,
 } from "@ue-mcp-studio/shared";
 import type { SessionStore } from "./sessions.js";
-import type { AgentHost } from "./tools.js";
+import type { AgentHost, TurnCallOptions } from "./tools.js";
 
 /** ue-mcp's dialog prompt (ue-mcp/daemon 1.4.1), restated so Studio builds against older releases. */
 export interface DialogPromptRequest {
@@ -59,6 +59,12 @@ export interface CallOptions {
   dialogPrompt?: (request: DialogPromptRequest) => Promise<DialogPromptResult>;
   dialogWaitMs?: number;
   elicit?: (params: ElicitParams) => Promise<ElicitResult>;
+  /**
+   * The turn's stop (ue-mcp feature "callAction.signal"): an aborted call is
+   * not dispatched, and one in flight answers as cancelled at once. A daemon
+   * without the feature ignores it.
+   */
+  signal?: AbortSignal;
 }
 
 /** How long a call waits on a prompt under the wait policy before returning the refusal to the agent. */
@@ -184,7 +190,7 @@ export class DialogBroker {
 
   /** The host a session's turn runs on: its calls carry Studio's dialog prompt, and a destructive press waits its countdown. */
   wrap(host: AgentHost & { callAction: DialogHost["callAction"] }, sessionId: string): AgentHost {
-    const callAction = async (category: string, action: string, args: Record<string, unknown> = {}): Promise<ActionResult> => {
+    const callAction = async (category: string, action: string, args: Record<string, unknown> = {}, opts?: TurnCallOptions): Promise<ActionResult> => {
       const id = this.nextCall++;
       this.inflight.set(id, { sessionId, category, action, startedAt: this.now() });
       try {
@@ -194,6 +200,7 @@ export class DialogBroker {
           dialogPrompt: (req) => this.prompt(sessionId, category, action, req),
           dialogWaitMs: this.waitMs(),
           ...forms,
+          ...(opts?.signal ? { signal: opts.signal } : {}),
         });
       } finally {
         this.inflight.delete(id);

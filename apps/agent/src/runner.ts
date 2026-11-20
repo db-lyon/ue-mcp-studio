@@ -344,6 +344,8 @@ interface TurnTrack {
   lastId: string | null;
   /** Compatibility (a host before protocol 3): the runtime's own agent calls running in the background. */
   background: string[];
+  /** The host process the reply runs in, once it has one. */
+  host?: string;
 }
 
 /** A conversation compaction can rewrite: the main agent's, or one subagent's. */
@@ -1884,6 +1886,7 @@ ${result}`);
       result = await this.claudeStep(s.id, spec, cb, (run) => {
         hosted = run;
         this.hosted.set(s.id, run);
+        track.host = run.host;
         s.hostTurn = track;
         this.o.store.save(s);
       });
@@ -1902,14 +1905,25 @@ ${result}`);
    */
   private reattach(s: StoredSession): boolean {
     const hosts = this.o.turnHosts;
-    const record = hosts?.recordFor(s.id);
-    if (!hosts || !record) return false;
+    if (!hosts) return false;
+    const records = hosts.recordsFor(s.id);
+    // Only the host of the reply the session still runs is taken over. Any other is a turn the user
+    // stopped, or one a newer reply replaced, whose stop never reached it: taken over, it would go on
+    // calling tools beside the next turn. It is stopped instead (#1902).
+    const want = s.hostTurn ? s.hostTurn.host ?? records[0]?.host : null;
+    const record = records.find((r) => r.host === want) ?? null;
+    for (const stale of records) {
+      if (stale === record) continue;
+      this.o.host.log.warn(`session ${s.id}: host process ${stale.host} runs a turn this session no longer has; it is stopped, not taken over`);
+      void hosts.stop(stale).catch((e) => this.o.host.log.warn(`session ${s.id}: stopping host process ${stale.host} failed`, e));
+    }
+    if (!record) return false;
     // An approval only the previous daemon could show: its call is sent again by the host, and asks again here.
     if (s.approvals?.length) s.approvals = [];
     const controller = new AbortController();
     this.active.set(s.id, controller);
     this.replying.add(s.id);
-    const track: TurnTrack = { seq: s.hostTurn?.seq ?? 0, lastId: s.hostTurn?.lastId ?? null, background: [...(s.hostTurn?.background ?? [])] };
+    const track: TurnTrack = { seq: s.hostTurn?.seq ?? 0, lastId: s.hostTurn?.lastId ?? null, background: [...(s.hostTurn?.background ?? [])], host: record.host };
     s.hostTurn = track;
     this.o.store.save(s);
     // Compatibility: a host from before protocol 3 runs the runtime's own subagents, and reports them as it always did.
