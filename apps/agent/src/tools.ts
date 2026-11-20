@@ -20,11 +20,22 @@ import { IMAGE_EXTENSIONS, MAX_IMAGE_FILE_BYTES, prepareImage, sniffImage, type 
 import { compactDescribe, compactSearch } from "./discovery.js";
 import { compactJson, keepForModel, saveResult } from "./model-text.js";
 
+/**
+ * What a turn hands each editor call. `signal` is the turn's stop: once it
+ * aborts, ue-mcp (feature "callAction.signal", after 1.4.14) dispatches
+ * nothing more for the turn and answers a call in flight as cancelled. An
+ * older daemon ignores it. Restated here so Studio builds against the ue-mcp
+ * it pins.
+ */
+export interface TurnCallOptions {
+  signal?: AbortSignal;
+}
+
 /** The part of the daemon's extension API the agent uses, so tests can stand in for it. */
 export interface AgentHost {
   projectDir: string;
   dataDir: string;
-  callAction(category: string, action: string, args?: Record<string, unknown>): Promise<ActionResult>;
+  callAction(category: string, action: string, args?: Record<string, unknown>, opts?: TurnCallOptions): Promise<ActionResult>;
   editors(): EditorStatus[];
   editorOperation(op: "start" | "stop" | "restart" | "rebuild"): Promise<Record<string, unknown>>;
   events: {
@@ -241,6 +252,8 @@ export function editorConnected(host: AgentHost): boolean {
 export async function executeTool(host: AgentHost, name: string, input: Record<string, unknown>, signal?: AbortSignal, onOutput?: (text: string) => void): Promise<ToolExecution> {
   const invalid = validateInput(name, input);
   if (invalid) return { text: `Invalid input: ${invalid}`, isError: true, outcome: "error", touched: [], saved: [] };
+  // The turn was stopped before this call started: nothing runs, a file edit or an editor restart included.
+  if (signal?.aborted) return { text: "Stopped before it ran: the turn was interrupted.", isError: true, outcome: "error", touched: [], saved: [] };
 
   if (isLocalTool(name)) {
     const r = await runLocal(host.projectDir, name, input, signal, onOutput);
@@ -269,9 +282,10 @@ export async function executeTool(host: AgentHost, name: string, input: Record<s
     };
   }
 
+  const turn: TurnCallOptions | undefined = signal ? { signal } : undefined;
   const action = input.action as string;
   if (action === "search") {
-    const r = await host.callAction("project", "search_tools", { query: input.query, limit: 15 });
+    const r = await host.callAction("project", "search_tools", { query: input.query, limit: 15 }, turn);
     const text = r.isError ? resultText(r) : compactSearch(resultText(r));
     return { text, isError: r.isError, outcome: r.isError ? "error" : "done", touched: [], saved: [] };
   }
@@ -279,7 +293,7 @@ export async function executeTool(host: AgentHost, name: string, input: Record<s
     const args = typeof input.method === "string" && input.method
       ? { name: `${input.category}.${input.method}` }
       : { name: String(input.category), category: input.category };
-    const r = await host.callAction("project", "describe_action", args);
+    const r = await host.callAction("project", "describe_action", args, turn);
     const text = r.isError ? resultText(r) : compactDescribe(resultText(r));
     return { text, isError: r.isError, outcome: r.isError ? "error" : "done", touched: [], saved: [] };
   }
@@ -293,7 +307,7 @@ export async function executeTool(host: AgentHost, name: string, input: Record<s
   const startedAt = Date.now();
   let r: ActionResult;
   try {
-    r = await host.callAction(category, method, args);
+    r = await host.callAction(category, method, args, turn);
   } catch (e) {
     const message = e instanceof Error ? e.message : String(e);
     if (wasConnected && !editorConnected(host)) return { text: message, isError: true, outcome: "unknown", touched: namedTargets(args), saved: [] };

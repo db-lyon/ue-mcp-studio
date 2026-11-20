@@ -49,6 +49,7 @@ import { PlaytestFlow } from "./playtest-flow.js";
 import { FlowCaller, offersStepApproval, type FlowStepHost } from "./flow-run.js";
 
 import { ActionCatalog } from "./action-catalog.js";
+import type { AgentHost } from "./tools.js";
 import { registerFlowModel, type ModelHost } from "./flow-model.js";
 import { CLAUDE_SIGN_IN_AVAILABLE, IMAGE_EDGES, PROVIDERS } from "@ue-mcp-studio/shared";
 import { setImageEdge } from "./images.js";
@@ -311,7 +312,8 @@ export function registerChat(api: DaemonExtensionApi, agentVersion = "0.0.0", pa
     return e ? { baseUrl: e.baseUrl, key: endpoints.key(id) } : null;
   };
   const runner = new AgentRunner({
-    host: api,
+    // callAction takes the turn's signal on a daemon with "callAction.signal"; the pinned ue-mcp's types do not say so yet.
+    host: api as unknown as AgentHost,
     replyImages: (text) => replyImages(text, { projectDir: api.projectDir, home: userHome() }, path.join(api.dataDir, "posters")),
     review,
     busy,
