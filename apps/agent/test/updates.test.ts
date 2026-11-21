@@ -4,20 +4,21 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { execFileSync } from "node:child_process";
 import { describe, expect, it } from "vitest";
-import { UPDATE_FAILURE_FILE, Updater, daemonPackage, cleanPath, describeFailure, failureText, isNewer, readPluginRecord, readUpdateFailure, newestAsset, readChannel, shownCommand, updateEnv, writeChannel } from "../src/updates.js";
+import { UPDATE_FAILURE_FILE, Updater, daemonPackage, descriptorEngine, pluginBuild, cleanPath, describeFailure, failureText, isNewer, readPluginRecord, readUpdateFailure, newestAsset, readChannel, shownCommand, updateEnv, writeChannel } from "../src/updates.js";
 
 // The user's own channel choice never reaches these tests.
 process.env.STUDIO_CHANNEL_FILE = path.join(fs.mkdtempSync(path.join(os.tmpdir(), "studio-chan-")), "update-channel.json");
 
 const tar = process.platform === "win32" ? path.join(process.env.SystemRoot ?? "C:\\Windows", "System32", "tar.exe") : "tar";
 
-function project(pluginVersion: string | null) {
+/** A project on `engine`, with the plugin at `pluginVersion` built for `builtFor` (its EngineVersion) when given. */
+function project(pluginVersion: string | null, engine = "5.8", builtFor?: string) {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "studio-upd-"));
-  fs.writeFileSync(path.join(dir, "Game.uproject"), JSON.stringify({ EngineAssociation: "5.8" }));
+  fs.writeFileSync(path.join(dir, "Game.uproject"), JSON.stringify({ EngineAssociation: engine }));
   if (pluginVersion) {
     const p = path.join(dir, "Plugins", "UE_MCP_Studio");
     fs.mkdirSync(p, { recursive: true });
-    fs.writeFileSync(path.join(p, "UE_MCP_Studio.uplugin"), JSON.stringify({ VersionName: pluginVersion }));
+    fs.writeFileSync(path.join(p, "UE_MCP_Studio.uplugin"), JSON.stringify({ VersionName: pluginVersion, ...(builtFor ? { EngineVersion: builtFor } : {}) }));
   }
   return dir;
 }
@@ -29,11 +30,20 @@ function record(dir: string, r: unknown) {
   fs.writeFileSync(file, typeof r === "string" ? r : JSON.stringify(r));
 }
 
-/** A release zip of the plugin, as release.mjs packages it. */
-function pluginZip(version: string): { file: string; sha256: string } {
+/**
+ * A release zip of the plugin, as release.mjs packages it, stamped with `engineVersion` when given,
+ * and with BuildPlugin's Installed flag, Binaries and Source when `full`.
+ */
+function pluginZip(version: string, engineVersion?: string, full = false): { file: string; sha256: string } {
   const stage = fs.mkdtempSync(path.join(os.tmpdir(), "studio-zip-"));
   fs.mkdirSync(path.join(stage, "UE_MCP_Studio"));
-  fs.writeFileSync(path.join(stage, "UE_MCP_Studio", "UE_MCP_Studio.uplugin"), JSON.stringify({ VersionName: version }));
+  fs.writeFileSync(path.join(stage, "UE_MCP_Studio", "UE_MCP_Studio.uplugin"), JSON.stringify({ VersionName: version, ...(engineVersion ? { EngineVersion: engineVersion } : {}), ...(full ? { Installed: true } : {}) }));
+  if (full) {
+    for (const [dir, name] of [["Binaries/Win64", "UnrealEditor-UE_MCP_Studio.dll"], ["Source/UE_MCP_Studio", "UE_MCP_Studio.Build.cs"]]) {
+      fs.mkdirSync(path.join(stage, "UE_MCP_Studio", dir), { recursive: true });
+      fs.writeFileSync(path.join(stage, "UE_MCP_Studio", dir, name), "x");
+    }
+  }
   const file = path.join(stage, "p.zip");
   execFileSync(tar, process.platform === "win32" ? ["-a", "-c", "-f", file, "-C", stage, "UE_MCP_Studio"] : ["-c", "-f", file, "-C", stage, "UE_MCP_Studio"]);
   return { file, sha256: crypto.createHash("sha256").update(fs.readFileSync(file)).digest("hex") };
@@ -120,10 +130,20 @@ describe("Studio updates", () => {
     expect(status.studio.available).toBe(true);
   });
 
-  it("does not offer a plugin update for an engine the release does not build, or a plugin installed with the engine", async () => {
-    const m = { version: "0.1.0-beta.9", url: "s", sha256: "x", plugin: { version: "0.1.0-beta.9", files: { "5.7": { url: "u", sha256: "y" } } } };
+  it("does not offer a plugin update for an engine older than every build, or a plugin installed with the engine", async () => {
+    const m = { version: "0.1.0-beta.9", url: "s", sha256: "x", plugin: { version: "0.1.0-beta.9", files: { "5.9": { url: "u", sha256: "y" } } } };
     expect((await new Updater(fakeHost(project("0.1.0-beta.4")), "0.1.0-beta.9", () => {}, manifestFetch(m)).check()).plugin.available).toBe(false);
     expect((await new Updater(fakeHost(project(null)), "0.1.0-beta.9", () => {}, manifestFetch(m)).check()).plugin).toMatchObject({ location: "engine", available: false });
+  });
+
+  it("picks the release's build for the engine, else the newest older build's source, by number and not from a fixed list", () => {
+    const f = (...engines: string[]) => Object.fromEntries(engines.map((e) => [e, { url: e, sha256: "x" }]));
+    expect(pluginBuild(f("5.7", "5.8", "5.9"), "5.9")).toMatchObject({ kind: "prebuilt", from: "5.9" });
+    expect(pluginBuild(f("5.7", "5.8", "5.9"), "5.10")).toMatchObject({ kind: "source", from: "5.9" });
+    expect(pluginBuild(f("5.7", "5.9"), "5.8")).toMatchObject({ kind: "source", from: "5.7" });
+    expect(pluginBuild(f("5.9", "5.10"), "6.0")).toMatchObject({ kind: "source", from: "5.10" });
+    expect(pluginBuild(f("5.7"), "5.6")).toBeNull();
+    expect(pluginBuild(f("5.7"), null)).toBeNull();
   });
 
   it("swaps the plugin while the editor is stopped, then starts it again", async () => {
@@ -222,6 +242,99 @@ describe("Studio updates", () => {
     expect(await u.updatePlugin()).toMatchObject({ ok: false, error: expect.stringMatching(/SHA-256/) });
     expect(host.ops).toEqual([]);
     expect(u.pluginVersion()).toBe("0.1.0-beta.4");
+  });
+});
+
+describe("a project moved to another engine", () => {
+  /** The channel's plugin.json naming a zip per engine, each served at its own URL. */
+  const perEngine = (version: string, zips: Record<string, { file: string; sha256: string }>) => {
+    const files = Object.fromEntries(Object.entries(zips).map(([e, z]) => [e, { url: `https://x/UE${e}.zip`, sha256: z.sha256 }]));
+    const fetched: string[] = [];
+    const fetchImpl = (async (url: string) => {
+      if (url.endsWith("latest.json")) return new Response(JSON.stringify({ version: "0.1.38", url: "s", sha256: "x" }));
+      if (url.endsWith("plugin.json")) return new Response(JSON.stringify({ version, files }));
+      fetched.push(url);
+      const e = /UE([\d.]+)\.zip$/.exec(url)?.[1];
+      return e && zips[e] ? new Response(fs.readFileSync(zips[e].file)) : new Response("Not Found", { status: 404 });
+    }) as unknown as typeof fetch;
+    return { fetchImpl, fetched };
+  };
+
+  it("offers the same plugin version built for the project's new engine, as a required update", async () => {
+    const dir = project("0.1.10", "5.9", "5.8.0");
+    const { fetchImpl } = perEngine("0.1.10", { "5.8": pluginZip("0.1.10", "5.8.0"), "5.9": pluginZip("0.1.10", "5.9.0") });
+    expect((await new Updater(fakeHost(dir), "0.1.38", () => {}, fetchImpl).check()).plugin).toMatchObject({
+      installed: "0.1.10", latest: "0.1.10", newer: false, available: true, required: true, engine: "5.9", builtFor: "5.8",
+    });
+  });
+
+  it("offers nothing when the installed plugin is built for the project's engine", async () => {
+    const dir = project("0.1.10", "5.9", "5.9.0");
+    const { fetchImpl } = perEngine("0.1.10", { "5.9": pluginZip("0.1.10", "5.9.0") });
+    expect((await new Updater(fakeHost(dir), "0.1.38", () => {}, fetchImpl).check()).plugin).toMatchObject({ available: false, required: false, builtFor: "5.9" });
+  });
+
+  it("still says the plugin must be replaced when the release supports no engine this old, or the channel does not answer", async () => {
+    const { fetchImpl } = perEngine("0.1.10", { "5.10": pluginZip("0.1.10", "5.10.0") });
+    expect((await new Updater(fakeHost(project("0.1.10", "5.9", "5.8.0")), "0.1.38", () => {}, fetchImpl).check()).plugin).toMatchObject({ available: false, required: true });
+    const down = (async () => new Response("", { status: 503 })) as unknown as typeof fetch;
+    const status = await new Updater(fakeHost(project("0.1.10", "5.9", "5.8.0")), "0.1.38", () => {}, down).check();
+    expect(status.error).toBeTruthy();
+    expect(status.plugin).toMatchObject({ available: false, required: true, builtFor: "5.8", engine: "5.9" });
+  });
+
+  it("installs the zip for the project's current engine over the old engine's build of the same version", async () => {
+    const dir = project("0.1.10", "5.9", "5.8.0");
+    const host = fakeHost(dir);
+    const { fetchImpl, fetched } = perEngine("0.1.10", { "5.8": pluginZip("0.1.10", "5.8.0"), "5.9": pluginZip("0.1.10", "5.9.0") });
+    const u = new Updater(host, "0.1.38", () => {}, fetchImpl);
+    expect(await u.updatePlugin()).toEqual({ ok: true, version: "0.1.10" });
+    expect(fetched).toEqual(["https://x/UE5.9.zip"]);
+    expect(host.ops).toEqual(["stop", "start"]);
+    expect(descriptorEngine(path.join(dir, "Plugins", "UE_MCP_Studio"))).toBe("5.9");
+    expect((await u.check()).plugin).toMatchObject({ installed: "0.1.10", builtFor: "5.9", available: false, required: false });
+  });
+
+  it("on an engine newer than every build, installs the newest build's source, stamped for the project's engine, and builds it before the editor starts", async () => {
+    const dir = project("0.1.10", "5.10", "5.9.0");
+    const host = fakeHost(dir);
+    const { fetchImpl, fetched } = perEngine("0.1.10", { "5.8": pluginZip("0.1.10", "5.8.0", true), "5.9": pluginZip("0.1.10", "5.9.0", true) });
+    const steps: string[] = [];
+    const u = new Updater(host, "0.1.38", (_t, d) => steps.push(String(d.message)), fetchImpl);
+    expect((await u.check()).plugin).toMatchObject({ available: true, required: true, build: "source", engine: "5.10", builtFor: "5.9" });
+    expect(await u.updatePlugin()).toEqual({ ok: true, version: "0.1.10" });
+    expect(fetched).toEqual(["https://x/UE5.9.zip"]);
+    // The swap, then ue-mcp's rebuild (stop, build the project, start): never a start on unbuilt source.
+    expect(host.ops).toEqual(["stop", "rebuild"]);
+    const plugin = path.join(dir, "Plugins", "UE_MCP_Studio");
+    const descriptor = JSON.parse(fs.readFileSync(path.join(plugin, "UE_MCP_Studio.uplugin"), "utf-8"));
+    expect(descriptor).toMatchObject({ VersionName: "0.1.10", EngineVersion: "5.10.0" });
+    expect(descriptor.Installed).toBeUndefined();
+    expect(fs.existsSync(path.join(plugin, "Binaries"))).toBe(false);
+    expect(fs.existsSync(path.join(plugin, "Source", "UE_MCP_Studio", "UE_MCP_Studio.Build.cs"))).toBe(true);
+    expect(steps).toContain("Downloading the plugin 0.1.10 source, since there is no Unreal Engine 5.10 build");
+    // Built for its engine now: nothing more to offer until a newer release.
+    expect((await u.check()).plugin).toMatchObject({ builtFor: "5.10", available: false, required: false, build: "source" });
+  });
+
+  it("says so when the source build fails, and leaves the source in place for the next build", async () => {
+    const dir = project("0.1.10", "5.10", "5.9.0");
+    const host = { ...fakeHost(dir), editorOperation: async (op: string) => (op === "rebuild" ? { steps: [{ step: "editor.stop_editor", ok: true }, { step: "project.build", ok: false, result: "UBT exited with code 6" }] } : {}) };
+    const { fetchImpl } = perEngine("0.1.10", { "5.9": pluginZip("0.1.10", "5.9.0", true) });
+    expect(await new Updater(host, "0.1.38", () => {}, fetchImpl).updatePlugin()).toEqual({
+      ok: false, version: "0.1.10", error: "The plugin 0.1.10 source is in place for Unreal Engine 5.10, but project.build: UBT exited with code 6",
+    });
+    expect(descriptorEngine(path.join(dir, "Plugins", "UE_MCP_Studio"))).toBe("5.10");
+  });
+
+  it("refuses a download built for another engine than the project's, and leaves the plugin and the editor alone", async () => {
+    const dir = project("0.1.10", "5.9", "5.8.0");
+    const host = fakeHost(dir);
+    // The 5.9 entry points at a zip stamped for 5.8.
+    const { fetchImpl } = perEngine("0.1.10", { "5.9": pluginZip("0.1.10", "5.8.0") });
+    expect(await new Updater(host, "0.1.38", () => {}, fetchImpl).updatePlugin()).toEqual({ ok: false, error: "the download is built for Unreal Engine 5.8, not 5.9, so the plugin was left as it is" });
+    expect(host.ops).toEqual([]);
+    expect(descriptorEngine(path.join(dir, "Plugins", "UE_MCP_Studio"))).toBe("5.8");
   });
 });
 

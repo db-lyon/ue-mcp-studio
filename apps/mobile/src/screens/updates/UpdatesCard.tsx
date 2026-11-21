@@ -5,7 +5,7 @@
  */
 import { useCallback, useEffect, useState } from "react";
 import { View } from "react-native";
-import { PLUGIN_OUTSIDE, REMOTE_UPDATES, WHATS_NEW_TITLE, checkFailure, offersWhatsNew, pluginOutside, updateStatus, updateFailureLine, readUpdatesWith, readyLine, updateRows, updateSteps, waiting, waitingSteps, type Updates } from "@ue-mcp-studio/client-core";
+import { PLUGIN_OUTSIDE, REMOTE_UPDATES, WHATS_NEW_TITLE, checkFailure, offersWhatsNew, pluginNotice, pluginOutside, updateStatus, updateFailureLine, readUpdatesWith, readyLine, updateRows, updateSteps, waiting, waitingSteps, type Updates } from "@ue-mcp-studio/client-core";
 import { Banner, Card, Pill, bannerText, labelFont, T, useTheme } from "../../ui";
 import { Details } from "../settings/Details";
 import { Radio, Txt } from "../settings/controls";
@@ -136,10 +136,10 @@ export function UpdatesCard() {
           ))}
         </View>
       ) : null}
-      {u?.studio?.plugin.required ? (
+      {pluginNotice(u?.studio) ? (
         <Banner kind="warn">
           <Txt size={12} style={{ color: bannerText(t, "warn") }}>
-            {u.studio.plugin.location === "project" ? "Editor plugin too old. Update installs it and restarts the editor." : "Editor plugin too old. Update it where it was installed."}
+            {pluginNotice(u?.studio)}
           </Txt>
         </Banner>
       ) : null}

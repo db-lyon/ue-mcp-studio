@@ -1022,7 +1022,11 @@ export interface StudioPluginUpdate {
   /** project: in the project's Plugins folder. engine: anywhere else, such as the engine. */
   location: "project" | "engine" | "none";
   engine: string | null;
-  /** The installed plugin is older than this Studio needs. */
+  /** The engine the installed plugin is built for (its descriptor's EngineVersion, major.minor), or null when it names none. */
+  builtFor?: string | null;
+  /** What Update installs: the release's prebuilt plugin for this engine, or, when it has none, its source for the project to build. */
+  build?: "prebuilt" | "source";
+  /** The installed plugin is older than this Studio needs, or built for another engine than the project's. */
   required?: boolean;
 }
 export * from "./qa.js";

@@ -191,6 +191,39 @@ describe("updates", () => {
     expect(screen.queryByText(/outside this project/)).toBeNull();
   });
 
+  it("says the editor plugin is built for the engine the project left, and that Update installs the same version for the new one", async () => {
+    const moved = (available: boolean) => ({
+      ...studio(false, false),
+      plugin: { installed: "0.1.10", latest: "0.1.10", available, newer: false, required: true, location: "project" as const, engine: "5.9", builtFor: "5.8" },
+    });
+    vi.stubGlobal("fetch", vi.fn(async (url: string) => new Response(JSON.stringify(url.includes("/ext/studio/") ? moved(true) : ueMcp(false)))));
+    render(<UpdatesCard />);
+    await waitFor(() => expect(screen.getByText("Ready to install: the editor plugin 0.1.10 for UE 5.9.")).toBeTruthy());
+    expect(screen.getByText("Editor plugin built for UE 5.8, but the project is now on UE 5.9. Update installs the prebuilt plugin for UE 5.9 and restarts the editor.")).toBeTruthy();
+    expect(screen.getByText("Editor plugin: 0.1.10 for UE 5.8 → 0.1.10 for UE 5.9")).toBeTruthy();
+    expect(screen.queryByText(/too old/)).toBeNull();
+    cleanup();
+    vi.stubGlobal("fetch", vi.fn(async (url: string) => new Response(JSON.stringify(url.includes("/ext/studio/") ? moved(false) : ueMcp(false)))));
+    render(<UpdatesCard />);
+    await waitFor(() => expect(screen.getByText("Editor plugin built for UE 5.8, but the project is now on UE 5.9. The latest plugin release does not support UE 5.9.")).toBeTruthy());
+  });
+
+  it("says why Update builds the editor plugin from source on an engine the release has no prebuilt plugin for", async () => {
+    const plugin = { installed: "0.1.10", latest: "0.1.10", available: true, newer: false, required: true, location: "project" as const, engine: "5.10", builtFor: "5.9", build: "source" };
+    vi.stubGlobal("fetch", vi.fn(async (url: string) => new Response(JSON.stringify(url.includes("/ext/studio/") ? { ...studio(false, false), plugin } : ueMcp(false)))));
+    render(<UpdatesCard />);
+    await waitFor(() => expect(screen.getByText(
+      "Editor plugin built for UE 5.9, but the project is now on UE 5.10. There is no prebuilt plugin for UE 5.10, so Update installs the plugin's source, builds it with the project and restarts the editor.",
+    )).toBeTruthy());
+    cleanup();
+    // A newer release on an engine that still has no prebuilt plugin.
+    const newer = { ...plugin, installed: "0.1.9", newer: true, required: false, builtFor: "5.10" };
+    vi.stubGlobal("fetch", vi.fn(async (url: string) => new Response(JSON.stringify(url.includes("/ext/studio/") ? { ...studio(false, false), plugin: newer } : ueMcp(false)))));
+    render(<UpdatesCard />);
+    await waitFor(() => expect(screen.getByText("The new editor plugin has no prebuilt version for UE 5.10, so Update installs its source, builds it with the project and restarts the editor.")).toBeTruthy());
+    expect(screen.getByText("Ready to install: the editor plugin 0.1.10.")).toBeTruthy();
+  });
+
   it("switches to the beta channel and reads the updates on it again", async () => {
     let channel = "stable";
     const puts: unknown[] = [];
