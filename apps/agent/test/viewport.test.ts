@@ -24,14 +24,14 @@ afterEach(() => {
 });
 
 /** The editor's streamer: connects, identifies, and answers each playerConnected with an offer and a candidate. */
-async function fakeStreamer(url: string): Promise<{ ws: WebSocket; got: Array<Record<string, unknown>>; next(type: string): Promise<Record<string, unknown>> }> {
+async function fakeStreamer(url: string, o: { identify?: boolean } = {}): Promise<{ ws: WebSocket; got: Array<Record<string, unknown>>; next(type: string): Promise<Record<string, unknown>> }> {
   const ws = new WebSocket(url);
   const got: Array<Record<string, unknown>> = [];
   const waiting: Array<{ type: string; resolve: (m: Record<string, unknown>) => void }> = [];
   ws.on("message", (d) => {
     const m = JSON.parse(d.toString()) as Record<string, unknown>;
     got.push(m);
-    if (m.type === "identify") ws.send(JSON.stringify({ type: "endpointId", id: "studio", protocolVersion: "1.0.0" }));
+    if (m.type === "identify" && o.identify !== false) ws.send(JSON.stringify({ type: "endpointId", id: "studio", protocolVersion: "1.0.0" }));
     if (m.type === "playerConnected") {
       ws.send(JSON.stringify({ type: "offer", playerId: m.playerId, sdp: "v=0 fake-offer" }));
       ws.send(JSON.stringify({ type: "iceCandidate", playerId: m.playerId, candidate: { candidate: "candidate:1 1 udp 1 192.0.2.1 5000 typ host", sdpMid: "0", sdpMLineIndex: 0 } }));
@@ -98,6 +98,28 @@ describe("the signalling server", () => {
 
     s.removeViewer(viewer);
     expect((await streamer.next("playerDisconnected")).playerId).toBe(viewer);
+  });
+
+  it("announces players only once the streamer's endpointId is confirmed, since Pixel Streaming 2 drops them before it joins", async () => {
+    const s = new SignallingServer({ iceServers: () => [] });
+    cleanup.push(() => s.close());
+    const url = await s.start();
+    const viewer = s.addViewer();
+
+    const silent = await fakeStreamer(url, { identify: false });
+    await silent.next("identify");
+    s.addViewer();
+    await new Promise((r) => setTimeout(r, 100));
+    expect(silent.got.some((m) => m.type === "playerConnected")).toBe(false);
+    silent.ws.close();
+    await new Promise((r) => setTimeout(r, 50));
+
+    const streamer = await fakeStreamer(url);
+    await streamer.next("playerConnected");
+    const types = streamer.got.map((m) => m.type);
+    expect(types.indexOf("endpointIdConfirm")).toBeGreaterThanOrEqual(0);
+    expect(types.indexOf("playerConnected")).toBeGreaterThan(types.indexOf("endpointIdConfirm"));
+    expect(streamer.got.filter((m) => m.type === "playerConnected").map((m) => m.playerId)).toContain(viewer);
   });
 
   it("refuses a connection on any other path, so a web page cannot pose as the streamer", async () => {

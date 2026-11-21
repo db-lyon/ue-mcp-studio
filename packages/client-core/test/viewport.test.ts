@@ -79,6 +79,49 @@ describe("the viewer session", () => {
     expect(f.left).toEqual(["v1"]);
   });
 
+  it("goes live with the video's stream when the audio comes in a stream of its own, and adds the audio to it", async () => {
+    // Pixel Streaming 2 sends its audio and video in two streams, and the audio's track event can come last.
+    class FakeStream {
+      tracks: unknown[];
+      constructor(readonly id: string, ...tracks: unknown[]) {
+        this.tracks = tracks;
+      }
+      getTracks() {
+        return this.tracks;
+      }
+      addTrack(t: unknown) {
+        this.tracks.push(t);
+      }
+    }
+    const audioTrack = { kind: "audio" };
+    const videoTrack = { kind: "video" };
+    const audio = new FakeStream("audio", audioTrack);
+    const video = new FakeStream("video", videoTrack);
+    for (const order of [["audio", "video"], ["video", "audio"]]) {
+      const lateAudio = { kind: "audio", id: order[0] };
+      class TwoStreamPeer extends FakePeer {
+        async setLocalDescription() {
+          for (const k of order) {
+            if (k === "audio") this.emit("track", { track: audioTrack, streams: [audio] });
+            else this.emit("track", { track: videoTrack, streams: [video] });
+          }
+          this.emit("track", { track: lateAudio, streams: [new FakeStream("audio2", lateAudio)] });
+        }
+      }
+      const phases: ViewerPhase[] = [];
+      const f = fakeApi([[{ type: "offer", sdp: "o" }]]);
+      const s = new ViewportSession({ api: f.api, source: "pie", onPhase: (p) => phases.push(p), peer: () => new TwoStreamPeer() });
+      s.start();
+      await until(() => phases.some((p) => p.phase === "live"));
+      const lives = phases.filter((p) => p.phase === "live");
+      expect(lives.every((p) => p.phase === "live" && p.stream === video)).toBe(true);
+      expect(video.tracks).toContain(audioTrack);
+      expect(video.tracks).toContain(lateAudio);
+      s.stop();
+      video.tracks = [videoTrack];
+    }
+  });
+
   it("closes the peer when PIE stops and answers the next offer on a new one", async () => {
     const peers: FakePeer[] = [];
     const phases: ViewerPhase[] = [];

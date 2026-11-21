@@ -45,6 +45,12 @@ export class SignallingServer {
   private wss: WebSocketServer | null = null;
   private starting: Promise<string> | null = null;
   private streamer: WebSocket | null = null;
+  /**
+   * The streamer has sent its endpointId and been confirmed. Pixel Streaming 2
+   * joins its room only then, and drops a playerConnected that arrives before
+   * as an unknown message, so players are announced from here on.
+   */
+  private streamerJoined = false;
   private readonly viewers = new Map<string, Viewer>();
   /** Viewers ended by the editor or the agent, and why, until their next poll. */
   private readonly ended = new Map<string, string>();
@@ -98,7 +104,7 @@ export class SignallingServer {
     const id = crypto.randomUUID();
     this.viewers.set(id, { id, seq: 0, queue: [], waiters: new Set(), seen: this.now() });
     this.push(id, { type: "streamer", connected: this.streamer !== null });
-    if (this.streamer) this.toStreamer({ type: "playerConnected", playerId: id, dataChannel: true, sfu: false, sendOffer: true });
+    if (this.streamerJoined) this.announce(id);
     return id;
   }
 
@@ -114,7 +120,7 @@ export class SignallingServer {
     }
     this.viewers.delete(id);
     for (const w of v.waiters) w();
-    if (this.streamer) this.toStreamer({ type: "playerDisconnected", playerId: id });
+    if (this.streamerJoined) this.toStreamer({ type: "playerDisconnected", playerId: id });
   }
 
   /** A viewer's answer or candidate, passed to the streamer as that player's. */
@@ -193,6 +199,11 @@ export class SignallingServer {
     for (const id of this.viewers.keys()) this.push(id, signal);
   }
 
+  /** Tell the streamer about a player, which it answers with an offer. */
+  private announce(id: string): void {
+    this.toStreamer({ type: "playerConnected", playerId: id, dataChannel: true, sfu: false, sendOffer: true });
+  }
+
   private toStreamer(msg: Record<string, unknown>): void {
     if (this.streamer?.readyState === 1) this.streamer.send(JSON.stringify(msg));
   }
@@ -206,18 +217,19 @@ export class SignallingServer {
     // One streamer: a new one replaces the old (an editor that restarted streaming).
     const previous = this.streamer;
     this.streamer = ws;
+    this.streamerJoined = false;
     if (previous) previous.close(1000, "replaced");
     this.o.log?.("viewport: the editor's streamer connected");
     ws.send(JSON.stringify({ type: "config", peerConnectionOptions: { iceServers: this.o.iceServers() }, protocolVersion: PS_PROTOCOL_VERSION }));
     ws.send(JSON.stringify({ type: "identify" }));
     this.broadcast({ type: "streamer", connected: true });
-    for (const id of this.viewers.keys()) this.toStreamer({ type: "playerConnected", playerId: id, dataChannel: true, sfu: false, sendOffer: true });
     this.o.onStreamer?.(true);
 
     ws.on("message", (data) => this.fromStreamer(ws, data.toString()));
     ws.on("close", () => {
       if (this.streamer !== ws) return;
       this.streamer = null;
+      this.streamerJoined = false;
       this.o.log?.("viewport: the editor's streamer disconnected");
       this.broadcast({ type: "streamer", connected: false });
       this.o.onStreamer?.(false);
@@ -236,6 +248,10 @@ export class SignallingServer {
     switch (m.type) {
       case "endpointId":
         ws.send(JSON.stringify({ type: "endpointIdConfirm", committedId: typeof m.id === "string" ? m.id : "studio" }));
+        if (ws === this.streamer && !this.streamerJoined) {
+          this.streamerJoined = true;
+          for (const id of this.viewers.keys()) this.announce(id);
+        }
         return;
       case "ping":
         ws.send(JSON.stringify({ type: "pong", time: m.time }));
