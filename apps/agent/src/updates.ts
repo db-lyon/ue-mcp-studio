@@ -10,7 +10,10 @@
  * against its published SHA-256, unpacked under Intermediate/ (never under
  * Plugins/, where the editor would find a second copy), then the editor
  * is stopped, the folders are swapped (the old one kept until the swap is
- * done), and the editor is started again.
+ * done), and the editor is started again. An engine the release has no zip
+ * for gets the newest older zip's source, built by the project before the
+ * editor starts (pluginBuild). A plugin built for another engine than the
+ * project's is replaced whatever its version.
  */
 import { spawn, execFile } from "node:child_process";
 import * as crypto from "node:crypto";
@@ -164,6 +167,67 @@ export function readPluginRecord(projectDir: string): InstalledPlugin | null {
   const rel = path.relative(path.join(projectDir, "Plugins"), path.resolve(r.dir));
   const inProject = !!rel && !rel.startsWith("..") && !path.isAbsolute(rel);
   return { dir: r.dir, version: r.version || null, location: inProject ? "project" : "engine" };
+}
+
+/**
+ * The engine a plugin folder's descriptor is built for, as major.minor from its
+ * EngineVersion, or null when it names none or cannot be read.
+ */
+export function descriptorEngine(dir: string): string | null {
+  try {
+    const u = JSON.parse(fs.readFileSync(path.join(dir, `${PLUGIN}.uplugin`), "utf-8")) as { EngineVersion?: unknown };
+    const m = typeof u.EngineVersion === "string" ? /^(\d+\.\d+)/.exec(u.EngineVersion) : null;
+    return m ? m[1] : null;
+  } catch {
+    return null;
+  }
+}
+
+/** Two engines as major.minor, compared by number: negative, zero or positive. */
+function compareEngines(a: string, b: string): number {
+  const [am, an] = a.split(".").map(Number);
+  const [bm, bn] = b.split(".").map(Number);
+  return am - bm || an - bn;
+}
+
+/** What Update installs for an engine from a plugin release. */
+export interface PluginBuild {
+  /** prebuilt: the release's zip for this engine. source: no zip for it, so the newest older build's Source, compiled by the project. */
+  kind: "prebuilt" | "source";
+  /** The engine the chosen zip was built for. */
+  from: string;
+  file: { url: string; sha256: string };
+}
+
+/**
+ * The release's zip for `engine`, else the zip of the newest engine older
+ * than it, installed as source (every zip ships Source) for the project to
+ * compile, as a project on an engine newer than the release needs. An engine
+ * older than every zip gets nothing: the plugin's source is not written for it.
+ */
+export function pluginBuild(files: PluginManifest["files"] | undefined, engine: string | null): PluginBuild | null {
+  if (!files || !engine || !/^\d+\.\d+$/.test(engine)) return null;
+  if (files[engine]) return { kind: "prebuilt", from: engine, file: files[engine] };
+  const older = Object.keys(files).filter((e) => /^\d+\.\d+$/.test(e) && compareEngines(e, engine) < 0).sort(compareEngines);
+  const from = older[older.length - 1];
+  return from ? { kind: "source", from, file: files[from] } : null;
+}
+
+/**
+ * Make an unpacked release zip a source plugin for `engine`: without another
+ * engine's Binaries, so the editor builds it rather than loading them, not
+ * marked Installed, so the build includes it, and stamped with the engine it
+ * is built for, so the editor raises no incompatible-plugin dialog and the
+ * next check knows what it is built for.
+ */
+export function makeSourceBuild(dir: string, engine: string): void {
+  if (!fs.existsSync(path.join(dir, "Source"))) throw new Error(`the download holds no source to build for Unreal Engine ${engine}`);
+  for (const built of ["Binaries", "Intermediate"]) fs.rmSync(path.join(dir, built), { recursive: true, force: true });
+  const file = path.join(dir, `${PLUGIN}.uplugin`);
+  const descriptor = JSON.parse(fs.readFileSync(file, "utf-8")) as Record<string, unknown>;
+  descriptor.EngineVersion = `${engine}.0`;
+  delete descriptor.Installed;
+  fs.writeFileSync(file, JSON.stringify(descriptor, null, "\t"));
 }
 
 /** The plugin in the project's Plugins folder, read from its .uplugin. */
@@ -328,12 +392,15 @@ export class Updater {
     const engine = this.engine();
     const found = this.installedPlugin();
     const installedPlugin = found?.version ?? null;
+    const builtFor = found ? descriptorEngine(found.dir) : null;
+    // A project moved to another engine keeps the old engine's build, which that engine does not load: it is replaced whatever its version.
+    const engineChanged = !!installedPlugin && !!builtFor && !!engine && builtFor !== engine;
     const status: UpdateStatus = {
       channel: this.channel(),
       ...(this.busy ? { running: this.busy } : {}),
       studio: { installed: this.installedVersion, latest: null, available: false },
       plugin: {
-        installed: installedPlugin, latest: null, available: false, newer: false, location: found?.location ?? "engine", engine, required: false,
+        installed: installedPlugin, latest: null, available: false, newer: false, location: found?.location ?? "engine", engine, builtFor, required: engineChanged,
       },
     };
     // Only a plugin in the project's Plugins folder is swapped by Update.
@@ -343,12 +410,14 @@ export class Updater {
       status.studio.latest = m.version;
       status.studio.available = isNewer(m.version, this.installedVersion);
       if (m.ueMcp?.min) status.ueMcpMin = m.ueMcp.min;
-      status.plugin.required = !!installedPlugin && !!m.pluginMin && isNewer(m.pluginMin, installedPlugin);
+      status.plugin.required = engineChanged || (!!installedPlugin && !!m.pluginMin && isNewer(m.pluginMin, installedPlugin));
       const p = await this.pluginManifest(m);
       if (p) {
         status.plugin.latest = p.version;
         status.plugin.newer = !!installedPlugin && isNewer(p.version, installedPlugin);
-        status.plugin.available = status.plugin.newer && swappable && !!engine && !!p.files[engine];
+        const build = pluginBuild(p.files, engine);
+        if (build) status.plugin.build = build.kind;
+        status.plugin.available = (status.plugin.newer || engineChanged) && swappable && !!build;
       }
     } catch (e) {
       status.error = e instanceof Error ? e.message : String(e);
@@ -518,9 +587,12 @@ export class Updater {
       if (!readProjectPlugin(target)) throw new Error("the Studio plugin is not in this project's Plugins folder; update it where it was installed");
       const engine = this.engine();
       const p = await this.pluginManifest(await this.manifest().catch(() => undefined));
-      const file = engine ? p?.files[engine] : undefined;
-      if (!p || !file) throw new Error(`no editor plugin for Unreal Engine ${engine ?? "(unknown)"} in the latest plugin release`);
-      this.step(`Downloading the plugin ${p.version} for Unreal Engine ${engine}`);
+      const build = pluginBuild(p?.files, engine);
+      if (!p || !build || !engine) throw new Error(`no editor plugin for Unreal Engine ${engine ?? "(unknown)"} in the latest plugin release`);
+      const file = build.file;
+      this.step(build.kind === "prebuilt"
+        ? `Downloading the plugin ${p.version} for Unreal Engine ${engine}`
+        : `Downloading the plugin ${p.version} source, since there is no Unreal Engine ${engine} build`);
       const res = await this.fetchImpl(file.url);
       if (!res.ok) throw new Error(`the download answered ${res.status}`);
       const zip = path.join(tmp, "plugin.zip");
@@ -533,6 +605,11 @@ export class Updater {
       await unzip(zip, staged);
       const unpacked = fs.existsSync(path.join(staged, PLUGIN, `${PLUGIN}.uplugin`)) ? path.join(staged, PLUGIN) : staged;
       if (!fs.existsSync(path.join(unpacked, `${PLUGIN}.uplugin`))) throw new Error("the download holds no Studio plugin");
+      if (build.kind === "source") makeSourceBuild(unpacked, engine);
+      else {
+        const zipEngine = descriptorEngine(unpacked);
+        if (zipEngine && zipEngine !== engine) throw new Error(`the download is built for Unreal Engine ${zipEngine}, not ${engine}, so the plugin was left as it is`);
+      }
 
       this.step("Closing the editor");
       // Asked whether or not a bridge is connected: an editor still starting holds the plugin too.
@@ -551,6 +628,13 @@ export class Updater {
         } catch {
           // Still held.
         }
+      }
+      if (build.kind === "source") {
+        // Built before the editor starts, so it never starts without the plugin or asks to rebuild it.
+        this.step(`Building the plugin for Unreal Engine ${engine} and starting the editor`);
+        const notBuilt = stepFailure(await this.host.editorOperation("rebuild").catch((e) => ({ steps: [{ step: "rebuild", ok: false, result: e instanceof Error ? e.message : String(e) }] })));
+        if (notBuilt) return { ok: false, version: p.version, error: `The plugin ${p.version} source is in place for Unreal Engine ${engine}, but ${notBuilt}` };
+        return { ok: true, version: p.version };
       }
       this.step("Starting the editor");
       const notStarted = await startFailure(this.host);
