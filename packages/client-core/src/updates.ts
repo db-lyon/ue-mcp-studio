@@ -83,14 +83,14 @@ export const pluginEngineChanged = (s: StudioUpdates | null | undefined): boolea
 export function pluginNotice(s: StudioUpdates | null | undefined): string | null {
   const p = s?.plugin;
   if (!p) return null;
-  const fromSource = `There is no prebuilt plugin for UE ${p.engine} yet, so Update installs its source, builds it with the project and restarts the editor.`;
   if (pluginEngineChanged(s)) {
     const why = `Editor plugin built for UE ${p.builtFor}, but the project is now on UE ${p.engine}.`;
-    if (p.available) return `${why} ${p.build === "source" ? fromSource : `Update installs the UE ${p.engine} build and restarts the editor.`}`;
-    if (p.location !== "project") return `${why} Replace it with the UE ${p.engine} build where it was installed.`;
+    if (p.available && p.build === "source") return `${why} There is no prebuilt plugin for UE ${p.engine}, so Update installs the plugin's source, builds it with the project and restarts the editor.`;
+    if (p.available) return `${why} Update installs the prebuilt plugin for UE ${p.engine} and restarts the editor.`;
+    if (p.location !== "project") return `${why} Replace it with the plugin for UE ${p.engine} where it was installed.`;
     return p.latest ? `${why} The latest plugin release does not support UE ${p.engine}.` : why;
   }
-  if (p.available && p.build === "source") return fromSource;
+  if (p.available && p.build === "source") return `The new editor plugin has no prebuilt version for UE ${p.engine}, so Update installs its source, builds it with the project and restarts the editor.`;
   if (!p.required) return null;
   return p.location === "project" ? "Editor plugin too old. Update installs it and restarts the editor." : "Editor plugin too old. Update it where it was installed.";
 }

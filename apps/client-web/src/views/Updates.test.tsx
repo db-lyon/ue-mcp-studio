@@ -199,7 +199,7 @@ describe("updates", () => {
     vi.stubGlobal("fetch", vi.fn(async (url: string) => new Response(JSON.stringify(url.includes("/ext/studio/") ? moved(true) : ueMcp(false)))));
     render(<UpdatesCard />);
     await waitFor(() => expect(screen.getByText("Ready to install: the editor plugin 0.1.10 for UE 5.9.")).toBeTruthy());
-    expect(screen.getByText("Editor plugin built for UE 5.8, but the project is now on UE 5.9. Update installs the UE 5.9 build and restarts the editor.")).toBeTruthy();
+    expect(screen.getByText("Editor plugin built for UE 5.8, but the project is now on UE 5.9. Update installs the prebuilt plugin for UE 5.9 and restarts the editor.")).toBeTruthy();
     expect(screen.getByText("Editor plugin: 0.1.10 for UE 5.8 → 0.1.10 for UE 5.9")).toBeTruthy();
     expect(screen.queryByText(/too old/)).toBeNull();
     cleanup();
@@ -213,14 +213,14 @@ describe("updates", () => {
     vi.stubGlobal("fetch", vi.fn(async (url: string) => new Response(JSON.stringify(url.includes("/ext/studio/") ? { ...studio(false, false), plugin } : ueMcp(false)))));
     render(<UpdatesCard />);
     await waitFor(() => expect(screen.getByText(
-      "Editor plugin built for UE 5.9, but the project is now on UE 5.10. There is no prebuilt plugin for UE 5.10 yet, so Update installs its source, builds it with the project and restarts the editor.",
+      "Editor plugin built for UE 5.9, but the project is now on UE 5.10. There is no prebuilt plugin for UE 5.10, so Update installs the plugin's source, builds it with the project and restarts the editor.",
     )).toBeTruthy());
     cleanup();
     // A newer release on an engine that still has no prebuilt plugin.
     const newer = { ...plugin, installed: "0.1.9", newer: true, required: false, builtFor: "5.10" };
     vi.stubGlobal("fetch", vi.fn(async (url: string) => new Response(JSON.stringify(url.includes("/ext/studio/") ? { ...studio(false, false), plugin: newer } : ueMcp(false)))));
     render(<UpdatesCard />);
-    await waitFor(() => expect(screen.getByText("There is no prebuilt plugin for UE 5.10 yet, so Update installs its source, builds it with the project and restarts the editor.")).toBeTruthy());
+    await waitFor(() => expect(screen.getByText("The new editor plugin has no prebuilt version for UE 5.10, so Update installs its source, builds it with the project and restarts the editor.")).toBeTruthy());
     expect(screen.getByText("Ready to install: the editor plugin 0.1.10.")).toBeTruthy();
   });
 
