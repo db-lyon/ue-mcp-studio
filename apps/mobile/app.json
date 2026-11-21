@@ -116,6 +116,7 @@
       ],
       "./plugins/with-google-services",
       "./plugins/with-release-signing",
+      "./plugins/with-webrtc-proguard",
       "expo-image"
     ]
   }
