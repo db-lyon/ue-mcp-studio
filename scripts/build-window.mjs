@@ -33,6 +33,9 @@ if (process.platform !== "win32") {
 
 const version = JSON.parse(fs.readFileSync(path.join(ROOT, "package.json"), "utf-8")).version;
 if (!/^[0-9A-Za-z.-]+$/.test(version)) throw new Error(`unexpected version ${version}`);
+// The oldest ue-mcp this Studio runs on: a project's bridge older than it is not run (uemcpspec.h).
+const ueMcpMin = JSON.parse(fs.readFileSync(path.join(ROOT, "apps", "agent", "package.json"), "utf-8")).ueMcpExtension?.ueMcp ?? "";
+if (!/^[0-9A-Za-z.-]*$/.test(ueMcpMin)) throw new Error(`unexpected ueMcpExtension.ueMcp ${ueMcpMin}`);
 
 /** The WebView2 SDK's headers and static loader, downloaded once and checked. */
 async function webview2() {
@@ -71,7 +74,7 @@ fs.mkdirSync(OUT, { recursive: true });
 const exe = path.join(OUT, "studio-window.exe");
 const cl = [
   "cl", "/nologo", "/O2", "/MT", "/EHsc", "/std:c++17", "/W4", "/WX", "/permissive-", "/utf-8",
-  "/DUNICODE", "/D_UNICODE", `/DSTUDIO_WINDOW_VERSION=\\"${version}\\"`,
+  "/DUNICODE", "/D_UNICODE", `/DSTUDIO_WINDOW_VERSION=\\"${version}\\"`, `/DSTUDIO_UE_MCP_MIN=\\"${ueMcpMin}\\"`,
   `/I"${path.join(sdk, "build", "native", "include")}"`,
   `/Fo"${obj}\\\\"`, `/Fe"${exe}"`,
   `"${path.join(APP, "src", "main.cpp")}"`,
@@ -156,7 +159,7 @@ const appRes = path.join(appBuild, "app.res");
 const appCl = [
   `rc /nologo /fo "${appRes}" "${path.join(appBuild, "app.rc")}"`, "&&",
   "cl", "/nologo", "/O2", "/MT", "/EHsc", "/std:c++17", "/W4", "/WX", "/permissive-", "/utf-8",
-  "/DUNICODE", "/D_UNICODE", `/DSTUDIO_WINDOW_VERSION=\\"${version}\\"`,
+  "/DUNICODE", "/D_UNICODE", `/DSTUDIO_WINDOW_VERSION=\\"${version}\\"`, `/DSTUDIO_UE_MCP_MIN=\\"${ueMcpMin}\\"`,
   `/I"${path.join(sdk, "build", "native", "include")}"`, `/I"${appBuild}"`,
   `/Fo"${appBuild}\\\\"`, `/Fe"${appExe}"`,
   `"${path.join(APP, "src", "app.cpp")}"`,

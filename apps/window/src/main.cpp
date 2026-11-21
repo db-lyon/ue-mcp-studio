@@ -57,6 +57,7 @@
 #include "json.h"
 #include "location.h"
 #include "toast.h"
+#include "uemcpspec.h"
 #include "update.h"
 
 #ifndef STUDIO_WINDOW_VERSION
@@ -244,29 +245,32 @@ void openExternal(const std::wstring& url) {
 
 
 /**
- * Run npx commands in turn under cmd with no console window, output to the
- * Studio log (or stdout to a file). The same chain the editor plugin runs.
+ * The ue-mcp release this project runs, read now (uemcpspec.h): its bridge's
+ * version. `--ue-mcp`, the release of the daemon that opened this window, only
+ * when the project has no usable bridge: a window outlives daemon restarts
+ * onto other releases, so what it was started with goes stale.
  */
-bool spawnNpx(const std::vector<std::wstring>& commands, const std::wstring& stdoutFile = {}) {
+std::wstring package() { return uemcpspec::forProject(gOpt.project, gOpt.ueMcp.empty() ? L"ue-mcp@beta" : gOpt.ueMcp); }
+
+/**
+ * Run ue-mcp with `args` in the background under cmd with no console window,
+ * output to the Studio log (or stdout to a file). Every ue-mcp run the window
+ * starts goes through here: the project's release (package) by job::npx's
+ * command line.
+ */
+bool spawnUeMcp(const std::wstring& args, const std::wstring& stdoutFile = {}) {
   std::wstring node = findNode();
   if (node.empty()) return false;
   std::wstring nodeDir = dirOf(node);
-  std::wstring npx = join(nodeDir, L"npx.cmd");
   std::wstring cmd = join(join(env(L"SystemRoot"), L"System32"), L"cmd.exe");
   std::wstring log = logPath();
   makeDirs(dirOf(log));
-  std::wstring chain;
-  for (const std::wstring& args : commands) {
-    if (!chain.empty()) chain += L" && ";
-    chain += L"\"" + npx + L"\" " + args;
-    chain += stdoutFile.empty() ? L" >> \"" + log + L"\" 2>&1" : L" > \"" + stdoutFile + L"\" 2>> \"" + log + L"\"";
-  }
+  std::wstring line = job::npx(join(nodeDir, L"npx.cmd"), package(), args);
+  line += stdoutFile.empty() ? L" >> \"" + log + L"\" 2>&1" : L" > \"" + stdoutFile + L"\" 2>> \"" + log + L"\"";
   std::wstring path = env(L"PATH");
   if (path.find(nodeDir) == std::wstring::npos) SetEnvironmentVariableW(L"PATH", (nodeDir + L";" + path).c_str());
-  return createDetached(cmd, L"\"" + cmd + L"\" /d /s /c \"" + chain + L"\"", gOpt.project, CREATE_NO_WINDOW);
+  return createDetached(cmd, L"\"" + cmd + L"\" /d /s /c \"" + line + L"\"", gOpt.project, CREATE_NO_WINDOW);
 }
-
-std::wstring package() { return gOpt.ueMcp.empty() ? L"ue-mcp@beta" : gOpt.ueMcp; }
 
 /** Start the project's daemon in the background. error: why the command did not run. */
 bool startDaemon(std::string* error = nullptr) {
@@ -274,14 +278,14 @@ bool startDaemon(std::string* error = nullptr) {
   std::string why;
   if (p.empty()) why = "no .uproject file was found in " + narrow(gOpt.project);
   else if (findNode().empty()) why = "Node.js was not found";
-  else if (!spawnNpx({L"-y " + package() + L" daemon start \"" + p + L"\""})) why = "npx could not be started";
+  else if (!spawnUeMcp(L"daemon start \"" + p + L"\"")) why = "npx could not be started";
   if (error) *error = why;
   return why.empty();
 }
 
 bool installBridge() {
   std::wstring p = uproject();
-  return !p.empty() && spawnNpx({L"-y " + package() + L" init --yes --json --install=binary --clients= --project=\"" + p + L"\""});
+  return !p.empty() && spawnUeMcp(L"init --yes --json --install=binary --clients= --project=\"" + p + L"\"");
 }
 
 bool startSetupPlan() {
@@ -289,7 +293,7 @@ bool startSetupPlan() {
   if (p.empty()) return false;
   DeleteFileW(setupPlanPath().c_str());
   makeDirs(studioDir());
-  return spawnNpx({L"-y " + package() + L" init --yes --json --dry-run --install=binary --project=\"" + p + L"\""}, setupPlanPath());
+  return spawnUeMcp(L"init --yes --json --dry-run --install=binary --project=\"" + p + L"\"", setupPlanPath());
 }
 
 std::string getSetupPlan() {
@@ -325,7 +329,7 @@ bool runSetup(const std::string& optionsJson) {
   flags += flag("feedback", false) ? L" --feedback" : L" --no-feedback";
   flags += flag("skills", false) ? L" --skills" : L" --no-skills";
   std::wstring p = uproject();
-  return !p.empty() && spawnNpx({L"-y " + package() + L" init --yes --json --install=binary" + flags + L" --project=\"" + p + L"\""});
+  return !p.empty() && spawnUeMcp(L"init --yes --json --install=binary" + flags + L" --project=\"" + p + L"\"");
 }
 
 std::wstring updateOutPath() { return join(studioDir(), L"ue-mcp-update.log"); }

@@ -100,11 +100,16 @@ inline std::wstring spec(const std::wstring& tag, const std::wstring& exact) {
 }
 
 /**
- * A ue-mcp command through npx. --package takes a registry spec or a local
- * tarball alike. No --prefer-offline: the spec is an exact version npm view
- * just resolved, and an offline-first npx trusts a cached package list from
- * before that version was published and fails with ETARGET on its first day.
- * npm revalidates the cached list (a 304 when nothing changed) instead.
+ * A ue-mcp command through npx: every ue-mcp run through npx in the window and
+ * the app is built here, so each has the same flags. --package takes a
+ * registry spec or a local tarball alike. --min-release-age=0 lifts the
+ * user's npm release-age gate for ue-mcp's own release, which npx applies even
+ * to an excluded package (npm/cli#9765, ue-mcp#1510), as the agent's npxArgs
+ * does; without it a release days old fails with ETARGET. No --prefer-offline:
+ * the spec is an exact version, and an offline-first npx trusts a cached
+ * package list from before that version was published and fails with ETARGET
+ * on its first day. npm revalidates the cached list (a 304 when nothing
+ * changed) instead.
  */
 inline std::wstring npx(const std::wstring& npxCmd, const std::wstring& packageSpec, const std::wstring& args) {
   return L"\"" + npxCmd + L"\" -y --min-release-age=0 --package=" + packageSpec + L" ue-mcp " + args;

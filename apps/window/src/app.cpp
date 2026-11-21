@@ -43,6 +43,7 @@
 #include "job.h"
 #include "json.h"
 #include "uemcpinstall.h"
+#include "uemcpspec.h"
 #include "update.h"
 #include "watch.h"
 #include "ui-files.h"
@@ -245,17 +246,20 @@ Captured capture(const std::wstring& line, DWORD timeoutMs) {
 }
 
 /**
- * The ue-mcp versions running daemons use, from their records in the daemon
- * folder (a record whose process is gone does not count).
+ * The ue-mcp versions kept installed: the app's own, which its reads run, and
+ * those running daemons use, from their records in the daemon folder (a record
+ * whose process is gone does not count). Installing a project's release for a
+ * daemon start then never removes the app's.
  */
 std::vector<std::string> ueMcpVersionsInUse() {
   std::wstring dir;
+  std::vector<std::string> used;
   {
     std::lock_guard<std::mutex> g(gLock);
     dir = gDaemonDir;
+    if (!gExact.empty()) used.push_back(narrow(gExact));
   }
   if (dir.empty()) dir = join(join(env(L"USERPROFILE"), L".ue-mcp"), L"daemons");
-  std::vector<std::string> used;
   WIN32_FIND_DATAW fd;
   HANDLE h = FindFirstFileW(join(dir, L"*.json").c_str(), &fd);
   if (h == INVALID_HANDLE_VALUE) return used;
@@ -359,6 +363,13 @@ std::wstring resolvedSpec() {
   std::wstring exact = channelUeMcp();
   return job::spec(channelTag(), exact);
 }
+
+/**
+ * The ue-mcp a project's own runs use (its daemon, Add Studio): the release
+ * the project is pinned to, as the Studio window and the editor plugin run it
+ * (uemcpspec.h), else the app's. Installed once like the app's own copy.
+ */
+std::wstring projectSpec(const std::wstring& uproject) { return uemcpspec::forProject(dirOf(uproject), resolvedSpec()); }
 
 /** A path ue-mcp is handed on a command line: a .uproject that exists, nothing cmd would expand. */
 bool safeUproject(const std::wstring& p) {
@@ -549,7 +560,7 @@ std::string ensureDaemon(const std::string& key, const std::wstring& uproject) {
   std::wstring npx = npxCmd();
   if (npx.empty()) return "Node.js was not found.";
   if (!safeUproject(uproject)) return "The project file could not be used.";
-  Captured c = capture(ueMcpLine(npx, resolvedSpec(), L"daemon start \"" + uproject + L"\""), 150000);
+  Captured c = capture(ueMcpLine(npx, projectSpec(uproject), L"daemon start \"" + uproject + L"\""), 150000);
   if (c.code != 0) return "ue-mcp did not start: " + job::failureText(c.out + c.err);
   return readDaemon(key, d) ? std::string() : "ue-mcp started but has not published its address yet.";
 }
@@ -1490,8 +1501,8 @@ std::string dispatch(int id, const std::string& method, const std::string& arg) 
     if (npx.empty()) return okError("Node.js was not found.");
     if (!safeUproject(uproject)) return okError("The project file could not be used.");
     std::wstring args = method == "install" ? L"install studio \"" + uproject + L"\"" : method == "startdaemon" ? L"daemon start \"" + uproject + L"\"" : L"daemon stop \"" + uproject + L"\"";
-    // The app's own ue-mcp, as reads use: npx would spend about 20 seconds resolving the package before Add Studio starts.
-    later(id, [npx, args] { return jobAnswer(startJob(ueMcpLine(npx, resolvedSpec(), args)), "The command did not start."); });
+    // Installed once rather than run through npx, which would spend about 20 seconds resolving the package before the command starts.
+    later(id, [npx, args, uproject] { return jobAnswer(startJob(ueMcpLine(npx, projectSpec(uproject), args)), "The command did not start."); });
     return {};
   }
   if (method == "updatebridge") {
