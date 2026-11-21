@@ -75,6 +75,30 @@ export function updateStatus(o: { steps: number; unchecked: string | null; waiti
 /** Update installs the plugin itself when a newer one is available. */
 export const pluginStep = (s: StudioUpdates | null | undefined): boolean => !!s?.plugin.available;
 
+/** The installed editor plugin is built for another engine than the project is on now. */
+export const pluginEngineChanged = (s: StudioUpdates | null | undefined): boolean =>
+  !!s?.plugin.installed && !!s.plugin.builtFor && !!s.plugin.engine && s.plugin.builtFor !== s.plugin.engine;
+
+/** Why the editor plugin has to be replaced, and how, or null when it does not. */
+export function pluginNotice(s: StudioUpdates | null | undefined): string | null {
+  const p = s?.plugin;
+  if (!p) return null;
+  const fromSource = `There is no prebuilt plugin for UE ${p.engine} yet, so Update installs its source, builds it with the project and restarts the editor.`;
+  if (pluginEngineChanged(s)) {
+    const why = `Editor plugin built for UE ${p.builtFor}, but the project is now on UE ${p.engine}.`;
+    if (p.available) return `${why} ${p.build === "source" ? fromSource : `Update installs the UE ${p.engine} build and restarts the editor.`}`;
+    if (p.location !== "project") return `${why} Replace it with the UE ${p.engine} build where it was installed.`;
+    return p.latest ? `${why} The latest plugin release does not support UE ${p.engine}.` : why;
+  }
+  if (p.available && p.build === "source") return fromSource;
+  if (!p.required) return null;
+  return p.location === "project" ? "Editor plugin too old. Update installs it and restarts the editor." : "Editor plugin too old. Update it where it was installed.";
+}
+
+/** The editor plugin's version, with its engine when Update moves it to another one. */
+const pluginVersion = (s: StudioUpdates | null | undefined, version: string | null | undefined, engine: string | null | undefined): string | null =>
+  version ? (pluginEngineChanged(s) ? `${version} for UE ${engine}` : version) : null;
+
 /**
  * The ue-mcp check with its target raised to the latest Studio's floor while
  * the daemon runs below it, whatever the channel: Studio never installs ahead
@@ -104,6 +128,8 @@ export function studioUpdatesOf(raw: unknown): StudioUpdates | null {
       available: plugin.available === true,
       location: plugin.location === "project" || plugin.location === "engine" ? plugin.location : "none",
       engine: text(plugin.engine),
+      builtFor: text(plugin.builtFor),
+      build: plugin.build === "prebuilt" || plugin.build === "source" ? plugin.build : undefined,
     } as StudioPluginUpdate,
     ueMcpMin: text(u.ueMcpMin) ?? undefined,
   } as StudioUpdates;
@@ -159,7 +185,7 @@ export function updateSteps(u: Updates): Array<"ueMcp" | "plugin" | "studio" | "
 export function readyLine(u: Updates): string {
   const parts: string[] = [];
   if (u.ueMcp?.target) parts.push(`the bridge plugin ${u.ueMcp.target}`);
-  if (pluginStep(u.studio)) parts.push(`the editor plugin ${u.studio?.plugin.latest}`);
+  if (pluginStep(u.studio)) parts.push(`the editor plugin ${pluginVersion(u.studio, u.studio?.plugin.latest, u.studio?.plugin.engine)}`);
   if (u.studio?.studio.available) parts.push(`Studio ${u.studio.studio.latest}`);
   if (!u.ueMcp?.target && daemonMoves(u.ueMcp)) parts.push(`ue-mcp ${daemonTarget(u.ueMcp)}`);
   if (!parts.length) return "";
@@ -171,7 +197,7 @@ export function readyLine(u: Updates): string {
 export function updateRows(u: Updates): Array<[string, string | null, string | null, boolean]> {
   return [
     ["Studio", u.studio?.studio.installed ?? null, u.studio?.studio.latest ?? null, !!u.studio?.studio.available],
-    ["Editor plugin", u.studio?.plugin.installed ?? null, u.studio?.plugin.latest ?? null, !!(u.studio?.plugin.available || u.studio?.plugin.newer)],
+    ["Editor plugin", pluginVersion(u.studio, u.studio?.plugin.installed, u.studio?.plugin.builtFor), pluginVersion(u.studio, u.studio?.plugin.latest, u.studio?.plugin.engine), !!(u.studio?.plugin.available || u.studio?.plugin.newer)],
     ["Bridge plugin", u.ueMcp?.installed.version ?? null, u.ueMcp?.target ?? null, !!u.ueMcp?.target],
     ["ue-mcp", u.ueMcp?.server ?? null, daemonTarget(u.ueMcp), daemonMoves(u.ueMcp)],
   ];

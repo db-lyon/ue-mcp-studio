@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { PLUGIN_OUTSIDE, checkFailure, offersWhatsNew, daemonMoves, daemonTarget, pluginOutside, updateStatus, updateFailureLine as failureLine, pluginStep, readUpdatesWith, readyLine, studioUpdatesOf, ueMcpUpdateOf, updateRows, updateSteps, waiting, withFloor, type StudioUpdates, type UeMcpUpdate } from "@ue-mcp-studio/client-core";
+import { PLUGIN_OUTSIDE, checkFailure, offersWhatsNew, daemonMoves, daemonTarget, pluginNotice, pluginOutside, updateStatus, updateFailureLine as failureLine, pluginStep, readUpdatesWith, readyLine, studioUpdatesOf, ueMcpUpdateOf, updateRows, updateSteps, waiting, withFloor, type StudioUpdates, type UeMcpUpdate } from "@ue-mcp-studio/client-core";
 import { startUpdate, useRun } from "./UpdateOverlay";
 import { waitingSteps } from "./update-run";
 import { REMOTE_UPDATES, onRemotePage } from "../connection";
@@ -133,13 +133,7 @@ export function UpdatesCard({ remote = onRemotePage() }: { remote?: boolean } = 
           ))}
         </div>
       )}
-      {u?.studio?.plugin.required && (
-        <div className="banner warn small">
-          {u.studio.plugin.location === "project"
-            ? "Editor plugin too old. Update installs it and restarts the editor."
-            : "Editor plugin too old. Update it where it was installed."}
-        </div>
-      )}
+      {pluginNotice(u?.studio) && <div className="banner warn small">{pluginNotice(u?.studio)}</div>}
       {engineOnly && <p className="dim small">{PLUGIN_OUTSIDE}</p>}
       {u && (
         <details className="update-details">
