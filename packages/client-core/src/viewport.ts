@@ -215,10 +215,30 @@ export class ViewportSession {
       if (!c?.candidate || this.pc !== pc) return;
       void this.o.api.sendViewportSignal(viewer, { type: "iceCandidate", candidate: { candidate: c.candidate, sdpMid: c.sdpMid ?? null, sdpMLineIndex: c.sdpMLineIndex ?? null } }).catch(() => undefined);
     });
-    pc.addEventListener("track", (e: { streams?: unknown[] }) => {
+    // Pixel Streaming 2 sends its video and its audio in two streams. The panel draws one, so the
+    // video's stream is the one that goes live, and an audio track from another stream joins it.
+    let video: { addTrack?: (t: unknown) => void; getTracks?: () => unknown[] } | null = null;
+    const others: unknown[] = [];
+    const join = (track: unknown): void => {
+      if (!video || video.getTracks?.().includes(track)) return;
+      try {
+        video.addTrack?.(track);
+      } catch {
+        // Video without that sound is still worth showing.
+      }
+    };
+    pc.addEventListener("track", (e: { track?: { kind?: string }; streams?: unknown[] }) => {
       if (this.pc !== pc) return;
-      const stream = e.streams?.[0];
-      if (stream) this.set({ phase: "live", stream });
+      const stream = e.streams?.[0] as typeof video | undefined;
+      if (e.track && e.track.kind !== "video") {
+        if (video) join(e.track);
+        else others.push(e.track);
+        return;
+      }
+      if (!stream) return;
+      video = stream;
+      for (const t of others.splice(0)) join(t);
+      this.set({ phase: "live", stream });
     });
     pc.addEventListener("connectionstatechange", () => {
       if (this.pc !== pc) return;
