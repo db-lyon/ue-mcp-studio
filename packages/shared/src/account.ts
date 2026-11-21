@@ -84,6 +84,16 @@ export function hasPaidPlan(u: Pick<AccountUsage, "plan" | "status" | "periodEnd
 }
 
 /**
+ * Whether the account holds the Pro plan at `now`, by the same rule. Pro is
+ * held without being on sale through an operator grant on the gateway
+ * (`npm run grant -- --login <login> --plan pro --until <date>`), which writes
+ * the same entitlement a subscription does.
+ */
+export function hasProPlan(u: Pick<AccountUsage, "plan" | "status" | "periodEnd">, now: Date = new Date()): boolean {
+  return hasPaidPlan(u, now) && u.plan?.id === "pro";
+}
+
+/**
  * GET /v1/ext/studio/account on the daemon: the agent's view of the account,
  * read with the token the agent holds. The UI never sees the token.
  */

@@ -1048,4 +1048,5 @@ export * from "./context.js";
 export * from "./notifications.js";
 export * from "./files.js";
 export * from "./video.js";
+export * from "./viewport.js";
 export * from "./feedback.js";
