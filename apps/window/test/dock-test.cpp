@@ -16,6 +16,7 @@
 #include "../src/location.h"
 #include "../src/toast.h"
 #include "../src/uemcpinstall.h"
+#include "../src/uemcpspec.h"
 #include "../src/update.h"
 #include "../src/watch.h"
 
@@ -551,8 +552,34 @@ int main() {
 
   test("the refused screen's update runs the target release's own apply, its exit to a file", [] {
     std::wstring c = ueupdate::command(L"C:\\node\\npx.cmd", L"1.4.11-beta.8", L"D:\\My Game\\Game.uproject", L"D:\\out.log", L"D:\\out.exit");
-    CHECK(c == L"\"C:\\node\\npx.cmd\" -y --min-release-age=0 ue-mcp@1.4.11-beta.8 update \"D:\\My Game\\Game.uproject\" --apply-only"
+    CHECK(c == L"\"C:\\node\\npx.cmd\" -y --min-release-age=0 --package=ue-mcp@1.4.11-beta.8 ue-mcp update \"D:\\My Game\\Game.uproject\" --apply-only"
                L" < NUL > \"D:\\out.log\" 2>&1 && (echo 0)> \"D:\\out.exit\" || (echo 1)> \"D:\\out.exit\"");
+  });
+
+  test("a project's ue-mcp is its bridge's version, unless missing or older than Studio needs", [] {
+    CHECK(uemcpspec::forBridge("1.4.15-beta.1", "1.4.11", L"ue-mcp@1.4.14") == L"ue-mcp@1.4.15-beta.1");
+    CHECK(uemcpspec::forBridge("1.4.11", "1.4.11", L"ue-mcp@beta") == L"ue-mcp@1.4.11");
+    CHECK(uemcpspec::forBridge("1.4.10", "1.4.11", L"ue-mcp@1.4.14") == L"ue-mcp@1.4.14");
+    CHECK(uemcpspec::forBridge("", "1.4.11", L"ue-mcp@beta") == L"ue-mcp@beta");
+    CHECK(uemcpspec::forBridge("1.4.12 && calc", "", L"ue-mcp@beta") == L"ue-mcp@beta");
+    CHECK(uemcpspec::forBridge("1.4.12", "", L"ue-mcp@beta") == L"ue-mcp@1.4.12");
+  });
+
+  test("a project's ue-mcp is read from its bridge's .uplugin when it runs, not kept", [] {
+    wchar_t tmp[MAX_PATH];
+    GetTempPathW(MAX_PATH, tmp);
+    std::wstring dir = files::join(tmp, L"studio-spec-" + std::to_wstring(GetCurrentProcessId()));
+    std::wstring bridge = files::join(files::join(dir, L"Plugins"), L"UE_MCP_Bridge");
+    files::makeDirs(bridge);
+    CHECK(uemcpspec::forProject(dir, L"ue-mcp@1.4.14") == L"ue-mcp@1.4.14");
+    files::writeFile(files::join(bridge, L"UE_MCP_Bridge.uplugin"), "{\"VersionName\": \"1.4.15-beta.1\"}");
+    CHECK(uemcpspec::bridgeVersion(dir) == "1.4.15-beta.1");
+    CHECK(uemcpspec::forProject(dir, L"ue-mcp@1.4.14") == L"ue-mcp@1.4.15-beta.1");
+    files::writeFile(files::join(bridge, L"UE_MCP_Bridge.uplugin"), "{\"VersionName\": \"1.4.16\"}");
+    CHECK(uemcpspec::forProject(dir, L"ue-mcp@1.4.14") == L"ue-mcp@1.4.16");
+    files::writeFile(files::join(bridge, L"UE_MCP_Bridge.uplugin"), "{\"VersionName\": \"1.4.16\\\" & calc\"}");
+    CHECK(uemcpspec::bridgeVersion(dir).empty());
+    files::removeTree(dir);
   });
 
   test("the refused screen's update result: nothing while it runs, then ok or what the CLI said", [] {

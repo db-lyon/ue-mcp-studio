@@ -88,12 +88,11 @@ inline bool hasProjectsCommand(const std::string& version) {
 
 /**
  * The cmd /c line: the target CLI with its output to `out`, then 0 or 1 to
- * `exitFile` once it ends. The age gate is lifted for ue-mcp's own release,
- * as the agent's updater does (ue-mcp#1510).
+ * `exitFile` once it ends. Run through job::npx, with its flags.
  */
 inline std::wstring command(const std::wstring& npx, const std::wstring& version, const std::wstring& uproject,
                             const std::wstring& out, const std::wstring& exitFile) {
-  return job::wrap(L"\"" + npx + L"\" -y --min-release-age=0 ue-mcp@" + version + L" update \"" + uproject + L"\" --apply-only", out, exitFile);
+  return job::wrap(job::npx(npx, L"ue-mcp@" + version, L"update \"" + uproject + L"\" --apply-only"), out, exitFile);
 }
 
 using job::failureText;

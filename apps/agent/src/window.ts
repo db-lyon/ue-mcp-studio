@@ -28,7 +28,10 @@ export interface WindowHost {
   /** Where the window keeps its position and size for this project. */
   stateFile: string;
   nodePath: string;
-  /** The ue-mcp package npx starts the daemon with, e.g. ue-mcp@1.4.0. */
+  /**
+   * The ue-mcp package this daemon runs, e.g. ue-mcp@1.4.0. The window starts a daemon on the project's
+   * bridge version, read when it starts one (apps/window/src/uemcpspec.h); this only when there is no usable bridge.
+   */
   ueMcpPackage: string;
   editors(): Array<{ connected: boolean; pid: number | null }>;
   /** The UI address with its token, or null when the daemon is not published. */
