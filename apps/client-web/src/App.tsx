@@ -5,6 +5,7 @@ import { applyTheme } from "./theme";
 import { useDaemon, type DaemonState } from "./state";
 import { openDocs } from "./native";
 import { PluginsView } from "./views/Plugins";
+import { ViewportView } from "./views/Viewport";
 import { useUpdateCount } from "./views/Updates";
 import { UpdateRunner } from "./views/UpdateOverlay";
 import { FeedbackDialog } from "./views/Feedback";
@@ -38,7 +39,7 @@ import { Slot } from "./extensions/Slot";
 const NO_CTX = {};
 
 // Playtests is hidden for now; its view stays for when it comes back.
-const TABS = ["Chat", "Playtests", "Plugins", "Settings"] as const;
+const TABS = ["Chat", "Viewport", "Playtests", "Plugins", "Settings"] as const;
 // Playtests is hidden for now; its view stays for when it comes back.
 const SHOWN: readonly (typeof TABS)[number][] = TABS.filter((t) => t !== "Playtests");
 type Tab = (typeof TABS)[number];
@@ -237,6 +238,7 @@ function Studio({ daemon }: { daemon: DaemonState }) {
             <main className={`view-${tab.toLowerCase()}`}>
               <ErrorBoundary what={tab} resetKey={tab}>
                 {tab === "Playtests" && <PlaytestsView daemon={daemon} index={playtests} onOpenSession={openPlaytest} onChat={() => setTab("Chat")} />}
+                {tab === "Viewport" && <ViewportView daemon={daemon} onSettings={(s) => { setSection(s); setTab("Settings"); }} />}
                 {tab === "Plugins" && <PluginsView daemon={daemon} />}
                 {tab === "Settings" && <SettingsHub daemon={daemon} section={section} onSection={setSection} onTheme={(t: StudioTheme) => void applyTheme(t)} updates={updates} narrow={narrow} />}
               </ErrorBoundary>

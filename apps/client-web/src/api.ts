@@ -69,6 +69,11 @@ import type {
   RemoteLockState,
   RemotePairing,
   RemoteStatus,
+  ViewerMessage,
+  ViewerSignals,
+  ViewportJoin,
+  ViewportSource,
+  ViewportStatus,
 } from "@ue-mcp-studio/shared";
 import { alive, fromUeMcp, recordDiag } from "./diag";
 import { notificationsOf, playtestsQuery, threadQuery, uploadChunked, uploadInParts } from "@ue-mcp-studio/client-core";
@@ -260,6 +265,14 @@ export const api = {
   uploadAttachmentChunked: (id: string, meta: { name: string; type: string; size: number }, read: (offset: number, length: number) => Promise<string>, progress?: (sent: number) => void) =>
     uploadChunked((u) => call<unknown>("POST", `/v1/ext/studio/sessions/${encodeURIComponent(id)}/attachments`, u), meta, read, progress),
   videoLimits: () => call<VideoLimits>("GET", "/v1/ext/studio/video"),
+  // The live viewport: the plan and editor status, and a viewer's join, signals and leave (client-core viewportApi names the same routes).
+  viewport: (fresh = false) => call<ViewportStatus>("GET", `/v1/ext/studio/viewport${fresh ? "?fresh=1" : ""}`),
+  joinViewport: (source: ViewportSource) => call<ViewportJoin>("POST", "/v1/ext/studio/viewport/viewers", { source }),
+  viewportSignals: (viewer: string, after: number, signal?: AbortSignal) =>
+    call<ViewerSignals>("GET", `/v1/ext/studio/viewport/viewers/${encodeURIComponent(viewer)}/signals?after=${after}`, undefined, signal),
+  sendViewportSignal: (viewer: string, message: ViewerMessage) => call<unknown>("POST", `/v1/ext/studio/viewport/viewers/${encodeURIComponent(viewer)}/signals`, { message }),
+  leaveViewport: (viewer: string) => call<unknown>("DELETE", `/v1/ext/studio/viewport/viewers/${encodeURIComponent(viewer)}`),
+  enableStreamPlugin: () => call<ViewportStatus>("POST", "/v1/ext/studio/viewport/plugin"),
   compressVideo: (id: string, attachmentId: string) =>
     call<Attachment>("POST", `/v1/ext/studio/sessions/${encodeURIComponent(id)}/attachments/${encodeURIComponent(attachmentId)}/compress`),
   openVideoOnComputer: (id: string, attachmentId: string) =>

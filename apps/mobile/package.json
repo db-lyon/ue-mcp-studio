@@ -44,6 +44,7 @@
     "react-native-keyboard-controller": "^1.22.9",
     "react-native-safe-area-context": "~5.10.1",
     "react-native-svg": "15.16.0",
+    "react-native-webrtc": "^155.0.1",
     "remark-breaks": "^4.0.0",
     "remark-gfm": "^4.0.1",
     "remark-parse": "^11.0.0",

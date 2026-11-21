@@ -207,6 +207,8 @@ export interface Scenario {
   post?: (path: string, body?: unknown) => { status: number; body: unknown } | undefined;
   /** Writes to a path this matches never answer, for a state shown while a call is in flight. */
   hold?: RegExp;
+  /** GETs whose path and query this matches never answer: a long poll with nothing to say. */
+  holdGet?: RegExp;
   /** Typed from the keyboard into an element after the page settles: a CSS selector and the keys. */
   type?: { into: string; text: string };
   /** Typed into several elements one after another, as `type` does for one. */

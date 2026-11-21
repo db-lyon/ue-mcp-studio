@@ -123,6 +123,8 @@ data: ${JSON.stringify({ ...next.data, at: new Date().toISOString() })}
       const written = scenario.post?.(url.pathname, options.json);
       return written ? json(written.status, written.body) : json(409, { error: `visual QA harness: ${m} ${url.pathname} is not answered` });
     }
+    // A long poll with nothing to say never answers, as the web harness holds it.
+    if (scenario.holdGet?.test(`${url.pathname}${url.search}`)) return new Promise<Reply>(() => {});
     // The endpoints scenario that fails says what a broken agent would, as the web harness answers it.
     if (url.pathname === "/v1/ext/studio/endpoints" && scenario.endpoints === "error") return json(500, { error: "could not read ~/.ue-mcp/studio/endpoints.json: permission denied" });
     const body = daemon.answer(m, url);
