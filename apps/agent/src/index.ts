@@ -23,6 +23,7 @@ import { SettingsStore } from "./settings.js";
 import { isNewer } from "./updates.js";
 import { floorRefusal, registerRefusal } from "./floor.js";
 import { installCrashGuard } from "./crash-guard.js";
+import { ViewportAccessCheck, actionBridge, readViewportConfig, registerViewport } from "./viewport/routes.js";
 
 const packageDir = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 
@@ -110,8 +111,16 @@ const extension: DaemonExtension = {
     const chat = registerChat(host, agentVersion, packageDir, account);
     const remote = registerRemote(host, { account });
     registerBilling(host, { account, gatewayUrl: () => new SettingsStore(host.dataDir).gatewayUrl() });
+    // The live viewport: Pixel Streaming from the editor, signalled through Studio, for Pro accounts.
+    const viewport = registerViewport(host, {
+      access: new ViewportAccessCheck({ token: () => account.token(), gatewayUrl: () => new SettingsStore(host.dataDir).gatewayUrl() }),
+      bridge: actionBridge(host),
+      config: () => readViewportConfig(host.dataDir),
+      log: (m) => api.log.info(m),
+    });
     return {
       dispose: () => {
+        viewport.dispose();
         remote.dispose();
         chat.dispose();
         unguard();

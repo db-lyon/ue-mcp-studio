@@ -1,10 +1,10 @@
 /**
  * Where the panel is: its tab, the Settings section, and the open session, as
  * the web client keeps it in the URL's hash (#/chat/<session>,
- * #/settings/<section>, #/playtests, #/plugins). The mobile app reads the same
+ * #/settings/<section>, #/viewport, #/playtests, #/plugins). The mobile app reads the same
  * shape, so a location means the same screen on both.
  */
-export type Tab = "Chat" | "Playtests" | "Plugins" | "Settings";
+export type Tab = "Chat" | "Viewport" | "Playtests" | "Plugins" | "Settings";
 
 export interface PanelLocation {
   tab: Tab;
@@ -12,7 +12,7 @@ export interface PanelLocation {
   section: string | null;
 }
 
-const TABS: Record<string, Tab> = { chat: "Chat", playtests: "Playtests", plugins: "Plugins", settings: "Settings" };
+const TABS: Record<string, Tab> = { chat: "Chat", viewport: "Viewport", playtests: "Playtests", plugins: "Plugins", settings: "Settings" };
 
 /** A session id or section name as it may appear in the hash; a section may also be an extension's. */
 const SAFE = /^[A-Za-z0-9_-]{1,128}$/;

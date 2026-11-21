@@ -52,6 +52,7 @@ import type {
 import { HttpError, readAll, requestJson, type Transport } from "./transport.js";
 import type { UpdateRun } from "./update-run.js";
 import { projectApi } from "./project-api.js";
+import { viewportApi } from "./viewport.js";
 import { uploadChunked, uploadInParts } from "./composer.js";
 
 const enc = encodeURIComponent;
@@ -81,6 +82,7 @@ export function studioApi(t: Transport) {
   const send = <T>(method: string, path: string, json?: unknown) => requestJson<T>(t, method, path, json !== undefined ? { json } : {});
   return {
     ...projectApi(t),
+    ...viewportApi(t),
     health: () => get<{ version?: string; startedAt?: string; lastEventId?: number }>("/v1/health"),
     sessions: () => get<{ sessions: SessionSummary[] }>(`${S}/sessions`),
     newSession: () => send<SessionDetail>("POST", `${S}/sessions`),
