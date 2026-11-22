@@ -31,6 +31,8 @@ const result = await build({
       b.onLoad({ filter: /pi-claude-code[\\/]src[\\/]stream\.ts$/ }, (args) => ({ contents: patchClaudeCodeStream(fs.readFileSync(args.path, "utf-8")), loader: "ts" }));
     },
   }],
+  // Runs first in every entry: child processes start with no console window on Windows.
+  inject: [path.join(root, "apps", "agent", "src", "hide-child-windows.ts")],
   outdir: path.join(root, "apps", "agent", "dist"),
   bundle: true,
   platform: "node",
