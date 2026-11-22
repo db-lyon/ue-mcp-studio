@@ -16,6 +16,7 @@ import type { ContextStrategy } from "@ue-mcp-studio/shared";
 import { EDITOR_TOOLS } from "./tools.js";
 import { required } from "./backend.js";
 import { canonCategoryCall, canonFor } from "./canon.js";
+import { SUBAGENT_TOOL_NAMES } from "./subagent-tools.js";
 
 export interface ProjectedTool {
   name: string;
@@ -66,7 +67,7 @@ export interface EditorSurface {
 
 const RESTART = EDITOR_TOOLS.filter((t) => (t as { name: string }).name !== "ue_mcp");
 /** Studio's own tools, which a projected tool of the same name must never shadow. */
-const RESERVED = new Set(["ue_mcp", "editor_restart", "shell", "read_file", "write_file", "edit_file", "glob", "grep", "web_fetch", "web_search", "agent", "skill"]);
+const RESERVED = new Set(["ue_mcp", "editor_restart", "shell", "read_file", "write_file", "edit_file", "glob", "grep", "web_fetch", "web_search", "agent", ...SUBAGENT_TOOL_NAMES, "skill"]);
 
 export { canonCategoryCall };
 

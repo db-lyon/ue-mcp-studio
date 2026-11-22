@@ -20,6 +20,7 @@ import { ensureRuntime } from "./runtime.js";
 import { claudeEnv, claudeHome, claudeLogin, refreshClaudeLogin } from "./claude-auth.js";
 import { LOCAL_TOOL_NAMES, localToolDefinitions } from "./local-tools.js";
 import { REPLY_DESCRIPTION, REPLY_TOOL_NAME, messagesIn } from "./subagent-inbox.js";
+import { SUBAGENT_TOOLS, SUBAGENT_TOOL_NAMES } from "./subagent-tools.js";
 
 const SERVER = "studio";
 const PREFIX = `mcp__${SERVER}__`;
@@ -88,7 +89,8 @@ export function toolOptions(o: { agent: boolean; reply?: boolean; allowed?: stri
   });
   const search = may("web_search") ? [SEARCH] : [];
   const skill = o.skills ? [SKILL] : [];
-  const agent = o.agent ? [`${PREFIX}${AGENT_TOOL_NAME}`] : [];
+  // The tools that list, read, message and stop subagents come with the agent tool: only the main agent has them.
+  const agent = o.agent ? [AGENT_TOOL_NAME, ...SUBAGENT_TOOL_NAMES].map((n) => `${PREFIX}${n}`) : [];
   // A helper's file never takes away the subagent's answer to the user.
   const reply = o.reply ? [`${PREFIX}${REPLY_TOOL_NAME}`] : [];
   return { tools: [...search, ...skill], allowedTools: [...studio, ...agent, ...reply, ...search, ...skill], disallowedTools: [...RUNTIME_AGENT] };
@@ -386,6 +388,7 @@ export async function runSubscriptionTurn(t: SubscriptionTurn): Promise<string |
       // Studio's agent tool. Marked read-only so the runtime runs several calls of one message at once,
       // as it does its own subagents; what a subagent does goes through Studio's tools and approvals.
       ...(t.agentTool ? [tool(AGENT_TOOL_NAME, t.agentTool.description, zodShape(t.agentTool.inputSchema), handler(AGENT_TOOL_NAME), { annotations: { readOnlyHint: true } })] : []),
+      ...(t.agentTool ? SUBAGENT_TOOLS.map((d) => tool(d.name, d.description, zodShape(d.input_schema as Record<string, unknown>), handler(d.name))) : []),
       ...(t.reply ? [tool(REPLY_TOOL_NAME, REPLY_DESCRIPTION, { text: z.string() }, handler(REPLY_TOOL_NAME), { annotations: { readOnlyHint: true } })] : []),
     ],
   });
