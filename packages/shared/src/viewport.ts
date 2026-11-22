@@ -84,6 +84,20 @@ export interface ViewportStatus {
  */
 export const VIEWPORT_CHANGED_EVENT = "studio.viewport.changed";
 
+/**
+ * What a daemon event says about Play In Editor: running (true), stopped
+ * (false), or nothing (null). ue-mcp's daemon (extension feature "events.pie")
+ * publishes pie.started, pie.paused, pie.resumed and pie.ended whenever a
+ * session changes, including one the user started with the editor's own Play
+ * button, and the current state each time an editor attaches. An older daemon
+ * never sends them.
+ */
+export function pieFromEvent(type: string): boolean | null {
+  if (type === "pie.started" || type === "pie.paused" || type === "pie.resumed") return true;
+  if (type === "pie.ended") return false;
+  return null;
+}
+
 /** POST /v1/ext/studio/viewport/viewers. */
 export interface ViewportJoinRequest {
   source?: ViewportSource;

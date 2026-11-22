@@ -1,8 +1,11 @@
 /**
  * Whether Play In Editor is running, as Studio knows it without polling the
- * editor: the calls Studio makes (a turn's, a playtest's, a flow's), the calls
- * other MCP clients make (the daemon's call.finished events), the editor's own
- * answer when it connects, and the viewport's streamer coming and going. The
+ * editor: the daemon's pie.* events, pushed by the editor for every session
+ * however it started, and the calls Studio makes (a turn's, a playtest's, a
+ * flow's). A daemon without those events is read the older way: the calls
+ * other MCP clients make (the daemon's call.finished events) and the editor's
+ * own answer when it connects. The viewport's streamer coming and going counts
+ * too. The
  * chat's PIE indicator and card read it through GET /viewport, and every
  * change is published so a client asks again.
  *
@@ -11,6 +14,7 @@
  * stream_start or stream_stop would replace or end the user's stream.
  */
 import type { ActionResult } from "ue-mcp/daemon";
+import { pieFromEvent } from "@ue-mcp-studio/shared";
 
 /** The stream actions the Viewport tab owns. stream_status stays open: it changes nothing. */
 export const VIEWPORT_OWNED = new Set(["stream_start", "stream_stop"]);
@@ -71,6 +75,13 @@ export interface PieWatchOptions {
   connected: () => boolean;
   /** PIE started or stopped. */
   changed: () => void;
+  /**
+   * The daemon publishes pie.* events (extension feature "events.pie"): every
+   * session change however it started, and the state on each editor attach.
+   * Then the guesses from other clients' calls and the ask on connect are not
+   * needed. An older daemon leaves this false.
+   */
+  pushed?: () => boolean;
 }
 
 export class PieWatch {
@@ -113,9 +124,17 @@ export class PieWatch {
     if (v !== null) this.set(v);
   }
 
-  /** The daemon's events: the editor coming and going, other clients' calls, PIE test scripts. */
+  /**
+   * The daemon's events: its pie.* events where it has them, which see a
+   * session the user started with the editor's Play button; otherwise the
+   * editor coming, other clients' calls and PIE test scripts, each a reason to
+   * ask the editor. The editor going always means no PIE.
+   */
   observe(e: { type: string; data: Record<string, unknown> }): void {
-    if (e.type === "editor.disconnected") this.set(false);
+    const pushed = pieFromEvent(e.type);
+    if (pushed !== null) this.set(pushed);
+    else if (e.type === "editor.disconnected") this.set(false);
+    else if (this.o.pushed?.()) return;
     else if (e.type === "editor.connected") void this.refresh();
     else if (e.type === "script.run_started" || e.type === "script.run_finished") void this.refresh();
     else if (e.type === "call.finished" && MAY_CHANGE.has(`${String(e.data.category)}.${String(e.data.action)}`)) void this.refresh();

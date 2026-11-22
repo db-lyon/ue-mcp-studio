@@ -114,6 +114,7 @@ const extension: DaemonExtension = {
       callAction: (c, a, args) => host.callAction(c, a, args),
       connected: () => host.editors().some((e) => e.connected),
       changed: () => host.events.publish("viewport.changed", { pie: pie.get() }),
+      pushed: () => (host.features ?? []).includes("events.pie"),
     });
     const unwatch = host.events.subscribe((e) => pie.observe(e));
     void pie.refresh();

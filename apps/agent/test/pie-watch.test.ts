@@ -64,6 +64,44 @@ describe("the PIE watch", () => {
     expect(w.get()).toBe(false);
   });
 
+  it("follows the daemon's pie events, and stops guessing from calls once the daemon pushes them", async () => {
+    let pushed = false;
+    let changes = 0;
+    const asked: string[] = [];
+    const w = new PieWatch({
+      callAction: async (c, a) => (asked.push(`${c}.${a}`), answer({ isPlaying: false })),
+      connected: () => true,
+      changed: () => void changes++,
+      pushed: () => pushed,
+    });
+    // A session the user started with the editor's Play button reaches Studio only as pie.started.
+    w.observe({ type: "pie.started", data: { editor: "E", state: "started", simulate: false } });
+    expect(w.get()).toBe(true);
+    w.observe({ type: "pie.paused", data: {} });
+    w.observe({ type: "pie.resumed", data: {} });
+    expect(w.get()).toBe(true);
+    w.observe({ type: "pie.ended", data: {} });
+    expect(w.get()).toBe(false);
+    expect(changes).toBe(2);
+
+    // An older daemon: another client's call is still a reason to ask the editor.
+    w.observe({ type: "call.finished", data: { category: "editor", action: "play_in_editor" } });
+    await Promise.resolve();
+    expect(asked).toEqual(["editor.play_in_editor"]);
+    await w.refresh();
+
+    // A daemon with the events: no asking, the events say it, and the editor going still means no PIE.
+    pushed = true;
+    asked.length = 0;
+    w.observe({ type: "call.finished", data: { category: "editor", action: "play_in_editor" } });
+    w.observe({ type: "editor.connected", data: {} });
+    w.observe({ type: "script.run_started", data: {} });
+    expect(asked).toEqual([]);
+    w.set(true);
+    w.observe({ type: "editor.disconnected", data: {} });
+    expect(w.get()).toBe(false);
+  });
+
   it("watches the chat's calls and refuses the stream actions the Viewport tab owns", async () => {
     const { w } = watch();
     const sent: string[] = [];
