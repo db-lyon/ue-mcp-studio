@@ -17,8 +17,6 @@ const viewport = (title: string, s: Partial<ViewportStatus>, o: Partial<Scenario
 });
 
 export const VIEWPORT_SCENARIOS: Record<string, Scenario> = {
-  "viewport-needs-pro": viewport("Viewport on an account without Pro, while Pro is not on sale: the plans page and Check again", { access: "needs-pro" }),
-  "viewport-signed-out": viewport("Viewport on a computer with no ue-mcp account: Open Settings", { access: "signed-out" }),
   "viewport-no-editor": viewport("Viewport with no editor running: Start editor", { editor: "no-editor" }),
   "viewport-plugin-off": viewport("Viewport in a project without Pixel Streaming 2: Enable it", { editor: "plugin-off", bridge: { available: true, pluginEnabled: false, streaming: false, armed: false } }),
   "viewport-plugin-restart": viewport("Pixel Streaming 2 enabled, waiting for the editor to restart", { editor: "plugin-restart", bridge: { available: true, pluginEnabled: false, streaming: false, armed: false } }),

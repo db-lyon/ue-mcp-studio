@@ -8,10 +8,11 @@
  *   DELETE /viewport/viewers/:id             leave; the last viewer out stops the stream
  *   POST   /viewport/plugin                  enable Pixel Streaming 2 in the .uproject
  *
- * Every route but the status needs the Pro plan, asked of the gateway with the
- * account's token, so a client that skips its own gate is still refused. A
- * paired device reaches these through the sealed relay like any other Studio
- * route; the media never does.
+ * Watching is open to every account: the video goes peer to peer and costs
+ * nothing. Only the TURN relay server, which watching from another network
+ * needs, is Pro's: a join offers it when the gateway says the account has Pro.
+ * A paired device reaches these routes through the sealed relay like any other
+ * Studio route; the media never does.
  *
  * The editor side is ue-mcp's stream_start, stream_stop and stream_status,
  * found under whichever category this ue-mcp has them (pie, then editor).
@@ -184,7 +185,11 @@ export class ViewportAccessCheck {
   }
 }
 
-/** viewport.json in the agent's data dir: the TURN slot and the stream's settings, none of them required. */
+/**
+ * viewport.json in the agent's data dir: extra ICE servers (a TURN server of
+ * your own, besides the gateway's relay for Pro accounts) and the stream's
+ * settings, none of them required.
+ */
 export interface ViewportConfig {
   iceServers?: IceServer[];
   stream?: { resolution?: string; fps?: number; maxBitrateKbps?: number; codec?: string };
@@ -218,6 +223,12 @@ export interface ViewportRouteOptions {
   bridge: StreamBridge;
   /** ICE servers and stream settings, read on each join. */
   config?: () => { iceServers: IceServer[]; stream: Record<string, unknown> };
+  /**
+   * TURN relay servers from the gateway (turn.ts), asked on each join after the
+   * Pro gate and added after config's: `get` asks or reuses, `known` is what is
+   * still valid without asking, for the streamer's config. None: direct only.
+   */
+  turn?: { get(): Promise<IceServer[]>; known(): IceServer[] };
   signalling?: SignallingServer;
   log?: (message: string) => void;
   now?: () => number;
@@ -233,16 +244,10 @@ export interface ViewportRouteOptions {
   changed?: () => void;
 }
 
-const REFUSED: Record<Exclude<ViewportAccess, "ok">, string> = {
-  "signed-out": "The live viewport needs a ue-mcp account with the Pro plan. Sign in on the computer in Settings > General.",
-  "needs-pro": "The live viewport is part of the Pro plan, which this account does not have.",
-  unreachable: "Studio could not reach your ue-mcp account to check the plan. Check again in a moment.",
-};
-
 export function registerViewport(api: Pick<DaemonExtensionApi, "route">, o: ViewportRouteOptions): { dispose(): void } {
   const now = o.now ?? Date.now;
   const config = o.config ?? (() => ({ iceServers: [...DEFAULT_ICE_SERVERS], stream: {} }));
-  const signalling = o.signalling ?? new SignallingServer({ iceServers: () => config().iceServers, log: o.log, now });
+  const signalling = o.signalling ?? new SignallingServer({ iceServers: () => [...config().iceServers, ...(o.turn?.known() ?? [])], log: o.log, now });
   // With source pie the editor's streamer is connected exactly while PIE runs.
   const unwatchStreamer = signalling.watchStreamer((connected) => {
     if (source === "pie") o.pie?.set(connected);
@@ -272,7 +277,7 @@ export function registerViewport(api: Pick<DaemonExtensionApi, "route">, o: View
 
   const status = async (fresh = false, known?: Awaited<ReturnType<typeof editorState>>): Promise<ViewportStatus> => {
     const access = await o.access.get(fresh);
-    const e = known ?? (access === "ok" ? await editorState() : { editor: "ready" as const });
+    const e = known ?? (await editorState());
     const detail = e.detail ?? (e.editor === "ready" ? lastError : undefined);
     return {
       access,
@@ -301,36 +306,16 @@ export function registerViewport(api: Pick<DaemonExtensionApi, "route">, o: View
     stopTimer.unref?.();
   };
 
-  const endAll = (reason: string): void => {
-    for (const id of signalling.viewerIds()) signalling.removeViewer(id, reason);
-    left();
-  };
-
-  // Viewers that stopped polling (a phone locked, a tab closed) leave; a lapsed plan ends everyone.
+  // Viewers that stopped polling (a phone locked, a tab closed) leave.
   const sweep = setInterval(() => {
     for (const id of signalling.idleViewers(now() - ttl)) signalling.removeViewer(id);
-    if (signalling.viewerCount() === 0) {
-      left();
-      return;
-    }
-    void o.access.get().then((a) => {
-      if (a !== "ok" && a !== "unreachable") endAll(REFUSED[a]);
-    });
+    if (signalling.viewerCount() === 0) left();
   }, o.sweepMs ?? 5_000);
   sweep.unref?.();
-
-  /** The refusal for a route that needs Pro, or null when the account has it. */
-  const gate = async (): Promise<{ status: number; body: { error: string; status: ViewportStatus } } | null> => {
-    const access = await o.access.get();
-    if (access === "ok") return null;
-    return { status: access === "unreachable" ? 503 : 403, body: { error: REFUSED[access], status: await status() } };
-  };
 
   api.route("GET", "/viewport", async (req) => ({ body: await status(req.query.fresh === "1") }));
 
   api.route("POST", "/viewport/viewers", async (req) => {
-    const refused = await gate();
-    if (refused) return refused;
     const asked = (req.body as { source?: unknown } | undefined)?.source;
     const want: ViewportSource = VIEWPORT_SOURCES.includes(asked as ViewportSource) ? (asked as ViewportSource) : "pie";
     const e = await editorState();
@@ -349,6 +334,8 @@ export function registerViewport(api: Pick<DaemonExtensionApi, "route">, o: View
       stopTimer = null;
     }
     const cfg = config();
+    // The relay server is Pro's. Asked before the stream starts, so a streamer that connects now is configured with it too.
+    const relay = (await o.access.get()) === "ok" ? ((await o.turn?.get().catch(() => [])) ?? []) : [];
     // Start when nothing streams, the source changes, or the editor lost the stream (it restarted).
     const lost = !signalling.streamerConnected() && !(e.bridge?.streaming || e.bridge?.armed);
     if (source !== want || lost) {
@@ -364,17 +351,11 @@ export function registerViewport(api: Pick<DaemonExtensionApi, "route">, o: View
     }
     const viewer = signalling.addViewer();
     o.changed?.();
-    const join: ViewportJoin = { viewer, iceServers: cfg.iceServers, status: await status(false, e) };
+    const join: ViewportJoin = { viewer, iceServers: [...cfg.iceServers, ...relay], status: await status(false, e) };
     return { status: 201, body: join };
   });
 
   api.route("GET", "/viewport/viewers/:id/signals", async (req) => {
-    const refused = await gate();
-    if (refused) {
-      signalling.removeViewer(req.params.id);
-      left();
-      return refused;
-    }
     const after = Number(req.query.after ?? 0);
     const r = await signalling.poll(req.params.id, Number.isFinite(after) && after >= 0 ? after : 0, waitMs);
     if (!r) return { status: 404, body: { error: "This viewer is not watching any more." } };
@@ -382,8 +363,6 @@ export function registerViewport(api: Pick<DaemonExtensionApi, "route">, o: View
   });
 
   api.route("POST", "/viewport/viewers/:id/signals", async (req) => {
-    const refused = await gate();
-    if (refused) return refused;
     const message = (req.body as { message?: unknown } | undefined)?.message;
     if (!isViewerMessage(message)) return { status: 400, body: { error: "body must be { message: an answer or an iceCandidate }" } };
     if (!signalling.fromViewer(req.params.id, message)) return { status: 404, body: { error: "This viewer is not watching any more." } };
@@ -397,8 +376,6 @@ export function registerViewport(api: Pick<DaemonExtensionApi, "route">, o: View
   });
 
   api.route("POST", "/viewport/plugin", async () => {
-    const refused = await gate();
-    if (refused) return refused;
     const r = await o.bridge.enablePlugin();
     if (r.kind === "no-editor") return { status: 409, body: { error: "The editor is not running.", status: await status() } };
     if (r.kind !== "ok") return { status: 502, body: { error: r.kind === "error" ? r.error : "This ue-mcp cannot enable plugins." } };

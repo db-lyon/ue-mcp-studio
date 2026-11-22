@@ -24,6 +24,7 @@ import { isNewer } from "./updates.js";
 import { floorRefusal, registerRefusal } from "./floor.js";
 import { installCrashGuard } from "./crash-guard.js";
 import { ViewportAccessCheck, actionBridge, readViewportConfig, registerViewport } from "./viewport/routes.js";
+import { TurnCredentials } from "./viewport/turn.js";
 import { PieWatch } from "./viewport/pie-watch.js";
 
 const packageDir = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
@@ -127,6 +128,7 @@ const extension: DaemonExtension = {
       access: new ViewportAccessCheck({ token: () => account.token(), gatewayUrl: () => new SettingsStore(host.dataDir).gatewayUrl() }),
       bridge: actionBridge(host),
       config: () => readViewportConfig(host.dataDir),
+      turn: new TurnCredentials({ token: () => account.token(), gatewayUrl: () => new SettingsStore(host.dataDir).gatewayUrl(), log: (m) => api.log.info(m) }),
       log: (m) => api.log.info(m),
       pie,
       changed: () => host.events.publish("viewport.changed", { pie: pie.get() }),

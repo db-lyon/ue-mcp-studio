@@ -31,7 +31,7 @@ import { CompactContext } from "../screens/chat/items";
 import { SessionRow } from "../chat/SessionRow";
 import { AgentsGlyph, CheckpointsGlyph, Composer, PieLiveGlyph, type BarUtility } from "../chat/Composer";
 import { PieLiveContext, usePieStatus, type PieLiveValue } from "../chat/PieLive";
-import { pieLive, pieLiveTitle } from "@ue-mcp-studio/client-core";
+import { PIE_LIVE_TITLE, pieLive } from "@ue-mcp-studio/client-core";
 import { RemoteReply, useRemoteCommand } from "../screens/chat/composer/RemoteReply";
 import type { MentionSearchFn } from "../chat/MentionMenu";
 import { Approvals } from "../screens/chat/items";
@@ -563,7 +563,7 @@ export function Chat({ nav, initialSession = null, onSettings, active = true, on
     if (subagentsPress({ inline: false, shown: false, inView: false }) === "open-list") setSheet(true);
   };
   const utilities: BarUtility[] = [
-    ...(pieValue && pieLive(pie.status) ? [{ id: "viewport" as const, icon: <PieLiveGlyph />, live: true, title: pieLiveTitle(pie.status, { remote: true }), onClick: pieValue.watch }] : []),
+    ...(pieValue && pieLive(pie.status) ? [{ id: "viewport" as const, icon: <PieLiveGlyph />, live: true, title: PIE_LIVE_TITLE, onClick: pieValue.watch }] : []),
     { id: "checkpoints", icon: <CheckpointsGlyph />, onClick: () => setReviewOpen(true) },
     ...(listedAgents.length > 0 ? [{ id: "subagents" as const, icon: <AgentsGlyph />, count: listedAgents.length, onClick: pressAgents }] : []),
   ];

@@ -1,7 +1,7 @@
 /** The chat's way into the live viewport: when the PIE indicator shows, what the Play In Editor card says, and where the card goes in a thread. */
 import { describe, expect, it } from "vitest";
 import type { QaRun, ToolCallRecord, TranscriptEntry, ViewportStatus } from "@ue-mcp-studio/shared";
-import { asksViewportAgain, pieCard, pieFromEvent, pieLive, pieLiveTitle, viewportGate, withPie } from "../src/viewport.js";
+import { asksViewportAgain, pieCard, pieFromEvent, pieLive, withPie } from "../src/viewport.js";
 import { mainTimeline, startsPie } from "../src/chat-model.js";
 
 const status = (s: Partial<ViewportStatus> = {}): ViewportStatus => ({ access: "ok", editor: "ready", streamer: false, source: null, viewers: 0, ...s });
@@ -18,14 +18,8 @@ describe("the PIE indicator", () => {
     expect(pieLive(status({ pie: true }))).toBe(true);
     expect(pieLive(status({ streamer: true }))).toBe(true);
     expect(pieLive(status({ bridge: { available: true, pluginEnabled: true, streaming: false, armed: true } }))).toBe(true);
-    // Without Pro the editor is not asked, and the agent's own PIE state still answers.
+    // Watching is free: an account without Pro sees the indicator the same way.
     expect(pieLive(status({ access: "needs-pro", pie: true }))).toBe(true);
-  });
-
-  it("says Pro is needed in the Viewport's own words for an account without it", () => {
-    const s = status({ access: "needs-pro", pie: true });
-    expect(pieLiveTitle(s, { remote: false })).toBe(`Play In Editor is running. ${viewportGate(s, { remote: false })!.title}.`);
-    expect(pieLiveTitle(status({ pie: true }), { remote: false })).toBe("Play In Editor is running. Watch it live.");
   });
 
   it("moves at once on the daemon's pie events, however PIE was started", () => {
@@ -46,16 +40,11 @@ describe("the PIE indicator", () => {
 
 describe("the Play In Editor card", () => {
   it("follows PIE only on the newest card", () => {
-    expect(pieCard(status({ pie: true }), { remote: false, current: true })).toEqual({ title: "Play In Editor is running", live: true, gate: null });
-    expect(pieCard(status(), { remote: false, current: true })).toEqual({ title: "Play In Editor stopped", live: false, gate: null });
-    expect(pieCard(status({ pie: true }), { remote: false, current: false })).toEqual({ title: "Play In Editor started", live: false, gate: null });
-  });
-
-  it("carries the Viewport's refusal and way forward for an account without Pro, and not an editor gate", () => {
-    const s = status({ access: "needs-pro", pie: true });
-    expect(pieCard(s, { remote: true, current: true }).gate).toEqual(viewportGate(s, { remote: true }));
-    // An editor that cannot stream is the dialog's to explain: the card still offers Watch live.
-    expect(pieCard(status({ pie: true, editor: "plugin-off" }), { remote: false, current: true }).gate).toBeNull();
+    expect(pieCard(status({ pie: true }), { current: true })).toEqual({ title: "Play In Editor is running", live: true });
+    expect(pieCard(status(), { current: true })).toEqual({ title: "Play In Editor stopped", live: false });
+    expect(pieCard(status({ pie: true }), { current: false })).toEqual({ title: "Play In Editor started", live: false });
+    // Watching is free on every plan: an account without Pro gets the same card.
+    expect(pieCard(status({ access: "needs-pro", pie: true }), { current: true })).toEqual({ title: "Play In Editor is running", live: true });
   });
 });
 

@@ -27,13 +27,20 @@ export interface IceServer {
   credential?: string;
 }
 
-/** STUN only: enough for most home and mobile networks. TURN goes in Studio's settings file (viewportIceServers) or UE_MCP_STUDIO_ICE_SERVERS. */
+/**
+ * STUN only: enough on the computer's own network and behind many home
+ * routers, not behind carrier-grade NAT (most mobile data) or a symmetric NAT,
+ * which need a TURN relay. A TURN server goes in viewport.json in the agent's
+ * data dir (iceServers) or UE_MCP_STUDIO_ICE_SERVERS.
+ */
 export const DEFAULT_ICE_SERVERS: readonly IceServer[] = [{ urls: "stun:stun.l.google.com:19302" }];
 
 /**
- * Whether the account may watch: "ok", or why not. "signed-out" (no ue-mcp
- * account on the computer), "needs-pro" (signed in without a live Pro plan),
+ * Whether the account gets Studio's TURN relay server, which watching from
+ * another network needs: "ok" (a live Pro plan), or why not. "signed-out" (no
+ * ue-mcp account on the computer), "needs-pro" (signed in without Pro),
  * "unreachable" (the gateway did not answer, so the plan is unknown).
+ * Watching itself is open to every account; the video then goes directly.
  */
 export type ViewportAccess = "ok" | "signed-out" | "needs-pro" | "unreachable";
 
