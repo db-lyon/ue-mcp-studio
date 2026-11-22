@@ -57,7 +57,21 @@ export class SignallingServer {
   private readonly secret = crypto.randomBytes(16).toString("hex");
   private port = 0;
 
+  /** Told, besides onStreamer, when a streamer connects or goes: the routes, whoever made the server. */
+  private readonly streamerWatchers = new Set<(connected: boolean) => void>();
+
   constructor(private readonly o: SignallingOptions) {}
+
+  /** Watch the streamer come and go; returns the way to stop. */
+  watchStreamer(fn: (connected: boolean) => void): () => void {
+    this.streamerWatchers.add(fn);
+    return () => this.streamerWatchers.delete(fn);
+  }
+
+  private streamerChanged(connected: boolean): void {
+    this.o.onStreamer?.(connected);
+    for (const fn of this.streamerWatchers) fn(connected);
+  }
 
   /** Listen on 127.0.0.1 at a free port, once; the URL the editor's streamer connects to. */
   start(): Promise<string> {
@@ -223,7 +237,7 @@ export class SignallingServer {
     ws.send(JSON.stringify({ type: "config", peerConnectionOptions: { iceServers: this.o.iceServers() }, protocolVersion: PS_PROTOCOL_VERSION }));
     ws.send(JSON.stringify({ type: "identify" }));
     this.broadcast({ type: "streamer", connected: true });
-    this.o.onStreamer?.(true);
+    this.streamerChanged(true);
 
     ws.on("message", (data) => this.fromStreamer(ws, data.toString()));
     ws.on("close", () => {
@@ -232,7 +246,7 @@ export class SignallingServer {
       this.streamerJoined = false;
       this.o.log?.("viewport: the editor's streamer disconnected");
       this.broadcast({ type: "streamer", connected: false });
-      this.o.onStreamer?.(false);
+      this.streamerChanged(false);
     });
     ws.on("error", () => undefined);
   }

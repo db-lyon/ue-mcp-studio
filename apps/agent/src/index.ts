@@ -24,6 +24,7 @@ import { isNewer } from "./updates.js";
 import { floorRefusal, registerRefusal } from "./floor.js";
 import { installCrashGuard } from "./crash-guard.js";
 import { ViewportAccessCheck, actionBridge, readViewportConfig, registerViewport } from "./viewport/routes.js";
+import { PieWatch } from "./viewport/pie-watch.js";
 
 const packageDir = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 
@@ -108,7 +109,16 @@ const extension: DaemonExtension = {
     const host = shareBusy(api);
     // One account for chat and remote control, so a panel sign-in or sign-out reaches both.
     const account = new AccountSource(new SettingsStore(host.dataDir), () => host.registryAccount());
-    const chat = registerChat(host, agentVersion, packageDir, account);
+    // Whether PIE runs, for the chat's indicator and card; the chat's calls are watched and kept off the Viewport tab's stream.
+    const pie = new PieWatch({
+      callAction: (c, a, args) => host.callAction(c, a, args),
+      connected: () => host.editors().some((e) => e.connected),
+      changed: () => host.events.publish("viewport.changed", { pie: pie.get() }),
+    });
+    const unwatch = host.events.subscribe((e) => pie.observe(e));
+    void pie.refresh();
+    const chatHost = pie.wrap(host);
+    const chat = registerChat(chatHost, agentVersion, packageDir, account);
     const remote = registerRemote(host, { account });
     registerBilling(host, { account, gatewayUrl: () => new SettingsStore(host.dataDir).gatewayUrl() });
     // The live viewport: Pixel Streaming from the editor, signalled through Studio, for Pro accounts.
@@ -117,9 +127,12 @@ const extension: DaemonExtension = {
       bridge: actionBridge(host),
       config: () => readViewportConfig(host.dataDir),
       log: (m) => api.log.info(m),
+      pie,
+      changed: () => host.events.publish("viewport.changed", { pie: pie.get() }),
     });
     return {
       dispose: () => {
+        unwatch();
         viewport.dispose();
         remote.dispose();
         chat.dispose();
