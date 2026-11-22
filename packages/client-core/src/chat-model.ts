@@ -220,7 +220,44 @@ export type ThreadItem =
   /** Subagents started together, drawn as one block. */
   | { kind: "agents"; calls: Call[] }
   /** A run of neighbouring tool calls, whatever their outcome, folded into one summary line. */
-  | { kind: "steps"; calls: Call[] };
+  | { kind: "steps"; calls: Call[] }
+  /**
+   * The Play In Editor card, after the call or playtest that started PIE: Watch
+   * live opens the viewport over the chat. `key` is what started it; `current`
+   * marks the thread's newest one, the only one that follows PIE.
+   */
+  | { kind: "pie"; key: string; current: boolean };
+
+/** The tool call's action, from the ue_mcp tool's input, or from a category tool's name on a projected surface. */
+function callAction(call: Call): { category: string; method: string; args: Record<string, unknown> } | null {
+  const i = (call.input ?? {}) as Record<string, unknown>;
+  const args = (i.args && typeof i.args === "object" ? i.args : i.params && typeof i.params === "object" ? i.params : i) as Record<string, unknown>;
+  if (call.name === "ue_mcp") return i.action === "call" && typeof i.category === "string" && typeof i.method === "string" ? { category: i.category, method: i.method, args } : null;
+  return typeof i.action === "string" ? { category: call.name, method: i.action, args } : null;
+}
+
+/** The PIE test and acceptance actions that start PIE when they run. */
+const PIE_STARTS = new Set(["script_run", "script_replay", "replay_run", "uat_run"]);
+/** A playtest's states once its run has started PIE: a draft or an idle run has not. */
+const PIE_RUN_STATES = new Set<string>(["armed", "running", "awaiting_verdict", "finished", "stopped"]);
+
+/**
+ * Whether a line started Play In Editor: a call that started it and
+ * succeeded, or a playtest run past its draft that plays in PIE (a manual run
+ * does not).
+ */
+export function startsPie(t: TranscriptEntry): boolean {
+  if (t.kind === "qa") return !t.run.deleted && !t.run.manual && PIE_RUN_STATES.has(t.run.state);
+  if (t.kind !== "tool" || t.call.outcome !== "done") return false;
+  const a = callAction(t.call);
+  if (!a) return false;
+  if (a.category === "editor" && a.method === "play_in_editor") return a.args.pieAction === "start";
+  if (a.category === "editor" && a.method === "play_in_editor_ignore_blueprint_errors") return true;
+  return a.category === "pie" && PIE_STARTS.has(a.method) && a.args.mode !== "manual" && a.args.start_pie !== false;
+}
+
+/** What a PIE card is keyed by: the call or run that started PIE. */
+const pieKey = (t: TranscriptEntry): string => (t.kind === "qa" ? `qa:${t.run.runId}` : t.kind === "tool" ? `call:${t.call.id}` : "");
 
 /**
  * Whether a call folds into a run of steps: every call but a subagent and a
@@ -301,6 +338,14 @@ export function timeline(entries: TranscriptEntry[], asked: ReadonlySet<string> 
       if (last?.kind === "steps") last.calls.push(t.call);
       else out.push({ kind: "steps", calls: [t.call] });
     } else out.push({ kind: "entry", entry: t });
+    // The card follows what started PIE; the calls after it fold into a run of their own.
+    if (startsPie(t)) out.push({ kind: "pie", key: pieKey(t), current: false });
+  }
+  for (let i = out.length - 1; i >= 0; i--) {
+    const item = out[i];
+    if (item.kind !== "pie") continue;
+    out[i] = { ...item, current: true };
+    break;
   }
   return out;
 }

@@ -29,7 +29,9 @@ import { Threads } from "../chat/Threads";
 import { ContextMeter, ContextWarning } from "../chat/ContextMeter";
 import { CompactContext } from "../screens/chat/items";
 import { SessionRow } from "../chat/SessionRow";
-import { AgentsGlyph, CheckpointsGlyph, Composer, type BarUtility } from "../chat/Composer";
+import { AgentsGlyph, CheckpointsGlyph, Composer, PieLiveGlyph, type BarUtility } from "../chat/Composer";
+import { PieLiveContext, usePieStatus, type PieLiveValue } from "../chat/PieLive";
+import { pieLive, pieLiveTitle } from "@ue-mcp-studio/client-core";
 import { RemoteReply, useRemoteCommand } from "../screens/chat/composer/RemoteReply";
 import type { MentionSearchFn } from "../chat/MentionMenu";
 import { Approvals } from "../screens/chat/items";
@@ -98,7 +100,7 @@ function ErrorBar({ error, onDismiss, style }: { error: { message: string; retry
   );
 }
 
-export function Chat({ nav, initialSession = null, onSettings, active = true }: {
+export function Chat({ nav, initialSession = null, onSettings, active = true, onWatchLive }: {
   /** The shell asked for a session, or for the list (null); `n` counts the asks. */
   nav?: { session: string | null; n: number };
   /** The Chat tab is the one shown (the web client's prop; the shell parks the chat while another tab is up). */
@@ -107,7 +109,14 @@ export function Chat({ nav, initialSession = null, onSettings, active = true }: 
   initialSession?: string | null;
   /** Open a Settings section. */
   onSettings?: (section: string) => void;
+  /** Open the live viewport over the chat: the PIE indicator and the Play In Editor card. Without it neither shows. */
+  onWatchLive?: () => void;
 }) {
+  const pie = usePieStatus(!!onWatchLive);
+  const pieValue = useMemo<PieLiveValue | null>(
+    () => (onWatchLive ? { status: pie.status, watch: onWatchLive, check: pie.check, onSettings: (s) => onSettings?.(s) } : null),
+    [pie.status, onWatchLive, onSettings],
+  );
   const t = useTheme();
   const listInsets = useSheetInsets();
   const { project, api } = useProjectNav();
@@ -554,6 +563,7 @@ export function Chat({ nav, initialSession = null, onSettings, active = true }: 
     if (subagentsPress({ inline: false, shown: false, inView: false }) === "open-list") setSheet(true);
   };
   const utilities: BarUtility[] = [
+    ...(pieValue && pieLive(pie.status) ? [{ id: "viewport" as const, icon: <PieLiveGlyph />, live: true, title: pieLiveTitle(pie.status, { remote: true }), onClick: pieValue.watch }] : []),
     { id: "checkpoints", icon: <CheckpointsGlyph />, onClick: () => setReviewOpen(true) },
     ...(listedAgents.length > 0 ? [{ id: "subagents" as const, icon: <AgentsGlyph />, count: listedAgents.length, onClick: pressAgents }] : []),
   ];
@@ -649,6 +659,7 @@ export function Chat({ nav, initialSession = null, onSettings, active = true }: 
   }
 
   return (
+    <PieLiveContext.Provider value={pieValue}>
     <AskedContext.Provider value={asked}>
     <AgentsContext.Provider value={agentMap}>
       {/* automaticOffset: the chat sits under the app's header, so the keyboard's reach is measured from where it is on screen. */}
@@ -808,6 +819,7 @@ export function Chat({ nav, initialSession = null, onSettings, active = true }: 
       </KeyboardAvoidingView>
     </AgentsContext.Provider>
     </AskedContext.Provider>
+    </PieLiveContext.Provider>
   );
 }
 

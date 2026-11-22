@@ -43,6 +43,9 @@ import { useSessionRuns } from "../chat/sessionRuns";
 import { NARROW, useMedia } from "../layout";
 import { Slot } from "../extensions/Slot";
 import { ErrorBoundary } from "./ErrorBoundary";
+import { PieLiveContext, PieLiveGlyph, usePieStatus, type PieLiveValue } from "../chat/PieLive";
+import { pieLive, pieLiveTitle } from "@ue-mcp-studio/client-core";
+import { onRemotePage } from "../connection";
 
 /** How long a subagent thread takes to slide in or out; matches .thread-drawer's transition. */
 export const DRAWER_MS = 260;
@@ -84,14 +87,21 @@ const searchMentions: MentionSearchFn = (request, signal) => api.searchMentions(
 /** How long the session list may take before the panel says Studio is not answering. */
 export const LIST_SLOW_MS = 8000;
 
-export function ChatView({ daemon, nav, active = true, onSettings }: {
+export function ChatView({ daemon, nav, active = true, onSettings, onWatchLive }: {
   daemon: DaemonState;
   nav?: { session: string | null; n: number };
   /** False while another tab is up: the chat stays mounted but leaves the location alone. */
   active?: boolean;
   /** Open a Settings section, for /remote on a paid plan. */
   onSettings?: (section: SettingsSection) => void;
+  /** Open the live viewport over the chat: the PIE indicator and the Play In Editor card. Without it neither shows. */
+  onWatchLive?: () => void;
 }) {
+  const pie = usePieStatus(daemon, !!onWatchLive);
+  const pieValue = useMemo<PieLiveValue | null>(
+    () => (onWatchLive ? { status: pie.status, remote: onRemotePage(), watch: onWatchLive, check: pie.check, onSettings: (s) => onSettings?.(s) } : null),
+    [pie.status, onWatchLive, onSettings],
+  );
   const [sessions, setSessions] = useState<SessionSummary[]>([]);
   /** Whether the list has come back once: until then an empty list is not "no sessions". */
   const [listed, setListed] = useState(false);
@@ -535,6 +545,7 @@ export function ChatView({ daemon, nav, active = true, onSettings }: {
     }
   };
   const utilities: BarUtility[] = [
+    ...(pieValue && pieLive(pie.status) ? [{ id: "viewport" as const, icon: <PieLiveGlyph />, live: true, title: pieLiveTitle(pie.status, { remote: pieValue.remote }), onClick: pieValue.watch }] : []),
     { id: "checkpoints", icon: <CheckpointsGlyph />, onClick: () => setReviewOpen(true) },
     ...(listedAgents.length > 0 ? [{ id: "subagents" as const, icon: <AgentsGlyph />, count: listedAgents.length, onClick: pressAgents, pressed: narrow ? undefined : agentsShown }] : []),
   ];
@@ -575,6 +586,7 @@ export function ChatView({ daemon, nav, active = true, onSettings }: {
   );
 
   return (
+    <PieLiveContext.Provider value={pieValue}>
     <AskedContext.Provider value={asked}>
     <AgentsContext.Provider value={agentMap}>
     <div className="chat" data-pane={chatPane(selected, listed, sessions.length)}>
@@ -788,6 +800,7 @@ export function ChatView({ daemon, nav, active = true, onSettings }: {
     </div>
     </AgentsContext.Provider>
     </AskedContext.Provider>
+    </PieLiveContext.Provider>
   );
 }
 

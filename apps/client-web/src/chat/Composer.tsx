@@ -364,10 +364,14 @@ export interface BarUtility {
   disabled?: boolean;
   /** A toggle's state: Subagents where its list is inline, pressed while that list shows. Undefined is a plain button. */
   pressed?: boolean;
+  /** Its tooltip, when it changes with what it shows (the PIE indicator's); UTILITY_TITLE otherwise. */
+  title?: string;
+  /** Something is live behind it (the PIE indicator): the overflow button shows the live dot too. */
+  live?: boolean;
 }
 
 /** Each utility's class, for styles and for the visual QA's clicks. */
-const UTILITY_CLASS: Record<BarUtilityId, string> = { checkpoints: "composer-checkpoints", subagents: "composer-agents", attach: "attach-button" };
+const UTILITY_CLASS: Record<BarUtilityId, string> = { viewport: "composer-pie", checkpoints: "composer-checkpoints", subagents: "composer-agents", attach: "attach-button" };
 
 /** A utility as an icon button, named for the keyboard and a screen reader; `hidden` is the measured copy, out of reach. */
 function UtilityButton({ u, hidden }: { u: BarUtility; hidden?: boolean }) {
@@ -376,7 +380,7 @@ function UtilityButton({ u, hidden }: { u: BarUtility; hidden?: boolean }) {
       className={`ghost bar-button icon-only ${UTILITY_CLASS[u.id]} ${u.pressed ? "selected" : ""}`}
       aria-label={utilityLabel(u.id, u.count)}
       aria-pressed={u.pressed}
-      title={UTILITY_TITLE[u.id]}
+      title={u.title ?? UTILITY_TITLE[u.id]}
       disabled={u.disabled}
       tabIndex={hidden ? -1 : undefined}
       onClick={hidden ? undefined : u.onClick}
@@ -445,7 +449,7 @@ function UtilityMenu({ items }: { items: BarUtility[] }) {
         onClick={() => setOpen(!open)}
       >
         <MoreGlyph />
-        {agents > 0 ? <span className="utility-count">{agents}</span> : null}
+        {agents > 0 ? <span className="utility-count">{agents}</span> : items.some((u) => u.live) ? <span className="pie-dot live more-dot" aria-hidden="true" /> : null}
       </button>
       {open && (
         <div className="composer-more-menu" role="menu" aria-label={UTILITY_MORE_LABEL} ref={menu}>
@@ -455,7 +459,7 @@ function UtilityMenu({ items }: { items: BarUtility[] }) {
               role={u.pressed === undefined ? "menuitem" : "menuitemcheckbox"}
               aria-checked={u.pressed}
               className={`composer-more-item ${UTILITY_CLASS[u.id]}`}
-              title={UTILITY_TITLE[u.id]}
+              title={u.title ?? UTILITY_TITLE[u.id]}
               disabled={u.disabled}
               onClick={() => {
                 setOpen(false);

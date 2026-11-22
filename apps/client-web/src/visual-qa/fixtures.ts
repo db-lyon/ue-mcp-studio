@@ -24,6 +24,7 @@ import {
   type SessionSummary,
   type StudioSettings,
   type TranscriptEntry,
+  type ViewportStatus,
 } from "@ue-mcp-studio/shared";
 
 const ago = (min: number) => new Date(Date.now() - min * 60_000).toISOString();
@@ -464,6 +465,22 @@ function withReplyImage(file = "ChargeAttack_Sequence", legacy = false): Session
   };
 }
 
+/** The agent started Play In Editor: its call, then the Play In Editor card the chat draws after it. */
+function withPieStart(): SessionDetail {
+  const d = detail("Jump feel", []);
+  return {
+    ...d,
+    transcript: [
+      { kind: "user", text: "Start PIE so I can watch the new jump.", at: ago(4) },
+      { kind: "tool", call: { id: "pie-1", name: "ue_mcp", input: { action: "call", category: "editor", method: "play_in_editor", args: { pieAction: "start" } }, outcome: "done", result: "{\"success\":true,\"playSessionRequested\":true}", startedAt: ago(3), endedAt: ago(3) } },
+      { kind: "assistant", text: "PIE is starting in L_Arena. Press Watch live on the card to see it.", at: ago(2) },
+    ],
+  };
+}
+
+/** GET /viewport as the chat reads it for its PIE indicator and card. */
+const pieStatus = (s: Partial<ViewportStatus>): ViewportStatus => ({ access: "ok", editor: "ready", streamer: false, source: null, viewers: 0, pie: true, ...s });
+
 /** Two approvals waiting at once: a file edit with its diff, and a build command. */
 function withApprovals(): SessionDetail {
   const d = detail("Door hinge fix", []);
@@ -838,6 +855,37 @@ export const SCENARIOS: Record<string, Scenario> = {
   "steps-running": { title: "A run of tool calls while the turn runs: the step going now on its summary line", hash: `#/chat/${SESSION_ID}`, session: withSteps("running"), index: { playtests: [], listed: true } },
   "approvals-waiting": { title: "Two approvals waiting: an edit with its diff and a build command", hash: `#/chat/${SESSION_ID}`, session: withApprovals(), index: { playtests: [], listed: true } },
   "reply-image": { title: "A reply that shows a PIE capture: the animated GIF inline above its text, loaded through Studio", hash: `#/chat/${SESSION_ID}`, session: withReplyImage(), index: { playtests: [], listed: true }, waitFor: { selector: ".md-image-tile.is-loaded", timeout: 5000 } },
+  "chat-pie-live": {
+    title: "The agent started PIE: the Play In Editor card with Watch live, and PIE live in the composer bar",
+    hash: `#/chat/${SESSION_ID}`,
+    session: withPieStart(),
+    index: { playtests: [], listed: true },
+    get: (p) => (p === "/v1/ext/studio/viewport" ? pieStatus({}) : undefined),
+    waitFor: { selector: ".pie-card.live", timeout: 5000 },
+  },
+  "chat-pie-needs-pro": {
+    title: "PIE running on an account without Pro: the card says the live viewport is part of Pro, with the way forward",
+    hash: `#/chat/${SESSION_ID}`,
+    session: withPieStart(),
+    index: { playtests: [], listed: true },
+    get: (p) => (p === "/v1/ext/studio/viewport" ? pieStatus({ access: "needs-pro" }) : undefined),
+    waitFor: { selector: ".pie-card-gate", timeout: 5000 },
+  },
+  "chat-pie-watch": {
+    title: "Watch live pressed: the viewport over the chat, armed and waiting for PIE to draw its first frame",
+    hash: `#/chat/${SESSION_ID}`,
+    session: withPieStart(),
+    index: { playtests: [], listed: true },
+    click: ".pie-card button.primary",
+    post: (p) => (p === "/v1/ext/studio/viewport/viewers" ? { status: 201, body: { viewer: "v1", iceServers: [{ urls: "stun:stun.l.google.com:19302" }], status: pieStatus({ source: "pie", viewers: 1, bridge: { available: true, pluginEnabled: true, streaming: false, armed: true } }) } } : undefined),
+    get: (p, url) => {
+      if (p === "/v1/ext/studio/viewport") return pieStatus({});
+      if (p === "/v1/ext/studio/viewport/viewers/v1/signals" && url.searchParams.get("after") === "0") return { signals: [{ type: "streamer", connected: false }], next: 1 };
+      return undefined;
+    },
+    holdGet: /\/viewport\/viewers\/v1\/signals\?after=[1-9]/,
+    waitFor: { selector: ".viewport-dialog .viewport-notice", timeout: 5000 },
+  },
   "reply-image-pending": { title: "A reply's capture before any byte has come: its tile at the final size, the format and size, loading", hash: `#/chat/${SESSION_ID}`, session: withReplyImage("Pending_Sequence"), index: { playtests: [], listed: true }, waitFor: { selector: ".md-image-tile.is-waiting", timeout: 3000 } },
   "reply-image-loading": { title: "A reply's capture loading: the poster frame in its tile, with how far the 11.8 MB file has come", hash: `#/chat/${SESSION_ID}`, session: withReplyImage("Loading_Sequence"), index: { playtests: [], listed: true }, waitFor: { selector: ".md-image-bar > span", timeout: 5000 } },
   "reply-image-failed": { title: "A reply's capture that did not load: the tile kept, with the caption and Retry", hash: `#/chat/${SESSION_ID}`, session: withReplyImage("Failed_Sequence"), index: { playtests: [], listed: true }, waitFor: { selector: ".md-image-tile.is-failed", timeout: 3000 } },

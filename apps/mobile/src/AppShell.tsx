@@ -5,7 +5,7 @@
  * connection overlays; the navigation drawer; and the PIN lock over all of
  * it. The project's Studio theme picks the app's theme.
  */
-import { useContext, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
 import { Linking, Pressable, StyleSheet, View } from "react-native";
 import Svg, { Path } from "react-native-svg";
 import { studioApi, type PanelLocation, type Transport } from "@ue-mcp-studio/client-core";
@@ -24,6 +24,7 @@ import { Chat } from "./views/Chat";
 import { PlaytestsView, usePlaytestIndex } from "./views/Playtests";
 import { PluginsView } from "./views/Plugins";
 import { ViewportView } from "./views/Viewport";
+import { ViewportSheet } from "./chat/PieLive";
 import { SettingsHub } from "./views/SettingsHub";
 import { sectionOf, type SettingsSection } from "./views/settings/sections";
 import { useUpdateCount } from "./views/Updates";
@@ -143,6 +144,17 @@ function Studio({ daemon, initial, onBack, device }: { daemon: ReturnType<typeof
     setTab("Settings");
   });
   const [feedback, setFeedback] = useState(false);
+  // The live viewport over the chat, from the PIE indicator or a Play In Editor card; closing it returns to the chat as it was.
+  const [watching, setWatching] = useState(false);
+  const watchLive = useCallback(() => setWatching(true), []);
+  const settingsFromChat = useCallback((x: string) => {
+    setWatching(false);
+    setSection(sectionOf(x));
+    setTab("Settings");
+  }, []);
+  useEffect(() => {
+    if (tab !== "Chat") setWatching(false);
+  }, [tab]);
   const [drawer, setDrawer] = useState(false);
   const [chatNav, setChatNav] = useState<{ session: string | null; n: number }>({ session: null, n: 0 });
   const openChat = (session: string | null) => {
@@ -202,10 +214,8 @@ function Studio({ daemon, initial, onBack, device }: { daemon: ReturnType<typeof
                 nav={chatNav}
                 initialSession={initial?.tab === "Chat" ? initial.session : null}
                 active={tab === "Chat"}
-                onSettings={(x) => {
-                  setSection(sectionOf(x));
-                  setTab("Settings");
-                }}
+                onSettings={settingsFromChat}
+                onWatchLive={watchLive}
               />
               </BackLayer>
             </ErrorBoundary>
@@ -224,6 +234,7 @@ function Studio({ daemon, initial, onBack, device }: { daemon: ReturnType<typeof
         ) : null}
       </View>
       <UpdateRunner streaming={daemon.streaming} events={daemon.events} onReload={() => daemon.refresh()} />
+      {watching && tab === "Chat" ? <ViewportSheet daemon={daemon} onClose={() => setWatching(false)} onSettings={(x) => settingsFromChat(x)} /> : null}
       <NavDrawer
         open={drawer}
         onClose={() => setDrawer(false)}

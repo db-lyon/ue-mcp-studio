@@ -9,6 +9,7 @@
 import {
   PLANS_SITE,
   PRO_PLAN_OFFERED,
+  VIEWPORT_CHANGED_EVENT,
   type IceServer,
   type ViewerMessage,
   type ViewerSignal,
@@ -369,3 +370,52 @@ export const VIEWPORT_VIEW_ONLY = "View only. Input from this device does not re
 
 /** Where "Open ue-mcp.com" goes. */
 export const VIEWPORT_PLANS_URL = PLANS_SITE;
+
+/**
+ * The events after which a client asks GET /viewport again for the chat's
+ * indicator and card: the agent's viewport.changed, and the editor coming or
+ * going. Nothing polls.
+ */
+export function asksViewportAgain(type: string): boolean {
+  return type === VIEWPORT_CHANGED_EVENT || type === "editor.connected" || type === "editor.disconnected";
+}
+
+/** Play In Editor runs, or the stream is live or armed: the composer bar shows its PIE indicator. */
+export function pieLive(s: ViewportStatus | null | undefined): boolean {
+  if (!s) return false;
+  return s.pie === true || s.streamer || s.bridge?.streaming === true || s.bridge?.armed === true;
+}
+
+/** The plan or the account stands in the way: the chat says so with the Viewport's own words and way forward. */
+export function viewportAccessGate(s: ViewportStatus | null | undefined, o: { remote: boolean }): ViewportNotice | null {
+  return s && s.access !== "ok" ? viewportGate(s, o) : null;
+}
+
+/** The composer bar's indicator (utilityLabel "viewport" names it): what its tooltip or accessibility hint says. */
+export function pieLiveTitle(s: ViewportStatus | null | undefined, o: { remote: boolean }): string {
+  const gate = viewportAccessGate(s, o);
+  return gate ? `Play In Editor is running. ${gate.title}.` : "Play In Editor is running. Watch it live.";
+}
+
+/** The button on the chat's Play In Editor card. */
+export const WATCH_LIVE = "Watch live";
+/** The viewport opened over the chat: its title. */
+export const VIEWPORT_MODAL_TITLE = "Play In Editor";
+
+/**
+ * The chat's Play In Editor card: what it says. `current` is the newest such
+ * card in the thread, the only one that follows PIE; the ones before it say
+ * only that PIE started. `gate` is the plan or account refusal, with its way
+ * forward, drawn in place of Watch live.
+ */
+export interface PieCardView {
+  title: string;
+  live: boolean;
+  gate: ViewportNotice | null;
+}
+
+export function pieCard(s: ViewportStatus | null | undefined, o: { remote: boolean; current: boolean }): PieCardView {
+  const gate = viewportAccessGate(s, o);
+  if (!o.current || !s) return { title: "Play In Editor started", live: false, gate };
+  return pieLive(s) ? { title: "Play In Editor is running", live: true, gate } : { title: "Play In Editor stopped", live: false, gate };
+}

@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import type { StudioTheme } from "@ue-mcp-studio/shared";
 import { api } from "./api";
 import { applyTheme } from "./theme";
@@ -11,6 +11,7 @@ import { UpdateRunner } from "./views/UpdateOverlay";
 import { FeedbackDialog } from "./views/Feedback";
 import { FileViewerProvider } from "./chat/FileViewer";
 import { ChatView } from "./views/Chat";
+import { ViewportDialog } from "./chat/PieLive";
 import { SettingsHub } from "./views/SettingsHub";
 import { sectionOf, type SettingsSection } from "./views/settings/sections";
 import { VcsChip } from "./chat/VcsChip";
@@ -80,6 +81,13 @@ function Studio({ daemon }: { daemon: DaemonState }) {
   const [tab, setTab] = useState<Tab>(() => readLocation().tab);
   // null: the section list, which only a narrow panel shows on its own.
   const [section, setSection] = useState<SettingsSection | null>(() => sectionOf(readLocation().section));
+  // The live viewport over the chat, from the PIE indicator or a Play In Editor card; closing it returns to the chat as it was.
+  const [watching, setWatching] = useState(false);
+  const watchLive = useCallback(() => setWatching(true), []);
+  const settingsFromChat = useCallback((s: SettingsSection) => { setSection(s); setTab("Settings"); }, []);
+  useEffect(() => {
+    if (tab !== "Chat") setWatching(false);
+  }, [tab]);
   useEffect(() => writeLocation({ tab, section: tab === "Settings" ? section : null }), [tab, section]);
   // Studio's window moves the panel by its hash when it is asked to open somewhere (the UE-MCP app's Update).
   useEffect(() => {
@@ -230,7 +238,7 @@ function Studio({ daemon }: { daemon: DaemonState }) {
           {chatShown.current && (
             <main className={tab === "Chat" ? "view-chat" : "view-chat parked"} aria-hidden={tab !== "Chat" || undefined}>
               <ErrorBoundary what="Chat">
-                <ChatView daemon={daemon} nav={chatNav} active={tab === "Chat"} onSettings={(s) => { setSection(s); setTab("Settings"); }} />
+                <ChatView daemon={daemon} nav={chatNav} active={tab === "Chat"} onSettings={settingsFromChat} onWatchLive={watchLive} />
               </ErrorBoundary>
             </main>
           )}
@@ -247,6 +255,7 @@ function Studio({ daemon }: { daemon: DaemonState }) {
         </div>
         <UpdateRunner streaming={daemon.streaming} events={daemon.events} />
         {feedback && <FeedbackDialog onClose={() => setFeedback(false)} />}
+        {watching && tab === "Chat" && <ViewportDialog daemon={daemon} onClose={() => setWatching(false)} onSettings={settingsFromChat} />}
       </div>
     </FileViewerProvider>
   );
