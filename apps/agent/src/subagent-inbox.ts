@@ -14,6 +14,8 @@
  * tool calls. A tool call it makes reliably, and it never ends its work.
  */
 
+import { AGENT_MESSAGE_PREFIX, isFromAgent } from "./subagent-tools.js";
+
 /** How every message the user sends a subagent begins in its conversation; the runtime's prompt hook counts them by it. */
 export const SUBAGENT_MESSAGE_PREFIX = "The user writes to you from your thread";
 
@@ -33,7 +35,8 @@ export const REPLY_SHOWN = "Shown to the user in your thread. Now do what they a
 /** What a subagent is told about the user's messages to it, in its system prompt. */
 export const SUBAGENT_MESSAGES_LINE = `While you work, the user can open your thread in Studio and write to you. Such a message comes as a user message beginning "${SUBAGENT_MESSAGE_PREFIX}": it is the user talking to you, so treat it as the user's own turn in a conversation. `
   + "The user cannot see your thinking, nor your text until you finish, so answer every such message at once with the reply tool, before any other tool call: answer a question, say what you will change, or say you are stopping. "
-  + "Then do what it says. When the user tells you to stop, stop: call no more tools and end with a short note of where you left off. Otherwise go on with your task after replying.";
+  + "Then do what it says. When the user tells you to stop, stop: call no more tools and end with a short note of where you left off. Otherwise go on with your task after replying. "
+  + `A user message beginning "${AGENT_MESSAGE_PREFIX}" comes from the agent that gave you your task: follow it as part of your task, without the reply tool, and answer it in your report.`;
 
 /**
  * The user's messages as a subagent's conversation is given them. `reply`:
@@ -41,15 +44,19 @@ export const SUBAGENT_MESSAGES_LINE = `While you work, the user can open your th
  * REPLY_PROTOCOL has not, and is told to answer in text instead.
  */
 export function toSubagent(texts: string[], reply = true): string {
-  const words = texts.map((t) => t.trim()).filter(Boolean).join("\n\n");
-  if (reply) return `${SUBAGENT_MESSAGE_PREFIX} (the agent that gave you your task does not see this). Answer them with the reply tool before anything else. The user's words:\n\n${words}`;
-  return `${SUBAGENT_MESSAGE_PREFIX} (the agent that gave you your task does not see this):\n\n${words}\n\n`
-    + "[Studio] Write your answer to the user as visible text now: your next message must begin with a text block addressed to them, before any tool call. They cannot see your thinking, so an answer in thinking never reaches them.";
+  // The main agent's messages (agent_message) carry their own opening and go in as they are.
+  const agent = texts.map((t) => t.trim()).filter((t) => t && isFromAgent(t));
+  const words = texts.map((t) => t.trim()).filter((t) => t && !isFromAgent(t)).join("\n\n");
+  const user = !words ? []
+    : reply ? [`${SUBAGENT_MESSAGE_PREFIX} (the agent that gave you your task does not see this). Answer them with the reply tool before anything else. The user's words:\n\n${words}`]
+    : [`${SUBAGENT_MESSAGE_PREFIX} (the agent that gave you your task does not see this):\n\n${words}\n\n`
+      + "[Studio] Write your answer to the user as visible text now: your next message must begin with a text block addressed to them, before any tool call. They cannot see your thinking, so an answer in thinking never reaches them."];
+  return [...user, ...agent].join("\n\n");
 }
 
-/** How many of the user's messages a prompt the runtime took in holds. */
+/** How many messages a prompt the runtime took in holds: the user's, one per prefix, and the main agent's. */
 export function messagesIn(prompt: string): number {
-  return prompt.split(SUBAGENT_MESSAGE_PREFIX).length - 1;
+  return prompt.split(SUBAGENT_MESSAGE_PREFIX).length - 1 + prompt.split(AGENT_MESSAGE_PREFIX).length - 1;
 }
 
 /** What the main agent is told, with a subagent's result, of what the user wrote to that subagent from its thread. */

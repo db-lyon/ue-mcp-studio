@@ -52,6 +52,7 @@ import { playtestParams, playtestTurnParams, type PlaytestFlow } from "./playtes
 import { NOTHING, conditionalFor, pathsOf, type Composed } from "./instructions.js";
 import { NO_EFFECTS, SESSION_KEY, approvalKind, editorPreview, flowStepCall, flowStepKind, type ActionEffects } from "./approval-kind.js";
 import { AGENT_TOOL } from "./tools.js";
+import { AGENT_STOPPED, SUBAGENT_TOOLS, fromAgent, isFromAgent, isSubagentTool, runSubagentTool } from "./subagent-tools.js";
 import { SKILL_TOOL, agentTool, skillResult, skillsSection, type NativeHelper, type NativeRun } from "./native-runtime.js";
 import { DurableTurns } from "./durable/runtime.js";
 import type { HarnessClientOptions } from "./durable/client.js";
@@ -178,7 +179,7 @@ export const backgroundNote = (description: string): string =>
 /** What the main agent is told when a subagent that went on in the background ends. */
 export const backgroundReport = (description: string, callId: string, r: AgentResult): string =>
   `The subagent "${description}" (agent call ${callId}), which kept working in the background, has ended. `
-  + `${r.stopped ? "The user stopped it before it finished." : r.isError ? "It failed." : "It finished."} Its report:\n${r.text}`;
+  + `${r.stopped ? (r.text === AGENT_STOPPED ? "You stopped it before it finished." : "The user stopped it before it finished.") : r.isError ? "It failed." : "It finished."} Its report:\n${r.text}`;
 
 /**
  * One subagent the session runs, on any route: started by the main agent's
@@ -680,6 +681,7 @@ export class AgentRunner {
 
   /** Run one call: a projected tool that is not a category through the daemon's context.call, everything else through Studio's executor. */
   private execute(host: AgentHost, name: string, input: Record<string, unknown>, signal: AbortSignal, live?: { sessionId: string; callId: string }): Promise<ToolExecution> {
+    if (isSubagentTool(name) && live) return this.subagentTool(live.sessionId, live.callId, name, input);
     const pass = this.surface().passthrough(name);
     if (!pass) {
       if (!live) return executeTool(host, name, input, signal);
@@ -695,11 +697,31 @@ export class AgentRunner {
     );
   }
 
+  /**
+   * The main agent's agent_list, agent_read, agent_message and agent_stop, on
+   * every route: they steer a subagent through the same messageSubagent and
+   * stopSubagent the chat's cards use. A subagent's call to one is refused.
+   */
+  private async subagentTool(sessionId: string, callId: string, name: string, input: Record<string, unknown>): Promise<ToolExecution> {
+    const s = this.require(sessionId);
+    const parent = s.transcript.find((t) => t.kind === "tool" && t.call.id === callId)?.parent ?? null;
+    const r = await runSubagentTool(name, input, parent, {
+      transcript: s.transcript,
+      status: s.status,
+      asked: new Set((s.approvals ?? []).map((a) => a.toolUseId)),
+      canMessage: (id) => this.canMessage(s, id),
+      assigned: (id) => !!this.runs.get(id)?.assigned || !!s.agentRuns?.[id]?.assigned,
+      message: (id, text) => this.messageSubagent(s.id, id, text, "agent"),
+      stop: (id) => this.stopSubagent(s.id, id, "agent"),
+    });
+    return { text: r.text, isError: r.isError, outcome: r.isError ? "error" : "done", touched: [], saved: [] };
+  }
+
   private mainTools(surface = this.surface()) {
     const n = this.native();
     const tools = this.workTools(surface);
     const agent = this.agentDefinition();
-    if (agent) tools.push(agent);
+    if (agent) tools.push(agent, ...(SUBAGENT_TOOLS as Anthropic.Beta.BetaToolUnion[]));
     if (n?.skills.length) tools.push(SKILL_TOOL);
     return tools;
   }
@@ -1425,7 +1447,8 @@ export class AgentRunner {
    * background reports to the main agent through the harness; one the user
    * stopped leaves a note for the next message instead.
    */
-  private durableAgentEnded(s: StoredSession, id: string, r: { text: string; isError: boolean; stopped: boolean }, background: boolean): void {
+  private durableAgentEnded(s: StoredSession, id: string, ended: { text: string; isError: boolean; stopped: boolean }, background: boolean): void {
+    const r = this.stopWording(id, ended);
     const run = this.runs.get(id);
     this.runs.delete(id);
     this.subagents.delete(id);
@@ -1436,7 +1459,7 @@ export class AgentRunner {
     const unread = this.waiting(s, id);
     if (unread.length) {
       this.deliver(s, id, unread.length, "main");
-      this.addEntry(s, { kind: "note", text: `"${run?.description ?? "The subagent"}" ended before it read your message, so it went to the main agent.`, at: now() });
+      if (unread.some((e) => !isFromAgent(e.text))) this.addEntry(s, { kind: "note", text: `"${run?.description ?? "The subagent"}" ended before it read your message, so it went to the main agent.`, at: now() });
     }
     // One the user assigned: its call, its calls left running and its note for the agent's next turn are assignedEnded's, as on Studio's loop.
     if (run?.assigned) {
@@ -2865,9 +2888,10 @@ ${result}`);
    * (it went on in the background).
    */
   private settleRun(s: StoredSession, run: AgentRun): void {
-    void run.done.catch((e: unknown) => ({ text: `The subagent failed: ${e instanceof Error ? e.message : String(e)}`, isError: true })).then((r: AgentResult & { detached?: true }) => {
+    void run.done.catch((e: unknown) => ({ text: `The subagent failed: ${e instanceof Error ? e.message : String(e)}`, isError: true })).then((ended: AgentResult & { detached?: true }) => {
       // This daemon let go of it: it goes on in its host, or resumes from its saved conversation, in the next daemon.
-      if (r.detached || this.disposed) return;
+      if (ended.detached || this.disposed) return;
+      const r = this.stopWording(run.callId, ended);
       this.runs.delete(run.callId);
       this.subagents.delete(run.callId);
       this.subagentStops.delete(run.callId);
@@ -2883,12 +2907,15 @@ ${result}`);
       this.deliver(s, run.callId, unread.length, "main");
       let result: AgentResult = { text: r.text, isError: r.isError, ...(r.stopped ? { stopped: true } : {}) };
       // What it read from the user goes with its result: the main agent never saw it, and would otherwise distrust a report that acts on it.
-      const read = run.told.filter((t) => !unread.includes(t));
+      // The main agent's own messages (agent_message) are not the user's: it knows what it sent.
+      const read = run.told.filter((t) => !unread.includes(t) && !isFromAgent(t));
       if (read.length) result = { ...result, text: `${result.text}\n\n[Studio] ${heardNote(read)}` };
-      if (unread.length) {
+      const unreadUser = unread.filter((t) => !isFromAgent(t));
+      if (unreadUser.length) {
         this.addEntry(s, { kind: "note", text: `"${run.description}" ended before it read your message, so it went to the main agent.`, at: now() });
-        result = { ...result, text: `${result.text}\n\n[Studio] ${unreadNote(run.description, unread)}` };
+        result = { ...result, text: `${result.text}\n\n[Studio] ${unreadNote(run.description, unreadUser)}` };
       }
+      if (unreadUser.length < unread.length) result = { ...result, text: `${result.text}\n\n[Studio] It ended before it read your agent_message.` };
       if (run.background && !run.assigned) this.reportToMain(s, run, result);
       else run.answer(result);
       this.refreshFree(s);
@@ -3042,17 +3069,26 @@ ${result}`);
 
   /**
    * Stop one subagent and let the turn go on: the main agent is told the user
-   * stopped it. Returns false when no subagent of that id is running.
+   * stopped it, or that it stopped it itself (by: agent, its agent_stop).
+   * Returns false when no subagent of that id is running.
    */
-  stopSubagent(sessionId: string, callId: string): boolean {
+  stopSubagent(sessionId: string, callId: string, by: "user" | "agent" = "user"): boolean {
     const s = this.require(sessionId);
     const stop = this.subagents.get(callId);
     if (!stop) return false;
+    if (by === "agent") this.agentStopped.add(callId);
     stop();
     // Its calls in flight are let go now, as Stop lets a turn's go: each says it was stopped, whatever it returns later.
     this.subagentAbort(callId).abort(USER_STOP);
     this.endSubagentCalls(s, callId);
     return true;
+  }
+
+  /** Subagents the main agent stopped with agent_stop: their report says so, not that the user did. */
+  private readonly agentStopped = new Set<string>();
+  private stopWording<R extends AgentResult>(callId: string, r: R): R {
+    if (!this.agentStopped.delete(callId) || !r.stopped) return r;
+    return { ...r, text: AGENT_STOPPED };
   }
 
   /** Each subagent's own stop signal, by its agent call id, for the calls it makes. */
@@ -3267,10 +3303,13 @@ ${result}`);
    * sign-in has it streamed into its own session. Nothing is stopped, the
    * main agent never sees it, and other subagents go on. False when that
    * subagent is not running (it finished, was stopped, or there is none).
+   * from: agent, the main agent's agent_message, which the subagent and its
+   * thread are told comes from the main agent.
    */
-  async messageSubagent(sessionId: string, callId: string, text: string): Promise<boolean> {
+  async messageSubagent(sessionId: string, callId: string, words: string, from: "user" | "agent" = "user"): Promise<boolean> {
     const s = this.require(sessionId);
-    if (!text.trim() || !this.canMessage(s, callId)) return false;
+    if (!words.trim() || !this.canMessage(s, callId)) return false;
+    const text = from === "agent" ? fromAgent(words) : words;
     const run = this.runs.get(callId)!;
     if (run.say) {
       if (!(await run.say(text))) return false;

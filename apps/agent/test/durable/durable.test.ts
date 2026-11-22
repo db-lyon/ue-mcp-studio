@@ -221,6 +221,17 @@ describe("durable runtime", () => {
     expect(transcript(rig.store, s.id).at(-1)).toMatchObject({ kind: "assistant", text: "It was stopped." });
   }, 60_000);
 
+  it("runs the main agent's agent_list in the daemon, as every route does", async () => {
+    fake = await startFakeAnthropic(({ toolResults }) => toolResults === 0 ? { tool: { name: "agent_list", input: {} } } : { text: "None running." });
+    rig = durableRunner({ projectDir: path.join(dir, "project"), dataDir: path.join(dir, "data"), base: fake.base, start });
+    const s = rig.store.create("t");
+    await rig.runner.send(s.id, "what subagents are there");
+    await until(() => rig.store.get(s.id)!.status === "idle", 30_000, "the turn to end");
+    const call = transcript(rig.store, s.id).find((e) => e.kind === "tool" && e.call.name === "agent_list");
+    expect(call?.kind === "tool" && call.call).toMatchObject({ outcome: "done", result: "This session has no subagents." });
+    expect(transcript(rig.store, s.id).at(-1)).toMatchObject({ kind: "assistant", text: "None running." });
+  }, 60_000);
+
   it("goes on through a daemon restart: the call cut off is unknown and never runs twice, and the turn finishes", async () => {
     fake = await startFakeAnthropic(({ toolResults }) => toolResults === 0
       ? { tool: { name: "ue_mcp", input: { action: "call", category: "level", method: "save", args: {} } } }
