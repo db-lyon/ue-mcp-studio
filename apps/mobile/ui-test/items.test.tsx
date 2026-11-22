@@ -210,6 +210,27 @@ describe("Forms", () => {
     expect(api.answerForm).toHaveBeenCalledWith("f2", { action: "decline" });
   });
 
+  it("the agent's ask_user question answers with the option tapped, or the user's own words", async () => {
+    const api = fakeApi();
+    api.answerForm.mockResolvedValue({});
+    const form = {
+      id: "f3", sessionId: "s1", call: "ask_user", message: "Which door?", required: [], at,
+      fields: { choice: { type: "string", title: "Choice", enum: ["Oak", "Steel"] }, other: { type: "string", title: "Something else" } },
+    } as unknown as PendingForm;
+    const view = renderInProject(<FormCards forms={[form]} />, api);
+    expect(screen.getByText("Which door?")).toBeTruthy();
+    expect(screen.queryByText("Submit")).toBeNull();
+    fireEvent.click(screen.getByText("Steel"));
+    await settle();
+    expect(api.answerForm).toHaveBeenCalledWith("f3", { action: "accept", content: { choice: "Steel" } });
+    view.unmount();
+    renderInProject(<FormCards forms={[form]} />, api);
+    fireEvent.change(screen.getByLabelText("Your own answer"), { target: { value: "a curtain" } });
+    fireEvent.click(screen.getByText("Send"));
+    await settle();
+    expect(api.answerForm).toHaveBeenLastCalledWith("f3", { action: "accept", content: { other: "a curtain" } });
+  });
+
   it("with requireFilled, Submit waits for every required field", () => {
     const onSubmit = vi.fn();
     renderInProject(<FieldsForm fields={{ name: { type: "string", title: "Name" } }} required={["name"]} sent={false} error={null} requireFilled onSubmit={onSubmit} onDecline={() => undefined} />);

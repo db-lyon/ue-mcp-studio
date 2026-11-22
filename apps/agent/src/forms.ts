@@ -1,7 +1,7 @@
 /**
- * Forms ue-mcp raises during a turn, such as approving a feedback report, put
- * to the user as cards in the chat the way an MCP client shows an elicitation
- * form. Under /v1/ext/studio:
+ * Forms ue-mcp raises during a turn, such as approving a feedback report, and
+ * the main agent's ask_user questions, put to the user as cards in the chat
+ * the way an MCP client shows an elicitation form. Under /v1/ext/studio:
  *
  *   GET  /forms        the forms waiting for an answer
  *   POST /forms/:id    answer one: { action: accept, content } or { action: decline | cancel }
@@ -23,8 +23,13 @@ export class FormBroker {
 
   constructor(private readonly publish: (type: string, data: Record<string, unknown>) => void, private readonly now = () => new Date().toISOString()) {}
 
-  /** ue-mcp asks the user something during one of this session's calls; the call waits for the answer. */
-  ask(sessionId: string, call: string, params: ElicitParams): Promise<ElicitResult> {
+  /**
+   * ue-mcp, or the agent's ask_user, asks the user something during one of
+   * this session's calls; the call waits for the answer. An aborted `signal`
+   * withdraws the form and answers cancel.
+   */
+  ask(sessionId: string, call: string, params: ElicitParams, signal?: AbortSignal): Promise<ElicitResult> {
+    if (signal?.aborted) return Promise.resolve({ action: "cancel" });
     const id = crypto.randomUUID();
     const form: PendingForm = {
       id, sessionId, call, at: this.now(),
@@ -33,7 +38,19 @@ export class FormBroker {
       required: params.requestedSchema.required ?? [],
     };
     return new Promise((resolve) => {
-      this.waiting.set(id, { form, resolve });
+      const withdraw = () => {
+        if (!this.waiting.delete(id)) return;
+        resolve({ action: "cancel" });
+        this.publish("form.changed", { sessionId });
+      };
+      signal?.addEventListener("abort", withdraw, { once: true });
+      this.waiting.set(id, {
+        form,
+        resolve: (r) => {
+          signal?.removeEventListener("abort", withdraw);
+          resolve(r);
+        },
+      });
       this.publish("form.changed", { sessionId });
     });
   }

@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { Pressable, ScrollView, Text, View } from "react-native";
-import { qaVerdictForm, type FormField, type PendingForm } from "@ue-mcp-studio/shared";
+import { ASK_USER_CHOICE, ASK_USER_OTHER, askUserForm, qaVerdictForm, type FormField, type PendingForm } from "@ue-mcp-studio/shared";
 import { formContent, formInitial } from "@ue-mcp-studio/client-core";
 import { Banner, bannerText, baseFont, Card, Check, ContentButton, font, fontName, Input, lineBox, SelectArrow, Sheet, useTheme } from "../../../ui";
 import { useProjectNav } from "../../../nav";
@@ -39,7 +39,9 @@ export function FormCards({ forms, runs }: { forms: PendingForm[]; runs?: Readon
     <CardsRegion label="Waiting for your answer" testID="forms">
       {shown.map((f) => {
         const run = qaRunFromForm(f);
-        return run ? <QaCard key={f.id} run={run} form={f} /> : <FormCard key={f.id} form={f} />;
+        if (run) return <QaCard key={f.id} run={run} form={f} />;
+        const ask = askUserForm(f);
+        return ask ? <AskCard key={f.id} form={f} ask={ask} /> : <FormCard key={f.id} form={f} />;
       })}
     </CardsRegion>
   );
@@ -240,6 +242,78 @@ export function FormCard({ form }: { form: PendingForm }) {
         onSubmit={(content) => send({ action: "accept", content })}
         onDecline={() => send({ action: "decline" })}
       />
+    </Card>
+  );
+}
+
+/**
+ * The agent's ask_user question, as the web's AskCard: each option a button
+ * that answers at once, a line for an answer of the user's own when the
+ * question allows one, and Decline.
+ */
+export function AskCard({ form, ask }: { form: PendingForm; ask: NonNullable<ReturnType<typeof askUserForm>> }) {
+  const t = useTheme();
+  const { api } = useProjectNav();
+  const [sent, setSent] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [own, setOwn] = useState("");
+  const lh = Math.round((t.base.lineHeight / t.base.size) * 100) / 100;
+  const send = (answer: Parameters<typeof api.answerForm>[1]) => {
+    haptic.success();
+    setSent(true);
+    setError(null);
+    api.answerForm(form.id, answer).catch((e: Error) => {
+      setSent(false);
+      setError(e.message);
+    });
+  };
+  const sendOwn = () => {
+    if (!sent && own.trim()) send({ action: "accept", content: { [ASK_USER_OTHER]: own.trim() } });
+  };
+  return (
+    <Card style={t.shadow ? { boxShadow: "0 20px 40px -24px rgba(0, 0, 0, 0.6)", ...(t.editor ? { borderColor: "transparent" } : null) } : t.editor ? { borderColor: "transparent" } : undefined}>
+      <View accessibilityLabel="A question from the agent" style={{ gap: 8 }}>
+        <Text style={{ ...baseFont(t), ...font(t, "sans", 700, t.base.size), lineHeight: t.base.lineHeight }}>The agent asks</Text>
+        <Text style={{ ...baseFont(t), color: t.c.text }} selectable>{ask.question}</Text>
+        <View style={{ gap: 6 }}>
+          {ask.options.map((o) => (
+            <Pressable
+              key={o}
+              accessibilityRole="button"
+              accessibilityLabel={o}
+              accessibilityState={{ disabled: sent }}
+              disabled={sent}
+              onPress={() => send({ action: "accept", content: { [ASK_USER_CHOICE]: o } })}
+              style={({ pressed }) => ({ minHeight: 44, justifyContent: "center", paddingVertical: 8, paddingHorizontal: 12, borderWidth: 1, borderColor: pressed ? t.c.accent : t.c.lineStrong, borderRadius: t.radius, backgroundColor: pressed ? t.c.accentWash : t.c.panel2, opacity: sent ? 0.6 : 1 })}
+            >
+              <Text style={{ ...font(t, "sans", 500, 14, 1.4), color: t.c.text }}>{o}</Text>
+            </Pressable>
+          ))}
+        </View>
+        {ask.other ? (
+          <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
+            <Input
+              accessibilityLabel="Your own answer"
+              placeholder="Something else"
+              editable={!sent}
+              returnKeyType="send"
+              onSubmitEditing={sendOwn}
+              value={own}
+              onChangeText={setOwn}
+              style={{ flex: 1 }}
+            />
+            <ContentButton kind="primary" title="Send" disabled={sent || !own.trim()} onPress={sendOwn} />
+          </View>
+        ) : null}
+        {error ? (
+          <Banner kind="bad" style={{ marginBottom: 0 }}>
+            <Text style={{ ...font(t, "sans", 400, 12, lh), color: bannerText(t, "bad") }}>{error}</Text>
+          </Banner>
+        ) : null}
+        <View style={{ flexDirection: "row", justifyContent: "flex-end" }}>
+          <ContentButton kind="ghost" title="Decline" disabled={sent} onPress={() => send({ action: "decline" })} />
+        </View>
+      </View>
     </Card>
   );
 }

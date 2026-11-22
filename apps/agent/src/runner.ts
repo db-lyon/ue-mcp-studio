@@ -53,6 +53,8 @@ import { NOTHING, conditionalFor, pathsOf, type Composed } from "./instructions.
 import { NO_EFFECTS, SESSION_KEY, approvalKind, editorPreview, flowStepCall, flowStepKind, type ActionEffects } from "./approval-kind.js";
 import { AGENT_TOOL } from "./tools.js";
 import { AGENT_STOPPED, SUBAGENT_TOOLS, fromAgent, isFromAgent, isSubagentTool, runSubagentTool } from "./subagent-tools.js";
+import { NoticeLimit, USER_TOOLS, isUserTool, runUserTool } from "./user-tools.js";
+import type { FormBroker } from "./forms.js";
 import { SKILL_TOOL, agentTool, skillResult, skillsSection, type NativeHelper, type NativeRun } from "./native-runtime.js";
 import { DurableTurns } from "./durable/runtime.js";
 import type { HarnessClientOptions } from "./durable/client.js";
@@ -303,6 +305,14 @@ export interface RunnerOptions {
   dialogs?: DialogBroker;
   /** Puts the PIE test script runs a session's calls start in the chat, as Playtest cards. */
   qa?: QaBroker;
+  /** The chat's form cards, which the main agent's ask_user raises; without it ask_user answers that it cannot ask here. */
+  forms?: FormBroker;
+  /**
+   * Emits the main agent's notify_user through the Notifier, under the
+   * project's settings: the notice, or null when they held it back. Without
+   * it notify_user answers that it cannot send here.
+   */
+  notify?: (sessionId: string, title: string, text: string) => unknown;
   /** The project's Playtest runs setting, for the prompts; manual when not given. */
   playtestRuns?: () => PlaytestRunsMode;
   /** Runs ue-mcp's playtest flow for /playtest, Make playtest and Retry. */
@@ -682,6 +692,7 @@ export class AgentRunner {
   /** Run one call: a projected tool that is not a category through the daemon's context.call, everything else through Studio's executor. */
   private execute(host: AgentHost, name: string, input: Record<string, unknown>, signal: AbortSignal, live?: { sessionId: string; callId: string }): Promise<ToolExecution> {
     if (isSubagentTool(name) && live) return this.subagentTool(live.sessionId, live.callId, name, input);
+    if (isUserTool(name) && live) return this.userTool(live.sessionId, live.callId, name, input, signal);
     const pass = this.surface().passthrough(name);
     if (!pass) {
       if (!live) return executeTool(host, name, input, signal);
@@ -717,11 +728,32 @@ export class AgentRunner {
     return { text: r.text, isError: r.isError, outcome: r.isError ? "error" : "done", touched: [], saved: [] };
   }
 
+  private readonly noticeLimit = new NoticeLimit();
+
+  /**
+   * The main agent's ask_user and notify_user, on every route: a form card
+   * through the chat's FormBroker, a notice through the Notifier's emit. A
+   * subagent's call to one is refused.
+   */
+  private async userTool(sessionId: string, callId: string, name: string, input: Record<string, unknown>, signal: AbortSignal): Promise<ToolExecution> {
+    const s = this.require(sessionId);
+    const parent = s.transcript.find((t) => t.kind === "tool" && t.call.id === callId)?.parent ?? null;
+    const forms = this.o.forms;
+    const notify = this.o.notify;
+    const r = await runUserTool(name, input, parent, {
+      ...(forms ? { ask: (params, sig) => forms.ask(s.id, name, params, sig) } : {}),
+      ...(notify ? { notify: (title, text) => notify(s.id, title, text) } : {}),
+      takeNotice: () => this.noticeLimit.take(s.id, s.transcript),
+    }, signal);
+    return { text: r.text, isError: r.isError, outcome: r.isError ? "error" : "done", touched: [], saved: [] };
+  }
+
   private mainTools(surface = this.surface()) {
     const n = this.native();
     const tools = this.workTools(surface);
     const agent = this.agentDefinition();
     if (agent) tools.push(agent, ...(SUBAGENT_TOOLS as Anthropic.Beta.BetaToolUnion[]));
+    tools.push(...(USER_TOOLS as Anthropic.Beta.BetaToolUnion[]));
     if (n?.skills.length) tools.push(SKILL_TOOL);
     return tools;
   }
@@ -1910,6 +1942,7 @@ ${result}`);
         // The SDK reads the project's own files itself: Studio adds none of their text.
         system: withSurface(system(this.o.host.projectDir, this.runsMode(), usage, this.sdkComposed()), surface),
         ...(agent ? { agentTool: { description: agent.description ?? "", inputSchema: agent.input_schema as Record<string, unknown> } } : {}),
+        userTools: true,
         ...this.sdkNative(),
         ...sdkEditor(surface),
         prompt,

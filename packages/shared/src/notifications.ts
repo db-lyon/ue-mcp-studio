@@ -14,6 +14,7 @@ export type NotifyKind =
   | "playtest.needs-you"
   | "playtest.finished"
   | "subagent.finished"
+  | "agent.notice"
   | "context.limit"
   | "project.offline"
   | "project.online";
@@ -29,6 +30,7 @@ export const NOTIFY_KINDS: ReadonlyArray<{ kind: NotifyKind; name: string; help:
   { kind: "playtest.needs-you", name: "Playtest needs you", help: "A manual step waits for your verdict, or a playtest loop stopped for you.", on: true },
   { kind: "playtest.finished", name: "Playtest finished", help: "A playtest run ended, passed or failed.", on: true },
   { kind: "subagent.finished", name: "Subagent finished", help: "A subagent ended its task.", on: false },
+  { kind: "agent.notice", name: "Agent asks for you", help: "The agent wants your attention while it works, such as when a long build ends.", on: true },
   { kind: "context.limit", name: "Context near the limit", help: "A conversation is close to compaction, or a compaction failed.", on: false },
   { kind: "project.offline", name: "Project went offline", help: "The project stopped answering through remote control.", on: false },
   { kind: "project.online", name: "Project came back", help: "The project answers again after going offline.", on: false },

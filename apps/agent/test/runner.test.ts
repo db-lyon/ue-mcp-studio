@@ -128,7 +128,7 @@ describe("a turn", () => {
     expect(fin.transcript.map((t) => t.kind)).toEqual(["user", "tool", "assistant"]);
     expect(host.published.some((e) => e.type === "turn.delta")).toBe(true);
     // The model request carries the cached system prompt and the two tools.
-    expect(model.requests[0].tools.map((t) => (t as { name: string }).name)).toEqual(["ue_mcp", "editor_restart", "shell", "read_file", "write_file", "edit_file", "glob", "grep", "web_fetch", "agent", "agent_list", "agent_read", "agent_message", "agent_stop"]);
+    expect(model.requests[0].tools.map((t) => (t as { name: string }).name)).toEqual(["ue_mcp", "editor_restart", "shell", "read_file", "write_file", "edit_file", "glob", "grep", "web_fetch", "agent", "agent_list", "agent_read", "agent_message", "agent_stop", "ask_user", "notify_user"]);
   });
 
   it("finds and describes actions through ue-mcp's own discovery actions", async () => {

@@ -492,6 +492,13 @@ button.form-more { align-self: flex-start; display: inline-flex; align-items: ce
 button.form-more:hover:not(:disabled) { background: none; border: 0; color: var(--text); }
 .form-more-mark { width: 10px; font-size: 10px; }
 .form-actions { margin: 2px 0 0; }
+/* The agent's ask_user: the question, then each option a full-width button that answers at once. */
+.ask-question { margin: 4px 0 2px; white-space: pre-wrap; overflow-wrap: anywhere; }
+.ask-options { display: flex; flex-direction: column; gap: 6px; }
+button.ask-option { width: 100%; min-height: 36px; text-align: left; padding: 6px 12px; border: 1px solid var(--line-strong); border-radius: var(--radius); background: var(--panel-2); color: var(--text); font: 500 13px/1.4 var(--sans); overflow-wrap: anywhere; }
+button.ask-option:hover:not(:disabled) { border-color: var(--accent-line); background: var(--accent-wash); }
+.ask-own { gap: 8px; margin-top: 2px; }
+.ask-own input { flex: 1; min-width: 0; }
 .approval-path { font: 12px/1.5 var(--mono); color: var(--text); overflow-wrap: anywhere; }
 .approval .output { max-height: 30vh; margin: 0; }
 .approval-actions { gap: 8px; }

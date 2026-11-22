@@ -32,6 +32,34 @@ describe("a form card", () => {
   });
 });
 
+describe("the agent's ask_user question", () => {
+  const ask = (other: boolean) => ({
+    id: "f3", sessionId: "s1", call: "ask_user", at: "", message: "Which door?",
+    fields: { choice: { type: "string" as const, title: "Choice", enum: ["Oak", "Steel", "Glass"] }, ...(other ? { other: { type: "string" as const, title: "Something else" } } : {}) },
+    required: other ? [] : ["choice"],
+  });
+
+  it("answers with the option tapped, with no Submit", () => {
+    render(<FormCards forms={[ask(false)]} />);
+    expect(screen.getByRole("group", { name: "A question from the agent" })).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "Submit" })).toBeNull();
+    expect(screen.queryByLabelText("Your own answer")).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Steel" }));
+    expect(m.answerForm).toHaveBeenCalledWith("f3", { action: "accept", content: { choice: "Steel" } });
+  });
+
+  it("sends an answer in the user's own words when the question allows one, and declines", () => {
+    render(<FormCards forms={[ask(true)]} />);
+    fireEvent.change(screen.getByLabelText("Your own answer"), { target: { value: " a curtain " } });
+    fireEvent.click(screen.getByRole("button", { name: "Send" }));
+    expect(m.answerForm).toHaveBeenCalledWith("f3", { action: "accept", content: { other: "a curtain" } });
+    cleanup();
+    render(<FormCards forms={[ask(true)]} />);
+    fireEvent.click(screen.getByRole("button", { name: "Decline" }));
+    expect(m.answerForm).toHaveBeenLastCalledWith("f3", { action: "decline" });
+  });
+});
+
 describe("a test script's verdict form", () => {
   const RUN = "script_DoorOpens_20261023_100000";
   const verdictForm = {
