@@ -28,7 +28,13 @@ const browserPeer: PeerFactory = (config) => new RTCPeerConnection(config) as ne
  * leaves. A gate (the plan, the account, the editor) shows in the stage with
  * its way forward instead of the video.
  */
-export function ViewportView({ daemon, onSettings, peer = browserPeer }: { daemon: DaemonState; onSettings: (s: SettingsSection) => void; peer?: PeerFactory }) {
+export function ViewportView({ daemon, onSettings, peer = browserPeer, embedded = false }: {
+  daemon: DaemonState;
+  onSettings: (s: SettingsSection) => void;
+  peer?: PeerFactory;
+  /** Drawn in the dialog over the chat, which has its own title: no page heading. */
+  embedded?: boolean;
+}) {
   const remote = onRemotePage();
   const [status, setStatus] = useState<ViewportStatus | null>(null);
   const [statusError, setStatusError] = useState<string | null>(null);
@@ -134,9 +140,9 @@ export function ViewportView({ daemon, onSettings, peer = browserPeer }: { daemo
   };
 
   return (
-    <div className="viewport-page">
-      <div className="viewport-head">
-        <h1 className="viewport-title">Viewport</h1>
+    <div className={`viewport-page ${embedded ? "embedded" : ""}`}>
+      <div className="viewport-head" hidden={embedded && !open}>
+        {!embedded && <h1 className="viewport-title">Viewport</h1>}
         <span className="spacer" />
         {open && (
           <div className="viewport-sources" role="group" aria-label="Show">

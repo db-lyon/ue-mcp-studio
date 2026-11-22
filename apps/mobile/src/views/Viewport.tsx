@@ -27,7 +27,13 @@ import { VideoView, peerFactory } from "../native/webrtc";
 
 const REMOTE = { remote: true };
 
-export function ViewportView({ daemon, onSettings, peer = peerFactory }: { daemon: DaemonState; onSettings: (s: SettingsSection) => void; peer?: PeerFactory }) {
+export function ViewportView({ daemon, onSettings, peer = peerFactory, embedded = false }: {
+  daemon: DaemonState;
+  onSettings: (s: SettingsSection) => void;
+  peer?: PeerFactory;
+  /** Drawn in the full-screen sheet over the chat, which has its own title: no page heading. */
+  embedded?: boolean;
+}) {
   const t = useTheme();
   const s = useStyles(styles);
   const { api } = useProjectNav();
@@ -128,9 +134,11 @@ export function ViewportView({ daemon, onSettings, peer = peerFactory }: { daemo
 
   return (
     <ScrollView style={{ flex: 1 }} contentContainerStyle={s.page}>
-      <View style={s.head}>
-        <T style={s.title} accessibilityRole="header">Viewport</T>
-      </View>
+      {!embedded ? (
+        <View style={s.head}>
+          <T style={s.title} accessibilityRole="header">Viewport</T>
+        </View>
+      ) : null}
       {open ? (
         <View style={s.sources} accessibilityLabel="Show">
           {VIEWPORT_SOURCE_CHOICES.map((c) => {

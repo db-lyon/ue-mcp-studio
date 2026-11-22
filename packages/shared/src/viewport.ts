@@ -65,9 +65,24 @@ export interface ViewportStatus {
   /** What the stream shows while any viewer watches. */
   source: ViewportSource | null;
   viewers: number;
+  /**
+   * Play In Editor is running, as far as Studio knows: from the calls Studio
+   * and other clients make, the editor's answer when it connects, and the
+   * streamer coming and going. Answered for every account, Pro or not. Absent
+   * from a Studio older than 0.1.42.
+   */
+  pie?: boolean;
   /** The editor's own words for "unavailable", or the error from the last call. */
   detail?: string;
 }
+
+/**
+ * The event the agent publishes (as the daemon names it) when what GET
+ * /viewport answers may have changed: PIE started or stopped, a viewer came or
+ * went, the streamer connected or left. A client asks the status again then;
+ * nothing polls.
+ */
+export const VIEWPORT_CHANGED_EVENT = "studio.viewport.changed";
 
 /** POST /v1/ext/studio/viewport/viewers. */
 export interface ViewportJoinRequest {

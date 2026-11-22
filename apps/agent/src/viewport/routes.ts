@@ -227,6 +227,10 @@ export interface ViewportRouteOptions {
   viewerTtlMs?: number;
   /** How often idle viewers are dropped and the plan is checked while anyone watches. */
   sweepMs?: number;
+  /** Whether PIE runs (pie-watch.ts), answered to every account; the streamer connecting while it streams PIE also says so. */
+  pie?: { get(): boolean; set(v: boolean): void };
+  /** What GET /viewport answers may have changed: a viewer came or went, the streamer connected or left. */
+  changed?: () => void;
 }
 
 const REFUSED: Record<Exclude<ViewportAccess, "ok">, string> = {
@@ -239,6 +243,11 @@ export function registerViewport(api: Pick<DaemonExtensionApi, "route">, o: View
   const now = o.now ?? Date.now;
   const config = o.config ?? (() => ({ iceServers: [...DEFAULT_ICE_SERVERS], stream: {} }));
   const signalling = o.signalling ?? new SignallingServer({ iceServers: () => config().iceServers, log: o.log, now });
+  // With source pie the editor's streamer is connected exactly while PIE runs.
+  const unwatchStreamer = signalling.watchStreamer((connected) => {
+    if (source === "pie") o.pie?.set(connected);
+    o.changed?.();
+  });
   const grace = o.stopGraceMs ?? 5_000;
   const waitMs = o.pollWaitMs ?? VIEWPORT_POLL_WAIT_MS;
   const ttl = o.viewerTtlMs ?? VIEWPORT_VIEWER_TTL_MS;
@@ -272,6 +281,7 @@ export function registerViewport(api: Pick<DaemonExtensionApi, "route">, o: View
       streamer: signalling.streamerConnected(),
       source,
       viewers: signalling.viewerCount(),
+      pie: o.pie?.get() ?? false,
       ...(detail ? { detail } : {}),
     };
   };
@@ -282,6 +292,7 @@ export function registerViewport(api: Pick<DaemonExtensionApi, "route">, o: View
     source = null;
     const r = await o.bridge.stop();
     if (r.kind === "error") o.log?.(`viewport: stream_stop failed: ${r.error}`);
+    o.changed?.();
   };
 
   const left = (): void => {
@@ -352,6 +363,7 @@ export function registerViewport(api: Pick<DaemonExtensionApi, "route">, o: View
       source = want;
     }
     const viewer = signalling.addViewer();
+    o.changed?.();
     const join: ViewportJoin = { viewer, iceServers: cfg.iceServers, status: await status(false, e) };
     return { status: 201, body: join };
   });
@@ -396,6 +408,7 @@ export function registerViewport(api: Pick<DaemonExtensionApi, "route">, o: View
 
   return {
     dispose: () => {
+      unwatchStreamer();
       clearInterval(sweep);
       if (stopTimer) clearTimeout(stopTimer);
       if (source !== null) void o.bridge.stop().catch(() => undefined);

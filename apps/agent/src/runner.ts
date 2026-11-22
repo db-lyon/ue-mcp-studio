@@ -96,6 +96,15 @@ export function playtestRunsLine(mode: PlaytestRunsMode): string {
 const sdkEditor = (s: EditorSurface) =>
   s.strategy === "micro" ? {} : { editor: { tools: s.projected.map(({ name, description, inputSchema, category }) => ({ name, description, inputSchema, category })), canon: s.canon } };
 
+/**
+ * Who owns the live PIE stream (#570): Studio's Viewport, which starts and
+ * stops pie(stream_*) with its own signalling. pie-watch.ts refuses the
+ * agent's stream_start and stream_stop with the same pointer.
+ */
+export const VIEWPORT_LINE =
+  "The user watches PIE live in Studio's Viewport, which starts and stops pie.stream_start and pie.stream_stop itself with Studio's own signalling: never call those two, and never ask the user for a signalling URL. "
+  + "When the user wants to see PIE, start it and tell them to press Watch live on the Play In Editor card in the chat, or open Viewport from the menu. The live viewport needs the Pro plan; without it, Viewport shows how to get Pro.";
+
 const WORK = [
   MICRO_LINE,
   "Prefer a dedicated action to editor.execute_python. Save what you change when the task is done, unless the user says otherwise.",
@@ -106,6 +115,7 @@ const WORK = [
   "Stop or restart this project's editor with editor_restart or ue_mcp editor.stop_editor. Never kill an editor process from the shell, by PID or by name: other projects' editors run on the same machine.",
   "Read a file before you edit it. Commands and file changes may wait for the user to allow them; when the user declines one, do not try it again in another form: take another way or ask.",
   ...QA,
+  VIEWPORT_LINE,
 ];
 
 /** How the user's @-mentions reach the agent (mentionToken in the shared package). */

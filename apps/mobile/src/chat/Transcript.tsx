@@ -54,6 +54,7 @@ import { DialogLine } from "../screens/chat/items";
 import { QaCard } from "./Qa";
 import { TurnReviewCard } from "../screens/chat/items";
 import { FlowCard } from "./FlowCommand";
+import { PieCard } from "./PieLive";
 import { CompactionMarker } from "../screens/chat/items";
 import { SessionIdContext, attachmentUrl, formatBytes, isImage } from "./attachments";
 import { useDaemonPicture } from "./daemon-picture";
@@ -889,6 +890,7 @@ function itemRows(items: ThreadItem[], transcript: TranscriptEntry[], from: numb
       return entryRow(p < 0 ? `i${i}` : `e${from + p}`, item.entry, p < 0 ? undefined : from + p);
     }
     if (item.kind === "steps") return { key: `s${item.calls[0].id}`, render: () => <StepsFold calls={item.calls} /> };
+    if (item.kind === "pie") return { key: `pie:${item.key}:${item.current ? "now" : "was"}`, render: () => <PieCard current={item.current} /> };
     return { key: `a${item.calls[0].id}`, render: () => <AgentGroup calls={item.calls} onOpen={onOpen ?? (() => {})} onStop={onStop} /> };
   });
 }

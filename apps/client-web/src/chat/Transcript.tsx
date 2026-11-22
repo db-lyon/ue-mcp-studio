@@ -50,6 +50,7 @@ import { ReplyImagesContext } from "./ReplyImage";
 import { LinkedText } from "./AssetLink";
 import { useSlot } from "../extensions/registry";
 import { Contribution } from "../extensions/Slot";
+import { PieCard } from "./PieLive";
 
 /** Each entry's position in its transcript, built once per transcript rather than searched per entry. */
 const positions = new WeakMap<readonly unknown[], Map<unknown, number>>();
@@ -422,6 +423,7 @@ function ThreadItems({ items, transcript, onOpen, onStop }: { items: ThreadItem[
       {items.map((item, i) => {
         if (item.kind === "entry") return <Entry key={placeKey(transcript, item.entry, i)} entry={item.entry} />;
         if (item.kind === "steps") return <StepsFold key={`s${item.calls[0].id}`} calls={item.calls} />;
+        if (item.kind === "pie") return <PieCard key={`pie:${item.key}`} current={item.current} />;
         return <AgentGroup key={item.calls[0].id} calls={item.calls} onOpen={onOpen ?? (() => {})} onStop={onStop} />;
       })}
     </>
