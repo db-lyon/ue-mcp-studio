@@ -1,5 +1,5 @@
 import { useEffect, useState, type KeyboardEvent } from "react";
-import { qaVerdictForm, type FormField, type PendingForm } from "@ue-mcp-studio/shared";
+import { ASK_USER_CHOICE, ASK_USER_OTHER, askUserForm, qaVerdictForm, type FormField, type PendingForm } from "@ue-mcp-studio/shared";
 import { api } from "../api";
 import type { DaemonState } from "../state";
 import { QaCard, qaRunFromForm } from "./Qa";
@@ -32,7 +32,9 @@ export function FormCards({ forms, runs }: { forms: PendingForm[]; runs?: Readon
     <div className="approvals" role="region" aria-label="Waiting for your answer">
       {shown.map((f) => {
         const run = qaRunFromForm(f);
-        return run ? <QaCard key={f.id} run={run} form={f} /> : <FormCard key={f.id} form={f} />;
+        if (run) return <QaCard key={f.id} run={run} form={f} />;
+        const ask = askUserForm(f);
+        return ask ? <AskCard key={f.id} form={f} ask={ask} /> : <FormCard key={f.id} form={f} />;
       })}
     </div>
   );
@@ -196,6 +198,67 @@ export function FormCard({ form }: { form: PendingForm }) {
         onSubmit={(content) => send({ action: "accept", content })}
         onDecline={() => send({ action: "decline" })}
       />
+    </div>
+  );
+}
+
+/**
+ * The agent's ask_user question: each option a button that answers at once,
+ * a line for an answer of the user's own when the question allows one, and
+ * Decline.
+ */
+export function AskCard({ form, ask }: { form: PendingForm; ask: NonNullable<ReturnType<typeof askUserForm>> }) {
+  const [sent, setSent] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [own, setOwn] = useState("");
+  const send = (answer: Parameters<typeof api.answerForm>[1]) => {
+    setSent(true);
+    setError(null);
+    api.answerForm(form.id, answer).catch((e: Error) => {
+      setSent(false);
+      setError(e.message);
+    });
+  };
+  const sendOwn = () => {
+    if (!sent && own.trim()) send({ action: "accept", content: { [ASK_USER_OTHER]: own.trim() } });
+  };
+  return (
+    <div className="approval-card card" role="group" aria-label="A question from the agent">
+      <div className="approval-head">
+        <strong>The agent asks</strong>
+      </div>
+      <p className="ask-question">{ask.question}</p>
+      <div className="ask-options">
+        {ask.options.map((o) => (
+          <button key={o} type="button" className="ask-option" disabled={sent} onClick={() => send({ action: "accept", content: { [ASK_USER_CHOICE]: o } })}>
+            {o}
+          </button>
+        ))}
+      </div>
+      {ask.other && (
+        <div className="row ask-own">
+          <input
+            type="text"
+            aria-label="Your own answer"
+            placeholder="Something else"
+            value={own}
+            disabled={sent}
+            onChange={(e) => setOwn(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === "Enter" && !e.shiftKey) {
+                e.preventDefault();
+                sendOwn();
+              }
+            }}
+          />
+          <button className="primary" disabled={sent || !own.trim()} onClick={sendOwn}>Send</button>
+        </div>
+      )}
+      {error && <div className="banner bad small">{error}</div>}
+      <div className="row form-actions">
+        <span className="spacer" />
+        <button className="ghost" disabled={sent} onClick={() => send({ action: "decline" })}>Decline</button>
+      </div>
     </div>
   );
 }

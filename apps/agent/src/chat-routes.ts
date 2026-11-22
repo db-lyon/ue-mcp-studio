@@ -319,6 +319,9 @@ export function registerChat(api: DaemonExtensionApi, agentVersion = "0.0.0", pa
     busy,
     dialogs,
     qa,
+    forms,
+    // The notifier is registered below, once the runner exists; a call comes only from a turn, after both.
+    notify: (sessionId, title, text) => notifications.notifier.emit("agent.notice", sessionId, title, text, { sessionId }),
     store,
     provider: () => providerFor(settings, route(), providerContext()),
     model: () => settings.model(),

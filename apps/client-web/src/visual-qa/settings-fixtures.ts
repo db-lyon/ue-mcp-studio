@@ -77,7 +77,7 @@ function remoteLockGet(lock: { pin: boolean; whole: boolean; sensitive: boolean;
 const NOTIFY_STATE = {
   project: "StudioE2E",
   prefs: {
-    events: { "turn.finished": true, "turn.failed": true, "approval.waiting": true, "dialog.waiting": true, "playtest.needs-you": true, "playtest.finished": true, "subagent.finished": false, "context.limit": false, "project.offline": false, "project.online": false },
+    events: { "turn.finished": true, "turn.failed": true, "approval.waiting": true, "dialog.waiting": true, "playtest.needs-you": true, "playtest.finished": true, "subagent.finished": false, "agent.notice": true, "context.limit": false, "project.offline": false, "project.online": false },
     mutedSessions: ["qa-muted"],
   },
   recent: [],

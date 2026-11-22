@@ -68,6 +68,8 @@ export interface TurnSpec {
   system: string;
   /** Studio's agent tool, for a main agent that may start subagents. */
   agentTool?: { description: string; inputSchema: Record<string, unknown> };
+  /** The main agent's conversation: it has ask_user and notify_user. A host from before them leaves them out. */
+  userTools?: boolean;
   /** A subagent's conversation: it has Studio's reply tool, and reports the user's messages it took in. Protocol 4. */
   reply?: boolean;
   /** Studio's tools by name, when a helper's file narrows them. */
