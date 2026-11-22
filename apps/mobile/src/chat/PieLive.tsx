@@ -7,12 +7,13 @@
  * stops once nobody watches.
  *
  * The status is GET /viewport, asked on mount and again after the events
- * client-core's asksViewportAgain names. Nothing polls.
+ * client-core's asksViewportAgain names, and a pie.* event from the daemon
+ * applies at once (pieFromEvent). Nothing polls.
  */
 import { createContext, useContext, useEffect, useState } from "react";
 import { Linking, Modal, View } from "react-native";
 import type { ViewportStatus } from "@ue-mcp-studio/shared";
-import { VIEWPORT_MODAL_TITLE, VIEWPORT_PLANS_URL, WATCH_LIVE, asksViewportAgain, pieCard, type ViewportAction } from "@ue-mcp-studio/client-core";
+import { VIEWPORT_MODAL_TITLE, VIEWPORT_PLANS_URL, WATCH_LIVE, asksViewportAgain, pieCard, pieFromEvent, withPie, type ViewportAction } from "@ue-mcp-studio/client-core";
 import { useProjectNav } from "../nav";
 import { useBack } from "../back";
 import type { DaemonState } from "../state";
@@ -29,6 +30,9 @@ export function usePieStatus(enabled = true): { status: ViewportStatus | null; c
     if (!enabled) return;
     void check();
     return project.onEvent((e) => {
+      // A Play session the daemon pushed, however it started: shown at once.
+      const pie = pieFromEvent(e.type);
+      if (pie !== null) setStatus((s) => withPie(s, pie));
       if (asksViewportAgain(e.type)) void check();
     });
   }, [api, project, enabled]);

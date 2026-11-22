@@ -6,12 +6,13 @@
  * open, and closing it leaves, so the stream stops once nobody watches.
  *
  * The status is GET /viewport, asked on mount and again after the events
- * client-core's asksViewportAgain names. Nothing polls.
+ * client-core's asksViewportAgain names, and a pie.* event from the daemon
+ * applies at once (pieFromEvent). Nothing polls.
  */
 import { createContext, useContext, useEffect, useState } from "react";
 import { createPortal } from "react-dom";
 import type { ViewportStatus } from "@ue-mcp-studio/shared";
-import { VIEWPORT_MODAL_TITLE, VIEWPORT_PLANS_URL, WATCH_LIVE, asksViewportAgain, pieCard, type ViewportAction } from "@ue-mcp-studio/client-core";
+import { VIEWPORT_MODAL_TITLE, VIEWPORT_PLANS_URL, WATCH_LIVE, asksViewportAgain, pieCard, pieFromEvent, withPie, type ViewportAction } from "@ue-mcp-studio/client-core";
 import { api } from "../api";
 import { openExternal } from "../native";
 import type { DaemonState } from "../state";
@@ -26,6 +27,14 @@ export function usePieStatus(daemon: Pick<DaemonState, "events">, enabled = true
   useEffect(() => {
     if (enabled) void check();
   }, [asks, enabled]);
+  // A Play session the daemon pushed, however it started: shown at once.
+  // A loop, not findLast: the UI still targets Chrome 90.
+  let lastPie: (typeof daemon.events)[number] | undefined;
+  for (let i = daemon.events.length - 1; i >= 0 && !lastPie; i--) if (pieFromEvent(daemon.events[i].type) !== null) lastPie = daemon.events[i];
+  useEffect(() => {
+    const pie = lastPie ? pieFromEvent(lastPie.type) : null;
+    if (enabled && pie !== null) setStatus((s) => withPie(s, pie));
+  }, [lastPie?.id, enabled]);
   return { status, check };
 }
 

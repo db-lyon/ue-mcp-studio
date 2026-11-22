@@ -10,6 +10,7 @@ import {
   PLANS_SITE,
   PRO_PLAN_OFFERED,
   VIEWPORT_CHANGED_EVENT,
+  pieFromEvent,
   type IceServer,
   type ViewerMessage,
   type ViewerSignal,
@@ -378,6 +379,18 @@ export const VIEWPORT_PLANS_URL = PLANS_SITE;
  */
 export function asksViewportAgain(type: string): boolean {
   return type === VIEWPORT_CHANGED_EVENT || type === "editor.connected" || type === "editor.disconnected";
+}
+
+/** Both clients read the daemon's pie.* events through this one rule. */
+export { pieFromEvent };
+
+/**
+ * The status with what a pie.* event said (pieFromEvent) applied, so the
+ * indicator moves before GET /viewport answers again. Against a daemon older
+ * than those events the status comes from GET /viewport alone.
+ */
+export function withPie(s: ViewportStatus | null, pie: boolean): ViewportStatus | null {
+  return s && s.pie !== pie ? { ...s, pie } : s;
 }
 
 /** Play In Editor runs, or the stream is live or armed: the composer bar shows its PIE indicator. */

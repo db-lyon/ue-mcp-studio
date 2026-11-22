@@ -1,7 +1,7 @@
 /** The chat's way into the live viewport: when the PIE indicator shows, what the Play In Editor card says, and where the card goes in a thread. */
 import { describe, expect, it } from "vitest";
 import type { QaRun, ToolCallRecord, TranscriptEntry, ViewportStatus } from "@ue-mcp-studio/shared";
-import { asksViewportAgain, pieCard, pieLive, pieLiveTitle, viewportGate } from "../src/viewport.js";
+import { asksViewportAgain, pieCard, pieFromEvent, pieLive, pieLiveTitle, viewportGate, withPie } from "../src/viewport.js";
 import { mainTimeline, startsPie } from "../src/chat-model.js";
 
 const status = (s: Partial<ViewportStatus> = {}): ViewportStatus => ({ access: "ok", editor: "ready", streamer: false, source: null, viewers: 0, ...s });
@@ -26,6 +26,16 @@ describe("the PIE indicator", () => {
     const s = status({ access: "needs-pro", pie: true });
     expect(pieLiveTitle(s, { remote: false })).toBe(`Play In Editor is running. ${viewportGate(s, { remote: false })!.title}.`);
     expect(pieLiveTitle(status({ pie: true }), { remote: false })).toBe("Play In Editor is running. Watch it live.");
+  });
+
+  it("moves at once on the daemon's pie events, however PIE was started", () => {
+    expect(["pie.started", "pie.paused", "pie.resumed"].map(pieFromEvent)).toEqual([true, true, true]);
+    expect(pieFromEvent("pie.ended")).toBe(false);
+    expect(pieFromEvent("editor.connected")).toBeNull();
+    const idle = status({ pie: false });
+    expect(pieLive(withPie(idle, true))).toBe(true);
+    expect(withPie(idle, false)).toBe(idle);
+    expect(withPie(null, true)).toBeNull();
   });
 
   it("asks again after the agent's viewport event and the editor coming or going, nothing else", () => {
