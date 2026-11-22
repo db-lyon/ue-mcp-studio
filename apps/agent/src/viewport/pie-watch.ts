@@ -23,7 +23,7 @@ export const VIEWPORT_OWNED = new Set(["stream_start", "stream_stop"]);
 export const VIEWPORT_OWNED_REFUSAL =
   "Studio's Viewport tab runs the live PIE stream: it calls stream_start itself, with Studio's own signalling, when the user opens it or presses Watch live on the Play In Editor card in the chat, and stops it when they close it. "
   + "Do not call stream_start or stream_stop, and never ask the user for a signalling URL. To let the user watch, start PIE and tell them to press Watch live on the card, or open Viewport from the menu. "
-  + "The live viewport is part of the Pro plan; without it, Viewport shows how to get Pro.";
+  + "Watching is free on every plan. Watching from another network goes through Studio's relay server, which needs the Pro plan.";
 
 /** The PIE test and acceptance actions that start PIE when they run. */
 const STARTS_PIE = new Set(["script_run", "script_replay", "replay_run", "uat_run"]);

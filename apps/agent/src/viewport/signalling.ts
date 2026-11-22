@@ -20,10 +20,13 @@
  */
 import * as crypto from "node:crypto";
 import { WebSocketServer, type WebSocket } from "ws";
-import type { IceServer, ViewerMessage, ViewerSignal, ViewerSignals } from "@ue-mcp-studio/shared";
+import type { IceCandidateInit, IceServer, ViewerMessage, ViewerSignal, ViewerSignals } from "@ue-mcp-studio/shared";
 
 /** The protocol version this server speaks to the streamer. */
 export const PS_PROTOCOL_VERSION = "1.0.0";
+
+/** Candidates kept for a viewer that has not answered yet; more than this is a viewer gone wrong. */
+const HELD_CANDIDATES = 64;
 
 interface Viewer {
   id: string;
@@ -31,6 +34,15 @@ interface Viewer {
   queue: Array<{ seq: number; signal: ViewerSignal }>;
   waiters: Set<() => void>;
   seen: number;
+  /**
+   * The viewer answered the streamer's latest offer. Each POST is its own
+   * request, through the relay as often as not, so a candidate can arrive
+   * before the answer it belongs to. The streamer rejects a candidate that
+   * comes before the answer ("the remote description was null"), so those
+   * are held here and passed on right after it.
+   */
+  answered: boolean;
+  held: IceCandidateInit[];
 }
 
 export interface SignallingOptions {
@@ -116,7 +128,7 @@ export class SignallingServer {
   /** A new viewer: told whether a streamer is there, and offered the stream when one is. */
   addViewer(): string {
     const id = crypto.randomUUID();
-    this.viewers.set(id, { id, seq: 0, queue: [], waiters: new Set(), seen: this.now() });
+    this.viewers.set(id, { id, seq: 0, queue: [], waiters: new Set(), seen: this.now(), answered: false, held: [] });
     this.push(id, { type: "streamer", connected: this.streamer !== null });
     if (this.streamerJoined) this.announce(id);
     return id;
@@ -137,15 +149,31 @@ export class SignallingServer {
     if (this.streamerJoined) this.toStreamer({ type: "playerDisconnected", playerId: id });
   }
 
-  /** A viewer's answer or candidate, passed to the streamer as that player's. */
+  /**
+   * A viewer's answer or candidate, passed to the streamer as that player's.
+   * A candidate that arrives before the answer waits for it.
+   */
   fromViewer(id: string, m: ViewerMessage): boolean {
     const v = this.viewers.get(id);
     if (!v) return false;
     v.seen = this.now();
     if (!this.streamer) return true;
-    if (m.type === "answer") this.toStreamer({ type: "answer", playerId: id, sdp: m.sdp });
-    else this.toStreamer({ type: "iceCandidate", playerId: id, candidate: m.candidate });
+    if (m.type === "answer") {
+      this.toStreamer({ type: "answer", playerId: id, sdp: m.sdp });
+      v.answered = true;
+      for (const candidate of v.held.splice(0)) this.toStreamer({ type: "iceCandidate", playerId: id, candidate });
+    } else if (!v.answered) {
+      if (v.held.length < HELD_CANDIDATES) v.held.push(m.candidate);
+    } else this.toStreamer({ type: "iceCandidate", playerId: id, candidate: m.candidate });
     return true;
+  }
+
+  /** A new offer for this viewer: the answer and candidates that follow belong to it. */
+  private offered(id: string): void {
+    const v = this.viewers.get(id);
+    if (!v) return;
+    v.answered = false;
+    v.held = [];
   }
 
   /**
@@ -271,7 +299,10 @@ export class SignallingServer {
         ws.send(JSON.stringify({ type: "pong", time: m.time }));
         return;
       case "offer":
-        if (playerId && typeof m.sdp === "string") this.push(playerId, { type: "offer", sdp: m.sdp });
+        if (playerId && typeof m.sdp === "string") {
+          this.offered(playerId);
+          this.push(playerId, { type: "offer", sdp: m.sdp });
+        }
         return;
       case "iceCandidate": {
         const c = m.candidate as Record<string, unknown> | undefined;

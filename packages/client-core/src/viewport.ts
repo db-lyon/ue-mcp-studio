@@ -15,6 +15,7 @@ import {
   type ViewerMessage,
   type ViewerSignal,
   type ViewerSignals,
+  type ViewportAccess,
   type ViewportJoin,
   type ViewportSource,
   type ViewportStatus,
@@ -59,6 +60,9 @@ export interface PeerLike {
   addIceCandidate(c: { candidate: string; sdpMid?: string | null; sdpMLineIndex?: number | null }): Promise<void>;
   addEventListener(type: string, listener: (e: any) => void): void;
   connectionState?: string;
+  iceConnectionState?: string;
+  /** The stats report (a Map in both), read to see whether video frames arrive; optional for stand-ins. */
+  getStats?(): Promise<{ forEach(fn: (s: any) => void): void }>;
   close(): void;
 }
 
@@ -76,7 +80,8 @@ export type ViewerPhase =
   | { phase: "live"; stream: unknown }
   | { phase: "refused"; error: string; status: ViewportStatus | null }
   | { phase: "ended"; reason: string }
-  | { phase: "failed"; error: string };
+  /** `needsPro`: a direct connection failed, and the relay server that would get through is Pro's. */
+  | { phase: "failed"; error: string; needsPro?: boolean };
 
 export interface ViewportSessionOptions {
   api: ViewportSessionApi;
@@ -85,10 +90,35 @@ export interface ViewportSessionOptions {
   onPhase: (p: ViewerPhase) => void;
   /** Wait between failed polls; tests shorten it. */
   retryMs?: number;
+  /** How long the peer connection may take to connect once the answer is delivered; tests shorten it. */
+  connectMs?: number;
+  /** How long a connected peer may go without decoding a video frame; tests shorten it. */
+  framesMs?: number;
 }
 
 /** Polls in a row that may fail before the viewer says it lost the computer. */
 const POLL_FAILURES = 4;
+/** Tries at delivering the answer, which a dropped request must not lose. */
+const ANSWER_TRIES = 3;
+const CONNECT_MS = 20_000;
+const FRAMES_MS = 12_000;
+const FRAMES_CHECK_MS = 1_000;
+
+/**
+ * A request this client cut short: its own stop, or the transport's head or
+ * idle deadline. The message is the runtime's ("signal is aborted without
+ * reason" on React Native and Chromium), never something to show.
+ */
+export function isAbort(e: unknown): boolean {
+  if (!e || typeof e !== "object") return false;
+  const { name, message } = e as { name?: unknown; message?: unknown };
+  return name === "AbortError" || (typeof message === "string" && /\babort(ed)?\b/i.test(message));
+}
+
+/** What the panel says for a failed request: its own message, or for one cut short, that the computer stopped answering. */
+const failureText = (e: unknown): string => (isAbort(e) ? LOST_COMPUTER : e instanceof Error ? e.message : String(e));
+
+type OutCandidate = { candidate: string; sdpMid: string | null; sdpMLineIndex: number | null };
 
 /**
  * One viewer, from join to stop. The streamer offers; the viewer answers. A
@@ -98,10 +128,14 @@ const POLL_FAILURES = 4;
 export class ViewportSession {
   private viewer: string | null = null;
   private iceServers: IceServer[] = [];
+  /** The account's standing as the join reported it: "ok" is Pro, which the relay server needs. */
+  private access: ViewportAccess | undefined;
   private pc: PeerLike | null = null;
   private stopped = false;
   private poll: AbortController | null = null;
   private phase: ViewerPhase["phase"] = "joining";
+  /** The current peer's deadlines (connect, first frame), cleared when it closes. */
+  private timers = new Set<ReturnType<typeof setTimeout>>();
 
   constructor(private readonly o: ViewportSessionOptions) {}
 
@@ -130,14 +164,16 @@ export class ViewportSession {
       const j = await this.o.api.joinViewport(this.o.source);
       this.viewer = j.viewer;
       this.iceServers = j.iceServers;
+      this.access = j.status?.access;
       if (this.stopped) {
         void this.o.api.leaveViewport(j.viewer).catch(() => undefined);
         return false;
       }
       return true;
     } catch (e) {
+      if (this.stopped) return false;
       const code = statusOf(e);
-      const error = e instanceof Error ? e.message : String(e);
+      const error = failureText(e);
       this.set(code !== null && code !== 404 ? { phase: "refused", error, status: refusalStatus(e) } : { phase: "failed", error });
       return false;
     }
@@ -165,11 +201,12 @@ export class ViewportSession {
           continue;
         }
         if (statusOf(e) === 403 || statusOf(e) === 503) {
-          this.set({ phase: "refused", error: e instanceof Error ? e.message : String(e), status: refusalStatus(e) });
+          this.set({ phase: "refused", error: failureText(e), status: refusalStatus(e) });
           return;
         }
+        // A poll cut short (the transport's deadline, a dropped request) is retried like any other failure.
         if (++failures >= POLL_FAILURES) {
-          this.set({ phase: "failed", error: e instanceof Error ? e.message : String(e) });
+          this.set({ phase: "failed", error: failureText(e) });
           return;
         }
         await new Promise((x) => setTimeout(x, this.o.retryMs ?? 1500));
@@ -212,11 +249,41 @@ export class ViewportSession {
     const pc = this.o.peer({ iceServers: this.iceServers });
     this.pc = pc;
     const viewer = this.viewer!;
+    const relayed = this.iceServers.some((s) => (Array.isArray(s.urls) ? s.urls : [s.urls]).some((u) => /^turns?:/i.test(u)));
+    const fail = (why: string | ViewerPhase): void => {
+      if (this.pc !== pc) return;
+      this.closePeer();
+      this.set(typeof why === "string" ? { phase: "failed", error: why } : why);
+    };
+
+    // The streamer rejects a candidate that reaches it before the answer ("the remote description was
+    // null"), and each signal is its own request, which the relay may deliver in any order. So the
+    // viewer's candidates wait until the answer is delivered, then go one at a time, in order.
+    let delivered: Promise<boolean> | null = null;
+    const early: OutCandidate[] = [];
+    const sendCandidate = (candidate: OutCandidate): void => {
+      delivered = delivered!.then(async (ok) => {
+        if (!ok || this.pc !== pc) return ok;
+        await this.o.api.sendViewportSignal(viewer, { type: "iceCandidate", candidate }).catch(() => undefined);
+        return true;
+      });
+    };
     pc.addEventListener("icecandidate", (e: { candidate?: { candidate?: string; sdpMid?: string | null; sdpMLineIndex?: number | null } | null }) => {
       const c = e.candidate;
       if (!c?.candidate || this.pc !== pc) return;
-      void this.o.api.sendViewportSignal(viewer, { type: "iceCandidate", candidate: { candidate: c.candidate, sdpMid: c.sdpMid ?? null, sdpMLineIndex: c.sdpMLineIndex ?? null } }).catch(() => undefined);
+      const candidate = { candidate: c.candidate, sdpMid: c.sdpMid ?? null, sdpMLineIndex: c.sdpMLineIndex ?? null };
+      if (delivered) sendCandidate(candidate);
+      else early.push(candidate);
     });
+
+    // Live once the connection is up and the video's track is in: a track arrives with the offer,
+    // long before any frame, and going live on it alone drew a black screen.
+    let connected = false;
+    const goLive = (): void => {
+      if (this.pc !== pc || !connected || !video || this.phase === "live") return;
+      this.set({ phase: "live", stream: video });
+      this.watchFrames(pc, fail);
+    };
     // Pixel Streaming 2 sends its video and its audio in two streams. The panel draws one, so the
     // video's stream is the one that goes live, and an audio track from another stream joins it.
     let video: { addTrack?: (t: unknown) => void; getTracks?: () => unknown[] } | null = null;
@@ -240,24 +307,100 @@ export class ViewportSession {
       if (!stream) return;
       video = stream;
       for (const t of others.splice(0)) join(t);
-      this.set({ phase: "live", stream });
+      if (this.phase === "live") this.set({ phase: "live", stream });
+      else goLive();
     });
-    pc.addEventListener("connectionstatechange", () => {
+    const onState = (): void => {
       if (this.pc !== pc) return;
-      if (pc.connectionState === "failed") this.set({ phase: "failed", error: CONNECTION_FAILED });
-    });
+      const c = pc.connectionState;
+      const ice = pc.iceConnectionState;
+      if (c === "failed" || ice === "failed") fail(connectionFailed(relayed, this.access));
+      else if (c === "connected" || ice === "connected" || ice === "completed") {
+        connected = true;
+        goLive();
+      }
+    };
+    pc.addEventListener("connectionstatechange", onState);
+    pc.addEventListener("iceconnectionstatechange", onState);
+
+    let answer: { type?: string; sdp?: string };
     try {
       await pc.setRemoteDescription({ type: "offer", sdp });
-      const answer = await pc.createAnswer();
+      answer = await pc.createAnswer();
       await pc.setLocalDescription(answer);
-      if (this.pc !== pc || !answer.sdp) return;
-      await this.o.api.sendViewportSignal(viewer, { type: "answer", sdp: answer.sdp });
     } catch (e) {
-      if (this.pc === pc) this.set({ phase: "failed", error: e instanceof Error ? e.message : String(e) });
+      if (this.pc === pc && !this.stopped) fail(failureText(e));
+      return;
+    }
+    if (this.pc !== pc || !answer.sdp) return;
+    // Not awaited: the streamer's candidates, next in the queue, go on the peer meanwhile.
+    delivered = this.deliverAnswer(pc, viewer, answer.sdp, fail);
+    for (const c of early.splice(0)) sendCandidate(c);
+    void delivered.then((ok) => {
+      if (!ok || this.pc !== pc) return;
+      this.after(this.o.connectMs ?? CONNECT_MS, () => {
+        if (!connected) fail(connectionFailed(relayed, this.access));
+      });
+    });
+  }
+
+  /** Send the answer, again after a request that was cut short or dropped; false when it never got there. */
+  private async deliverAnswer(pc: PeerLike, viewer: string, sdp: string, fail: (why: string) => void): Promise<boolean> {
+    for (let attempt = 1; ; attempt++) {
+      try {
+        await this.o.api.sendViewportSignal(viewer, { type: "answer", sdp });
+        return true;
+      } catch (e) {
+        if (this.pc !== pc || this.stopped) return false;
+        // Refused (the viewer is gone, the plan lapsed): the next poll says so and rejoins or stops.
+        if (statusOf(e) !== null) return false;
+        if (attempt >= ANSWER_TRIES) {
+          fail(failureText(e));
+          return false;
+        }
+        await new Promise((x) => setTimeout(x, this.o.retryMs ?? 1500));
+      }
     }
   }
 
+  /**
+   * After going live, wait for the first decoded video frame. A connection
+   * that carries none in FRAMES_MS ends with a message instead of a black
+   * screen. A peer without getStats is trusted.
+   */
+  private watchFrames(pc: PeerLike, fail: (why: string) => void): void {
+    if (typeof pc.getStats !== "function") return;
+    const deadline = Date.now() + (this.o.framesMs ?? FRAMES_MS);
+    const check = async (): Promise<void> => {
+      if (this.pc !== pc) return;
+      let frames = 0;
+      try {
+        const report = await pc.getStats!();
+        report.forEach((s: { type?: string; kind?: string; mediaType?: string; framesDecoded?: number; framesReceived?: number }) => {
+          if (s?.type === "inbound-rtp" && (s.kind ?? s.mediaType) === "video") frames += Number(s.framesDecoded ?? s.framesReceived ?? 0);
+        });
+      } catch {
+        return;
+      }
+      if (this.pc !== pc || frames > 0) return;
+      if (Date.now() >= deadline) fail(NO_VIDEO);
+      else this.after(FRAMES_CHECK_MS, () => void check());
+    };
+    this.after(Math.min(FRAMES_CHECK_MS, this.o.framesMs ?? FRAMES_MS), () => void check());
+  }
+
+  /** A timer on the current peer, cleared when it closes. */
+  private after(ms: number, fn: () => void): void {
+    const t = setTimeout(() => {
+      this.timers.delete(t);
+      fn();
+    }, ms);
+    this.timers.add(t);
+  }
+
   private closePeer(): void {
+    for (const t of this.timers) clearTimeout(t);
+    this.timers.clear();
     const pc = this.pc;
     this.pc = null;
     try {
@@ -268,8 +411,26 @@ export class ViewportSession {
   }
 }
 
-/** The peer connection failed: what the panel says. */
-export const CONNECTION_FAILED = "The video connection failed. This network may block peer-to-peer video; try again, or from another network.";
+/** The peer connection failed or never connected, with Studio's relay server in the ICE servers. */
+export const CONNECTION_FAILED = "The video could not connect, even through Studio's relay server. Check this device's connection.";
+/** The same for a Pro account whose relay server could not be had: only a direct connection was tried. */
+export const CONNECTION_FAILED_DIRECT =
+  "The video could not connect directly to the computer, and Studio's relay server is unavailable right now. Direct connections usually work only from the computer's network. Try again in a moment.";
+/** The same for an account without Pro (under the title "Could not connect directly"): the relay server is Pro's. */
+export const CONNECTION_FAILED_NEEDS_PRO = PRO_PLAN_OFFERED
+  ? "This device is probably on a different network from the computer. Watching across networks goes through Studio's relay server, which needs the Pro plan."
+  : "This device is probably on a different network from the computer. Watching across networks goes through Studio's relay server, which needs the Pro plan. Pro is not on sale yet.";
+
+/** What a failed connection says, by whether the relay server was offered and whether the account has Pro. */
+export function connectionFailed(relayed: boolean, access: ViewportAccess | undefined): Extract<ViewerPhase, { phase: "failed" }> {
+  if (relayed) return { phase: "failed", error: CONNECTION_FAILED };
+  if (access === "ok") return { phase: "failed", error: CONNECTION_FAILED_DIRECT };
+  return { phase: "failed", error: CONNECTION_FAILED_NEEDS_PRO, needsPro: true };
+}
+/** Connected, but no video frame arrived. */
+export const NO_VIDEO = "The connection opened, but no video arrived from the editor. If this keeps happening, restart Play In Editor.";
+/** Requests to the computer were cut short or dropped. */
+export const LOST_COMPUTER = "The computer stopped answering. Check that it is online.";
 
 /** The tab's name in both clients. */
 export const VIEWPORT_TAB = "Viewport";
@@ -296,27 +457,12 @@ export interface ViewportNotice {
 const CHECK: ViewportAction = { id: "check", label: "Check again" };
 
 /**
- * What a status that refuses watching says: the plan, the account, or the
- * editor, each with its way forward. Null when nothing stops a viewer.
- * `remote`: the client is a paired device, which cannot sign in for the computer.
+ * What a status that stops watching says: the editor's state, with its way
+ * forward. Null when nothing stops a viewer. Watching is open to every
+ * account; only the relay server is Pro's (connectionFailed).
+ * `remote`: the client is a paired device, which cannot open the computer's Settings.
  */
 export function viewportGate(s: ViewportStatus, o: { remote: boolean }): ViewportNotice | null {
-  if (s.access === "signed-out") {
-    return o.remote
-      ? { tone: "warn", title: "Sign in on the computer", body: "The live viewport needs a ue-mcp account with the Pro plan. Sign in on the computer in Settings > General.", actions: [CHECK] }
-      : { tone: "warn", title: "Sign in to watch the viewport", body: "The live viewport needs a ue-mcp account with the Pro plan.", actions: [{ id: "settings", label: "Open Settings", primary: true }, CHECK] };
-  }
-  if (s.access === "needs-pro") {
-    return PRO_PLAN_OFFERED
-      ? { tone: "info", title: "The live viewport is part of Pro", body: "Upgrade to watch Play In Editor live on this device while you or the agent playtest.", actions: [{ id: "upgrade", label: "Upgrade to Pro", primary: true }, CHECK] }
-      : {
-          tone: "info",
-          title: "The live viewport is part of Pro",
-          body: "Pro is not on sale yet, and the Remote plan does not include the live viewport. Plans are announced on ue-mcp.com.",
-          actions: [{ id: "plans", label: "Open ue-mcp.com" }, CHECK],
-        };
-  }
-  if (s.access === "unreachable") return { tone: "warn", title: "Could not check the plan", body: "Studio could not reach your ue-mcp account to check that it has Pro.", actions: [{ ...CHECK, primary: true }] };
   switch (s.editor) {
     case "no-editor":
       return { tone: "warn", title: "The editor is not running", body: "Start it to watch Play In Editor here.", actions: [{ id: "start-editor", label: "Start editor", primary: true }, CHECK] };
@@ -356,7 +502,12 @@ export function viewerNotice(p: ViewerPhase, source: ViewportSource, o: { remote
     case "ended":
       return { tone: "info", title: "The stream ended", body: p.reason, actions: [{ id: "watch", label: "Watch again", primary: true }] };
     case "failed":
-      return { tone: "bad", title: "The stream stopped", body: p.error, actions: [{ id: "watch", label: "Try again", primary: true }] };
+      return {
+        tone: "bad",
+        title: p.needsPro ? "Could not connect directly" : "The stream stopped",
+        body: p.error,
+        actions: [{ id: "watch", label: "Try again", primary: true }, ...(p.needsPro ? [PRO_PLAN_OFFERED ? { id: "upgrade" as const, label: "Upgrade to Pro" } : { id: "plans" as const, label: "Open ue-mcp.com" }] : [])],
+      };
   }
 }
 
@@ -399,16 +550,8 @@ export function pieLive(s: ViewportStatus | null | undefined): boolean {
   return s.pie === true || s.streamer || s.bridge?.streaming === true || s.bridge?.armed === true;
 }
 
-/** The plan or the account stands in the way: the chat says so with the Viewport's own words and way forward. */
-export function viewportAccessGate(s: ViewportStatus | null | undefined, o: { remote: boolean }): ViewportNotice | null {
-  return s && s.access !== "ok" ? viewportGate(s, o) : null;
-}
-
 /** The composer bar's indicator (utilityLabel "viewport" names it): what its tooltip or accessibility hint says. */
-export function pieLiveTitle(s: ViewportStatus | null | undefined, o: { remote: boolean }): string {
-  const gate = viewportAccessGate(s, o);
-  return gate ? `Play In Editor is running. ${gate.title}.` : "Play In Editor is running. Watch it live.";
-}
+export const PIE_LIVE_TITLE = "Play In Editor is running. Watch it live.";
 
 /** The button on the chat's Play In Editor card. */
 export const WATCH_LIVE = "Watch live";
@@ -418,17 +561,14 @@ export const VIEWPORT_MODAL_TITLE = "Play In Editor";
 /**
  * The chat's Play In Editor card: what it says. `current` is the newest such
  * card in the thread, the only one that follows PIE; the ones before it say
- * only that PIE started. `gate` is the plan or account refusal, with its way
- * forward, drawn in place of Watch live.
+ * only that PIE started.
  */
 export interface PieCardView {
   title: string;
   live: boolean;
-  gate: ViewportNotice | null;
 }
 
-export function pieCard(s: ViewportStatus | null | undefined, o: { remote: boolean; current: boolean }): PieCardView {
-  const gate = viewportAccessGate(s, o);
-  if (!o.current || !s) return { title: "Play In Editor started", live: false, gate };
-  return pieLive(s) ? { title: "Play In Editor is running", live: true, gate } : { title: "Play In Editor stopped", live: false, gate };
+export function pieCard(s: ViewportStatus | null | undefined, o: { current: boolean }): PieCardView {
+  if (!o.current || !s) return { title: "Play In Editor started", live: false };
+  return pieLive(s) ? { title: "Play In Editor is running", live: true } : { title: "Play In Editor stopped", live: false };
 }

@@ -2,7 +2,21 @@
 import { describe, expect, it } from "vitest";
 import type { ViewerSignal, ViewportStatus } from "@ue-mcp-studio/shared";
 import { HttpError } from "../src/transport.js";
-import { ViewportSession, viewerNotice, viewportGate, type PeerLike, type ViewerPhase, type ViewportSessionApi } from "../src/viewport.js";
+import {
+  CONNECTION_FAILED,
+  CONNECTION_FAILED_DIRECT,
+  CONNECTION_FAILED_NEEDS_PRO,
+  LOST_COMPUTER,
+  connectionFailed,
+  NO_VIDEO,
+  ViewportSession,
+  isAbort,
+  viewerNotice,
+  viewportGate,
+  type PeerLike,
+  type ViewerPhase,
+  type ViewportSessionApi,
+} from "../src/viewport.js";
 import { formatLocation, parseLocation } from "../src/location.js";
 
 class FakePeer implements PeerLike {
@@ -15,7 +29,13 @@ class FakePeer implements PeerLike {
     this.remote = d.sdp;
   }
   async createAnswer() {
+    // ICE connects a moment after the answer, as a real peer does.
+    setTimeout(() => this.connect(), 0);
     return { type: "answer", sdp: `answer to ${this.remote}` };
+  }
+  connect() {
+    this.connectionState = "connected";
+    this.emit("connectionstatechange", {});
   }
   async setLocalDescription() {
     this.emit("icecandidate", { candidate: { candidate: "candidate:viewer", sdpMid: "0", sdpMLineIndex: 0 } });
@@ -165,6 +185,143 @@ describe("the viewer session", () => {
     await until(() => phases.at(-1)?.phase === "ended");
     expect(viewerNotice(phases.at(-1)!, "pie", { remote: true })).toMatchObject({ title: "The stream ended", body: "Stopped in the editor.", actions: [{ id: "watch" }] });
   });
+
+  it("sends the answer before any of its candidates, then the candidates one at a time in the order they came", async () => {
+    // Candidates fire during setLocalDescription and after; the answer's request is slow, as through the relay.
+    class Gathering extends FakePeer {
+      async setLocalDescription() {
+        this.emit("icecandidate", { candidate: { candidate: "c1", sdpMid: "0", sdpMLineIndex: 0 } });
+        this.emit("icecandidate", { candidate: { candidate: "c2", sdpMid: "0", sdpMLineIndex: 0 } });
+        this.emit("track", { track: { kind: "video" }, streams: [{ id: "s" }] });
+        setTimeout(() => this.emit("icecandidate", { candidate: { candidate: "c3", sdpMid: "0", sdpMLineIndex: 0 } }), 5);
+        setTimeout(() => this.emit("icecandidate", { candidate: { candidate: "c4", sdpMid: "0", sdpMLineIndex: 0 } }), 60);
+      }
+    }
+    const order: string[] = [];
+    let inFlight = 0;
+    let overlapped = false;
+    const f = fakeApi([[{ type: "offer", sdp: "o" }]]);
+    const api: ViewportSessionApi = {
+      ...f.api,
+      sendViewportSignal: async (_v, m) => {
+        if (++inFlight > 1) overlapped = true;
+        await new Promise((r) => setTimeout(r, m.type === "answer" ? 40 : 3));
+        order.push(m.type === "answer" ? "answer" : m.candidate.candidate);
+        inFlight--;
+      },
+    };
+    const s = new ViewportSession({ api, source: "pie", onPhase: () => undefined, peer: () => new Gathering() });
+    s.start();
+    await until(() => order.length === 5);
+    expect(order).toEqual(["answer", "c1", "c2", "c3", "c4"]);
+    expect(overlapped).toBe(false);
+    s.stop();
+  });
+
+  it("never shows an abort: a cut-short poll is retried, and a stop mid-poll says nothing", async () => {
+    const abortError = () => Object.assign(new Error("signal is aborted without reason"), { name: "AbortError" });
+    expect(isAbort(abortError())).toBe(true);
+    expect(isAbort(new HttpError(500, "boom"))).toBe(false);
+
+    // One cut-short poll, then the signals: the viewer goes live and never says failed.
+    const phases: ViewerPhase[] = [];
+    const f = fakeApi([[{ type: "offer", sdp: "o" }]]);
+    let polls = 0;
+    const api: ViewportSessionApi = {
+      ...f.api,
+      viewportSignals: async (v, after, signal) => {
+        if (++polls === 1) throw abortError();
+        return f.api.viewportSignals(v, after, signal);
+      },
+    };
+    const s = new ViewportSession({ api, source: "pie", onPhase: (p) => phases.push(p), peer: () => new FakePeer(), retryMs: 1 });
+    s.start();
+    await until(() => phases.some((p) => p.phase === "live"));
+    expect(phases.some((p) => p.phase === "failed")).toBe(false);
+
+    // Stopped while a poll is held: the abort that stop causes is never a phase.
+    const before = phases.length;
+    s.stop();
+    await new Promise((r) => setTimeout(r, 20));
+    expect(phases.length).toBe(before);
+
+    // Polls cut short again and again: the panel says the computer stopped answering, never the runtime's words.
+    const lost: ViewerPhase[] = [];
+    const dead: ViewportSessionApi = { ...fakeApi([]).api, viewportSignals: async () => Promise.reject(abortError()) };
+    new ViewportSession({ api: dead, source: "pie", onPhase: (p) => lost.push(p), peer: () => new FakePeer(), retryMs: 1 }).start();
+    await until(() => lost.at(-1)?.phase === "failed");
+    expect(lost.at(-1)).toEqual({ phase: "failed", error: LOST_COMPUTER });
+  });
+
+  it("sends the answer again when its request is cut short", async () => {
+    const sent: string[] = [];
+    let tries = 0;
+    const f = fakeApi([[{ type: "offer", sdp: "o" }]]);
+    const phases: ViewerPhase[] = [];
+    const api: ViewportSessionApi = {
+      ...f.api,
+      sendViewportSignal: async (_v, m) => {
+        if (m.type === "answer" && ++tries === 1) throw Object.assign(new Error("signal is aborted without reason"), { name: "AbortError" });
+        sent.push(m.type);
+      },
+    };
+    const s = new ViewportSession({ api, source: "pie", onPhase: (p) => phases.push(p), peer: () => new FakePeer(), retryMs: 1 });
+    s.start();
+    await until(() => sent.includes("iceCandidate") && phases.some((p) => p.phase === "live"));
+    expect(tries).toBe(2);
+    expect(sent).toEqual(["answer", "iceCandidate"]);
+    expect(phases.some((p) => p.phase === "failed")).toBe(false);
+    s.stop();
+  });
+
+  it("gives up on a connection that never connects, and says whether the relay was tried", async () => {
+    class Stuck extends FakePeer {
+      connect() {}
+    }
+    const stun = { urls: "stun:stun.example:3478" };
+    const turn = { urls: ["turn:turn.example:3478?transport=udp"], username: "u", credential: "c" };
+    for (const [iceServers, access, expected] of [
+      [[stun], "needs-pro", { phase: "failed", error: CONNECTION_FAILED_NEEDS_PRO, needsPro: true }],
+      [[stun], "ok", { phase: "failed", error: CONNECTION_FAILED_DIRECT }],
+      [[stun, turn], "ok", { phase: "failed", error: CONNECTION_FAILED }],
+    ] as const) {
+      const phases: ViewerPhase[] = [];
+      const f = fakeApi([[{ type: "offer", sdp: "o" }]], { join: async () => ({ viewer: "v", iceServers: iceServers as never, status: { access } as ViewportStatus }) });
+      const peers: Stuck[] = [];
+      const s = new ViewportSession({ api: f.api, source: "pie", onPhase: (p) => phases.push(p), peer: () => (peers.push(new Stuck()), peers.at(-1)!), connectMs: 20 });
+      s.start();
+      await until(() => phases.at(-1)?.phase === "failed");
+      expect(phases.at(-1)).toEqual(expected);
+      // Never live: a track without a connection is a black screen.
+      expect(phases.some((p) => p.phase === "live")).toBe(false);
+      expect(peers[0].closed).toBe(true);
+      s.stop();
+    }
+  });
+
+  it("says so when the connection carries no video, and stays live when frames arrive", async () => {
+    const stats = (frames: number) => async () => new Map([["v", { type: "inbound-rtp", kind: "video", framesDecoded: frames }]]);
+    class Silent extends FakePeer {
+      getStats = stats(0);
+    }
+    const phases: ViewerPhase[] = [];
+    const s = new ViewportSession({ api: fakeApi([[{ type: "offer", sdp: "o" }]]).api, source: "pie", onPhase: (p) => phases.push(p), peer: () => new Silent(), framesMs: 30 });
+    s.start();
+    await until(() => phases.at(-1)?.phase === "failed");
+    expect(phases.at(-1)).toEqual({ phase: "failed", error: NO_VIDEO });
+    s.stop();
+
+    class Playing extends FakePeer {
+      getStats = stats(3);
+    }
+    const ok: ViewerPhase[] = [];
+    const t = new ViewportSession({ api: fakeApi([[{ type: "offer", sdp: "o" }]]).api, source: "pie", onPhase: (p) => ok.push(p), peer: () => new Playing(), framesMs: 30 });
+    t.start();
+    await until(() => ok.some((p) => p.phase === "live"));
+    await new Promise((r) => setTimeout(r, 80));
+    expect(ok.at(-1)?.phase).toBe("live");
+    t.stop();
+  });
 });
 
 describe("what the viewport panel says", () => {
@@ -172,9 +329,6 @@ describe("what the viewport panel says", () => {
 
   it("never leaves a gate without a way forward", () => {
     const states: Array<Partial<ViewportStatus>> = [
-      { access: "signed-out" },
-      { access: "needs-pro" },
-      { access: "unreachable" },
       { editor: "no-editor" },
       { editor: "no-actions" },
       { editor: "plugin-off" },
@@ -190,14 +344,19 @@ describe("what the viewport panel says", () => {
       }
     }
     expect(viewportGate(status({}), { remote: false })).toBeNull();
+    // Watching is free on every plan: no account state stops a viewer.
+    for (const access of ["signed-out", "needs-pro", "unreachable"] as const) expect(viewportGate(status({ access }), { remote: true })).toBeNull();
   });
 
-  it("points a free account at the plans page while Pro is not on sale, and offers the level viewport while waiting for PIE", () => {
-    const pro = viewportGate(status({ access: "needs-pro" }), { remote: true })!;
-    expect(pro.actions.map((a) => a.id)).toEqual(["plans", "check"]);
-    expect(pro.body).toMatch(/not on sale yet/);
+  it("points an account without Pro at the plans page when a direct connection fails, and offers the level viewport while waiting for PIE", () => {
+    const failed = viewerNotice(connectionFailed(false, "needs-pro"), "pie", { remote: true })!;
+    expect(failed.title).toBe("Could not connect directly");
+    expect(failed.body).toMatch(/different network/);
+    expect(failed.body).toMatch(/Pro plan/);
+    expect(failed.actions.map((a) => a.id)).toEqual(["watch", "plans"]);
+    expect(viewerNotice(connectionFailed(false, "ok"), "pie", { remote: true })!.actions.map((a) => a.id)).toEqual(["watch"]);
+    expect(viewerNotice(connectionFailed(true, "ok"), "pie", { remote: true })!.body).toBe(CONNECTION_FAILED);
     expect(viewerNotice({ phase: "waiting" }, "pie", { remote: true })!.actions.map((a) => a.id)).toEqual(["level-viewport"]);
-    expect(viewportGate(status({ access: "signed-out" }), { remote: true })!.actions.map((a) => a.id)).toEqual(["check"]);
   });
 
   it("keeps the tab in the location", () => {

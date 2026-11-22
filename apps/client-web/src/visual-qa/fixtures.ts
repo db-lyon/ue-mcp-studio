@@ -863,14 +863,6 @@ export const SCENARIOS: Record<string, Scenario> = {
     get: (p) => (p === "/v1/ext/studio/viewport" ? pieStatus({}) : undefined),
     waitFor: { selector: ".pie-card.live", timeout: 5000 },
   },
-  "chat-pie-needs-pro": {
-    title: "PIE running on an account without Pro: the card says the live viewport is part of Pro, with the way forward",
-    hash: `#/chat/${SESSION_ID}`,
-    session: withPieStart(),
-    index: { playtests: [], listed: true },
-    get: (p) => (p === "/v1/ext/studio/viewport" ? pieStatus({ access: "needs-pro" }) : undefined),
-    waitFor: { selector: ".pie-card-gate", timeout: 5000 },
-  },
   "chat-pie-watch": {
     title: "Watch live pressed: the viewport over the chat, armed and waiting for PIE to draw its first frame",
     hash: `#/chat/${SESSION_ID}`,

@@ -10,13 +10,19 @@ import * as os from "node:os";
 import * as path from "node:path";
 import WebSocket from "ws";
 import type { ActionResult, DaemonExtensionApi } from "ue-mcp/daemon";
-import { hasProPlan, iceServersOf, isViewerMessage, type AccountUsage, type ViewerSignals, type ViewportAccess, type ViewportJoin, type ViewportStatus } from "@ue-mcp-studio/shared";
+import { hasProPlan, iceServersOf, isViewerMessage, type AccountUsage, type IceServer, type ViewerSignals, type ViewportAccess, type ViewportJoin, type ViewportStatus } from "@ue-mcp-studio/shared";
 import { SignallingServer } from "../src/viewport/signalling.js";
+import { TurnCredentials, type TurnFetch } from "../src/viewport/turn.js";
 import { ViewportAccessCheck, actionBridge, readViewportConfig, registerViewport, type BridgeAnswer, type StreamBridge } from "../src/viewport/routes.js";
 
 type Reply = { status?: number; body?: unknown };
 type Req = { params: Record<string, string>; query: Record<string, string>; body?: unknown };
 type Handler = (req: Req) => Reply | Promise<Reply>;
+
+const until = async (f: () => boolean) => {
+  for (let i = 0; i < 200 && !f(); i++) await new Promise((r) => setTimeout(r, 5));
+  expect(f()).toBe(true);
+};
 
 const cleanup: Array<() => void> = [];
 afterEach(() => {
@@ -122,6 +128,43 @@ describe("the signalling server", () => {
     expect(streamer.got.filter((m) => m.type === "playerConnected").map((m) => m.playerId)).toContain(viewer);
   });
 
+  it("holds a viewer's candidates that arrive before its answer and passes them on right after it, in order", async () => {
+    const s = new SignallingServer({ iceServers: () => [] });
+    cleanup.push(() => s.close());
+    const url = await s.start();
+    const viewer = s.addViewer();
+    const streamer = await fakeStreamer(url);
+    await streamer.next("playerConnected");
+    const candidate = (c: string) => ({ type: "iceCandidate" as const, candidate: { candidate: c, sdpMid: "0", sdpMLineIndex: 0 } });
+
+    // The viewer has the offer.
+    for (let after = 0, got = false; !got; ) {
+      const p = await s.poll(viewer, after, 500);
+      got = !!p?.signals.some((x) => x.type === "offer");
+      after = p!.next;
+    }
+    // Through the relay the candidates' requests can land first.
+    s.fromViewer(viewer, candidate("early-1"));
+    s.fromViewer(viewer, candidate("early-2"));
+    await new Promise((r) => setTimeout(r, 50));
+    expect(streamer.got.some((m) => m.type === "iceCandidate")).toBe(false);
+    s.fromViewer(viewer, { type: "answer", sdp: "v=0 answer" });
+    s.fromViewer(viewer, candidate("late"));
+    await until(() => streamer.got.filter((m) => m.type === "iceCandidate").length === 3);
+    const sent = streamer.got.filter((m) => m.type === "answer" || m.type === "iceCandidate").map((m) => (m.type === "answer" ? "answer" : (m.candidate as { candidate: string }).candidate));
+    expect(sent).toEqual(["answer", "early-1", "early-2", "late"]);
+
+    // A new offer (the streamer reconnected) starts over: its candidates wait for its own answer.
+    streamer.ws.send(JSON.stringify({ type: "offer", playerId: viewer, sdp: "v=0 second" }));
+    await new Promise((r) => setTimeout(r, 50));
+    s.fromViewer(viewer, candidate("second-early"));
+    await new Promise((r) => setTimeout(r, 50));
+    expect(streamer.got.filter((m) => m.type === "iceCandidate")).toHaveLength(3);
+    s.fromViewer(viewer, { type: "answer", sdp: "v=0 second answer" });
+    await until(() => streamer.got.filter((m) => m.type === "iceCandidate").length === 4);
+    expect(streamer.got.filter((m) => m.type === "answer").map((m) => m.sdp)).toEqual(["v=0 answer", "v=0 second answer"]);
+  });
+
   it("refuses a connection on any other path, so a web page cannot pose as the streamer", async () => {
     const s = new SignallingServer({ iceServers: () => [] });
     cleanup.push(() => s.close());
@@ -177,7 +220,7 @@ function fakeBridge(status?: () => BridgeAnswer) {
   return { bridge, calls };
 }
 
-function setup(o: { access?: ViewportAccess; bridge?: StreamBridge; stopGraceMs?: number; viewerTtlMs?: number; sweepMs?: number } = {}) {
+function setup(o: { access?: ViewportAccess; bridge?: StreamBridge; stopGraceMs?: number; viewerTtlMs?: number; sweepMs?: number; turn?: { get(): Promise<IceServer[]>; known(): IceServer[] } } = {}) {
   const routes = new Map<string, Handler>();
   const api = { route: (m: string, p: string, h: Handler) => void routes.set(`${m} ${p}`, h) } as unknown as DaemonExtensionApi;
   let access: ViewportAccess = o.access ?? "ok";
@@ -191,6 +234,7 @@ function setup(o: { access?: ViewportAccess; bridge?: StreamBridge; stopGraceMs?
     pollWaitMs: 50,
     viewerTtlMs: o.viewerTtlMs,
     sweepMs: o.sweepMs ?? 20,
+    turn: o.turn,
   });
   cleanup.push(() => reg.dispose());
   const call = (key: string, req: Partial<Req> = {}) => routes.get(key)!({ params: {}, query: {}, ...req });
@@ -198,17 +242,22 @@ function setup(o: { access?: ViewportAccess; bridge?: StreamBridge; stopGraceMs?
 }
 
 describe("the viewport routes", () => {
-  it("refuses every viewer route without Pro and says why in the status", async () => {
-    for (const access of ["signed-out", "needs-pro", "unreachable"] as const) {
-      const v = setup({ access });
-      const join = await v.call("POST /viewport/viewers");
-      expect(join.status).toBe(access === "unreachable" ? 503 : 403);
-      expect((join.body as { status: ViewportStatus }).status.access).toBe(access);
-      expect((await v.call("GET /viewport/viewers/:id/signals", { params: { id: "x" } })).status).toBe(join.status);
-      expect((await v.call("POST /viewport/viewers/:id/signals", { params: { id: "x" }, body: { message: { type: "answer", sdp: "x" } } })).status).toBe(join.status);
-      expect((await v.call("POST /viewport/plugin")).status).toBe(join.status);
-      expect(v.calls.filter((c) => c.action !== "stream_status")).toEqual([]);
-      expect(((await v.call("GET /viewport")).body as ViewportStatus).access).toBe(access);
+  it("lets every account watch, and offers the relay server to Pro only", async () => {
+    const relay: IceServer[] = [{ urls: ["turn:turn.example:3478?transport=udp"], username: "u", credential: "c" }];
+    for (const access of ["signed-out", "needs-pro", "unreachable", "ok"] as const) {
+      let asked = 0;
+      const v = setup({ access, turn: { get: async () => (asked++, relay), known: () => [] } });
+      const r = await v.call("POST /viewport/viewers", { body: {} });
+      expect(r.status, access).toBe(201);
+      const join = r.body as ViewportJoin;
+      expect(join.status.access).toBe(access);
+      expect(join.status.editor).toBe("ready");
+      expect(v.calls.some((c) => c.action === "stream_start")).toBe(true);
+      expect((await v.call("GET /viewport/viewers/:id/signals", { params: { id: join.viewer }, query: { after: "0" } })).status ?? 200).toBe(200);
+      expect((await v.call("POST /viewport/viewers/:id/signals", { params: { id: join.viewer }, body: { message: { type: "answer", sdp: "v=0" } } })).status).toBe(204);
+      const relayed = join.iceServers.some((s) => JSON.stringify(s.urls).includes("turn:"));
+      expect(relayed, access).toBe(access === "ok");
+      expect(asked).toBe(access === "ok" ? 1 : 0);
     }
   });
 
@@ -235,6 +284,18 @@ describe("the viewport routes", () => {
     expect(v.calls.filter((c) => c.action === "stream_stop")).toHaveLength(1);
   });
 
+  it("offers the gateway's TURN relay after the STUN servers, and STUN alone when there is none", async () => {
+    const relay: IceServer[] = [{ urls: ["turn:turn.example:3478?transport=udp"], username: "u", credential: "c" }];
+    const withRelay = setup({ turn: { get: async () => relay, known: () => relay } });
+    const join = (await withRelay.call("POST /viewport/viewers", { body: {} })).body as ViewportJoin;
+    expect(join.iceServers.at(-1)).toEqual(relay[0]);
+    expect(join.iceServers[0].urls).toMatch(/^stun:/);
+
+    const without = setup({ turn: { get: async () => Promise.reject(new Error("down")), known: () => [] } });
+    const direct = (await without.call("POST /viewport/viewers", { body: {} })).body as ViewportJoin;
+    expect(direct.iceServers.every((s) => !JSON.stringify(s.urls).includes("turn:"))).toBe(true);
+  });
+
   it("restarts the stream when a viewer asks for another source", async () => {
     const v = setup();
     await v.call("POST /viewport/viewers", { body: {} });
@@ -253,7 +314,7 @@ describe("the viewport routes", () => {
     expect((await v.call("GET /viewport/viewers/:id/signals", { params: { id: "gone" } })).status).toBe(404);
   });
 
-  it("drops a viewer that stopped polling, and ends everyone when the plan lapses", async () => {
+  it("drops a viewer that stopped polling, and keeps watching when the plan lapses", async () => {
     const v = setup({ viewerTtlMs: 40, sweepMs: 15 });
     await v.call("POST /viewport/viewers", { body: {} });
     await new Promise((x) => setTimeout(x, 120));
@@ -264,7 +325,7 @@ describe("the viewport routes", () => {
     const join = (await w.call("POST /viewport/viewers", { body: {} })).body as ViewportJoin;
     w.setAccess("needs-pro");
     await new Promise((x) => setTimeout(x, 60));
-    expect(w.signalling.has(join.viewer)).toBe(false);
+    expect(w.signalling.has(join.viewer)).toBe(true);
   });
 
   it("names what stops the editor streaming, and enabling the plugin waits for a restart", async () => {
@@ -341,5 +402,46 @@ describe("the Pro check and the configuration", () => {
     expect(isViewerMessage({ type: "iceCandidate", candidate: { candidate: "c" } })).toBe(true);
     expect(isViewerMessage({ type: "offer", sdp: "v=0" })).toBe(false);
     expect(isViewerMessage({ type: "answer", sdp: "" })).toBe(false);
+  });
+});
+
+describe("the TURN relay from the gateway", () => {
+  const relay = { urls: ["turn:turn.example:3478?transport=udp", "turns:turn.example:443?transport=tcp"], username: "u", credential: "c" };
+  const answer = (status: number, body: unknown) => new Response(JSON.stringify(body), { status, headers: { "content-type": "application/json" } });
+
+  it("asks with the account token, keeps the servers for half their lifetime, and asks again after", async () => {
+    let now = 0;
+    const asked: Array<{ url: string; auth?: string; method: string }> = [];
+    const fetch: TurnFetch = async (url, init) => (asked.push({ url, auth: init.headers.authorization, method: init.method }), answer(200, { iceServers: [{ urls: "stun:stun.example:3478" }, relay], ttlSeconds: 100 }));
+    const t = new TurnCredentials({ token: async () => "uemcp_t", gatewayUrl: () => "https://gw.example/", fetch, now: () => now });
+    expect(t.known()).toEqual([]);
+    expect(await t.get()).toEqual([relay]);
+    expect(asked).toEqual([{ url: "https://gw.example/v1/viewport/turn", auth: "Bearer uemcp_t", method: "POST" }]);
+    now = 49_000;
+    expect(await t.get()).toEqual([relay]);
+    expect(t.known()).toEqual([relay]);
+    expect(asked).toHaveLength(1);
+    now = 51_000;
+    expect(t.known()).toEqual([]);
+    await t.get();
+    expect(asked).toHaveLength(2);
+  });
+
+  it("is none when signed out, without Pro, unconfigured, or down, and does not ask again for a minute", async () => {
+    expect(await new TurnCredentials({ token: async () => null, gatewayUrl: () => "https://gw", fetch: async () => answer(200, { iceServers: [relay], ttlSeconds: 60 }) }).get()).toEqual([]);
+    for (const reply of [() => answer(403, { error: "Pro" }), () => answer(503, { error: "not configured" }), () => Promise.reject(new Error("offline"))]) {
+      let now = 0;
+      let asks = 0;
+      const logged: string[] = [];
+      const t = new TurnCredentials({ token: async () => "uemcp_t", gatewayUrl: () => "https://gw", fetch: async () => (asks++, reply()), now: () => now, log: (m) => logged.push(m) });
+      expect(await t.get()).toEqual([]);
+      expect(logged).toHaveLength(1);
+      now = 30_000;
+      await t.get();
+      expect(asks).toBe(1);
+      now = 61_000;
+      await t.get();
+      expect(asks).toBe(2);
+    }
   });
 });

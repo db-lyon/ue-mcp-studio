@@ -11,9 +11,9 @@
  * applies at once (pieFromEvent). Nothing polls.
  */
 import { createContext, useContext, useEffect, useState } from "react";
-import { Linking, Modal, View } from "react-native";
+import { Modal, View } from "react-native";
 import type { ViewportStatus } from "@ue-mcp-studio/shared";
-import { VIEWPORT_MODAL_TITLE, VIEWPORT_PLANS_URL, WATCH_LIVE, asksViewportAgain, pieCard, pieFromEvent, withPie, type ViewportAction } from "@ue-mcp-studio/client-core";
+import { VIEWPORT_MODAL_TITLE, WATCH_LIVE, asksViewportAgain, pieCard, pieFromEvent, withPie } from "@ue-mcp-studio/client-core";
 import { useProjectNav } from "../nav";
 import { useBack } from "../back";
 import type { DaemonState } from "../state";
@@ -50,57 +50,20 @@ export interface PieLiveValue {
 
 export const PieLiveContext = createContext<PieLiveValue | null>(null);
 
-/** A phone is always a paired device. */
-const REMOTE = { remote: true };
-
-/**
- * The Play In Editor card: a compact line with a live dot while PIE runs and
- * Watch live, or, for an account without Pro, the Viewport's refusal with its
- * way forward.
- */
+/** The Play In Editor card: a compact line with a live dot while PIE runs, and Watch live. */
 export function PieCard({ current }: { current: boolean }) {
   const t = useTheme();
-  const { api } = useProjectNav();
   const v = useContext(PieLiveContext);
-  const [busy, setBusy] = useState<string | null>(null);
-  const [error, setError] = useState<string | null>(null);
   if (!v) return null;
-  const card = pieCard(v.status, { ...REMOTE, current });
-  const act = async (a: ViewportAction) => {
-    setError(null);
-    setBusy(a.id);
-    try {
-      if (a.id === "upgrade") await Linking.openURL((await api.billingCheckout({ plan: "pro", interval: "month" })).url);
-      else if (a.id === "plans") await Linking.openURL(VIEWPORT_PLANS_URL);
-      else if (a.id === "settings") v.onSettings("general");
-      else if (a.id === "check") await v.check(true);
-      else v.watch();
-    } catch (e) {
-      setError(e instanceof Error ? e.message : String(e));
-    } finally {
-      setBusy(null);
-    }
-  };
+  const card = pieCard(v.status, { current });
   return (
     <View accessibilityLabel={card.title} style={{ marginVertical: 6, paddingVertical: 8, paddingHorizontal: 12, borderWidth: 1, borderColor: t.c.line, borderRadius: 8, backgroundColor: t.c.panel2, gap: 6 }}>
       <View style={{ flexDirection: "row", alignItems: "center", gap: 8, minHeight: 32 }}>
         <View style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: card.live ? t.c.bad : t.c.dim }} />
         <T weight={card.live ? 600 : 500} tone={card.live ? undefined : "muted"} numberOfLines={1} style={{ flexShrink: 1 }}>{card.title}</T>
         <Spacer />
-        {!card.gate ? <Button title={WATCH_LIVE} label={WATCH_LIVE} variant={card.live ? "primary" : "default"} size="small" onPress={v.watch} /> : null}
+        <Button title={WATCH_LIVE} label={WATCH_LIVE} variant={card.live ? "primary" : "default"} size="small" onPress={v.watch} />
       </View>
-      {card.gate ? (
-        <View style={{ gap: 4, paddingTop: 6, borderTopWidth: 1, borderTopColor: t.c.line }}>
-          <T weight={700}>{card.gate.title}</T>
-          <T tone="muted">{card.gate.body}</T>
-          <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 8, marginTop: 4 }}>
-            {card.gate.actions.map((a) => (
-              <Button key={a.id} title={busy === a.id ? "Working" : a.label} label={a.label} variant={a.primary ? "primary" : "default"} size="small" disabled={busy !== null} onPress={() => void act(a)} />
-            ))}
-          </View>
-          {error ? <T style={{ color: t.c.badText }}>{error}</T> : null}
-        </View>
-      ) : null}
     </View>
   );
 }

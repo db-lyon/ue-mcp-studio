@@ -12,9 +12,8 @@
 import { createContext, useContext, useEffect, useState } from "react";
 import { createPortal } from "react-dom";
 import type { ViewportStatus } from "@ue-mcp-studio/shared";
-import { VIEWPORT_MODAL_TITLE, VIEWPORT_PLANS_URL, WATCH_LIVE, asksViewportAgain, pieCard, pieFromEvent, withPie, type ViewportAction } from "@ue-mcp-studio/client-core";
+import { VIEWPORT_MODAL_TITLE, WATCH_LIVE, asksViewportAgain, pieCard, pieFromEvent, withPie } from "@ue-mcp-studio/client-core";
 import { api } from "../api";
-import { openExternal } from "../native";
 import type { DaemonState } from "../state";
 import { ViewportView } from "../views/Viewport";
 import type { SettingsSection } from "../views/settings/sections";
@@ -50,54 +49,19 @@ export interface PieLiveValue {
 
 export const PieLiveContext = createContext<PieLiveValue | null>(null);
 
-/**
- * The Play In Editor card: a compact line with a live dot while PIE runs and
- * Watch live, or, for an account without Pro, the Viewport's refusal with its
- * way forward.
- */
+/** The Play In Editor card: a compact line with a live dot while PIE runs, and Watch live. */
 export function PieCard({ current }: { current: boolean }) {
   const v = useContext(PieLiveContext);
-  const [busy, setBusy] = useState<string | null>(null);
-  const [error, setError] = useState<string | null>(null);
   if (!v) return null;
-  const card = pieCard(v.status, { remote: v.remote, current });
-  const act = async (a: ViewportAction) => {
-    setError(null);
-    setBusy(a.id);
-    try {
-      if (a.id === "upgrade") openExternal((await api.billingCheckout({ plan: "pro", interval: "month" })).url);
-      else if (a.id === "plans") openExternal(VIEWPORT_PLANS_URL);
-      else if (a.id === "settings") v.onSettings("general");
-      else if (a.id === "check") await v.check(true);
-      else v.watch();
-    } catch (e) {
-      setError(e instanceof Error ? e.message : String(e));
-    } finally {
-      setBusy(null);
-    }
-  };
+  const card = pieCard(v.status, { current });
   return (
     <div className={`pie-card ${card.live ? "live" : ""}`} role="group" aria-label={card.title}>
       <div className="pie-card-row">
         <span className={`pie-dot ${card.live ? "live" : ""}`} aria-hidden="true" />
         <strong className="pie-card-title">{card.title}</strong>
         <span className="spacer" />
-        {!card.gate && <button className={card.live ? "primary small-button" : "small-button"} onClick={v.watch}>{WATCH_LIVE}</button>}
+        <button className={card.live ? "primary small-button" : "small-button"} onClick={v.watch}>{WATCH_LIVE}</button>
       </div>
-      {card.gate && (
-        <div className="pie-card-gate">
-          <strong>{card.gate.title}</strong>
-          <p>{card.gate.body}</p>
-          <div className="viewport-actions">
-            {card.gate.actions.map((a) => (
-              <button key={a.id} className={a.primary ? "primary small-button" : "small-button"} disabled={busy !== null} onClick={() => void act(a)}>
-                {busy === a.id ? "Working" : a.label}
-              </button>
-            ))}
-          </div>
-          {error && <p className="viewport-error">{error}</p>}
-        </div>
-      )}
     </div>
   );
 }
