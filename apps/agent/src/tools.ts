@@ -271,6 +271,11 @@ export async function executeTool(host: AgentHost, name: string, input: Record<s
     const op = input.operation as "restart" | "rebuild";
     const result = await host.editorOperation(op);
     const steps = (result.steps as OperationStep[] | undefined) ?? [];
+    // ue-mcp's editor consent (editor.consent): the other sessions using the editor have not agreed, and its reason says who holds it and why.
+    if (steps[0]?.step === "consent" && steps[0].ok === false) {
+      const reason = (steps[0] as OperationStep & { reason?: string }).reason ?? steps[0].result ?? "";
+      return { text: `${op} did not run: ${reason}`.trim(), isError: true, outcome: "error", touched: [], saved: [] };
+    }
     // Read off the payload too: a daemon up to ue-mcp 1.4.3 marks a step ok whose handler returned success: false.
     const failed = firstFailedStep(steps);
     return {
