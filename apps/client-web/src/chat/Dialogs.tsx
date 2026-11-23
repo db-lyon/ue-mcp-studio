@@ -8,20 +8,22 @@ import {
   dialogBannerLead,
   dialogBody,
   dialogEyebrow,
+  dialogHeading,
+  dialogTitle,
+  headingDetail,
   nativeAfterLine,
   nativeDetails,
   nativeSummary,
   isPathCell,
   itemListShown,
-  outcomeLine,
   readyIn,
   rowCheck,
   statusLine,
+  stepText,
   tableColumns,
   tableHasChecks,
   tableWidth,
   tickableItems,
-  whoLine,
 } from "@ue-mcp-studio/client-core";
 
 /** The open editor dialogs of one session, each a card with the dialog's own buttons. */
@@ -102,17 +104,29 @@ function DialogBody({ dialog: d, ticks }: { dialog: EditorDialog; ticks: Ticks }
   );
 }
 
-/** Every transition so far, oldest first. */
-function Steps({ dialog: d }: { dialog: EditorDialog }) {
+/** Every transition so far, oldest first: "8:12:42 AM  Decision: Don't Save (agent)". */
+function Steps({ dialog: d, now }: { dialog: EditorDialog; now: number }) {
   if (d.steps.length === 0) return null;
   return (
     <ol className="dialog-steps small" aria-label="What happened">
       {d.steps.map((s, i) => (
         <li key={i}>
-          <span className="dim mono">{new Date(s.at).toLocaleTimeString()}</span> {s.text}
+          <span className="dim mono">{new Date(s.at).toLocaleTimeString()}</span>
+          <span>{stepText(d, i, now)}</span>
         </li>
       ))}
     </ol>
+  );
+}
+
+/** "Editor dialog · Save Content", with the call that met it in the tooltip only. */
+function Heading({ dialog: d }: { dialog: EditorDialog }) {
+  return (
+    <div className="approval-head dialog-heading" title={headingDetail(d) ?? undefined}>
+      <span className="eyebrow">{dialogEyebrow(d)}</span>
+      <span className="dim" aria-hidden="true">·</span>
+      <strong className="dialog-title">{dialogTitle(d)}</strong>
+    </div>
   );
 }
 
@@ -146,7 +160,6 @@ export function DialogCard({ dialog: d, now }: { dialog: EditorDialog; now: numb
     send(button, { answer: "press", button, ...(items ? { items } : {}) });
   };
 
-  const meta = whoLine(d);
   const busy = sent !== null;
   const tickState: Ticks = {
     ticks,
@@ -157,12 +170,8 @@ export function DialogCard({ dialog: d, now }: { dialog: EditorDialog; now: numb
   const after = nativeAfterLine(d);
   const details = nativeDetails(d);
   return (
-    <div className={`approval card dialog-card${d.native ? ` native ${d.native.kind}` : ""}`} role="group" aria-label={`${dialogEyebrow(d)}: ${d.title}`}>
-      <div className="approval-head">
-        <span className="eyebrow">{dialogEyebrow(d)}</span>
-        {meta && <span className="dim small">met by {meta}</span>}
-      </div>
-      <strong className="dialog-title">{d.title || "(untitled dialog)"}</strong>
+    <div className={`approval card dialog-card${d.native ? ` native ${d.native.kind}` : ""}`} role="group" aria-label={dialogHeading(d)}>
+      <Heading dialog={d} />
       {summary && <p className="dialog-summary">{summary}</p>}
       <DialogBody dialog={d} ticks={tickState} />
       {after && <p className="dialog-after small">{after}</p>}
@@ -188,8 +197,9 @@ export function DialogCard({ dialog: d, now }: { dialog: EditorDialog; now: numb
           ))}
         </div>
       )}
-      {/* who- prefixed: a bare "editor" class picked up the code editor's box styles. */}
-      <div className={`dialog-status who-${who}`} role="status">{statusLine(d, now)}</div>
+      {/* who- prefixed: a bare "editor" class picked up the code editor's box styles.
+          While a press is held, its row in the record counts it down instead. */}
+      {!d.held && <div className={`dialog-status who-${who}`} role="status">{statusLine(d, now)}</div>}
       {error && <div className="banner bad">{error}</div>}
       {d.held ? (
         <div className="row approval-actions">
@@ -217,21 +227,17 @@ export function DialogCard({ dialog: d, now }: { dialog: EditorDialog; now: numb
           ))}
         </div>
       ) : null}
-      <Steps dialog={d} />
+      <Steps dialog={d} now={now} />
     </div>
   );
 }
 
-/** A dialog in the transcript: what it asked, every transition, and how it ended. */
+/** A dialog in the transcript: its heading and every transition, the last of which is how it ended. */
 export function DialogLine({ dialog: d }: { dialog: EditorDialog }) {
-  const meta = whoLine(d);
-  const ended = outcomeLine(d);
   return (
     <div className="dialog-line" role="note">
-      <span className="eyebrow">{dialogEyebrow(d)}</span> <strong>{d.title || "(untitled dialog)"}</strong>
-      {meta && <span className="dim small"> met by {meta}</span>}
-      <Steps dialog={d} />
-      {ended && <div className="small">{ended}</div>}
+      <Heading dialog={d} />
+      <Steps dialog={d} now={Date.now()} />
     </div>
   );
 }
@@ -241,7 +247,7 @@ export function DialogBannerLine({ dialog: d, now }: { dialog: EditorDialog; now
   return (
     <div className="banner warn editor-banner dialog-banner" role="status">
       <span className="editor-banner-text">
-        <strong>{dialogBannerLead(d)}</strong> {d.title || "(untitled dialog)"}
+        <strong>{dialogBannerLead(d)}</strong> {dialogTitle(d)}
         <span className="dim"> {statusLine(d, now)}</span>
       </span>
     </div>

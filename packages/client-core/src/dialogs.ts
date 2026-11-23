@@ -99,30 +99,32 @@ export function decider(d: EditorDialog): Decider {
   return d.mode === "auto" ? "agent" : "editor";
 }
 
+/** "8 s to override": what is left of the agent's held press, or null when none is held. */
+export function overrideLeft(d: EditorDialog, now: number): string | null {
+  if (!d.held) return null;
+  return `${Math.max(0, Math.ceil((d.held.until - now) / 1000))} s to override`;
+}
+
 /**
- * The truth about who decides, right now, and what happens next. "Waiting for
- * you" only while nothing else will answer, and then with the deadline when one
- * applies.
+ * The truth about who decides, right now, and what happens next, in as few
+ * words as hold it. "Waiting for you" only while nothing else will answer, and
+ * then with the deadline when one applies.
  */
 export function statusLine(d: EditorDialog, now: number): string {
-  if (d.held) return `The agent chose ${d.held.button}, pressing in ${clock(d.held.until - now)} (Override).`;
+  if (d.held) return `Decision: ${d.held.button} (agent) · ${overrideLeft(d, now)}`;
   const o = d.outcome;
-  if (o?.kind === "delegated") {
-    return o.by === "policy" ? "Nobody answered in time, so the agent is deciding." : "Handed to the agent. The agent is deciding.";
-  }
+  if (o?.kind === "delegated") return o.by === "policy" ? "Agent deciding (timeout)" : "Agent deciding";
   if (o) return outcomeLine(d);
   const a = d.asking;
   if (a) {
-    if (a.deadline === null) {
-      return a.policy.kind === "safe" ? "Waiting for you. It has no Cancel or Keep, so nothing is pressed for you." : "Waiting for you.";
-    }
+    if (a.deadline === null) return a.policy.kind === "safe" ? "Waiting for you · no Cancel or Keep to press for you" : "Waiting for you";
     const left = clock(a.deadline - now);
-    return a.policy.kind === "agent" ? `Waiting for you. The agent decides in ${left}.` : `Waiting for you. ${a.safeButton} is pressed in ${left}.`;
+    return a.policy.kind === "agent" ? `Waiting for you · agent decides in ${left}` : `Waiting for you · ${a.safeButton} in ${left}`;
   }
-  if (d.native) return d.mode === "auto" ? "The agent is deciding. You can answer it here too." : "Waiting for your answer, here or in the editor.";
-  if (d.mode === "auto") return "The agent is deciding.";
-  if (d.mode === "defer") return "Waiting for an answer in the editor.";
-  return "Not put to Studio yet. Answer it in the editor, or here once Studio asks.";
+  if (d.native) return d.mode === "auto" ? "Agent deciding · you can answer here too" : "Waiting for you, here or in the editor";
+  if (d.mode === "auto") return "Agent deciding";
+  if (d.mode === "defer") return "Waiting for an answer in the editor";
+  return "Not put to Studio yet · answer it in the editor";
 }
 
 /**
@@ -172,12 +174,37 @@ export function whoLine(d: EditorDialog): string | null {
   return `${category}(${action})${d.subagent ? ` in subagent ${d.subagent}` : ""}`;
 }
 
-/** How it ended; empty while it has not. */
+/** The dialog's title as the card heads it. */
+export function dialogTitle(d: EditorDialog): string {
+  return d.title || "(untitled dialog)";
+}
+
+/** The card's one-line heading: "Editor dialog · Save Content". */
+export function dialogHeading(d: EditorDialog): string {
+  return `${dialogEyebrow(d)} · ${dialogTitle(d)}`;
+}
+
+/** The heading's tooltip: which call met it, or null when none did. Never drawn on the card itself. */
+export function headingDetail(d: EditorDialog): string | null {
+  const who = whoLine(d);
+  return who ? `Met by ${who}` : null;
+}
+
+/**
+ * One row of the record as drawn. The agent's held choice is the newest row
+ * while its override window lasts, and only then does the row count it down;
+ * once pressed or overridden it reads as recorded.
+ */
+export function stepText(d: EditorDialog, index: number, now: number): string {
+  const text = d.steps[index]?.text ?? "";
+  const left = overrideLeft(d, now);
+  return left && index === d.steps.length - 1 ? `${text} · ${left}` : text;
+}
+
+/** How it ended, in the record's terse form; empty while it has not. */
 export function outcomeLine(d: EditorDialog): string {
   const o = d.outcome;
   if (!o || o.kind === "delegated") return "";
-  if (o.kind === "closed") return "Closed in the editor.";
-  if (o.by === "policy") return `Nobody answered in time, so ${o.button} was pressed.`;
-  if (o.by === "you") return `You pressed ${o.button}.`;
-  return `The agent pressed ${o.button}.`;
+  if (o.kind === "closed") return "Closed in editor";
+  return `Pressed: ${o.button} (${o.by === "policy" ? "timeout" : o.by})`;
 }

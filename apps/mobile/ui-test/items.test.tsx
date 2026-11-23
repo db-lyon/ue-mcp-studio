@@ -104,11 +104,18 @@ describe("DialogCard: who decides", () => {
     expect(api.answerDialog).toHaveBeenCalledWith("d1", { answer: "delegate" });
   });
 
-  it("held by the agent: Press it now, or another button instead", async () => {
+  it("held by the agent: its row counts down the override, with Press it now or another button instead", async () => {
     const api = fakeApi();
     api.answerDialog.mockResolvedValue({});
-    renderInProject(<DialogCard dialog={{ ...base, held: { button: "Don't Save", until: now + 5000 } } as unknown as EditorDialog} now={now} />, api);
-    expect(screen.getByText(/The agent chose Don't Save/)).toBeTruthy();
+    const steps = [{ at, text: "Opened" }, { at, text: "Decision: Don't Save (agent)" }];
+    const held = { ...base, steps, held: { button: "Don't Save", until: now + 5000 } } as unknown as EditorDialog;
+    // Once pressed, the row reads as recorded.
+    const pressed = renderInProject(<DialogCard dialog={{ ...held, held: null, outcome: { kind: "pressed", button: "Don't Save", by: "agent", at: now + 5000 }, steps: [...steps, { at, text: "Pressed: Don't Save (agent)" }] } as unknown as EditorDialog} now={now + 6000} />);
+    expect(screen.getByText("Decision: Don't Save (agent)")).toBeTruthy();
+    expect(screen.queryByText(/to override/)).toBeNull();
+    pressed.unmount();
+    renderInProject(<DialogCard dialog={held} now={now} />, api);
+    expect(screen.getByText("Decision: Don't Save (agent) · 5 s to override")).toBeTruthy();
     fireEvent.click(screen.getByText("Save Selected instead"));
     await settle();
     expect(api.answerDialog).toHaveBeenCalledWith("d1", { answer: "press", button: "Save Selected" });

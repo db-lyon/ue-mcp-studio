@@ -8,20 +8,22 @@ import {
   dialogBannerLead,
   dialogBody,
   dialogEyebrow,
+  dialogHeading,
+  dialogTitle,
+  headingDetail,
   nativeAfterLine,
   nativeDetails,
   nativeSummary,
   isPathCell,
   itemListShown,
-  outcomeLine,
   readyIn,
   rowCheck,
   statusLine,
+  stepText,
   tableColumns,
   tableHasChecks,
   tableWidth,
   tickableItems,
-  whoLine,
 } from "@ue-mcp-studio/client-core";
 import { Banner, baseFont, Check, ContentButton, font, labelFont, Output, useTheme, type Theme } from "../../../ui";
 import { useProjectNav } from "../../../nav";
@@ -122,22 +124,32 @@ function DialogBody({ dialog: d, ticks, maxHeight }: { dialog: EditorDialog; tic
   );
 }
 
-/** Every transition so far, oldest first: ol.dialog-steps, numbered outside an 18px indent. */
-function Steps({ dialog: d }: { dialog: EditorDialog }) {
+/** Every transition so far, oldest first (ol.dialog-steps): the time, then the step, unnumbered. */
+function Steps({ dialog: d, now }: { dialog: EditorDialog; now: number }) {
   const t = useTheme();
   if (d.steps.length === 0) return null;
   const s = { ...small(t), color: t.c.text };
   return (
-    <View accessibilityRole="list" accessibilityLabel="What happened" style={{ marginTop: 2, paddingLeft: 18, gap: 2 }}>
+    <View accessibilityRole="list" accessibilityLabel="What happened" style={{ marginTop: 2, gap: 2 }}>
       {d.steps.map((step, i) => (
-        <View key={i}>
-          <Text style={[s, { position: "absolute", left: -18, width: 18, paddingRight: 4, textAlign: "right" }]}>{`${i + 1}.`}</Text>
-          <Text style={s}>
-            <Text style={{ ...font(t, "mono", 400, 12 * 0.92), color: t.c.dim }}>{new Date(step.at).toLocaleTimeString()}</Text> {step.text}
-          </Text>
+        <View key={i} style={{ flexDirection: "row", gap: 12, minWidth: 0 }}>
+          <Text style={{ ...font(t, "mono", 400, 12 * 0.92), lineHeight: s.lineHeight, color: t.c.dim }}>{new Date(step.at).toLocaleTimeString()}</Text>
+          <Text style={[s, { flexShrink: 1 }]}>{stepText(d, i, now)}</Text>
         </View>
       ))}
     </View>
+  );
+}
+
+/** "Editor dialog · Save Content" (div.dialog-heading); the call that met it is only in the accessibility hint. */
+function Heading({ dialog: d }: { dialog: EditorDialog }) {
+  const t = useTheme();
+  return (
+    <Text accessibilityHint={headingDetail(d) ?? undefined} style={baseFont(t)}>
+      <Text style={labelFont(t)}>{dialogEyebrow(d)}</Text>
+      <Text style={{ color: t.c.dim }}>{"  ·  "}</Text>
+      <Text style={{ ...font(t, "sans", 700, 14), lineHeight: 14 * (t.base.lineHeight / t.base.size) }}>{dialogTitle(d)}</Text>
+    </Text>
   );
 }
 
@@ -190,7 +202,6 @@ export function DialogCard({ dialog: d, now }: { dialog: EditorDialog; now: numb
     send(button, { answer: "press", button, ...(items ? { items } : {}) });
   };
 
-  const meta = whoLine(d);
   const busy = sent !== null;
   const tickState: Ticks = {
     ticks,
@@ -202,12 +213,8 @@ export function DialogCard({ dialog: d, now }: { dialog: EditorDialog; now: numb
   const after = nativeAfterLine(d);
   const edge = d.native ? { borderColor: d.native.kind === "gpu-crash" ? t.c.bad : t.c.warn } : null;
   return (
-    <View accessibilityRole="none" accessibilityLabel={`${dialogEyebrow(d)}: ${d.title}`} style={[approvalCard(t), edge]}>
-      <View style={{ flexDirection: "row", alignItems: "baseline", gap: 10 }}>
-        <Text style={labelFont(t)}>{dialogEyebrow(d)}</Text>
-        {meta ? <Text style={[small(t), { color: t.c.dim, flexShrink: 1 }]}>{`met by ${meta}`}</Text> : null}
-      </View>
-      <Text style={{ ...baseFont(t), ...font(t, "sans", 700, 14), lineHeight: 14 * (t.base.lineHeight / t.base.size) }}>{d.title || "(untitled dialog)"}</Text>
+    <View accessibilityRole="none" accessibilityLabel={dialogHeading(d)} style={[approvalCard(t), edge]}>
+      <Heading dialog={d} />
       {summary ? <Text style={{ ...baseFont(t), ...font(t, "sans", 600, t.base.size), color: t.c.text }}>{summary}</Text> : null}
       <DialogBody dialog={d} ticks={tickState} maxHeight={vh * 0.24} />
       {after ? <Text style={[small(t), { color: t.c.muted }]}>{after}</Text> : null}
@@ -223,9 +230,12 @@ export function DialogCard({ dialog: d, now }: { dialog: EditorDialog; now: numb
           ))}
         </View>
       ) : null}
-      <Text accessibilityRole="text" accessibilityLiveRegion="polite" style={{ ...baseFont(t), ...font(t, "sans", 600, t.base.size), lineHeight: t.base.lineHeight, color: who === "agent" ? t.c.accent : t.c.text }}>
-        {statusLine(d, now)}
-      </Text>
+      {/* While a press is held, its row in the record counts it down instead. */}
+      {d.held ? null : (
+        <Text accessibilityRole="text" accessibilityLiveRegion="polite" style={{ ...baseFont(t), ...font(t, "sans", 600, t.base.size), lineHeight: t.base.lineHeight, color: who === "agent" ? t.c.accent : t.c.text }}>
+          {statusLine(d, now)}
+        </Text>
+      )}
       {error ? <Banner kind="bad">{error}</Banner> : null}
       {d.held ? (
         <View style={actions}>
@@ -253,24 +263,18 @@ export function DialogCard({ dialog: d, now }: { dialog: EditorDialog; now: numb
           ))}
         </View>
       ) : null}
-      <Steps dialog={d} />
+      <Steps dialog={d} now={now} />
     </View>
   );
 }
 
-/** A dialog in the transcript: what it asked, every transition, and how it ended. */
+/** A dialog in the transcript: its heading and every transition, the last of which is how it ended. */
 export function DialogLine({ dialog: d }: { dialog: EditorDialog }) {
   const t = useTheme();
-  const meta = whoLine(d);
-  const ended = outcomeLine(d);
   return (
     <View accessibilityRole="none" style={{ borderLeftWidth: 2, borderLeftColor: t.c.accentLine, paddingVertical: 4, paddingHorizontal: 10, marginVertical: 6 }}>
-      <Text style={baseFont(t)}>
-        <Text style={labelFont(t)}>{dialogEyebrow(d)}</Text> <Text style={font(t, "sans", 700, t.base.size)}>{d.title || "(untitled dialog)"}</Text>
-        {meta ? <Text style={[small(t), { color: t.c.dim }]}>{` met by ${meta}`}</Text> : null}
-      </Text>
-      <Steps dialog={d} />
-      {ended ? <Text style={[small(t), { color: t.c.text }]}>{ended}</Text> : null}
+      <Heading dialog={d} />
+      <Steps dialog={d} now={Date.now()} />
     </View>
   );
 }
@@ -281,7 +285,7 @@ export function DialogBannerLine({ dialog: d, now }: { dialog: EditorDialog; now
   return (
     <Banner kind="warn" role="status">
       <Text style={{ ...baseFont(t), color: t.c.warnText }}>
-        <Text style={font(t, "sans", 700, t.base.size)}>{dialogBannerLead(d)}</Text> {d.title || "(untitled dialog)"}
+        <Text style={font(t, "sans", 700, t.base.size)}>{dialogBannerLead(d)}</Text> {dialogTitle(d)}
         <Text style={{ color: t.c.dim }}>{` ${statusLine(d, now)}`}</Text>
       </Text>
     </Banner>

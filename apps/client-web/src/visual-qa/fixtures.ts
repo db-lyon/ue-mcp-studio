@@ -550,7 +550,7 @@ function saveContentDialog(state: "asking" | "agent", blocks = true): EditorDial
     asking: state === "asking" ? { since: now - 20_000, minHumanMs: 0, policy: { kind: "agent", minutes: 5 }, deadline: now + 280_000, safeButton: "Cancel" } : null,
     held: null,
     outcome: null,
-    steps: [{ at: now - 20_000, text: state === "asking" ? "Asked you. The agent decides if nobody answers in 5 min." : "Opened. The agent answers dialogs in this project, so the agent is deciding." }],
+    steps: state === "asking" ? [{ at: now - 25_000, text: "Opened" }, { at: now - 20_000, text: "Asked you" }] : [{ at: now - 20_000, text: "Opened" }],
   };
 }
 
