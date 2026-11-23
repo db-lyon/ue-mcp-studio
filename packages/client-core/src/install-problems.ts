@@ -25,10 +25,19 @@ export function pendingBuildOf(report: StatusReport | null): PendingBuild | null
   return pending && typeof pending.version === "string" ? pending : null;
 }
 
+/**
+ * The project's plugin binaries were built for another engine build, its
+ * module manifests disagree, or the install marker claims a version the
+ * folder does not hold (db-lyon/ue-mcp#2072). Unreal then asks to rebuild
+ * modules on every launch, and none of ue-mcp's load.
+ */
+export const ENGINE_MISMATCH = "bridge_engine_mismatch";
+
 export function problemCopy(problem: StatusReport["problems"][number], report: StatusReport): ProblemCopy {
   const p = report.plugin;
   const pending = pendingBuildOf(report);
-  switch (problem.code) {
+  // A string, not the pinned ue-mcp's union: newer ue-mcp versions report codes the pinned types do not list yet.
+  switch (problem.code as string) {
     case "no_engine":
       return {
         title: "Unreal Engine was not found.",
@@ -61,6 +70,18 @@ export function problemCopy(problem: StatusReport["problems"][number], report: S
         detail: "It has never been built in this project, so the editor has no bridge to load. Rebuild builds it and opens the editor.",
         action: "rebuild",
       };
+    case ENGINE_MISMATCH: {
+      // Rebuild compiles on this machine, so without a compiler the way out is an engine build the prebuilt plugin was made for.
+      const compiler = !report.problems.some((x) => x.code === "no_toolchain");
+      const engine = report.project.engine ? `UE ${report.project.engine}` : "your engine version";
+      return {
+        title: "The bridge plugin was built for a different Unreal build.",
+        detail: compiler
+          ? "Unreal asks to rebuild it on every launch, and ue-mcp cannot connect until it matches your engine. Rebuild compiles it on this computer, then opens the editor."
+          : `Unreal asks to rebuild it on every launch, and ue-mcp cannot connect until it matches. Rebuilding needs the C++ tools Unreal uses, and none were found on this computer. Install them, or update to the newest build of ${engine} in the Epic Games Launcher, then check again.`,
+        ...(compiler ? { action: "rebuild" as const } : {}),
+      };
+    }
     case "bridge_build_stale":
       return {
         title: "The bridge plugin needs a rebuild.",
@@ -70,6 +91,17 @@ export function problemCopy(problem: StatusReport["problems"][number], report: S
     default:
       return { title: problem.what, detail: "" };
   }
+}
+
+/**
+ * What Launch editor does first, from the project's install report: null to
+ * launch, or the problem that would make Unreal ask to rebuild modules on
+ * launch, so the launcher offers Rebuild (when the copy has it) instead of
+ * letting that dialog appear. A missing report launches: it never blocks.
+ */
+export function beforeLaunch(report: StatusReport | null): ProblemCopy | null {
+  const mismatch = report?.problems?.find((x) => (x.code as string) === ENGINE_MISMATCH);
+  return mismatch && report ? problemCopy(mismatch, report) : null;
 }
 
 interface EditorStep {
