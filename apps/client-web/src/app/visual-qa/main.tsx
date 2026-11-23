@@ -13,14 +13,16 @@ import "../app.css";
 import { App } from "../App";
 import { appSlot, type AppHost, type Live } from "../native";
 import { followScheme } from "../scheme";
-import { APP_SCENARIOS, BASE_STATE, CURRENT, IDES } from "./fixtures";
+import type { MachineProject } from "../model";
+import { APP_SCENARIOS, BASE_STATE, CURRENT, IDES, statusAnswer } from "./fixtures";
 
 const params = new URLSearchParams(location.search);
 const name = params.get("scenario") ?? "app-projects-states";
 const s = APP_SCENARIOS[name] ?? APP_SCENARIOS["app-projects-states"];
 const state = { ...BASE_STATE, ...s.state, node: { ...BASE_STATE.node, ...s.state?.node } };
 const never = <T,>() => new Promise<T>(() => {});
-const parsed = s.report?.ok && s.report.report ? (JSON.parse(s.report.report) as { daemons: Array<{ key: string; pid: number; port: number; version: string }> }) : null;
+const parsed = s.report?.ok && s.report.report ? (JSON.parse(s.report.report) as { projects: MachineProject[]; daemons: Array<{ key: string; pid: number; port: number; version: string }> }) : null;
+const projects = parsed?.projects ?? [];
 const live: Record<string, Live> = {};
 for (const k of s.live ?? []) {
   const d = parsed?.daemons.find((x) => x.key === k);
@@ -43,6 +45,11 @@ const fake: AppHost = {
   installnode: async () => started,
   openstudio: async () => ({ ok: true }),
   launcheditor: async () => ({ ok: true }),
+  status: async ({ uproject }) => {
+    const p = projects.find((x) => x.uproject === uproject);
+    return p ? statusAnswer(p, s.problems?.[p.key] ?? []) : { ok: false, error: "not a listed project" };
+  },
+  rebuild: () => never(),
   addproject: async () => ({ ok: false, cancelled: true }),
   removeproject: async () => ({ ok: true }),
   readlog: async () => s.log ?? "",
