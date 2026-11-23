@@ -10,7 +10,7 @@ import { UpdateRunner } from "./views/UpdateOverlay";
 import { FeedbackDialog } from "./views/Feedback";
 import { FileViewerProvider } from "./chat/FileViewer";
 import { ChatView } from "./views/Chat";
-import { ViewportDialog } from "./chat/PieLive";
+import { LiveButton, LiveHostContext, PieStatusContext, ViewportDialog, useOwnPieStatus } from "./chat/PieLive";
 import { SettingsHub } from "./views/SettingsHub";
 import { sectionOf, type SettingsSection } from "./views/settings/sections";
 import { VcsChip } from "./chat/VcsChip";
@@ -34,7 +34,7 @@ import { replaceStaleWindow } from "./window-version";
 import { RefusalPending, RefusedScreen, useRefusal } from "./views/Refused";
 import { ErrorBoundary } from "./views/ErrorBoundary";
 import { onRemotePage } from "./connection";
-import { projectListUrl } from "@ue-mcp-studio/client-core";
+import { playingRuns, projectListUrl, viewportAllowed } from "@ue-mcp-studio/client-core";
 import { BarProjectSwitch } from "./views/ProjectSwitch";
 import { Slot } from "./extensions/Slot";
 
@@ -81,13 +81,18 @@ function Studio({ daemon }: { daemon: DaemonState }) {
   const [tab, setTab] = useState<Tab>(() => readLocation().tab);
   // null: the section list, which only a narrow panel shows on its own.
   const [section, setSection] = useState<SettingsSection | null>(() => sectionOf(readLocation().section));
-  // The live viewport over the chat, from a Play In Editor card or a live playtest's Viewport; closing it returns to the chat as it was.
+  // The live viewport, for a paired browser only: Studio on the computer shows none.
+  const liveAllowed = viewportAllowed(onRemotePage());
+  // Whether PIE runs, held once for the bar's Live button, the chat and the hub.
+  const pie = useOwnPieStatus(daemon, liveAllowed);
+  // The viewport over the current tab, from the bar's Live button, a Play In Editor card or a live playtest's Viewport;
+  // closing it returns to the same place. While the hub is mounted it opens its own, on the hub's viewer.
   const [watching, setWatching] = useState(false);
   const watchLive = useCallback(() => setWatching(true), []);
+  const hubOpen = useRef<(() => void) | null>(null);
+  const registerHub = useCallback((open: (() => void) | null) => { hubOpen.current = open; }, []);
+  const openLive = () => (hubOpen.current ? hubOpen.current() : setWatching(true));
   const settingsFromChat = useCallback((s: SettingsSection) => { setSection(s); setTab("Settings"); }, []);
-  useEffect(() => {
-    if (tab !== "Chat") setWatching(false);
-  }, [tab]);
   useEffect(() => writeLocation({ tab, section: tab === "Settings" ? section : null }), [tab, section]);
   // Studio's window moves the panel by its hash when it is asked to open somewhere (the UE-MCP app's Update).
   useEffect(() => {
@@ -166,11 +171,17 @@ function Studio({ daemon }: { daemon: DaemonState }) {
     replaceStaleWindow().catch(() => undefined);
   }, []);
 
+  // The bar's Live button while PIE runs, naming the hub's check that plays when there is one.
+  const playingCheck = hubOn && hub.overview ? playingRuns(hub.overview)[0]?.name ?? null : null;
+  const live = liveAllowed ? <LiveButton onOpen={openLive} check={playingCheck} /> : null;
+
   // The bar's tools: in the bar when wide, at the foot of the drawer when narrow, never both.
+  // Live stays in the bar when narrow, where it can be seen.
   const tools = (
     <div className="bar-tools">
       <Slot name="toolbar.action" ctx={NO_CTX} />
       <DockToggle />
+      {!narrow && live}
       <button className="ghost docs-link" onClick={() => setFeedback(true)} title="Report a problem or suggest an idea">Feedback</button>
       <button className="ghost docs-link" onClick={() => void openDocs()} title="The ue-mcp documentation">Docs</button>
       <VcsChip events={daemon.events.filter((e) => e.type === "studio.session.changed")} />
@@ -178,6 +189,8 @@ function Studio({ daemon }: { daemon: DaemonState }) {
   );
 
   return (
+    <PieStatusContext.Provider value={liveAllowed ? pie : null}>
+    <LiveHostContext.Provider value={liveAllowed ? registerHub : null}>
     <FileViewerProvider>
       <div className="app">
         <header className="bar">
@@ -189,6 +202,7 @@ function Studio({ daemon }: { daemon: DaemonState }) {
               </button>
               <span className="bar-title">{tab}</span>
               <span className="spacer" />
+              {live}
               <EditorBanner daemon={daemon} compact />
             </>
           ) : (
@@ -246,7 +260,7 @@ function Studio({ daemon }: { daemon: DaemonState }) {
           {chatShown.current && (
             <main className={tab === "Chat" ? "view-chat" : "view-chat parked"} aria-hidden={tab !== "Chat" || undefined}>
               <ErrorBoundary what="Chat">
-                <ChatView daemon={daemon} nav={chatNav} active={tab === "Chat"} onSettings={settingsFromChat} onWatchLive={watchLive} />
+                <ChatView daemon={daemon} nav={chatNav} active={tab === "Chat"} onSettings={settingsFromChat} onWatchLive={liveAllowed ? watchLive : undefined} />
               </ErrorBoundary>
             </main>
           )}
@@ -266,9 +280,11 @@ function Studio({ daemon }: { daemon: DaemonState }) {
         </div>
         <UpdateRunner streaming={daemon.streaming} events={daemon.events} />
         {feedback && <FeedbackDialog onClose={() => setFeedback(false)} />}
-        {watching && tab === "Chat" && <ViewportDialog daemon={daemon} onClose={() => setWatching(false)} onSettings={settingsFromChat} />}
+        {watching && liveAllowed && <ViewportDialog daemon={daemon} onClose={() => setWatching(false)} onSettings={settingsFromChat} />}
       </div>
     </FileViewerProvider>
+    </LiveHostContext.Provider>
+    </PieStatusContext.Provider>
   );
 }
 

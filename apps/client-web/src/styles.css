@@ -2406,6 +2406,10 @@ h1.viewport-title { margin: 0; font: 600 20px/1.2 var(--sans); letter-spacing: 0
 .pie-card:not(.live) .pie-card-title { color: var(--muted); font-weight: 500; }
 .pie-dot { flex: none; width: 8px; height: 8px; border-radius: 50%; background: var(--dim); }
 .pie-dot.live { background: var(--bad); box-shadow: 0 0 0 3px color-mix(in srgb, var(--bad) 22%, transparent); }
+/* The bar's Live button while Play In Editor runs. */
+.bar .live-button { height: auto; padding: 4px 10px; display: inline-flex; align-items: center; gap: 7px; flex: none; white-space: nowrap; }
+.live-button .pie-dot { animation: pulse 1.6s ease-in-out infinite; }
+@media (prefers-reduced-motion: reduce) { .live-button .pie-dot { animation: none; } }
 @media (max-width: 760px) {
   .viewport-page { padding: 4px 4px 12px; }
   .viewport-notice { margin: 10px; padding: 12px 14px; width: calc(100% - 20px); max-width: none; box-sizing: border-box; }

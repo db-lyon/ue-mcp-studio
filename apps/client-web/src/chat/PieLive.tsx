@@ -1,28 +1,57 @@
 /**
- * The way into the live PIE viewport from the chat: the Play In Editor card
- * after what started PIE, a live playtest card's Viewport (Qa.tsx), and the
- * dialog both open, which draws the viewer's player, gate and states
- * (views/Viewport.tsx). The cards never stream in the thread; the dialog
- * joins as a viewer while it is open, and closing it leaves, so the stream
- * stops once nobody watches.
+ * The ways into the live PIE viewport: the bar's Live button on every tab
+ * while PIE runs, the chat's Play In Editor card after what started PIE, a
+ * live playtest card's Viewport (Qa.tsx), and the dialog they all open, which
+ * draws the viewer's player, gate and states (views/Viewport.tsx). Nothing
+ * streams until the dialog opens; it joins as a viewer while open, and
+ * closing it leaves, so the stream stops once nobody watches. Only a remote
+ * client offers any of it (client-core's viewportAllowed).
  *
- * The status is GET /viewport, asked on mount and again after the events
- * client-core's asksViewportAgain names, and a pie.* event from the daemon
- * applies at once (pieFromEvent). Nothing polls.
+ * The status is GET /viewport, held once for the app (PieStatusContext),
+ * asked on mount and again after the events client-core's asksViewportAgain
+ * names, and a pie.* event from the daemon applies at once (pieFromEvent).
+ * Nothing polls.
  */
-import { createContext, useContext, useEffect, useState } from "react";
+import { createContext, useContext, useEffect, useMemo, useState } from "react";
 import { createPortal } from "react-dom";
 import type { ViewportStatus } from "@ue-mcp-studio/shared";
-import { VIEWPORT_MODAL_TITLE, WATCH_LIVE, asksViewportAgain, pieCard, pieFromEvent, withPie } from "@ue-mcp-studio/client-core";
+import { LIVE_BUTTON, VIEWPORT_MODAL_TITLE, WATCH_LIVE, asksViewportAgain, liveButtonHint, pieCard, pieFromEvent, pieRunning, withPie } from "@ue-mcp-studio/client-core";
 import { api } from "../api";
 import type { DaemonState } from "../state";
 import { ViewportView, type SharedViewer } from "../views/Viewport";
 import type { SettingsSection } from "../views/settings/sections";
 
-/** GET /viewport for the chat, asked again after an event that may change it. */
-export function usePieStatus(daemon: Pick<DaemonState, "events">, enabled = true): { status: ViewportStatus | null; check: (fresh?: boolean) => Promise<void> } {
+/** GET /viewport as one place holds it, with a pie.* event applied: whether PIE runs is client-core's pieRunning of it. */
+export interface PieStatus {
+  status: ViewportStatus | null;
+  check: (fresh?: boolean) => Promise<ViewportStatus | null>;
+  setStatus: (s: ViewportStatus) => void;
+}
+
+/** The app's one PieStatus (App.tsx), which the chat, the hub and the bar's Live button all read. */
+export const PieStatusContext = createContext<PieStatus | null>(null);
+
+/**
+ * GET /viewport, asked again after an event that may change it: the app's
+ * shared one when there is one, so every reader agrees and one request
+ * answers them all; otherwise this component's own (tests, the hub demo).
+ */
+export function usePieStatus(daemon: Pick<DaemonState, "events">, enabled = true): PieStatus {
+  const shared = useContext(PieStatusContext);
+  const own = useOwnPieStatus(daemon, enabled && !shared);
+  return shared ?? own;
+}
+
+/** The fetch behind PieStatus; App.tsx calls it once for the whole app. */
+export function useOwnPieStatus(daemon: Pick<DaemonState, "events">, enabled = true): PieStatus {
   const [status, setStatus] = useState<ViewportStatus | null>(null);
-  const check = (fresh = false) => Promise.resolve().then(() => api.viewport(fresh)).then(setStatus, () => undefined);
+  const check = (fresh = false): Promise<ViewportStatus | null> =>
+    Promise.resolve()
+      .then(() => api.viewport(fresh))
+      .then((s) => {
+        setStatus(s);
+        return s;
+      }, () => null);
   const asks = daemon.events.filter((e) => asksViewportAgain(e.type)).length;
   useEffect(() => {
     if (enabled) void check();
@@ -35,7 +64,27 @@ export function usePieStatus(daemon: Pick<DaemonState, "events">, enabled = true
     const pie = lastPie ? pieFromEvent(lastPie.type) : null;
     if (enabled && pie !== null) setStatus((s) => withPie(s, pie));
   }, [lastPie?.id, enabled]);
-  return { status, check };
+  return useMemo(() => ({ status, check, setStatus }), [status]);
+}
+
+/**
+ * Who opens the full viewer for the bar's Live button. The Playtest Hub
+ * registers its own while it is mounted, so the dialog draws the hub's
+ * viewer and the editor never streams to this page twice.
+ */
+export const LiveHostContext = createContext<((open: (() => void) | null) => void) | null>(null);
+
+/** The bar's Live button: a pulsing dot and Live, shown only while Play In Editor runs. */
+export function LiveButton({ onOpen, check, className = "" }: { onOpen: () => void; check?: string | null; className?: string }) {
+  const pie = useContext(PieStatusContext);
+  if (!pie || !pieRunning(pie.status)) return null;
+  const hint = liveButtonHint(check);
+  return (
+    <button className={`ghost live-button ${className}`} onClick={onOpen} title={hint} aria-label={hint}>
+      <span className="pie-dot live" aria-hidden="true" />
+      {LIVE_BUTTON}
+    </button>
+  );
 }
 
 /** What the chat's PIE card and playtest cards read: the status, and the ways out of the thread. */
@@ -44,7 +93,7 @@ export interface PieLiveValue {
   remote: boolean;
   /** Open the viewport over the chat. */
   watch: () => void;
-  check: (fresh?: boolean) => Promise<void>;
+  check: (fresh?: boolean) => Promise<unknown>;
   onSettings: (s: SettingsSection) => void;
 }
 
@@ -68,7 +117,7 @@ export function PieCard({ current }: { current: boolean }) {
 }
 
 /**
- * The viewport in a dialog over the chat or the Playtest Hub. Mounted only
+ * The viewport in a dialog over whatever tab is up. Mounted only
  * while open, so its viewer joins on open and leaves on close; Escape or the
  * scrim closes it. Given `viewer`, it draws that one instead of joining.
  */

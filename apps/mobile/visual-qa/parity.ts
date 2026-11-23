@@ -57,6 +57,8 @@ export const PARITY: Record<string, ParityEntry> = {
   "reply-image-legacy": {owner: "chat"},
   "chat-pie-live": {owner: "chat"},
   "chat-pie-watch": {owner: "chat", clicks: ["Watch live"]},
+  "bar-live": {owner: "shell"},
+  "bar-live-open": {owner: "shell", clicks: ["Watch Play In Editor live"]},
   "dialog-save-content": {owner: "chat"},
   "dialog-save-content-agent": {owner: "chat"},
   "dialog-save-content-flat": {owner: "chat"},

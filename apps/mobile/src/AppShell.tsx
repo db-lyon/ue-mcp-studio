@@ -8,7 +8,7 @@
 import { useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
 import { Linking, Pressable, StyleSheet, View } from "react-native";
 import Svg, { Path } from "react-native-svg";
-import { studioApi, type PanelLocation, type Transport } from "@ue-mcp-studio/client-core";
+import { studioApi, viewportAllowed, type PanelLocation, type Transport } from "@ue-mcp-studio/client-core";
 import { playtestMatches, type StudioTheme } from "@ue-mcp-studio/shared";
 import { BackLayer, useBack } from "./back";
 import { useProject } from "./connection";
@@ -23,7 +23,7 @@ import { Banner, Button, font, PageGlow, T, useInsets, useSetTheme, useStyles, u
 import { Chat } from "./views/Chat";
 import { PlaytestsView, usePlaytestIndex } from "./views/Playtests";
 import { PluginsView } from "./views/Plugins";
-import { ViewportSheet } from "./chat/PieLive";
+import { LiveButton, PieStatusContext, ViewportSheet, useOwnPieStatus } from "./chat/PieLive";
 import { SettingsHub } from "./views/SettingsHub";
 import { sectionOf, type SettingsSection } from "./views/settings/sections";
 import { useUpdateCount } from "./views/Updates";
@@ -143,7 +143,10 @@ function Studio({ daemon, initial, onBack, device }: { daemon: ReturnType<typeof
     setTab("Settings");
   });
   const [feedback, setFeedback] = useState(false);
-  // The live viewport over the chat, from a Play In Editor card or a live playtest's Viewport; closing it returns to the chat as it was.
+  // Whether PIE runs, held once for the bar's Live button and the chat. A phone is always remote, so it may watch.
+  const pie = useOwnPieStatus(viewportAllowed(true));
+  // The live viewport over the current tab, from the bar's Live button, a Play In Editor card or a live playtest's Viewport;
+  // closing it returns to the same place.
   const [watching, setWatching] = useState(false);
   const watchLive = useCallback(() => setWatching(true), []);
   const settingsFromChat = useCallback((x: string) => {
@@ -151,9 +154,6 @@ function Studio({ daemon, initial, onBack, device }: { daemon: ReturnType<typeof
     setSection(sectionOf(x));
     setTab("Settings");
   }, []);
-  useEffect(() => {
-    if (tab !== "Chat") setWatching(false);
-  }, [tab]);
   const [drawer, setDrawer] = useState(false);
   const [chatNav, setChatNav] = useState<{ session: string | null; n: number }>({ session: null, n: 0 });
   const openChat = (session: string | null) => {
@@ -176,6 +176,7 @@ function Studio({ daemon, initial, onBack, device }: { daemon: ReturnType<typeof
   useBack(tab === "Chat" ? null : () => (tab === "Settings" && section ? setSection(null) : setTab("Chat")));
 
   return (
+    <PieStatusContext.Provider value={pie}>
     <View style={s.app}>
       {/* body's glow over --bg, under everything; the bar's --bar-bg reads over it as the web's blurred bar does. */}
       <PageGlow top={insets.top} />
@@ -190,6 +191,7 @@ function Studio({ daemon, initial, onBack, device }: { daemon: ReturnType<typeof
           {tab}
         </T>
         <View style={{ flex: 1 }} />
+        <LiveButton onOpen={watchLive} />
         <EditorBanner daemon={daemon} compact />
       </View>
       {/* Room for the offline strip that lies under the bar, so it covers nothing. */}
@@ -232,7 +234,7 @@ function Studio({ daemon, initial, onBack, device }: { daemon: ReturnType<typeof
         ) : null}
       </View>
       <UpdateRunner streaming={daemon.streaming} events={daemon.events} onReload={() => daemon.refresh()} />
-      {watching && tab === "Chat" ? <ViewportSheet daemon={daemon} onClose={() => setWatching(false)} onSettings={(x) => settingsFromChat(x)} /> : null}
+      {watching ? <ViewportSheet daemon={daemon} onClose={() => setWatching(false)} onSettings={(x) => settingsFromChat(x)} /> : null}
       <NavDrawer
         open={drawer}
         onClose={() => setDrawer(false)}
@@ -252,6 +254,7 @@ function Studio({ daemon, initial, onBack, device }: { daemon: ReturnType<typeof
       </NavDrawer>
       {feedback ? <FeedbackDialog onClose={() => setFeedback(false)} /> : null}
     </View>
+    </PieStatusContext.Provider>
   );
 }
 

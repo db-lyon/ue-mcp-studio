@@ -861,6 +861,7 @@ export const SCENARIOS: Record<string, Scenario> = {
     session: withPieStart(),
     index: { playtests: [], listed: true },
     get: (p) => (p === "/v1/ext/studio/viewport" ? pieStatus({}) : undefined),
+    remotePage: true,
     waitFor: { selector: ".pie-card.live", timeout: 5000 },
   },
   "chat-pie-watch": {
@@ -869,6 +870,32 @@ export const SCENARIOS: Record<string, Scenario> = {
     session: withPieStart(),
     index: { playtests: [], listed: true },
     click: ".pie-card button.primary",
+    remotePage: true,
+    post: (p) => (p === "/v1/ext/studio/viewport/viewers" ? { status: 201, body: { viewer: "v1", iceServers: [{ urls: "stun:stun.l.google.com:19302" }], status: pieStatus({ source: "pie", viewers: 1, bridge: { available: true, pluginEnabled: true, streaming: false, armed: true } }) } } : undefined),
+    get: (p, url) => {
+      if (p === "/v1/ext/studio/viewport") return pieStatus({});
+      if (p === "/v1/ext/studio/viewport/viewers/v1/signals" && url.searchParams.get("after") === "0") return { signals: [{ type: "streamer", connected: false }], next: 1 };
+      return undefined;
+    },
+    holdGet: /\/viewport\/viewers\/v1\/signals\?after=[1-9]/,
+    waitFor: { selector: ".viewport-dialog .viewport-notice", timeout: 5000 },
+  },
+  "bar-live": {
+    title: "A paired browser while Play In Editor runs: Live in the top bar, left of Feedback (in the bar itself when narrow)",
+    hash: `#/chat/${SESSION_ID}`,
+    session: withAgents(),
+    index: { playtests: [], listed: true },
+    get: (p) => (p === "/v1/ext/studio/viewport" ? pieStatus({}) : undefined),
+    remotePage: true,
+    waitFor: { selector: ".bar .live-button", timeout: 5000 },
+  },
+  "bar-live-open": {
+    title: "Live pressed: the viewport over the current screen, armed and waiting for PIE to draw its first frame",
+    hash: `#/chat/${SESSION_ID}`,
+    session: withAgents(),
+    index: { playtests: [], listed: true },
+    remotePage: true,
+    click: ".bar .live-button",
     post: (p) => (p === "/v1/ext/studio/viewport/viewers" ? { status: 201, body: { viewer: "v1", iceServers: [{ urls: "stun:stun.l.google.com:19302" }], status: pieStatus({ source: "pie", viewers: 1, bridge: { available: true, pluginEnabled: true, streaming: false, armed: true } }) } } : undefined),
     get: (p, url) => {
       if (p === "/v1/ext/studio/viewport") return pieStatus({});
@@ -1117,12 +1144,14 @@ export const SCENARIOS: Record<string, Scenario> = {
   "armed": inSession("Armed: the latest item in the conversation", "Door playtest", [RUNS.armed]),
   "running": inSession("Running: the latest item in the conversation", "Jump check", [RUNS.running]),
   "running-viewport": {
-    ...inSession("Running while Play In Editor plays: Viewport on the card", "Jump check", [RUNS.running]),
+    ...inSession("A paired browser, running while Play In Editor plays: Viewport on the card", "Jump check", [RUNS.running]),
+    remotePage: true,
     get: (p) => (p === "/v1/ext/studio/viewport" ? pieStatus({}) : undefined),
     waitFor: { selector: '.thread-stage button[aria-label="Viewport"]', timeout: 5000 },
   },
   "running-viewport-open": {
     ...inSession("Viewport pressed in a project without Pixel Streaming 2: the viewer over the chat says so, with Enable it", "Jump check", [RUNS.running]),
+    remotePage: true,
     get: (p) => (p === "/v1/ext/studio/viewport" ? pieStatus({ editor: "plugin-off", bridge: { available: true, pluginEnabled: false, streaming: false, armed: false } }) : undefined),
     click: '.thread-stage button[aria-label="Viewport"]',
     waitFor: { selector: ".viewport-dialog .viewport-notice", timeout: 5000 },
