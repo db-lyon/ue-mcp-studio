@@ -28,7 +28,9 @@ const webPkg = JSON.parse(fs.readFileSync(path.join(root, "apps", "client-web", 
 // A dev build sorts after the release it builds on and after every earlier dev build. The agent
 // carries the same version: the daemon serves a UI bundle only up to its extension's version, and
 // loads studio@<version> over the unversioned folder.
-const version = `${webPkg.version}-dev.${Date.now()}`;
+// STUDIO_DEV_BASE numbers a branch's dev build above a release that shipped after the branch began, so the
+// editor plugin's update check does not swap the dev build for that release.
+const version = `${process.env.STUDIO_DEV_BASE || webPkg.version}-dev.${Date.now()}`;
 const target = path.join(extensions, `studio@${version}`);
 const staging = `${target}.staging`;
 fs.rmSync(staging, { recursive: true, force: true });
