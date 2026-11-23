@@ -4,7 +4,7 @@ import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testi
 import { App } from "./App";
 import { appSlot, type HostState, type IdeInfo, type Newest, type OpenIde } from "./native";
 import type { MachineProject, MachineReport } from "./model";
-import { resetIdes, resetWork, WATCH_UPDATE } from "./actions";
+import { resetIdes, resetReports, resetWork, WATCH_UPDATE } from "./actions";
 
 const STATE: HostState = {
   mode: "app", version: "0.1.35", node: { found: true, version: "v22.11.0", ok: true, min: 20 }, winget: true, channel: "latest",
@@ -73,7 +73,76 @@ afterEach(() => {
   cleanup();
   resetWork();
   resetIdes();
+  resetReports();
   delete appSlot().ue;
+});
+
+describe("a bridge built for a different engine build", () => {
+  /** The host's status call: `problems` codes for the project with Studio, none for the other. */
+  function withStatus(h: ReturnType<typeof fakeHost>, codes: string[]) {
+    const status = vi.fn(async ({ uproject }: { uproject: string }) => {
+      const problems = (uproject === withStudio.uproject ? codes : []).map((code) => ({ code, what: code, fix: "" }));
+      return { ok: true, report: JSON.stringify({ project: { name: "ue_mcp", engine: "5.7", engineAssociation: "5.7" }, plugin: {}, problems }) };
+    });
+    const launcheditor = vi.fn(async () => ({ ok: true }));
+    const rebuild = vi.fn(async () => ({ ok: true, body: JSON.stringify({ steps: [{ step: "editor.stop_editor", ok: true }, { step: "project.build", ok: true }, { step: "editor.start_editor", ok: true }] }) }));
+    Object.assign(h, { status, launcheditor, rebuild });
+    return { status, launcheditor, rebuild };
+  }
+
+  it("says so on the project's row with Rebuild, and only on that row", async () => {
+    const h = fakeHost();
+    const { rebuild } = withStatus(h, ["bridge_engine_mismatch"]);
+    render(<App />);
+    const rows = await projectRows();
+    await within(rows[0]).findByText("The bridge plugin was built for a different Unreal build.");
+    expect(within(rows[1]).queryByText("The bridge plugin was built for a different Unreal build.")).toBeNull();
+    fireEvent.click(within(rows[0]).getByRole("button", { name: "Rebuild" }));
+    await waitFor(() => expect(rebuild).toHaveBeenCalledWith({ key: withStudio.key, uproject: withStudio.uproject }));
+  });
+
+  it("Launch editor offers Rebuild instead of starting Unreal, and Launch anyway still starts it", async () => {
+    const h = fakeHost();
+    const { launcheditor, rebuild } = withStatus(h, ["bridge_engine_mismatch"]);
+    render(<App />);
+    const rows = await projectRows();
+    const launch = within(rows[0]).getByRole("button", { name: "Launch editor" }) as HTMLButtonElement;
+    await waitFor(() => expect(launch.disabled).toBe(false));
+    fireEvent.click(launch);
+    await within(rows[0]).findByRole("button", { name: "Launch anyway" });
+    expect(launcheditor).not.toHaveBeenCalled();
+    fireEvent.click(within(rows[0]).getByRole("button", { name: "Launch anyway" }));
+    await waitFor(() => expect(launcheditor).toHaveBeenCalledTimes(1));
+    fireEvent.click(launch);
+    await within(rows[0]).findByRole("button", { name: "Launch anyway" });
+    const buttons = within(rows[0]).getAllByRole("button", { name: "Rebuild" });
+    fireEvent.click(buttons[buttons.length - 1]);
+    await waitFor(() => expect(rebuild).toHaveBeenCalledTimes(1));
+    expect(launcheditor).toHaveBeenCalledTimes(1);
+  });
+
+  it("launches straight away when the report has no such problem, or the host cannot read one", async () => {
+    const h = fakeHost();
+    const { launcheditor } = withStatus(h, ["bridge_build_stale"]);
+    render(<App />);
+    const rows = await projectRows();
+    const launch = within(rows[0]).getByRole("button", { name: "Launch editor" }) as HTMLButtonElement;
+    await waitFor(() => expect(launch.disabled).toBe(false));
+    fireEvent.click(launch);
+    await waitFor(() => expect(launcheditor).toHaveBeenCalledTimes(1));
+    expect(within(rows[0]).queryByRole("button", { name: "Launch anyway" })).toBeNull();
+  });
+
+  it("says why a rebuild failed, with Try again", async () => {
+    const h = fakeHost();
+    const { rebuild } = withStatus(h, ["bridge_engine_mismatch"]);
+    rebuild.mockResolvedValue({ ok: true, body: JSON.stringify({ steps: [{ step: "editor.stop_editor", ok: true }, { step: "project.build", ok: false, reason: "UnrealBuildTool exited with code 6." }] }) });
+    render(<App />);
+    const rows = await projectRows();
+    fireEvent.click(await within(rows[0]).findByRole("button", { name: "Rebuild" }));
+    await within(rows[0]).findByText("The rebuild did not finish. UnrealBuildTool exited with code 6.");
+    expect(within(rows[0]).getByRole("button", { name: "Try again" })).toBeTruthy();
+  });
 });
 
 describe("a report this app cannot read", () => {

@@ -90,7 +90,7 @@ inline bool allowed(const std::string& method, const std::string& path) {
     return path == "/v1/health" || path == "/v1/update" || path == "/v1/update?channel=latest" || path == "/v1/update?channel=beta" ||
            path == "/v1/ext/studio/updates";
   }
-  if (method == "POST") return path == "/v1/ext/studio/window" || path == "/v1/editor/start";
+  if (method == "POST") return path == "/v1/ext/studio/window" || path == "/v1/editor/start" || path == "/v1/editor/rebuild";
   return false;
 }
 

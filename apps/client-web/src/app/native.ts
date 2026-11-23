@@ -46,6 +46,21 @@ export interface Done {
   cancelled?: boolean;
 }
 
+export interface StatusAnswer {
+  ok: boolean;
+  /** The StatusReport's JSON. */
+  report?: string;
+  error?: string;
+}
+
+export interface RebuildAnswer {
+  ok: boolean;
+  /** Why the rebuild could not be asked for (no daemon, an HTTP error). */
+  error?: string;
+  /** The daemon's answer to POST /v1/editor/rebuild, with its steps. */
+  body?: string;
+}
+
 export interface DaemonAnswer {
   status?: number;
   body?: string;
@@ -143,6 +158,10 @@ export interface AppHost {
   installnode(arg: { consent: "yes" }): Promise<Done>;
   openstudio(arg: { key: string; uproject: string; location?: string }): Promise<Done>;
   launcheditor(arg: { key: string; uproject: string; setUp: boolean }): Promise<Done>;
+  /** The project's install report (`ue-mcp status --json`, ue-mcp's StatusReport). Older hosts lack it. */
+  status?(arg: { uproject: string }): Promise<StatusAnswer>;
+  /** Start the project's daemon if needed, then its rebuild: stop the editor, build the project's C++, start the editor. Older hosts lack it. */
+  rebuild?(arg: { key: string; uproject: string }): Promise<RebuildAnswer>;
   /** Without a uproject, opens a file picker; with one, adds (shows again) that project. */
   addproject(arg?: { uproject: string }): Promise<Done>;
   removeproject(arg: { uproject: string }): Promise<Done>;

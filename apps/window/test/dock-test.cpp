@@ -619,6 +619,7 @@ int main() {
     CHECK(job::allowed("GET", "/v1/ext/studio/updates"));
     CHECK(job::allowed("POST", "/v1/ext/studio/window"));
     CHECK(job::allowed("POST", "/v1/editor/start"));
+    CHECK(job::allowed("POST", "/v1/editor/rebuild"));
     CHECK(!job::allowed("POST", "/v1/shutdown"));
     CHECK(!job::allowed("POST", "/v1/editor/stop"));
     CHECK(!job::allowed("GET", "/v1/sessions"));
