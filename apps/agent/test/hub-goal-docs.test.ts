@@ -23,8 +23,8 @@ const validate = new Ajv({ allErrors: true, strict: true, allowUnionTypes: true,
 const valid = (v: unknown): boolean => validate(v) as boolean;
 
 describe("goal.schema.json", () => {
-  it("is the file the store writes", () => {
-    new GoalStore({ projectDir: root }).create({ title: "x" });
+  it("is the file the store writes", async () => {
+    await new GoalStore({ projectDir: root }).create({ title: "x" });
     expect(fs.readFileSync(path.join(dir(), "goal.schema.json"), "utf-8")).toBe(GOAL_SCHEMA_TEXT);
   });
 
@@ -32,15 +32,15 @@ describe("goal.schema.json", () => {
     expect(Object.keys(GOAL_SCHEMA.properties).sort()).toEqual(["$schema", ...ORDER].sort());
   });
 
-  it("accepts every goal the store writes", () => {
+  it("accepts every goal the store writes", async () => {
     const s = new GoalStore({ projectDir: root });
-    const m = s.create({ title: "Vertical Slice", kind: "milestone", due: "2026-12-18" });
-    s.create({ title: "Bare" });
-    const g = s.create({
+    const m = await s.create({ title: "Vertical Slice", kind: "milestone", due: "2026-12-18" });
+    const bare = await s.create({ title: "Bare" });
+    const g = await s.create({
       title: "A new player finishes the tutorial",
       description: "Walk, jump, leave.",
       parents: [m.id],
-      requires: [{ goal: "bare", required: false }],
+      requires: [{ goal: bare.id, required: false }],
       owner: "Ama",
       priority: "p0",
       tags: ["onboarding"],
@@ -53,8 +53,7 @@ describe("goal.schema.json", () => {
         { kind: "automation", target: "Project.Functional.Tutorial" },
       ],
     });
-    s.signOff(g.id, "octocat", "Played it");
-    s.update(g.id, { archived: true });
+    await s.update(g.id, { archived: true });
     const files = fs.readdirSync(dir()).filter((n) => n.endsWith(".json") && n !== "goal.schema.json");
     expect(files).toHaveLength(3);
     for (const f of files) {

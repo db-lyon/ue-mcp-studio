@@ -68,7 +68,7 @@ export const GOAL_SCHEMA = {
   $schema: "https://json-schema.org/draft/2020-12/schema",
   $id: HUB_GOAL_SCHEMA_FILE,
   title: "Playtest Hub goal",
-  description: "One goal file in UE-MCP Studio's Playtest Hub. The file name is the goal's id. Only title is required; Studio fills in the rest when it saves the goal.",
+  description: "One goal file in UE-MCP Studio's Playtest Hub. The file name is the goal's id. Only title is required. Fields this schema does not name are kept as written.",
   type: "object",
   properties: {
     $schema: { type: "string", description: `Where editors find this schema: ${GOAL_SCHEMA_REF}.` },
@@ -106,16 +106,7 @@ export const GOAL_SCHEMA = {
       },
     },
     checks: { type: "array", items: { $ref: "#/$defs/check" } },
-    signOff: {
-      type: ["object", "null"],
-      description: "Who signed the goal off. Set from the hub.",
-      properties: { by: { type: "string" }, at: { type: "string" }, note: { type: "string" } },
-      required: ["by", "at"],
-      additionalProperties: false,
-    },
     archived: { type: "boolean", description: "Hidden from the overview." },
-    createdAt: { type: "string", description: "ISO time. Kept by Studio." },
-    updatedAt: { type: "string", description: "ISO time. Kept by Studio." },
   },
   required: ["title"],
   $defs: { check, link },
@@ -126,7 +117,7 @@ export const GOAL_SCHEMA_TEXT = `${JSON.stringify(GOAL_SCHEMA, null, 2)}\n`;
 /** The README's example: a goal with checks and links, as the store would write it. */
 export const EXAMPLE_GOAL: Goal = {
   schema: 1,
-  id: "tutorial-glade",
+  id: "tutorial-glade-k3f9",
   kind: "goal",
   title: "A new player finishes the tutorial glade",
   description: "Walk, jump, light the lantern and leave the glade without help.",
@@ -142,8 +133,6 @@ export const EXAMPLE_GOAL: Goal = {
     { kind: "script", target: "/Game/Tests/Tutorial/PT_Tutorial_Exit", links: [{ url: "https://example.atlassian.net/browse/HOL-118", rel: "related" }] },
     { kind: "manual", target: "The lantern prompt is readable on a TV from the couch", required: false },
   ],
-  createdAt: "2026-11-02T10:00:00.000Z",
-  updatedAt: "2026-11-20T16:30:00.000Z",
 };
 
 /** "a, b and c". */
@@ -153,13 +142,15 @@ const listed = (items: string[]): string => (items.length < 2 ? items.join("") :
 export function goalsReadme(exampleText: string): string {
   return `# Goals
 
-Each JSON file in this folder is one goal in UE-MCP Studio's Playtest Hub. The file name is the goal's id, in lowercase letters, digits and dashes, such as \`tutorial-glade.json\`. A goal's status is never stored here: Studio works it out from the runs of the goal's checks.
+Each JSON file in this folder is one goal in UE-MCP Studio's Playtest Hub. The file name is the goal's id, in lowercase letters, digits and dashes, such as \`tutorial-glade-k3f9.json\`. Studio makes a new goal's id from its title and a short random ending, so goals created on two branches never share a file; a file written by hand keeps whatever id its name gives it. A goal's status is never stored here: Studio works it out from the runs of the goal's checks, and sign-offs, like runs, stay on the computer they were given on.
 
-People and agents may edit these files directly. Studio picks up a change as soon as the file is saved, and a file it cannot read shows as a warning in the hub without stopping the others from loading. Each goal file names \`${HUB_GOAL_SCHEMA_FILE}\` in its \`"$schema"\` line, so editors that support JSON Schema check each file as it is typed. Studio keeps this README and the schema up to date and replaces any edits made to them.
+People and agents may edit these files directly. Studio picks up a change as soon as the file is saved, and a file it cannot read, such as one with merge conflict markers, shows as a warning in the hub without stopping the others from loading. Each goal file Studio creates names \`${HUB_GOAL_SCHEMA_FILE}\` in its \`"$schema"\` line, so editors that support JSON Schema check it as it is typed.
+
+When Studio saves a goal it changes only the fields that changed and keeps everything else as written, including fields it does not know. Under Perforce it opens the file for edit first, marks a new goal for add and a deleted one for delete. It wrote this README and the schema with the first goal and does not change them again, so add your team's own conventions here.
 
 ## Fields
 
-Only \`title\` is required. When it saves the goal, Studio fills in \`schema\`, \`id\`, \`kind\`, \`acceptance\`, \`checks\`, \`createdAt\` and \`updatedAt\`.
+Only \`title\` is required. A goal Studio creates also has \`schema\`, \`id\`, \`kind\`, \`acceptance\` and \`checks\`.
 
 | Field | Meaning |
 |---|---|
@@ -172,9 +163,8 @@ Only \`title\` is required. When it saves the goal, Studio fills in \`schema\`, 
 | \`acceptance\` | When the goal is met: the latest \`stableRuns\` runs (1 to 10) of every required check pass, and a person signs it off if \`acceptance.signOff\` is true. A passing check not run for \`staleAfterDays\` days puts the goal at risk; \`null\` turns that off. |
 | \`requires\` | Other goals this goal needs, in order. See below. |
 | \`checks\` | The tests that prove the goal. |
-| \`signOff\` | Who signed the goal off, and when. Set from the hub. |
 | \`archived\` | \`true\` hides the goal from the overview. |
-| \`schema\`, \`createdAt\`, \`updatedAt\` | Kept by Studio. |
+| \`schema\` | The file format's version. |
 
 ## Checks
 
@@ -203,7 +193,7 @@ The requirement is written only in the file of the goal that requires. A goal ca
 
 Goals cannot require each other in a loop: Studio refuses the change, and reports a loop written by hand as a warning. A goal that is not a milestone and that nothing requires shows in the hub as not part of any milestone, and a check no goal lists as not part of any goal, so neither goes stale unnoticed.
 
-Files written by an older Studio may name a milestone in \`"parent"\`. Studio reads that as the milestone requiring the goal, and moves it into the milestone's \`requires\` the next time it saves either file.
+Files written by an older Studio may name a milestone in \`"parent"\`. Studio reads that as the milestone requiring the goal. The goal joins the milestone's \`requires\` the next time Studio saves the milestone's file, and \`"parent"\` goes the next time it saves the goal's own file after that.
 
 ## Links
 

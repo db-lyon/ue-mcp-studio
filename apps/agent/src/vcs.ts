@@ -9,17 +9,36 @@ import { execFile } from "node:child_process";
 import * as fs from "node:fs";
 import * as path from "node:path";
 import type { VcsStatus } from "@ue-mcp-studio/shared";
+import { writeFileAtomic } from "./atomic-write.js";
 
 /** Run a tool in a folder; null when it is missing, fails or takes too long. */
 export type Run = (cmd: string, args: string[], cwd: string) => Promise<string | null>;
 
-const TIMEOUT_MS = 4000;
+/** A tool's whole answer: its exit code (null when it could not start or took too long), output and errors. */
+export interface Ran {
+  code: number | null;
+  stdout: string;
+  stderr: string;
+}
+/** Run a tool in a folder and keep its whole answer, for commands whose refusal must be shown. */
+export type Exec = (cmd: string, args: string[], cwd: string) => Promise<Ran>;
 
-export const run: Run = (cmd, args, cwd) =>
+const TIMEOUT_MS = 4000;
+/** Opening a file for edit asks the server, which may be far away: longer than a status read. */
+const WRITE_TIMEOUT_MS = 20_000;
+
+const execWithin = (timeout: number): Exec => (cmd, args, cwd) =>
   new Promise((resolve) => {
-    execFile(cmd, args, { cwd, timeout: TIMEOUT_MS, windowsHide: true, maxBuffer: 8 * 1024 * 1024, env: { ...process.env, GIT_OPTIONAL_LOCKS: "0" } }, (err, stdout) =>
-      resolve(err ? null : stdout.toString()));
+    execFile(cmd, args, { cwd, timeout, windowsHide: true, maxBuffer: 8 * 1024 * 1024, env: { ...process.env, GIT_OPTIONAL_LOCKS: "0" } }, (err, stdout, stderr) =>
+      resolve({ code: err ? (typeof err.code === "number" ? err.code : null) : 0, stdout: String(stdout), stderr: String(stderr) }));
   });
+
+export const exec: Exec = execWithin(WRITE_TIMEOUT_MS);
+
+export const run: Run = async (cmd, args, cwd) => {
+  const r = await execWithin(TIMEOUT_MS)(cmd, args, cwd);
+  return r.code === 0 ? r.stdout : null;
+};
 
 /** The nearest folder at or above `dir` that holds `name`. */
 export function findUp(dir: string, name: string): string | null {
@@ -135,6 +154,129 @@ export async function detectVcs(projectDir: string, r: Run = run): Promise<VcsSt
     if (found) return found;
   }
   return null;
+}
+
+/**
+ * The revision the workspace is at: Git's commit, the newest Perforce
+ * changelist the workspace has synced, Subversion's revision or Plastic's
+ * changeset. Null when it cannot be read.
+ */
+export async function revisionOf(vcs: VcsStatus, projectDir: string, r: Run = run): Promise<string | null> {
+  let out: string | null = null;
+  if (vcs.kind === "git") out = await r("git", ["rev-parse", "HEAD"], vcs.root);
+  else if (vcs.kind === "perforce") {
+    const info = await r("p4", ["-ztag", "-F", "%clientName%|%clientRoot%|%clientStream%|%userName%", "info"], projectDir);
+    const client = info ? parseP4Info(info)?.client : null;
+    if (client) out = await r("p4", ["-ztag", "-F", "%change%", "changes", "-m1", `//${client}/...#have`], projectDir);
+  } else if (vcs.kind === "svn") out = await r("svn", ["info", "--show-item", "revision"], vcs.root);
+  else if (vcs.kind === "plastic") out = /\bcs:(\d+)/.exec((await r("cm", ["status", "--header"], vcs.root)) ?? "")?.[1] ?? null;
+  return out?.trim().split(/\r?\n/)[0]?.trim() || null;
+}
+
+/**
+ * Every project file Studio writes goes through here, so source control
+ * knows about it. Under Perforce a file is opened for edit before it is
+ * written, a new one is marked for add once written, and a removed one is
+ * marked for delete; a refusal (locked by someone, offline, not logged in)
+ * is thrown with Perforce's own words before anything changes. Elsewhere
+ * files are written as they are: Git and the others see changes themselves.
+ */
+export interface ProjectWriter {
+  write(file: string, text: string): Promise<void>;
+  remove(file: string): Promise<void>;
+}
+
+/** A file's Perforce state from `p4 fstat`: not in the depot, deleted at head, open for an action, or synced. */
+type P4State = { depot: false; outside?: boolean } | { depot: true; headDeleted: boolean; action: string };
+
+/** `p4 -s` output: the messages it marks error or warning, which make a command a refusal. */
+const p4Refusal = (out: Ran): string | null => {
+  const bad = out.stdout.split(/\r?\n/).filter((l) => /^(error|warning): /.test(l)).map((l) => l.replace(/^\w+: /, "").trim());
+  if (bad.length) return bad.join(" ");
+  if (out.code !== 0) return (out.stderr || out.stdout).trim() || "Perforce did not answer";
+  return null;
+};
+
+/** Whether the folder is in a Perforce workspace; the other tools are found by their folder. */
+async function underPerforce(dir: string, x: Exec): Promise<boolean> {
+  if (findUp(dir, ".git") || findUp(dir, ".plastic") || findUp(dir, ".svn")) return false;
+  const info = await x("p4", ["-ztag", "-F", "%clientName%|%clientRoot%|%clientStream%|%userName%", "info"], dir);
+  const p = info.code === 0 ? parseP4Info(info.stdout) : null;
+  return !!p && inside(dir, p.root);
+}
+
+export function projectWriter(x: Exec = exec): ProjectWriter {
+  const p4 = async (args: string[], file: string): Promise<void> => {
+    const why = p4Refusal(await x("p4", ["-s", ...args, file], path.dirname(file)));
+    if (why) throw new Error(`Perforce refused to ${args[0]} ${path.basename(file)}: ${why}`);
+  };
+  const state = async (file: string): Promise<P4State> => {
+    const out = await x("p4", ["-ztag", "-F", "%depotFile%|%headAction%|%action%", "fstat", file], path.dirname(file));
+    const line = out.stdout.split(/\r?\n/).find((l) => l.includes("|"));
+    if (out.code === 0 && line) {
+      const [, head, action] = line.split("|");
+      return { depot: true, headDeleted: /delete/.test(head ?? ""), action: (action ?? "").trim() };
+    }
+    const text = `${out.stderr}\n${out.stdout}`;
+    if (/no such file/i.test(text)) return { depot: false };
+    if (/not in client view|not under client's root/i.test(text)) return { depot: false, outside: true };
+    throw new Error(`Perforce could not say whether ${path.basename(file)} is checked in: ${text.trim() || "it did not answer"}`);
+  };
+  const plainWrite = (file: string, text: string): void => {
+    try {
+      writeFileAtomic(file, text);
+    } catch (e) {
+      if (isReadOnly(file)) throw new Error(`${path.basename(file)} is read-only. Make it writable, or open it for edit in source control, and try again.`);
+      throw e;
+    }
+  };
+  return {
+    async write(file, text) {
+      if (!(await underPerforce(path.dirname(file), x))) return plainWrite(file, text);
+      const s = await state(file);
+      if (s.depot && s.action) {
+        if (/delete/.test(s.action)) throw new Error(`${path.basename(file)} is open for delete in Perforce. Revert it there first.`);
+        return plainWrite(file, text);
+      }
+      if (s.depot && !s.headDeleted) {
+        await p4(["edit"], file);
+        return plainWrite(file, text);
+      }
+      // New to the depot: written first, since Perforce adds only a file that exists, and put back as it was if the add is refused.
+      const had = fs.existsSync(file) ? fs.readFileSync(file) : null;
+      plainWrite(file, text);
+      // Outside the workspace's view Perforce cannot hold it: the team chose not to map the folder.
+      if (!s.depot && s.outside) return;
+      try {
+        await p4(["add"], file);
+      } catch (e) {
+        if (had) writeFileAtomic(file, had);
+        else fs.rmSync(file, { force: true });
+        throw e;
+      }
+    },
+    async remove(file) {
+      if (!(await underPerforce(path.dirname(file), x))) return fs.rmSync(file, { force: true });
+      const s = await state(file);
+      if (!s.depot || s.headDeleted) return fs.rmSync(file, { force: true });
+      if (/delete/.test(s.action)) return;
+      if (/add|branch/.test(s.action)) {
+        await p4(["revert"], file);
+        return fs.rmSync(file, { force: true });
+      }
+      if (s.action) await p4(["revert"], file);
+      await p4(["delete"], file);
+    },
+  };
+}
+
+function isReadOnly(file: string): boolean {
+  try {
+    fs.accessSync(file, fs.constants.W_OK);
+    return false;
+  } catch (e) {
+    return (e as { code?: string }).code !== "ENOENT";
+  }
 }
 
 /** One changed file, its path relative to the repository root. */

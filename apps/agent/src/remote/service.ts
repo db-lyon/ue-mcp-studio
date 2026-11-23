@@ -9,6 +9,7 @@ import {
   FORWARDED_REQUEST_HEADERS,
   FORWARDED_RESPONSE_HEADERS,
   MAX_REQUEST_BYTES,
+  PAIRED_DEVICE_HEADER,
   PAIR_APPROVAL_TTL_MS,
   PAIR_SECRET_TTL_MS,
   ReplayGuard,
@@ -342,6 +343,8 @@ export class RemoteService {
     if (!daemon) return error(503, "The daemon is not running for that project.");
     const headers = forwardHeaders(req);
     headers["authorization"] = `Bearer ${daemon.token}`;
+    const device = this.o.keys.phones().find((p) => p.id === sealed.phone);
+    headers[PAIRED_DEVICE_HEADER] = encodeURIComponent(device?.label ?? "Paired device");
 
     let res: Response;
     try {

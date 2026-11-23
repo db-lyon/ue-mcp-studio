@@ -1,26 +1,36 @@
 /**
  * Goals, as files in the project: <project>/QA/Goals/<id>.json, one per goal,
- * checked in with the game. Each file is pretty-printed with its keys in one
- * fixed order and a trailing newline, so a diff shows only what changed and
- * two people editing different goals never touch the same file.
+ * checked in with the game. Studio writes a file only when a person or an
+ * agent changed that goal, and then patches it: the members the change
+ * touched are replaced and everything else is written back as read, in its
+ * place, including fields and list entries this Studio does not know. A new
+ * file is pretty-printed with its keys in one fixed order and a trailing
+ * newline; a file's line endings are kept. Nothing in a goal file changes
+ * with time, so two people editing different fields of one goal merge
+ * cleanly.
  *
- * A file that does not parse, or is not a goal, is left alone and reported as
- * a warning; it never stops the others loading. The folder is watched, so a
- * goal changed by source control or a text editor shows at once.
+ * Every write goes through the project's source control (vcs.ts
+ * projectWriter): under Perforce a goal is opened for edit, added or deleted
+ * there, and a refusal is reported before anything changes.
  *
- * Beside the goals the store keeps goal.schema.json and README.md
- * (goal-docs.ts), written once the folder exists and rewritten only when
- * their text would change, so source control sees no churn. Each goal file
- * names the schema in "$schema"; a different "$schema" a file already has is
- * kept as written.
+ * A file that does not parse, has merge conflict markers, or is not a goal is
+ * left alone and reported as a warning naming it; it never stops the others
+ * loading. The folder is watched, so a goal changed by source control or a
+ * text editor shows at once.
+ *
+ * goal.schema.json and README.md (goal-docs.ts) are written when a goal is
+ * created and they are not there, and never again: after that they are the
+ * team's.
  *
  * Goals require goals (Goal.requires), held in the requiring goal's file. A
  * file from before that names its milestone in "parent" is read as an entry
- * in the parent's requires; nothing is written for it until either file is
- * written for another reason, and then both are: the parent's with the entry,
- * the old file without "parent". A change that would make goals require each
- * other in a loop is refused; a loop already in the files is reported.
+ * in the parent's requires. The entry is written when the parent's file is
+ * saved for another reason, and "parent" is dropped when the old file is
+ * saved after that, or at once when the parent stops requiring it. A change
+ * that would make goals require each other in a loop is refused; a loop
+ * already in the files is reported.
  */
+import { createHash, randomBytes } from "node:crypto";
 import * as fs from "node:fs";
 import * as path from "node:path";
 import {
@@ -35,6 +45,7 @@ import {
   goalSlug,
   loopIfRequired,
   requiresOf,
+  trackerLinkOf,
   type AcceptanceRule,
   type CheckRef,
   type CheckUpdate,
@@ -43,10 +54,9 @@ import {
   type GoalPriority,
   type GoalRequirement,
   type GoalUpdate,
-  type SignOff,
   type TrackerLink,
 } from "@ue-mcp-studio/shared";
-import { writeFileAtomic } from "../atomic-write.js";
+import { projectWriter, type ProjectWriter } from "../vcs.js";
 import { EXAMPLE_GOAL, GOAL_SCHEMA_REF, GOAL_SCHEMA_TEXT, goalsReadme } from "./goal-docs.js";
 import { bad, checkRefOf, conflict, isObject, linksOf, notFound, readLinks } from "./util.js";
 
@@ -57,13 +67,15 @@ const SETTLE_MS = 250;
 /** The longest title, description and note kept. */
 const MAX_TITLE = 200;
 const MAX_TEXT = 20_000;
+/** A new id's random ending: four base-36 characters after a dash. */
+const SUFFIX = 4;
+/** A line git or Perforce leaves where a merge conflicted. */
+const CONFLICT_MARKER = /^(<{7}|>{7}|={7})(\s|$)/m;
 
-/** Top-level keys in the order a goal file is written. Unknown keys a newer Studio wrote follow, sorted. */
-export const ORDER = ["schema", "id", "kind", "title", "description", "owner", "priority", "tags", "due", "links", "acceptance", "requires", "checks", "signOff", "archived", "createdAt", "updatedAt"] as const;
-/** Keys a goal file holds that are not the goal's own fields, kept apart from unknown ones: "$schema" is always written first. */
-const SCHEMA_KEY = "$schema";
-/** Keys an older Studio wrote that are read and then dropped: "parent" became an entry in the parent's requires. */
-const LEGACY_KEYS: readonly string[] = ["parent"];
+/** Top-level keys in the order a new goal file is written, and where a key a file gains goes. */
+export const ORDER = ["schema", "id", "kind", "title", "description", "owner", "priority", "tags", "due", "links", "acceptance", "requires", "checks", "archived"] as const;
+/** Keys an older Studio wrote that this one no longer writes: "parent" became an entry in the parent's requires. */
+const LEGACY_PARENT = "parent";
 /** A loop in words: "a > b > a". */
 const loopText = (path: string[]): string => path.join(" > ");
 
@@ -71,37 +83,41 @@ export interface GoalStoreOptions {
   projectDir: string;
   /** The goals folder relative to the project; HUB_GOALS_DIR unless the project sets another. */
   dir?: string;
-  now?: () => string;
   /** Goals changed, on disk or here. */
   changed?: (goalId?: string) => void;
   log?: { warn(message: string, detail?: unknown): void };
+  /** How project files are written; through the project's source control unless a test gives another. */
+  writer?: ProjectWriter;
 }
 
 interface Entry {
+  /** The goal, with the entries older files' "parent" adds to its requires. */
   goal: Goal;
-  /** What the file held when last read or written, to tell a real change from our own write coming back. */
+  /** The goal as its file states it. */
+  file: Goal;
+  /** The file's JSON as read, every member in its place. */
+  raw: Record<string, unknown>;
+  /** What the file held when last read, to tell a real change from our own write coming back. */
   text: string;
-  /** Keys this Studio does not know, kept as written. */
-  extra: Record<string, unknown>;
-  /** The "parent" the file still holds from an older Studio, until the file is written again. */
+  /** The "parent" the file still holds from an older Studio. */
   legacyParent?: string;
 }
 
 /** Links in their written form: url, title, rel. */
 const linksText = (links: TrackerLink[]): TrackerLink[] => links.map((l) => ({ url: l.url, ...(l.title !== undefined ? { title: l.title } : {}), ...(l.rel !== undefined ? { rel: l.rel } : {}) }));
 
-/** A goal file's text: "$schema" first, then a fixed key order, two-space indent, trailing newline. */
-export function goalText(goal: Goal, extra: Record<string, unknown> = {}): string {
-  const out: Record<string, unknown> = { [SCHEMA_KEY]: extra[SCHEMA_KEY] !== undefined ? extra[SCHEMA_KEY] : GOAL_SCHEMA_REF };
+/** A goal's members as Studio writes them, in ORDER; what a patch compares and writes. */
+export function goalFields(goal: Goal): Record<string, unknown> {
+  const out: Record<string, unknown> = {};
   const g = goal as unknown as Record<string, unknown>;
   for (const k of ORDER) {
     const v = g[k];
-    if (v === undefined) continue;
+    if (v === undefined || v === null) continue;
     if (k === "acceptance") {
       const a = v as AcceptanceRule;
       out[k] = { stableRuns: a.stableRuns, staleAfterDays: a.staleAfterDays, signOff: a.signOff };
-    } else if (k === "links") {
-      if ((v as TrackerLink[]).length) out[k] = linksText(v as TrackerLink[]);
+    } else if (k === "links" || k === "tags") {
+      if ((v as unknown[]).length) out[k] = k === "links" ? linksText(v as TrackerLink[]) : v;
     } else if (k === "requires") {
       if ((v as GoalRequirement[]).length) out[k] = (v as GoalRequirement[]).map((r) => ({ goal: r.goal, ...(r.required === false ? { required: false } : {}) }));
     } else if (k === "checks") {
@@ -112,15 +128,103 @@ export function goalText(goal: Goal, extra: Record<string, unknown> = {}): strin
         ...(c.required !== undefined ? { required: c.required } : {}),
         ...(c.links?.length ? { links: linksText(c.links) } : {}),
       }));
-    } else if (k === "signOff" && v) {
-      const s = v as SignOff;
-      out[k] = { by: s.by, at: s.at, ...(s.note !== undefined ? { note: s.note } : {}) };
     } else {
       out[k] = v;
     }
   }
-  for (const k of Object.keys(extra).sort()) if (k !== SCHEMA_KEY && !(ORDER as readonly string[]).includes(k) && !LEGACY_KEYS.includes(k)) out[k] = extra[k];
-  return `${JSON.stringify(out, null, 2)}\n`;
+  return out;
+}
+
+const json = (v: unknown): string => `${JSON.stringify(v, null, 2)}\n`;
+
+/** A new goal file's text: "$schema" first, then ORDER, two-space indent, trailing newline. */
+export function goalText(goal: Goal): string {
+  return json({ $schema: GOAL_SCHEMA_REF, ...goalFields(goal) });
+}
+
+const same = (a: unknown, b: unknown): boolean => JSON.stringify(a) === JSON.stringify(b);
+
+/** An entry's identity in a goal file's list: a check by kind and target, a required goal by id, a link by URL, a tag by itself. */
+function itemKey(v: unknown): string | null {
+  if (typeof v === "string") return `tag:${v.trim()}`;
+  if (!isObject(v)) return null;
+  if (typeof v.kind === "string" && typeof v.target === "string") {
+    const ref = checkRefOf(v);
+    return ref ? checkId(ref) : `${v.kind}:${v.target}`;
+  }
+  if (typeof v.goal === "string") return `goal:${v.goal}`;
+  if (typeof v.url === "string") {
+    const l = trackerLinkOf(v);
+    return `url:${"link" in l ? l.link.url : v.url}`;
+  }
+  return null;
+}
+
+/** An object with `key` added where `order` puts it among the keys it has, else at the end. */
+function withKey(obj: Record<string, unknown>, key: string, value: unknown, order?: readonly string[]): Record<string, unknown> {
+  const entries = Object.entries(obj);
+  const at = order ? order.indexOf(key) : -1;
+  const i = at < 0 ? -1 : entries.findIndex(([k]) => order!.indexOf(k) > at);
+  if (i < 0) entries.push([key, value]);
+  else entries.splice(i, 0, [key, value]);
+  return Object.fromEntries(entries);
+}
+
+/**
+ * `raw` changed as `before` became `after`, touching nothing else: members
+ * equal in both are written back as read, a changed object is patched member
+ * by member and a changed list entry by entry (patchList).
+ */
+export function patchJson(raw: unknown, before: unknown, after: unknown, order?: readonly string[]): unknown {
+  if (same(before, after)) return raw;
+  if (isObject(after) && isObject(raw)) {
+    const was = isObject(before) ? before : {};
+    let out: Record<string, unknown> = { ...raw };
+    for (const k of new Set([...Object.keys(was), ...Object.keys(after)])) {
+      if (same(was[k], after[k])) continue;
+      if (after[k] === undefined) delete out[k];
+      else if (k in out) out[k] = patchJson(raw[k], was[k], after[k]);
+      // A member the file leaves to its default gains only what changed of it.
+      else out = withKey(out, k, isObject(was[k]) ? patchJson({}, was[k], after[k]) : after[k], order);
+    }
+    return out;
+  }
+  if (Array.isArray(after) && Array.isArray(raw)) return patchList(raw, Array.isArray(before) ? before : [], after);
+  return after;
+}
+
+/**
+ * A list as `after` orders it, each entry patched from the one the file has
+ * for it. Entries this Studio could not read (in the file, never in
+ * `before`) stay, after the entry they followed.
+ */
+function patchList(raw: unknown[], before: unknown[], after: unknown[]): unknown[] {
+  const known = new Set(before.map(itemKey));
+  const placed = new Map<number, unknown>();
+  const out = after.map((a) => {
+    const key = itemKey(a);
+    const i = key === null ? -1 : raw.findIndex((r, n) => !placed.has(n) && itemKey(r) === key);
+    if (i < 0) return a;
+    const v = patchJson(raw[i], before.find((b) => itemKey(b) === key) ?? {}, a);
+    placed.set(i, v);
+    return v;
+  });
+  let anchor: unknown;
+  let anchored = false;
+  for (const [n, r] of raw.entries()) {
+    if (placed.has(n)) {
+      anchor = placed.get(n);
+      anchored = true;
+      continue;
+    }
+    const key = itemKey(r);
+    if (key !== null && known.has(key)) continue;
+    const at = anchored ? out.indexOf(anchor) + 1 : 0;
+    out.splice(at, 0, r);
+    anchor = r;
+    anchored = true;
+  }
+  return out;
 }
 
 function acceptanceOf(v: unknown, fallback: AcceptanceRule = DEFAULT_ACCEPTANCE): AcceptanceRule {
@@ -149,9 +253,10 @@ const str = (v: unknown, max = MAX_TEXT): string | undefined => (typeof v === "s
 
 /**
  * A goal from a file's JSON, with what was wrong in it. Null with a problem
- * when it is no goal at all; fields of the wrong type are dropped and named.
+ * when it is no goal at all; fields of the wrong type are left out of the
+ * goal and named, and stay in the file.
  */
-export function parseGoal(raw: unknown, fileId: string, fallbackTime: string): { goal: Goal; extra: Record<string, unknown>; problems: string[]; legacyParent?: string } | { problem: string } {
+export function parseGoal(raw: unknown, fileId: string): { goal: Goal; problems: string[]; legacyParent?: string } | { problem: string } {
   if (!isObject(raw)) return { problem: "it is not a JSON object" };
   if (typeof raw.schema === "number" && raw.schema > HUB_SCHEMA) return { problem: `it was written by a newer Studio (schema ${raw.schema})` };
   if (raw.id !== undefined && raw.id !== fileId) return { problem: `its id "${String(raw.id)}" is not its file name` };
@@ -163,7 +268,7 @@ export function parseGoal(raw: unknown, fileId: string, fallbackTime: string): {
   for (const [i, c] of (Array.isArray(raw.checks) ? raw.checks : []).entries()) {
     const ref = checkRefOf(c);
     if (!ref) {
-      problems.push(`check ${i + 1} is not a check`);
+      problems.push(`check ${i + 1} is not a check this Studio knows`);
       continue;
     }
     checks.push(ref);
@@ -186,15 +291,12 @@ export function parseGoal(raw: unknown, fileId: string, fallbackTime: string): {
     if (requires.some((x) => x.goal === id)) continue;
     requires.push({ goal: id, ...((r as Record<string, unknown>).required === false ? { required: false } : {}) });
   }
-  const legacyParent = typeof raw.parent === "string" && GOAL_ID.test(raw.parent) && raw.parent !== fileId ? raw.parent : undefined;
-  const kind = raw.kind === "milestone" ? "milestone" : "goal";
-  const signOff = isObject(raw.signOff) && typeof raw.signOff.by === "string" && typeof raw.signOff.at === "string"
-    ? { by: raw.signOff.by, at: raw.signOff.at, ...(typeof raw.signOff.note === "string" ? { note: raw.signOff.note } : {}) }
-    : null;
+  const parent = raw[LEGACY_PARENT];
+  const legacyParent = typeof parent === "string" && GOAL_ID.test(parent) && parent !== fileId ? parent : undefined;
   const goal: Goal = {
     schema: HUB_SCHEMA,
     id: fileId,
-    kind,
+    kind: raw.kind === "milestone" ? "milestone" : "goal",
     title,
     ...(str(raw.description) ? { description: str(raw.description) } : {}),
     ...(str(raw.owner, MAX_TITLE) ? { owner: str(raw.owner, MAX_TITLE) } : {}),
@@ -205,13 +307,9 @@ export function parseGoal(raw: unknown, fileId: string, fallbackTime: string): {
     acceptance: acceptanceOf(raw.acceptance),
     ...(requires.length ? { requires } : {}),
     checks: uniqueChecks(checks),
-    ...(signOff ? { signOff } : {}),
     ...(raw.archived === true ? { archived: true } : {}),
-    createdAt: typeof raw.createdAt === "string" ? raw.createdAt : fallbackTime,
-    updatedAt: typeof raw.updatedAt === "string" ? raw.updatedAt : fallbackTime,
   };
-  const extra = Object.fromEntries(Object.entries(raw).filter(([k]) => !(ORDER as readonly string[]).includes(k) && !LEGACY_KEYS.includes(k)));
-  return { goal, extra, problems, ...(legacyParent ? { legacyParent } : {}) };
+  return { goal, problems, ...(legacyParent ? { legacyParent } : {}) };
 }
 
 export class GoalStore {
@@ -219,43 +317,17 @@ export class GoalStore {
   private problems: string[] = [];
   private watcher: fs.FSWatcher | null = null;
   private timer: NodeJS.Timeout | null = null;
-  private readonly now: () => string;
+  private readonly writer: ProjectWriter;
+  /** Seeds new ids' endings: random for each store, so ids made on two machines differ, and the same for one draft, so a create writes the id its preview showed. */
+  private readonly salt = randomBytes(16);
   readonly dir: string;
   readonly relDir: string;
 
   constructor(private readonly o: GoalStoreOptions) {
-    this.now = o.now ?? (() => new Date().toISOString());
+    this.writer = o.writer ?? projectWriter();
     this.relDir = (o.dir ?? HUB_GOALS_DIR).replace(/\\/g, "/");
     this.dir = path.resolve(o.projectDir, this.relDir);
     this.read();
-    if (fs.existsSync(this.dir)) this.writeDocs();
-  }
-
-  /**
-   * goal.schema.json and README.md, each written only when its text differs
-   * from what the file holds. A failure is logged: the goals still work.
-   */
-  writeDocs(): void {
-    const docs: Array<[string, string]> = [
-      [HUB_GOAL_SCHEMA_FILE, GOAL_SCHEMA_TEXT],
-      [HUB_GOALS_README, goalsReadme(goalText(EXAMPLE_GOAL))],
-    ];
-    for (const [name, text] of docs) {
-      const file = path.join(this.dir, name);
-      try {
-        let had: string | null = null;
-        try {
-          had = fs.readFileSync(file, "utf-8");
-        } catch {
-          // Not there yet.
-        }
-        // A checkout may turn the newlines into CRLF: that is the same text.
-        if (had !== null && had.replace(/\r\n/g, "\n") === text) continue;
-        writeFileAtomic(file, text);
-      } catch (e) {
-        this.o.log?.warn(`hub: ${this.relDir}/${name} could not be written`, e);
-      }
-    }
   }
 
   /** Start following the folder; a missing folder is followed from the first goal written into it. */
@@ -322,13 +394,14 @@ export class GoalStore {
         this.problems.push(`${where}: a goal's file name is its id, lowercase letters, digits and dashes`);
         continue;
       }
-      const file = path.join(this.dir, name);
       let text: string;
-      let mtime: string;
       try {
-        text = fs.readFileSync(file, "utf-8");
-        mtime = fs.statSync(file).mtime.toISOString();
+        text = fs.readFileSync(path.join(this.dir, name), "utf-8");
       } catch {
+        continue;
+      }
+      if (CONFLICT_MARKER.test(text)) {
+        this.problems.push(`${where} has merge conflict markers, so it is left out until the conflict is resolved`);
         continue;
       }
       let raw: unknown;
@@ -338,13 +411,13 @@ export class GoalStore {
         this.problems.push(`${where} is not valid JSON: ${e instanceof Error ? e.message : String(e)}`);
         continue;
       }
-      const p = parseGoal(raw, id, mtime);
+      const p = parseGoal(raw, id);
       if ("problem" in p) {
         this.problems.push(`${where} was not loaded: ${p.problem}`);
         continue;
       }
       for (const problem of p.problems) this.problems.push(`${where}: ${problem}, so it was left out`);
-      this.goals.set(id, { goal: p.goal, text, extra: p.extra, ...(p.legacyParent ? { legacyParent: p.legacyParent } : {}) });
+      this.goals.set(id, { goal: p.goal, file: p.goal, raw: raw as Record<string, unknown>, text, ...(p.legacyParent ? { legacyParent: p.legacyParent } : {}) });
     }
     // An older file's "parent" is an entry at the end of the parent's requires, files taken in name order so the same files read the same way.
     for (const [id, e] of this.goals) {
@@ -386,48 +459,75 @@ export class GoalStore {
     return this.goals.get(id)?.text ?? null;
   }
 
-  /** The text a goal would be written as, keeping the file's unknown keys. */
+  /** The text a goal would be written as: its file patched with the change, or a new file. */
   textFor(goal: Goal): string {
-    return goalText(goal, this.goals.get(goal.id)?.extra ?? {});
-  }
-
-  private writeOne(goal: Goal, extra: Record<string, unknown> = this.goals.get(goal.id)?.extra ?? {}): void {
-    const text = goalText(goal, extra);
-    const fresh = !fs.existsSync(this.dir);
-    fs.mkdirSync(this.dir, { recursive: true });
-    if (fresh || this.goals.size === 0) this.writeDocs();
-    writeFileAtomic(this.fileOf(goal.id), text);
-    this.goals.set(goal.id, { goal, text, extra });
+    return this.render(goal, new Map([[goal.id, goal]]));
   }
 
   /**
-   * Write goals, the first with `extra` when given. A file still in the old
-   * shape that an edge here involves is written with them in the new one:
-   * the old parent a file names (its entry is in the parent's requires now)
-   * and every old file naming one of these goals as its parent.
+   * A goal's file text with `goal` written into it. `batch` is every goal
+   * written with it, for an older file's "parent": dropped once the parent's
+   * file lists the goal, or once the parent no longer requires it.
    */
-  private write(goals: Goal | Goal[], extra?: Record<string, unknown>): Goal {
-    const list = Array.isArray(goals) ? goals : [goals];
-    const legacy: string[] = [];
-    for (const g of list) {
-      const own = this.goals.get(g.id)?.legacyParent;
-      if (own) legacy.push(own);
-      for (const [id, e] of this.goals) if (e.legacyParent === g.id) legacy.push(id);
+  private render(goal: Goal, batch: ReadonlyMap<string, Goal>): string {
+    const e = this.goals.get(goal.id);
+    if (!e) return goalText(goal);
+    const raw = patchJson(e.raw, goalFields(e.file), goalFields(goal), ORDER) as Record<string, unknown>;
+    if (e.legacyParent && LEGACY_PARENT in raw) {
+      const listed = (g: Pick<Goal, "requires"> | undefined): boolean => !!g && requiresOf(g).some((r) => r.goal === goal.id);
+      const parent = batch.get(e.legacyParent);
+      const required = listed(parent ?? this.goals.get(e.legacyParent)?.goal);
+      const inFile = parent ? listed(parent) : listed(this.goals.get(e.legacyParent)?.file);
+      if (!required || inFile) delete raw[LEGACY_PARENT];
     }
+    const text = json(raw);
+    return e.text.includes("\r\n") ? text.replace(/\n/g, "\r\n") : text;
+  }
+
+  /**
+   * Write goals: each file whose text changes, through source control, and
+   * an older file whose "parent" names one of them that no longer requires
+   * it, so the requirement does not come back when it is read.
+   */
+  private async write(goals: Goal[]): Promise<void> {
+    const batch = new Map(goals.map((g) => [g.id, g]));
+    for (const [id, e] of this.goals) {
+      const parent = e.legacyParent ? batch.get(e.legacyParent) : undefined;
+      if (parent && !batch.has(id) && !requiresOf(parent).some((r) => r.goal === id)) batch.set(id, e.goal);
+    }
+    const texts = [...batch.values()].map((g) => ({ id: g.id, text: this.render(g, batch) }));
+    fs.mkdirSync(this.dir, { recursive: true });
     const written: string[] = [];
-    for (const [i, g] of list.entries()) {
-      this.writeOne(g, i === 0 ? extra : undefined);
-      written.push(g.id);
+    try {
+      for (const { id, text } of texts) {
+        if (text === this.goals.get(id)?.text) continue;
+        await this.writer.write(this.fileOf(id), text);
+        written.push(id);
+      }
+    } finally {
+      if (written.length) {
+        this.read();
+        this.watch();
+        for (const id of written) this.o.changed?.(id);
+      }
     }
-    for (const id of legacy) {
-      const e = this.goals.get(id);
-      if (!e || written.includes(id)) continue;
-      this.writeOne(e.goal, e.extra);
-      written.push(id);
+  }
+
+  /** goal.schema.json and README.md, each written only when it is not there. */
+  private async writeMissingDocs(): Promise<void> {
+    const docs: Array<[string, () => string]> = [
+      [HUB_GOAL_SCHEMA_FILE, () => GOAL_SCHEMA_TEXT],
+      [HUB_GOALS_README, () => goalsReadme(goalText(EXAMPLE_GOAL))],
+    ];
+    for (const [name, text] of docs) {
+      const file = path.join(this.dir, name);
+      if (fs.existsSync(file)) continue;
+      try {
+        await this.writer.write(file, text());
+      } catch (e) {
+        this.o.log?.warn(`hub: ${this.relDir}/${name} could not be written`, e);
+      }
     }
-    this.watch();
-    for (const id of written) this.o.changed?.(id);
-    return list[0];
   }
 
   private must(id: string): Goal {
@@ -436,19 +536,23 @@ export class GoalStore {
     return g;
   }
 
-  /** A unique id: the asked one when free, else the title's slug with -2, -3 and so on. */
-  private freshId(asked: unknown, title: string): string {
+  /**
+   * A unique id: the asked one when free, else the title's slug and a dash
+   * with SUFFIX base-36 characters drawn from this store's salt and the
+   * draft, so the same draft gets the same id until it is written.
+   */
+  private freshId(asked: unknown, title: string, draft: unknown): string {
+    const taken = (id: string) => this.goals.has(id) || fs.existsSync(this.fileOf(id));
     if (typeof asked === "string" && asked) {
       if (!GOAL_ID.test(asked)) throw bad("id must be lowercase letters, digits and dashes, at most 64 characters");
-      if (this.goals.has(asked) || fs.existsSync(path.join(this.dir, `${asked}.json`))) throw conflict(`a goal ${asked} already exists`);
+      if (taken(asked)) throw conflict(`a goal ${asked} already exists`);
       return asked;
     }
-    const base = goalSlug(title);
-    const taken = (id: string) => this.goals.has(id) || fs.existsSync(path.join(this.dir, `${id}.json`));
-    if (!taken(base)) return base;
-    for (let n = 2; ; n++) {
-      const suffix = `-${n}`;
-      const id = `${base.slice(0, 64 - suffix.length).replace(/-+$/, "")}${suffix}`;
+    const base = goalSlug(title, 64 - SUFFIX - 1);
+    const seed = JSON.stringify(draft);
+    for (let n = 0; ; n++) {
+      const h = createHash("sha256").update(this.salt).update(seed).update(String(n)).digest();
+      const id = `${base}-${(h.readUInt32BE(0) % 36 ** SUFFIX).toString(36).padStart(SUFFIX, "0")}`;
       if (!taken(id)) return id;
     }
   }
@@ -496,6 +600,7 @@ export class GoalStore {
       out.archived = u.archived;
     }
     if (u.parent !== undefined) throw bad("parent is gone: list the goal in its milestone's requires, or give parents");
+    if (u.signOff !== undefined) throw bad("a sign-off is not part of the goal file: give it with /sign-off");
     if (u.requires !== undefined) out.requires = this.requiresList(u.requires, id);
     return out;
   }
@@ -549,19 +654,18 @@ export class GoalStore {
   }
 
   /**
-   * The parents' files as they would be with `id` required by exactly
-   * `parents`: a new parent gains the entry at its end, a parent not named
-   * loses it. Only the files that change.
+   * The parents as they would be with `id` required by exactly `parents`: a
+   * new parent gains the entry at its end, a parent not named loses it. Only
+   * the goals that change.
    */
   private parentFiles(id: string, parents: string[]): Goal[] {
-    const at = this.now();
     const out: Goal[] = [];
     for (const g of this.list()) {
       const reqs = requiresOf(g);
       const has = reqs.some((r) => r.goal === id);
       const wants = parents.includes(g.id);
       if (has === wants) continue;
-      out.push(clean({ ...g, requires: wants ? [...reqs, { goal: id }] : reqs.filter((r) => r.goal !== id), updatedAt: at }));
+      out.push(clean({ ...g, requires: wants ? [...reqs, { goal: id }] : reqs.filter((r) => r.goal !== id) }));
     }
     return out;
   }
@@ -578,13 +682,16 @@ export class GoalStore {
     }));
   }
 
-  /** Create a goal; `parents` in the draft each gain it at the end of their requires. */
-  create(draft: unknown): Goal {
+  /** Create a goal; `parents` in the draft each gain it at the end of their requires. The first goal brings the schema and README. */
+  async create(draft: unknown): Promise<Goal> {
     const goal = this.planCreate(draft);
     const parents = isObject(draft) && draft.parents !== undefined ? this.parentsOf(draft.parents, null) : [];
     const files = this.parentFiles(goal.id, parents);
     this.refuseLoops([goal, ...files]);
-    return this.write([goal, ...files], {});
+    fs.mkdirSync(this.dir, { recursive: true });
+    await this.writeMissingDocs();
+    await this.write([goal, ...files]);
+    return this.must(goal.id);
   }
 
   /** The goal create() would write, without writing it. */
@@ -593,15 +700,13 @@ export class GoalStore {
     const d = draft as Partial<GoalDraft> & Record<string, unknown>;
     if (!str(d.title, MAX_TITLE)) throw bad("title must be a non-empty string");
     if (d.kind !== undefined && d.kind !== "goal" && d.kind !== "milestone") throw bad("kind must be goal or milestone");
-    const kind = d.kind ?? "goal";
     const f = this.fields(d, null);
-    const id = this.freshId(d.id, f.title!);
+    const id = this.freshId(d.id, f.title!, draft);
     if (f.requires?.some((r) => r.goal === id)) throw bad("a goal cannot require itself");
-    const at = this.now();
-    const goal: Goal = {
+    return {
       schema: HUB_SCHEMA,
       id,
-      kind,
+      kind: d.kind ?? "goal",
       title: f.title!,
       ...(f.description ? { description: f.description } : {}),
       ...(f.owner ? { owner: f.owner } : {}),
@@ -613,19 +718,17 @@ export class GoalStore {
       ...(f.requires?.length ? { requires: f.requires } : {}),
       checks: f.checks ?? [],
       ...(f.archived ? { archived: true } : {}),
-      createdAt: at,
-      updatedAt: at,
     };
-    return goal;
   }
 
   /** Change a goal; `parents`, when given, makes exactly those goals require it, writing their files. */
-  update(id: string, u: unknown): Goal {
+  async update(id: string, u: unknown): Promise<Goal> {
     const next = this.planUpdate(id, u);
     const parents = isObject(u) && u.parents !== undefined ? this.parentsOf(u.parents, id) : null;
     const files = parents ? this.parentFiles(id, parents) : [];
     this.refuseLoops([next, ...files]);
-    return this.write([next, ...files]);
+    await this.write([next, ...files]);
+    return this.must(id);
   }
 
   /** The goal update() would write, without writing it. Parents' files are not part of it. */
@@ -634,17 +737,16 @@ export class GoalStore {
     if (!isObject(u)) throw bad("body must be the fields to change");
     const upd = u as GoalUpdate & Record<string, unknown>;
     if (upd.kind !== undefined && upd.kind !== "goal" && upd.kind !== "milestone") throw bad("kind must be goal or milestone");
-    if (upd.signOff !== undefined) throw bad("sign-off is given and cleared with /sign-off");
-    const kind = upd.kind ?? had.kind;
     const f = this.fields(upd, id);
-    const next = clean({ ...had, ...f, kind, schema: HUB_SCHEMA, id, createdAt: had.createdAt, updatedAt: this.now() });
+    const next = clean({ ...had, ...f, kind: upd.kind ?? had.kind, schema: HUB_SCHEMA, id });
     this.refuseLoops([next]);
     return next;
   }
 
-  addRequire(id: string, body: unknown): Goal {
+  async addRequire(id: string, body: unknown): Promise<Goal> {
     const next = this.planRequire(id, body);
-    return next === this.get(id) ? next : this.write(next);
+    if (next !== this.get(id)) await this.write([next]);
+    return this.must(id);
   }
 
   /**
@@ -661,15 +763,16 @@ export class GoalStore {
     const asked = isObject(body) ? body.required : undefined;
     if (at >= 0) {
       if (asked === undefined || (reqs[at].required !== false) === asked) return had;
-      return { ...had, requires: reqs.map((x, i) => (i === at ? r : x)), updatedAt: this.now() };
+      return { ...had, requires: reqs.map((x, i) => (i === at ? r : x)) };
     }
-    const next = { ...had, requires: [...reqs, r], updatedAt: this.now() };
+    const next = { ...had, requires: [...reqs, r] };
     this.refuseLoops([next]);
     return next;
   }
 
-  removeRequire(id: string, goal: string): Goal {
-    return this.write(this.planUnrequire(id, goal));
+  async removeRequire(id: string, goal: string): Promise<Goal> {
+    await this.write([this.planUnrequire(id, goal)]);
+    return this.must(id);
   }
 
   /** A goal no longer requiring one goal, without writing it. */
@@ -677,26 +780,29 @@ export class GoalStore {
     const had = this.must(id);
     const reqs = requiresOf(had);
     if (!reqs.some((r) => r.goal === goal)) throw notFound(`goal ${id} does not require ${goal}`);
-    return clean({ ...had, requires: reqs.filter((r) => r.goal !== goal), updatedAt: this.now() });
+    return clean({ ...had, requires: reqs.filter((r) => r.goal !== goal) });
   }
 
   /** The goals a goal requires in a new order: body { order } names each of them once. */
-  orderRequires(id: string, body: unknown): Goal {
+  async orderRequires(id: string, body: unknown): Promise<Goal> {
     const had = this.must(id);
     const reqs = requiresOf(had);
     const order = orderOf(body, reqs.map((r) => r.goal), "required goal");
-    return this.write({ ...had, requires: order.map((g) => reqs.find((r) => r.goal === g)!), updatedAt: this.now() });
+    await this.write([{ ...had, requires: order.map((g) => reqs.find((r) => r.goal === g)!) }]);
+    return this.must(id);
   }
 
   /** A goal's checks in a new order: body { order } names each check id once. */
-  orderChecks(id: string, body: unknown): Goal {
+  async orderChecks(id: string, body: unknown): Promise<Goal> {
     const had = this.must(id);
     const order = orderOf(body, had.checks.map(checkId), "check");
-    return this.write({ ...had, checks: order.map((c) => had.checks.find((x) => checkId(x) === c)!), updatedAt: this.now() });
+    await this.write([{ ...had, checks: order.map((c) => had.checks.find((x) => checkId(x) === c)!) }]);
+    return this.must(id);
   }
 
-  updateCheck(id: string, check: string, u: unknown): Goal {
-    return this.write(this.planUpdateCheck(id, check, u));
+  async updateCheck(id: string, check: string, u: unknown): Promise<Goal> {
+    await this.write([this.planUpdateCheck(id, check, u)]);
+    return this.must(id);
   }
 
   /** One check of a goal with its title, required or links changed (CheckUpdate), without writing it. */
@@ -725,7 +831,7 @@ export class GoalStore {
     }
     const checks = had.checks.slice();
     checks[at] = next;
-    return { ...had, checks, updatedAt: this.now() };
+    return { ...had, checks };
   }
 
   /** The goals that require this one. */
@@ -733,49 +839,40 @@ export class GoalStore {
     return this.list().filter((g) => requiresOf(g).some((r) => r.goal === id));
   }
 
-  /** Delete a goal. Goals that required it stop requiring it; the goals it required stay, on their own if nothing else requires them. */
-  delete(id: string): void {
+  /**
+   * Delete a goal, through source control. Goals that required it stop
+   * requiring it; the goals it required stay, on their own if nothing else
+   * requires them.
+   */
+  async delete(id: string): Promise<void> {
     this.must(id);
     const files = this.parentFiles(id, []);
     // An old file naming this goal as its parent loses the name, since the goal is gone.
     const orphans = [...this.goals.values()].filter((e) => e.legacyParent === id && !files.some((f) => f.id === e.goal.id)).map((e) => e.goal);
-    try {
-      fs.rmSync(path.join(this.dir, `${id}.json`), { force: true });
-    } finally {
-      this.goals.delete(id);
-      this.o.changed?.(id);
-    }
-    if (files.length || orphans.length) this.write([...files, ...orphans]);
+    await this.writer.remove(this.fileOf(id));
+    this.goals.delete(id);
+    this.o.changed?.(id);
+    if (files.length || orphans.length) await this.write([...files, ...orphans]);
+    else this.read();
   }
 
-  addChecks(id: string, checks: unknown): Goal {
+  async addChecks(id: string, checks: unknown): Promise<Goal> {
     const had = this.must(id);
     const add = this.checksOf(checks);
     if (add.length === 0) throw bad("body must be { checks: [{ kind, target }] } with at least one check");
     const known = new Set(had.checks.map(checkId));
     const fresh = add.filter((c) => !known.has(checkId(c)));
     if (fresh.length === 0) return had;
-    return this.write({ ...had, checks: [...had.checks, ...fresh], updatedAt: this.now() });
+    await this.write([{ ...had, checks: [...had.checks, ...fresh] }]);
+    return this.must(id);
   }
 
-  removeCheck(id: string, check: string): Goal {
+  async removeCheck(id: string, check: string): Promise<Goal> {
     const had = this.must(id);
     const checks = had.checks.filter((c) => checkId(c) !== check);
     if (checks.length === had.checks.length) throw notFound(`goal ${id} has no check ${check}`);
-    return this.write({ ...had, checks, updatedAt: this.now() });
-  }
-
-  signOff(id: string, by: string, note?: unknown): Goal {
-    const had = this.must(id);
-    if (note !== undefined && typeof note !== "string") throw bad("note must be a string");
-    const n = str(note);
-    return this.write({ ...had, signOff: { by, at: this.now(), ...(n ? { note: n } : {}) }, updatedAt: this.now() });
-  }
-
-  clearSignOff(id: string): Goal {
-    const had = this.must(id);
-    if (!had.signOff) return had;
-    return this.write(clean({ ...had, signOff: null, updatedAt: this.now() }));
+    await this.write([{ ...had, checks }]);
+    return this.must(id);
   }
 }
 
@@ -791,7 +888,7 @@ function orderOf(body: unknown, have: string[], what: string): string[] {
 /** A goal without empty optional fields, so the file stays as short as the goal is. */
 function clean(g: Goal): Goal {
   const out = { ...g } as Record<string, unknown>;
-  for (const k of ["description", "owner", "due", "signOff"]) if (out[k] === null || out[k] === undefined || out[k] === "") delete out[k];
+  for (const k of ["description", "owner", "due"]) if (out[k] === null || out[k] === undefined || out[k] === "") delete out[k];
   if (Array.isArray(out.requires) && out.requires.length === 0) delete out.requires;
   if (Array.isArray(out.tags) && out.tags.length === 0) delete out.tags;
   if (Array.isArray(out.links) && out.links.length === 0) delete out.links;
