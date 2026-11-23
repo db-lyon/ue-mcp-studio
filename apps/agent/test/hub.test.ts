@@ -298,6 +298,41 @@ describe("plans", () => {
     setup();
     expect((await call("POST", "/hub/plans", { scope: { kind: "failing" } })).status).toBe(409);
   });
+
+  it("with the experiment off a queued plan waits and a tick asks the editor for nothing", async () => {
+    let on = false;
+    const h = host();
+    broker = new QaBroker({ host: h, store });
+    hub = registerHub(h as never, { broker, index: new PlaytestIndex({ host: h as never, broker, store }), store, playtestRuns: () => "manual", signer: () => "you", enabled: () => on, timers: false });
+    await call("POST", "/hub/plans", { scope: { kind: "checks", checks: [{ kind: "script", target: DOOR }] } });
+    calls = [];
+    await hub.tick();
+    await settle();
+    expect(calls).toEqual([]);
+    expect((await call("GET", "/hub/queue")).body.queued).toHaveLength(1);
+    on = true;
+    await hub.tick();
+    await settle();
+    expect(calls.some((c) => c.action === "script_run")).toBe(true);
+  });
+
+  it("waits while a session's own run is on the editor", async () => {
+    setup();
+    await call("POST", "/hub/plans", { scope: { kind: "checks", checks: [{ kind: "script", target: DOOR }] } });
+    await settle();
+    await settle();
+    expect(calls.filter((c) => c.action === "script_run")).toHaveLength(1);
+    // The plan's run ends; a person's run of another script holds the editor before the next plan starts.
+    const run0 = "script_DoorOpens_0";
+    status.set(run0, { ...status.get(run0)!, state: "finished", steps: steps(["passed", "passed"]) });
+    await hub.tick();
+    const other = broker.all().find((r) => r.runId === run0)!;
+    (broker as unknown as { runs: Map<string, unknown> }).runs.set("chat_run", { ...other, runId: "chat_run", state: "running" });
+    await call("POST", "/hub/plans", { scope: { kind: "checks", checks: [{ kind: "script", target: JUMP }] } });
+    await settle();
+    expect(calls.filter((c) => c.action === "script_run")).toHaveLength(1);
+    expect((await call("GET", "/hub/queue")).body.queued).toHaveLength(1);
+  });
 });
 
 describe("write playtests", () => {

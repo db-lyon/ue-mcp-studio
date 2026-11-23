@@ -145,7 +145,7 @@ export class Hub {
       now: iso,
       runner: {
         connected: () => this.connected(),
-        busy: () => this.loopRunning(),
+        busy: () => this.editorBusy(),
         start: (item, plan) => this.startItem(item, plan),
         run: (runId) => o.broker.get(runId),
         stop: (runId, reason) => this.stopRun(runId, reason),
@@ -156,13 +156,15 @@ export class Hub {
         this.planSessions.delete(plan.id);
         if (plan.state === "failed") this.changed(["inbox"], { planRunId: plan.id });
       },
+      enabled: () => this.o.enabled(),
       log: o.host.log,
     });
     // Every run Studio holds now, so history starts with what the cards show.
     for (const run of o.broker.all()) this.runs.record(run);
     this.unsubscribe.push(o.broker.onSaved((run) => this.saw(run)));
     this.unsubscribe.push(o.host.events.subscribe((e) => {
-      if (e.type === "editor.connected") {
+      // With the experiment off the hub asks the editor for nothing.
+      if (e.type === "editor.connected" && this.o.enabled()) {
         void this.queue.pump();
         void this.backfill(true);
         void this.pumpAssign();
@@ -173,8 +175,10 @@ export class Hub {
       this.goals.watch();
       this.timer = setInterval(() => void this.tick(), TICK_MS);
       this.timer.unref?.();
-      void this.backfill(true);
-      void this.queue.pump();
+      if (o.enabled()) {
+        void this.backfill(true);
+        void this.queue.pump();
+      }
     }
   }
 
@@ -199,6 +203,21 @@ export class Hub {
   /** A subagent loop is running a playtest, which holds the editor as a plan's run does. */
   private loopRunning(): string | null {
     return this.o.broker.all().some((r) => r.assignment?.state === "running") ? "a subagent loop is running a playtest" : null;
+  }
+
+  /**
+   * Why a plan cannot start its next run now: a fix loop runs or is starting,
+   * or a session's run (a card's Start playtest, an agent's call) is on the
+   * editor, which runs one script at a time. Runs without a session are left
+   * out: nothing reads them again, so a stale one would hold the queue forever.
+   */
+  private editorBusy(): string | null {
+    const loop = this.loopRunning();
+    if (loop) return loop;
+    if (this.assigning) return "a subagent loop is starting";
+    const mine = this.queue?.currentRun();
+    const other = this.o.broker.all().some((r) => r.runId !== mine && r.sessionId && !r.manual && !r.deleted && (r.state === "armed" || r.state === "running" || r.state === "awaiting_verdict"));
+    return other ? "another playtest is running" : null;
   }
 
   private note(text: string): void {
@@ -262,6 +281,8 @@ export class Hub {
   /** The periodic look: goals folder, queue, schedules, fix loops, backfill. */
   async tick(): Promise<void> {
     try {
+      // Off: no plan starts and the editor is not asked; due schedules are only recorded as skipped.
+      if (!this.o.enabled()) return await this.runSchedules();
       this.goals.refresh();
       await this.queue.tick();
       await this.runSchedules();
@@ -743,7 +764,7 @@ export class Hub {
   /** Start the next fix loop when no loop and no plan run holds the editor. */
   private async pumpAssign(): Promise<void> {
     if (this.assigning || this.assignQueue.length === 0) return;
-    if (!this.connected() || this.loopRunning() || this.queue.currentRun()) return;
+    if (!this.o.enabled() || !this.connected() || this.loopRunning() || this.queue.holding()) return;
     this.assigning = true;
     try {
       while (this.assignQueue.length) {
@@ -760,8 +781,13 @@ export class Hub {
         }
         return;
       }
+    } catch (e) {
+      // Called with void from events and timers: a throw here must not become an unhandled rejection.
+      this.note(`a fix loop did not start: ${e instanceof Error ? e.message : String(e)}`);
     } finally {
       this.assigning = false;
+      // The queue waited while the loop was starting.
+      void this.queue.pump();
     }
   }
 }

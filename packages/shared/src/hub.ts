@@ -267,6 +267,10 @@ export function checkStateOf(input: HealthInput & { goalIds: string[]; name?: st
   };
 }
 
+/** Whether a goal is met only once a person signs it off: its rule asks for it, or a required manual check waits on it. */
+export const needsSignOff = (goal: Pick<Goal, "acceptance" | "checks">): boolean =>
+  goal.acceptance.signOff || goal.checks.some((c) => c.kind === "manual" && c.required !== false);
+
 /**
  * A goal's status from its checks (each worked out with the goal's own
  * acceptance rule) and, for a milestone, its goals' statuses.
@@ -290,9 +294,10 @@ export function goalStatus(goal: Goal, checks: Array<{ state: CheckState; runs: 
     if (reqHs.some((h) => h === "flaky" || h === "stale") || childStatuses.includes("at_risk")) return { status: "at_risk", progress };
     return { status: "met", progress };
   }
+  // Everything else is in and only a person's sign-off is missing: the rule asks for one, or required manual checks wait on it.
+  if (!goal.signOff && (goal.acceptance.signOff || manualRequired > 0) && met + manualRequired === required.length && everyChildMet) return { status: "needs_you", progress };
   if (reqHs.every((h) => h === "never_run") && childStatuses.every((s) => s === "not_started")) return { status: "not_started", progress };
-  // Some evidence, not all of it passing yet (a check never run, too few stable runs, or sign-off waiting).
-  if (goal.acceptance.signOff && !goal.signOff && metAll === required.length && everyChildMet) return { status: "needs_you", progress };
+  // Some evidence, not all of it passing yet (a check never run, or too few stable runs).
   return { status: "at_risk", progress };
 }
 

@@ -8,6 +8,7 @@ import {
   checkStateOf,
   goalSlug,
   goalStatus,
+  needsSignOff,
   outcomeOf,
   parseCheckId,
   GOAL_ID,
@@ -139,6 +140,15 @@ describe("goalStatus", () => {
     const g = goal({ checks: [script, manual] });
     expect(goalStatus(g, [state(runs("passed")), state([], manual)]).progress).toEqual({ met: 1, total: 2 });
     expect(goalStatus({ ...g, signOff: { by: "you", at: "x" } }, [state(runs("passed")), state([], manual)])).toEqual({ status: "met", progress: { met: 2, total: 2 } });
+  });
+
+  it("waits on a person when only a required manual check's sign-off is missing, without the sign-off rule", () => {
+    const manual: CheckRef = { kind: "manual", target: "The door looks right" };
+    expect(needsSignOff(goal({ checks: [script, manual] }))).toBe(true);
+    expect(goalStatus(goal({ checks: [script, manual] }), [state(runs("passed")), state([], manual)]).status).toBe("needs_you");
+    expect(goalStatus(goal({ checks: [manual] }), [state([], manual)]).status).toBe("needs_you");
+    // Automated evidence still missing: not yet a sign-off.
+    expect(goalStatus(goal({ checks: [script, manual] }), [state([]), state([], manual)]).status).toBe("not_started");
   });
 
   it("a milestone follows its goals", () => {

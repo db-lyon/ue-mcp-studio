@@ -70,6 +70,8 @@ export interface QueueOptions {
   changed?: (planRunId?: string) => void;
   /** A plan finished: done, failed or cancelled. */
   finished?: (plan: PlanRun) => void;
+  /** The Playtest Hub is on: nothing new starts while it is off. Default on. */
+  enabled?: () => boolean;
   log?: { warn(message: string, detail?: unknown): void };
 }
 
@@ -146,6 +148,11 @@ export class PlanQueue {
   currentRun(): string | null {
     const item = this.s.current?.items.find(live);
     return item?.runId ?? null;
+  }
+
+  /** A plan item holds the editor: its run is on it, or is being started (no run id yet). */
+  holding(): boolean {
+    return !!this.s.current?.items.some(live);
   }
 
   find(id: string): PlanRun | undefined {
@@ -250,7 +257,11 @@ export class PlanQueue {
       if (plan.options.manualSteps === "defer" && waiting && !open && !this.deferring.has(run.runId)) {
         // Only manual steps are left: they wait in the inbox while the plan moves on.
         this.deferring.add(run.runId);
-        void this.o.runner.stop(run.runId, `Manual steps left for later by the plan "${plan.title}"`).catch((e: unknown) => this.o.log?.warn("hub: a deferred run could not be stopped", e));
+        void this.o.runner.stop(run.runId, `Manual steps left for later by the plan "${plan.title}"`).catch((e: unknown) => {
+          // Tried again on the next look, or the plan would wait on the run forever.
+          this.deferring.delete(run.runId);
+          this.o.log?.warn("hub: a deferred run could not be stopped", e);
+        });
       } else if (plan.options.manualSteps === "block" && waiting && item.state !== "needs_you") {
         item.state = "needs_you";
         item.reason = "waiting for a verdict";
@@ -313,7 +324,7 @@ export class PlanQueue {
     this.pumping = true;
     try {
       for (;;) {
-        if (this.s.paused || !this.o.runner.connected()) return;
+        if (this.s.paused || this.o.enabled?.() === false || !this.o.runner.connected()) return;
         let cur = this.s.current;
         if (cur?.items.some(live)) return;
         if (this.o.runner.busy()) return;
@@ -365,6 +376,9 @@ export class PlanQueue {
         }
         this.save(cur.id);
       }
+    } catch (e) {
+      // Called with void from events and timers: a throw here must not become an unhandled rejection.
+      this.o.log?.warn("hub: the queue could not start its next run", e);
     } finally {
       this.pumping = false;
     }

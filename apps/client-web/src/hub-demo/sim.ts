@@ -23,6 +23,7 @@ import {
   goalSlug,
   goalStatus,
   leafName,
+  needsSignOff,
   outcomeOf,
   parseCheckId,
   qaDraftFromScript,
@@ -381,7 +382,7 @@ export class HubDemo {
       }
     }
     for (const g of goals) {
-      if (g.goal.acceptance.signOff && !g.goal.signOff && g.progress.total > 0 && g.progress.met === g.progress.total) {
+      if (needsSignOff(g.goal) && !g.goal.signOff && g.status === "needs_you" && !g.checks.some((c) => c.health === "needs_you")) {
         items.push({ id: `sign_off:${g.goal.id}`, kind: "sign_off", at: g.goal.updatedAt, title: `Sign off "${g.goal.title}"`, detail: "Every required check passes.", goalIds: [g.goal.id] });
       }
       for (const c of g.checks) {

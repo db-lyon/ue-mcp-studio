@@ -8,6 +8,7 @@
 import {
   INBOX_ORDER,
   checkId,
+  needsSignOff,
   qaIsDraft,
   qaScriptKey,
   type CheckState,
@@ -80,7 +81,7 @@ export function buildInbox(i: InboxInput): InboxItem[] {
 
   for (const g of i.goals) {
     const goal = g.goal;
-    if (goal.archived || !goal.acceptance.signOff || goal.signOff || g.status !== "needs_you") continue;
+    if (goal.archived || !needsSignOff(goal) || goal.signOff || g.status !== "needs_you") continue;
     // Needs you only for the sign-off: no check of it waits for a verdict.
     if (g.checks.some((c) => c.health === "needs_you")) continue;
     out.push({ id: `sign_off:${goal.id}`, kind: "sign_off", at: goal.updatedAt, title: goal.title, detail: "Every check passes: the goal waits for its sign-off", goalIds: [goal.id] });

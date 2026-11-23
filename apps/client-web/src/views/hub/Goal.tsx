@@ -18,6 +18,7 @@ import {
   sortChecks,
   sortGoals,
 } from "@ue-mcp-studio/client-core";
+import { needsSignOff } from "@ue-mcp-studio/shared";
 import { api } from "../../api";
 import { useCursor, useHub } from "./state";
 import { Empty, HubIcon, HubLink, Progress, ScreenHead, StatusPill } from "./parts";
@@ -155,7 +156,7 @@ export function GoalScreen({ goalId }: { goalId: string }) {
       <section className="hub-card hub-acceptance">
         <div className="hub-card-head"><span>Done when</span></div>
         <p className="small">{acceptanceText(goal)}</p>
-        {goal.acceptance.signOff && (goal.signOff ? (
+        {(needsSignOff(goal) || goal.signOff) && (goal.signOff ? (
           <div className="hub-signed">
             <StatusPill look={GOAL_STATUS_LOOK.met}>Signed off by {goal.signOff.by}, {shortAgo(goal.signOff.at)}</StatusPill>
             {goal.signOff.note && <span className="muted small">"{goal.signOff.note}"</span>}

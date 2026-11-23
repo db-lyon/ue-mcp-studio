@@ -193,6 +193,8 @@ export class RunIndex {
     const r = recordOf(run, { prev: this.runs.get(run.runId), times, tag: this.tags.get(run.runId), now: this.now() });
     if (!r) return null;
     this.put(r);
+    // The record keeps its source and plan from here on, so the tag is not kept for ever.
+    this.tags.delete(r.runId);
     return this.runs.get(r.runId) ?? r;
   }
 
