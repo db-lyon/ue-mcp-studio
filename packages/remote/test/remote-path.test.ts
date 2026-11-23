@@ -36,6 +36,19 @@ describe("remotePath", () => {
     ]) expect(remotePath(m, p), `${m} ${p}`).toBeNull();
   });
 
+  it("lets a paired phone cancel a held editor operation, and nothing else about consent", () => {
+    expect(remotePath("POST", "/v1/disruptions/r-1a2b3c/deny")).toBe("/v1/disruptions/r-1a2b3c/deny");
+    for (const [m, p] of [
+      ["POST", "/v1/disruptions/r-1a2b3c/approve"],
+      ["POST", "/v1/disruptions/r-1a2b3c/vote"],
+      ["POST", "/v1/disruptions"],
+      ["GET", "/v1/disruptions"],
+      ["GET", "/v1/disruptions/r-1a2b3c/deny"],
+      ["POST", "/v1/disruptions/participants/x/release"],
+      ["POST", "/v1/disruptions/r-ZZ/deny"],
+    ]) expect(remotePath(m, p), `${m} ${p}`).toBeNull();
+  });
+
   it("lets ids and paths with slashes through as data: playtest verdicts and Git diffs", () => {
     const run = encodeURIComponent("draft:/Game/PIEStudio/Scripts/TS_Door");
     expect(remotePath("POST", `/v1/ext/studio/qa/runs/${run}/verdict`)).toBe(`/v1/ext/studio/qa/runs/${run}/verdict`);

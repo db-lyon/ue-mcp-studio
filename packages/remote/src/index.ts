@@ -102,6 +102,8 @@ const ALLOW: Array<{ methods: string[] | "any"; path: RegExp }> = [
   // The Plugins tab, read only: the installed list and the registry's catalog. Install, update and remove stay on the computer.
   { methods: ["GET"], path: /^\/v1\/plugins(\/catalog)?$/ },
   { methods: ["POST"], path: /^\/v1\/editor\/(start|stop|restart|rebuild)$/ },
+  // Cancel on a held editor operation denies its consent request. Approving goes through /v1/editor with force, above.
+  { methods: ["POST"], path: /^\/v1\/disruptions\/r-[0-9a-f]{1,16}\/deny$/ },
   { methods: "any", path: /^\/v1\/flows(\/.*)?$/ },
   { methods: "any", path: /^\/v1\/ext\/studio(\/.*)?$/ },
 ];
