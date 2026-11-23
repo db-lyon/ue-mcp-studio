@@ -21,6 +21,7 @@ import {
   type ViewportStatus,
 } from "@ue-mcp-studio/shared";
 import { requestJson, type Transport } from "./transport.js";
+import { pieRunning } from "./viewport-open.js";
 
 /** The HTTP status of a refused call: HttpError here, the web client's ApiError there; both carry status and body. */
 const statusOf = (e: unknown): number | null => (e && typeof e === "object" && typeof (e as { status?: unknown }).status === "number" ? (e as { status: number }).status : null);
@@ -541,12 +542,6 @@ export function withPie(s: ViewportStatus | null, pie: boolean): ViewportStatus 
   return s && s.pie !== pie ? { ...s, pie } : s;
 }
 
-/** Play In Editor runs, or the stream is live or armed: the chat's Play In Editor card reads live. */
-export function pieLive(s: ViewportStatus | null | undefined): boolean {
-  if (!s) return false;
-  return s.pie === true || s.streamer || s.bridge?.streaming === true || s.bridge?.armed === true;
-}
-
 /** The button on the chat's Play In Editor card. */
 export const WATCH_LIVE = "Watch live";
 /** The viewport opened over the chat: its title. */
@@ -564,5 +559,6 @@ export interface PieCardView {
 
 export function pieCard(s: ViewportStatus | null | undefined, o: { current: boolean }): PieCardView {
   if (!o.current || !s) return { title: "Play In Editor started", live: false };
-  return pieLive(s) ? { title: "Play In Editor is running", live: true } : { title: "Play In Editor stopped", live: false };
+  // The same rule as the bar's Live button (pieRunning), so the two never disagree.
+  return pieRunning(s) ? { title: "Play In Editor is running", live: true } : { title: "Play In Editor stopped", live: false };
 }

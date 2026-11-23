@@ -2376,13 +2376,12 @@ button.review-item-name:hover:not(:disabled) { background: none; border: 0; colo
 .steps-list { display: flex; flex-direction: column; gap: 2px; margin-left: 14px; padding-left: 8px; border-left: 1px solid var(--line); }
 
 /* The live viewport: the video in a 16:9 stage, and what stops it shown in its place. */
-.viewport-page { max-width: 1200px; margin: 0 auto; display: flex; flex-direction: column; gap: 10px; min-width: 0; }
+.viewport-page { width: 100%; display: flex; flex-direction: column; gap: 10px; min-width: 0; }
 .viewport-head { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
-h1.viewport-title { margin: 0; font: 600 20px/1.2 var(--sans); letter-spacing: 0; }
 .viewport-sources { display: flex; gap: 6px; flex-wrap: wrap; }
 /* Overflow stays visible until the video plays, so a long notice grows the stage past 16:9 instead of being cut. */
 .viewport-stage { position: relative; width: 100%; aspect-ratio: 16 / 9; background: #000; border: 1px solid var(--line); border-radius: var(--radius-lg); display: flex; align-items: center; justify-content: center; }
-.viewport-stage.live { overflow: hidden; max-height: calc(100vh - 190px); }
+.viewport-stage.live { overflow: hidden; max-height: calc(92vh - 150px); }
 .viewport-stage:fullscreen { border: 0; border-radius: 0; max-height: none; }
 .viewport-video { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: contain; background: #000; }
 .viewport-video.hidden { visibility: hidden; }
@@ -2395,10 +2394,8 @@ h1.viewport-title { margin: 0; font: 600 20px/1.2 var(--sans); letter-spacing: 0
 .viewport-notice p.viewport-error { color: var(--bad-text); }
 .viewport-tools { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
 .viewport-head[hidden] { display: none; }
-/* The viewport over the chat or the Playtest Hub (PieLive.tsx): the player in a dialog. */
+/* The full viewer over any tab (PieLive.tsx): the player in a dialog. */
 .overlay-card.viewport-dialog { width: min(1040px, 100%); max-height: min(92vh, 100%); gap: 10px; padding: 14px 16px; }
-.viewport-page.embedded { max-width: none; width: 100%; }
-.viewport-page.embedded .viewport-stage.live { max-height: calc(92vh - 150px); }
 /* The chat's Play In Editor card, drawn like the flow card. */
 .pie-card { padding: 8px 12px; margin: 6px 0; border: 1px solid var(--line); border-radius: 8px; background: var(--panel-2); display: flex; flex-direction: column; gap: 6px; min-width: 0; }
 .pie-card-row { display: flex; align-items: center; gap: 8px; min-width: 0; }

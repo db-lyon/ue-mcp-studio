@@ -142,7 +142,7 @@ The run screen shows:
 
 ### ue-mcp asks
 
-All of these are general features, per the rule in CLAUDE.md:
+All of these are general features, per the rule in CLAUDE.md. [ue-mcp-asks.md](ue-mcp-asks.md) writes up the ones the hub needs now: a verdict on any ended run, ending a run once only verdicts remain, and exporting the script run types.
 
 1. Export the `ScriptEvent`/`ScriptStep` types from `ue-mcp/daemon`.
 2. Optionally, `tags` and `description` fields on test scripts that `script_list` returns, so grouping can travel with the asset. Goals stay in Studio either way.
@@ -244,3 +244,4 @@ Made 2026-11-23. The user handed the design over in full: decide, build, deliver
       - Requirements live in the parent's file, so adding a goal to a milestone edits only the milestone's file.
     - **When:** after the viewport card lands, since both touch the Goal screen.
 8. **Status ladder:** checks are ranked needs you, failing, missing, running, flaky, stale, never run, passing. Goals are ranked needs you, failing, at risk, running, not started, met.
+11. **Stopped runs** (2026-11-23). A run's outcome follows its steps, not how it ended (`outcomeOf`): a run a plan stopped to defer its manual steps is Needs you while one waits, then passes or fails. A run stopped before its steps were reached is `stopped` and counts for nothing in health, acceptance or pass rate (`RESULT_OUTCOMES`), since stopping a run says nothing about the game; the run before it speaks for the check. `incomplete` (PIE or the observation ended on its own) and `error` still count as failing.

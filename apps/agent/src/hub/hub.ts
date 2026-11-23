@@ -20,6 +20,7 @@ import {
   DEFAULT_ACCEPTANCE,
   DEFAULT_PLAN_OPTIONS,
   RUNNABLE_KINDS,
+  buildInbox,
   TRACKER_LINKS_MAX,
   checkId,
   checkStateOf,
@@ -57,7 +58,6 @@ import type { SessionStore } from "../sessions.js";
 import { GoalStore } from "./goals.js";
 import { RunIndex } from "./run-index.js";
 import { PlanQueue, newId, type ItemStart } from "./queue.js";
-import { buildInbox } from "./inbox.js";
 import { readResults, readSeries } from "./evidence.js";
 import { scheduleDraftOf, scheduleTurn, scheduleUpdated, withNext } from "./schedules.js";
 import { planOptionsOf, scopeOf } from "./scope.js";
@@ -89,7 +89,7 @@ export interface HubHost {
 
 export interface HubOptions {
   host: HubHost;
-  broker: Pick<QaBroker, "all" | "get" | "onSaved" | "runScript" | "status" | "assign" | "readScriptAt" | "stopLateRuns" | "drafted">;
+  broker: Pick<QaBroker, "all" | "get" | "onSaved" | "runScript" | "status" | "assign" | "readScriptAt" | "drafted">;
   index: Pick<PlaytestIndex, "listScripts" | "recorded">;
   store: Pick<SessionStore, "create" | "get" | "all">;
   /** The Playtest runs setting: an agent's plan runs only under Automatic. */
@@ -656,8 +656,6 @@ export class Hub {
     const script = item.check.target;
     const listed = this.connected() ? await this.o.index.listScripts().catch(() => null) : null;
     if (listed && !listed.some((s) => s.path === script)) return { skipped: "the script no longer exists in the project" };
-    // A manual run left open for late verdicts would hold the editor.
-    await this.o.broker.stopLateRuns();
     const card = await this.cardFor(script, plan.id, `Plan: ${plan.title}`);
     if ("error" in card) return card;
     const tag = { source: plan.trigger === "schedule" ? "schedule" as const : "plan" as const, planRunId: plan.id };

@@ -2,7 +2,7 @@
  * The Playtest Hub end to end over the real QaBroker, PlaytestIndex and
  * session store, with ue-mcp faked: the overview and missing checks, goal
  * routes and their errors, a plan that runs through the card with deferred
- * manual steps, a late verdict for a run ue-mcp no longer holds, Write
+ * manual steps and their verdicts, Write
  * playtests linking what it drafts, the run screen's evidence, schedules,
  * hub.changed, remote access and the experiment setting.
  */
@@ -60,9 +60,8 @@ const host = (): QaHost & Record<string, unknown> => ({
       case "script_read":
         return listed.includes(String(args.path)) ? ok({ path: args.path, name: String(args.path).split("/").pop(), steps: STEPS }) : fail(`no script at ${String(args.path)}`);
       case "script_run": {
-        const manual = args.mode === "manual";
-        const runId = manual ? `late_${k++}` : `script_${String(args.script).split("/").pop()}_${k++}`;
-        const s = { run_id: runId, script: args.script, script_name: String(args.script).split("/").pop(), state: manual ? "awaiting_verdict" : "armed", mode: manual ? "manual" : "full", steps: steps(manual ? ["pending", "awaiting_verdict"] : ["pending", "pending"]), awaiting: manual ? [1] : [], last_seq: 1 };
+        const runId = `script_${String(args.script).split("/").pop()}_${k++}`;
+        const s = { run_id: runId, script: args.script, script_name: String(args.script).split("/").pop(), state: "armed", mode: "full", steps: steps(["pending", "pending"]), awaiting: [], last_seq: 1 };
         status.set(runId, s);
         held = runId;
         return ok(s);
@@ -76,8 +75,10 @@ const host = (): QaHost & Record<string, unknown> => ({
         return ok({ stopped: true });
       }
       case "verdict": {
-        if (args.run_id !== held) return fail(`Run ${String(args.run_id)} is not the active run (${held})`);
-        return ok({ run_id: args.run_id, step: args.step, status: args.verdict === "pass" ? "passed" : "failed", verdict: args.verdict, verdict_source: "action", state: "finished", awaiting: [] });
+        // As the bridge words it: a verdict is taken only for the run the editor holds, ended or not.
+        if (args.run_id !== held) return fail(`Run ${String(args.run_id)} is not the current run (${held})`);
+        const s = status.get(String(args.run_id))!;
+        return ok({ run_id: args.run_id, step: args.step, status: args.verdict === "pass" ? "passed" : "failed", verdict: args.verdict, verdict_source: "action", state: s.state, awaiting: [] });
       }
       case "script_runs":
         return ok({ runs: [] });
@@ -248,7 +249,7 @@ describe("overview", () => {
 });
 
 describe("plans", () => {
-  it("runs a goal through the card, defers its manual step to the inbox, then a late verdict settles it", async () => {
+  it("runs a goal through the card and defers its manual step to the inbox while the plan moves on", async () => {
     setup();
     const g = (await call("POST", "/hub/goals", { title: "Doors", checks: [{ kind: "script", target: DOOR }, { kind: "script", target: JUMP }, { kind: "manual", target: "Feels good" }] })).body.goal;
     const planned = await call("POST", "/hub/plans", { scope: { kind: "goal", goalId: g.id } });
@@ -291,15 +292,33 @@ describe("plans", () => {
     expect(q.recent[0].items.map((i) => i.state)).toEqual(["needs_you", "failed", "skipped"]);
     expect(q.recent[0].items[2].reason).toBe("Manual check checks cannot run yet");
 
-    // ue-mcp now holds run1, so it refuses run0's verdict: a manual run takes it, and the verdict lands on run0.
+    // ue-mcp now holds run1 and refuses run0's verdict (docs/plans/playtest-hub/ue-mcp-asks.md): nothing stands in for it.
     const r = await broker.verdict(run0, { step: 1, verdict: "pass" });
-    expect("run" in r && r.run.steps[1].status).toBe("passed");
-    const late = calls.find((c) => c.action === "script_run" && c.args.mode === "manual")!;
-    expect(late.args).toMatchObject({ script: DOOR, start_pie: false, record: false });
-    expect(calls.filter((c) => c.action === "script_stop").map((c) => c.args.run_id)).toContain("late_2");
-    expect(hub.runs.get(run0)?.outcome).toBe("passed");
-    expect(broker.all().some((x) => x.runId === "late_2")).toBe(false);
+    expect(r).toMatchObject({ status: 409 });
+    expect(calls.some((c) => c.action === "script_run" && c.args.mode === "manual")).toBe(false);
+    expect(hub.runs.get(run0)?.outcome).toBe("needs_you");
     o = (await call("GET", "/hub")).body as HubOverview;
+    expect(o.inbox.filter((i) => i.kind === "verdict").map((i) => i.id)).toEqual([`verdict:${run0}:1`]);
+  });
+
+  it("a deferred step judged while ue-mcp still holds its stopped run makes the run pass, not fail", async () => {
+    setup();
+    const g = (await call("POST", "/hub/goals", { title: "Doors", checks: [{ kind: "script", target: DOOR }] })).body.goal;
+    await call("POST", "/hub/plans", { scope: { kind: "goal", goalId: g.id } });
+    await settle();
+    await settle();
+    const run0 = "script_DoorOpens_0";
+    status.set(run0, { ...status.get(run0)!, state: "awaiting_verdict", steps: steps(["passed", "awaiting_verdict"]), awaiting: [1] });
+    await hub.tick();
+    await hub.tick();
+    await settle();
+    expect(hub.runs.get(run0)?.outcome).toBe("needs_you");
+
+    const r = await broker.verdict(run0, { step: 1, verdict: "pass" });
+    expect("run" in r && r.run.state).toBe("stopped");
+    expect(hub.runs.get(run0)?.outcome).toBe("passed");
+    const o = (await call("GET", "/hub")).body as HubOverview;
+    expect(o.goals[0].checks[0].health).toBe("passing");
     expect(o.inbox.filter((i) => i.kind === "verdict")).toEqual([]);
   });
 

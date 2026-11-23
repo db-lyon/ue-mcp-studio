@@ -17,7 +17,7 @@ import {
   HUB_CHANGED,
   HUB_GOALS_DIR,
   HUB_SCHEMA,
-  INBOX_ORDER,
+  buildInbox,
   checkId,
   checkStateOf,
   goalChecksDeep,
@@ -26,7 +26,6 @@ import {
   loopIfRequired,
   requiresOf,
   rollUpGoals,
-  needsSignOff,
   outcomeOf,
   parseCheckId,
   qaDraftFromScript,
@@ -95,7 +94,6 @@ const BASE = "/v1/ext/studio";
 const iso = (ms: number) => new Date(ms).toISOString();
 const ok = (body?: unknown, status = 200): DemoAnswer => ({ status, body });
 const refuse = (status: number, error: string): DemoAnswer => ({ status, body: { error } });
-const FINISHED_OUTCOMES = ["passed", "failed", "incomplete", "stopped", "error"];
 
 /** Errors and warnings a PIE session logs now and then, whatever the run. */
 const NOISE = [
@@ -363,52 +361,9 @@ export class HubDemo {
     return { paused: s.paused, current: s.current, queued: s.queued, recent: s.recent.slice(0, 20), schedules: s.schedules, editor: { connected: s.editor } };
   }
 
+  /** The agent's own inbox rule, over the demo's runs. */
   private inbox(goals: GoalState[], checks: CheckState[]): InboxItem[] {
-    const items: InboxItem[] = [];
-    for (const c of checks) {
-      const last = c.last;
-      if (!last) continue;
-      const run = this.state.qa[last.runId];
-      for (const st of run?.steps ?? []) {
-        if (st.status !== "awaiting_verdict") continue;
-        items.push({
-          id: `verdict:${last.runId}:${st.index}`,
-          kind: "verdict",
-          at: iso(Date.parse(last.startedAt) + (st.startedAtMs ?? 0)),
-          title: `Judge step ${st.index + 1} of ${c.name}`,
-          goalIds: c.goalIds,
-          runId: last.runId,
-          step: st.index,
-          instruction: st.instruction,
-          checkId: c.id,
-          ...(last.planRunId ? { planRunId: last.planRunId } : {}),
-        });
-      }
-      const loop = run?.assignment?.loop;
-      if (loop?.state === "needs_you") {
-        items.push({ id: `loop_blocked:${last.runId}`, kind: "loop_blocked", at: loop.endedAt ?? last.startedAt, title: `The fix loop on ${c.name} needs you`, detail: loop.blocker?.reason, goalIds: c.goalIds, runId: last.runId, checkId: c.id, ...(loop.blocker?.step !== undefined ? { step: loop.blocker.step } : {}) });
-      }
-      const done = this.runsOf(c.check).filter((r) => FINISHED_OUTCOMES.includes(r.outcome));
-      if (done[0]?.outcome === "failed" && done[1]?.outcome === "passed" && loop?.state !== "needs_you") {
-        const failedStep = done[0].failedSteps?.[0];
-        const sc = this.script(c.check.target);
-        items.push({ id: `regression:${done[0].runId}`, kind: "regression", at: done[0].endedAt ?? done[0].startedAt, title: `${c.name} failed after passing`, ...(failedStep !== undefined && sc ? { detail: `Step ${failedStep + 1}: ${sc.steps[failedStep]?.instruction ?? ""}` } : {}), goalIds: c.goalIds, runId: done[0].runId, checkId: c.id, ...(failedStep !== undefined ? { step: failedStep } : {}) });
-      }
-    }
-    for (const g of goals) {
-      if (needsSignOff(g.goal) && !g.goal.signOff && g.status === "needs_you" && !g.checks.some((c) => c.health === "needs_you")) {
-        items.push({ id: `sign_off:${g.goal.id}`, kind: "sign_off", at: g.goal.updatedAt, title: `Sign off "${g.goal.title}"`, detail: "Every required check passes.", goalIds: [g.goal.id] });
-      }
-      for (const c of g.checks) {
-        if (c.health !== "missing") continue;
-        items.push({ id: `missing_check:${g.goal.id}:${c.id}`, kind: "missing_check", at: g.goal.updatedAt, title: `${c.name} is missing`, detail: `"${g.goal.title}" names a script the project no longer has.`, goalIds: [g.goal.id], checkId: c.id });
-      }
-    }
-    for (const p of this.state.recent.slice(0, 5)) {
-      if (p.state !== "failed") continue;
-      items.push({ id: `plan_failed:${p.id}`, kind: "plan_failed", at: p.endedAt ?? p.createdAt, title: `"${p.title}" stopped after a failure`, goalIds: p.scope.kind === "goal" ? [p.scope.goalId] : [], planRunId: p.id });
-    }
-    return items.sort((a, b) => INBOX_ORDER.indexOf(a.kind) - INBOX_ORDER.indexOf(b.kind) || (a.at < b.at ? -1 : a.at > b.at ? 1 : 0));
+    return buildInbox({ runs: Object.values(this.state.qa), goals, checks, plans: this.state.recent, now: this.now() });
   }
 
   private page(runs: RunRecord[], q: URLSearchParams): { runs: RunRecord[]; more: boolean } {

@@ -1,22 +1,22 @@
 /**
- * The inbox: everything that waits for a person, worked out from what the
- * hub already knows, never stored. Verdicts waiting and loops blocked come
- * from the QaBroker's runs; regressions and missing checks from the checks'
- * history; sign-offs from the goals; failed plans from the queue. Ids stay
- * the same while the thing waits, so a client can keep its place.
+ * The Playtest Hub's inbox: everything that waits for a person, worked out
+ * from what the hub already knows, never stored. Verdicts waiting and loops
+ * blocked come from the playtest runs; regressions and missing checks from
+ * the checks' history; sign-offs from the goals; failed plans from the queue.
+ * Ids stay the same while the thing waits, so a client can keep its place.
+ * The agent serves it, and the hub demo answers with the same rule.
  */
 import {
   INBOX_ORDER,
+  RESULT_OUTCOMES,
   checkId,
   needsSignOff,
-  qaIsDraft,
-  qaScriptKey,
   type CheckState,
   type GoalState,
   type InboxItem,
   type PlanRun,
-  type QaRun,
-} from "@ue-mcp-studio/shared";
+} from "./hub.js";
+import { qaIsDraft, qaScriptKey, type QaRun } from "./qa.js";
 
 /** How long a failed plan stays in the inbox. */
 export const PLAN_FAILED_DAYS = 3;
@@ -28,8 +28,6 @@ export interface InboxInput {
   plans: PlanRun[];
   now: number;
 }
-
-const FINISHED = new Set(["passed", "failed", "incomplete", "stopped", "error"]);
 
 export function buildInbox(i: InboxInput): InboxItem[] {
   const goalsOf = new Map(i.checks.map((c) => [c.id, c.goalIds]));
@@ -89,7 +87,7 @@ export function buildInbox(i: InboxInput): InboxItem[] {
 
   for (const c of i.checks) {
     const done = c.recent;
-    if (c.last && FINISHED.has(c.last.outcome) && done[0] === "failed" && done.slice(1).find((o) => o === "passed" || o === "failed") === "passed") {
+    if (c.last && RESULT_OUTCOMES.includes(c.last.outcome) && done[0] === "failed" && done.slice(1).find((o) => o === "passed" || o === "failed") === "passed") {
       out.push({
         id: `regression:${c.id}:${c.last.runId}`,
         kind: "regression",

@@ -258,16 +258,22 @@ export interface RunRecord {
   links?: TrackerLink[];
 }
 
-/** A run's outcome from its QaRun. */
+/**
+ * A run's outcome from its QaRun, judged by its steps, not by how it ended.
+ * A stopped run whose every step settled (a plan stopped it to defer its
+ * manual steps, which were judged after) passed or failed like any other;
+ * only a stopped run with steps never reached is "stopped". A run that ended
+ * on its own with steps never reached (PIE or the observation ended) is
+ * "incomplete".
+ */
 export function outcomeOf(run: Pick<QaRun, "state" | "steps" | "summary">): RunOutcome {
   const steps = run.steps ?? [];
   const failed = run.summary?.failed ?? steps.filter((s) => s.status === "failed").length;
   if (run.state === "awaiting_verdict" || steps.some((s) => s.status === "awaiting_verdict")) return "needs_you";
   if (run.state === "armed" || run.state === "running") return failed > 0 ? "failed" : "running";
   if (failed > 0) return "failed";
-  if (run.state === "stopped") return "stopped";
   const open: QaStepStatus[] = ["pending", "running"];
-  if (steps.length === 0 || steps.some((s) => open.includes(s.status))) return "incomplete";
+  if (steps.length === 0 || steps.some((s) => open.includes(s.status))) return run.state === "stopped" ? "stopped" : "incomplete";
   return "passed";
 }
 
@@ -350,7 +356,15 @@ export interface GoalState {
   unused?: boolean;
 }
 
-const FINISHED: readonly RunOutcome[] = ["passed", "failed", "incomplete", "stopped", "error"];
+/**
+ * Outcomes that say something about the game: what health, acceptance, pass
+ * rates and regressions count. "stopped" is not one: a person (or a cancelled
+ * plan) ended the run before its steps were reached, which proves nothing
+ * either way, so the run before it speaks for the check. "incomplete" and
+ * "error" are: the run could not get through its steps on its own.
+ */
+export const RESULT_OUTCOMES: readonly RunOutcome[] = ["passed", "failed", "incomplete", "error"];
+const FINISHED = RESULT_OUTCOMES;
 const DAY = 86_400_000;
 
 export interface HealthInput {
@@ -362,7 +376,12 @@ export interface HealthInput {
   now?: number;
 }
 
-/** A check's health from its runs. Flaky: mixed passes and failures within the last stableRuns+2 (at least 3) finished runs while the newest passed. */
+/**
+ * A check's health from its runs. Only RESULT_OUTCOMES count, so a stopped
+ * run leaves the health its previous result gave. Flaky: mixed passes and
+ * failures within the last stableRuns+2 (at least 3) results while the
+ * newest passed.
+ */
 export function checkHealth({ check, runs, missing, acceptance = DEFAULT_ACCEPTANCE, now = Date.now() }: HealthInput): CheckHealth {
   if (missing) return "missing";
   const live = runs[0];

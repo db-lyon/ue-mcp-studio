@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
 import { ACCOUNT_NAME, ACCOUNT_SIGN_IN_GITHUB, REMOTE_SIGN_IN, REMOTE_COMMAND, REMOTE_COMMAND_REPLY, REMOTE_ON_COMPUTER, SLASH_COMMANDS, REMOTE_PLAN_OFFERED, contextView, isLocalCommand, parseSlashCommand, remoteCommand, remoteShown, type ActionRunRequest, type FlowRunRequest, type PlaytestRequest, type SessionDetail, type SessionOps, type SessionSummary, type StudioSettings } from "@ue-mcp-studio/shared";
 import { api } from "../api";
 import { useRemoteAvailable } from "./settings/remote-available";
@@ -43,8 +43,7 @@ import { useSessionRuns } from "../chat/sessionRuns";
 import { NARROW, useMedia } from "../layout";
 import { Slot } from "../extensions/Slot";
 import { ErrorBoundary } from "./ErrorBoundary";
-import { PieLiveContext, usePieStatus, type PieLiveValue } from "../chat/PieLive";
-import { onRemotePage } from "../connection";
+import { LiveContext, PieLiveContext, type PieLiveValue } from "../chat/PieLive";
 
 /** How long a subagent thread takes to slide in or out; matches .thread-drawer's transition. */
 export const DRAWER_MS = 260;
@@ -86,20 +85,19 @@ const searchMentions: MentionSearchFn = (request, signal) => api.searchMentions(
 /** How long the session list may take before the panel says Studio is not answering. */
 export const LIST_SLOW_MS = 8000;
 
-export function ChatView({ daemon, nav, active = true, onSettings, onWatchLive }: {
+export function ChatView({ daemon, nav, active = true, onSettings }: {
   daemon: DaemonState;
   nav?: { session: string | null; n: number };
   /** False while another tab is up: the chat stays mounted but leaves the location alone. */
   active?: boolean;
   /** Open a Settings section, for /remote on a paid plan. */
   onSettings?: (section: SettingsSection) => void;
-  /** Open the live viewport over the chat: the Play In Editor card and a live playtest's Viewport. Without it neither shows. */
-  onWatchLive?: () => void;
 }) {
-  const pie = usePieStatus(daemon, !!onWatchLive);
+  // The page's live viewer, on a remote client only: the Play In Editor card and a live playtest's Viewport show only with it.
+  const viewer = useContext(LiveContext);
   const pieValue = useMemo<PieLiveValue | null>(
-    () => (onWatchLive ? { status: pie.status, remote: onRemotePage(), watch: onWatchLive, check: pie.check, onSettings: (s) => onSettings?.(s) } : null),
-    [pie.status, onWatchLive, onSettings],
+    () => (viewer ? { status: viewer.pie.status, remote: true, watch: viewer.open, check: viewer.pie.check, onSettings: (s) => onSettings?.(s) } : null),
+    [viewer?.pie.status, onSettings],
   );
   const [sessions, setSessions] = useState<SessionSummary[]>([]);
   /** Whether the list has come back once: until then an empty list is not "no sessions". */

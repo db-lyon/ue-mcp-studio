@@ -9,10 +9,13 @@
  * Manual steps in a plan:
  *  - defer (the default): the run starts with block_on_manual false, so
  *    manual steps start and the run moves on. Once every auto step has
- *    settled and only manual steps wait, the run is stopped: the auto
+ *    settled and only manual steps wait, ue-mcp keeps the run (and PIE)
+ *    open for them, so the queue ends it with script_stop: the auto
  *    evidence is kept, the item is needs_you (failed when an auto step
- *    failed), the verdicts wait in the inbox, and the plan moves on. A late
- *    verdict is taken by a manual run of the script (QaBroker.verdict).
+ *    failed), the verdicts wait in the inbox, and the plan moves on.
+ *    outcomeOf judges the run by its steps, so once judged it passes or
+ *    fails like any run. ue-mcp takes those verdicts only until the next run
+ *    starts; both limits are asks in docs/plans/playtest-hub/ue-mcp-asks.md.
  *  - block: the run holds at manual steps until they are judged, and the plan
  *    waits with it; the item shows needs_you while it waits.
  *
@@ -255,7 +258,8 @@ export class PlanQueue {
       const open = run.steps.some((s) => s.status === "pending" || s.status === "running");
       const waiting = run.steps.some((s) => s.status === "awaiting_verdict");
       if (plan.options.manualSteps === "defer" && waiting && !open && !this.deferring.has(run.runId)) {
-        // Only manual steps are left: they wait in the inbox while the plan moves on.
+        // Only manual steps are left: they wait in the inbox while the plan moves on. ue-mcp holds such a run open,
+        // so it is stopped here until it can end one itself (ue-mcp-asks.md, ask 2).
         this.deferring.add(run.runId);
         void this.o.runner.stop(run.runId, `Manual steps left for later by the plan "${plan.title}"`).catch((e: unknown) => {
           // Tried again on the next look, or the plan would wait on the run forever.

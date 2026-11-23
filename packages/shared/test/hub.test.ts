@@ -83,10 +83,15 @@ describe("checkHealth", () => {
     expect(checkHealth({ check: { kind: "manual", target: "Looks right" }, runs: [], now: NOW })).toBe("never_run");
   });
 
-  it("failing when the newest finished run did not pass, stopped and incomplete included", () => {
+  it("failing when the newest result did not pass, incomplete included", () => {
     expect(checkHealth({ check: script, runs: runs("failed", "passed"), now: NOW })).toBe("failing");
-    expect(checkHealth({ check: script, runs: runs("stopped"), now: NOW })).toBe("failing");
     expect(checkHealth({ check: script, runs: runs("incomplete"), now: NOW })).toBe("failing");
+  });
+
+  it("a stopped run is no result: the run before it speaks for the check", () => {
+    expect(checkHealth({ check: script, runs: runs("stopped", "passed"), now: NOW })).toBe("passing");
+    expect(checkHealth({ check: script, runs: runs("stopped", "failed"), now: NOW })).toBe("failing");
+    expect(checkHealth({ check: script, runs: runs("stopped"), now: NOW })).toBe("never_run");
   });
 
   it("flaky when a failure sits in the window behind a pass", () => {
@@ -299,5 +304,12 @@ describe("outcomeOf", () => {
     expect(run("finished", [step("passed"), step("pending")])).toBe("incomplete");
     expect(run("finished", [])).toBe("incomplete");
     expect(run("finished", [step("passed"), step("skipped")])).toBe("passed");
+  });
+
+  it("a stopped run whose every step settled is judged by its steps", () => {
+    // A plan stopped it to defer its manual step, which was judged after.
+    expect(run("stopped", [step("passed"), step("passed", "manual")])).toBe("passed");
+    expect(run("stopped", [step("passed"), step("failed", "manual")])).toBe("failed");
+    expect(run("stopped", [])).toBe("stopped");
   });
 });

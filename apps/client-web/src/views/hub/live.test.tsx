@@ -15,11 +15,8 @@ const m = vi.hoisted(() => ({
   leaveViewport: vi.fn(),
 }));
 vi.mock("../../api", () => ({ api: m }));
-import { HubLiveProvider, HubViewer, useHubViewer } from "./live";
-import { LiveHostContext } from "../../chat/PieLive";
-
-/** The live viewport is a paired browser's: each test says which page it is on. */
-const onRemote = (remote: boolean) => ((window as unknown as { __studioRemotePage?: boolean }).__studioRemotePage = remote);
+import { HubViewer, useHubViewer } from "./live";
+import { LiveButton, LiveProvider } from "../../chat/PieLive";
 
 /** A peer that answers and goes live at once with a stand-in stream. */
 const peer: PeerFactory = () => {
@@ -50,18 +47,24 @@ function Card({ running, id }: { running: PlayingRun | null; id: string }) {
   return <div data-testid={id}><HubViewer viewer={viewer} /></div>;
 }
 
-/** Two screens' cards under one provider, and switches for the run and for one screen. */
-function Harness({ start = false, two = false }: { start?: boolean; two?: boolean }) {
+/**
+ * Cards on the page's one viewer, as App.tsx mounts it on a paired browser
+ * (no provider is Studio on the computer), the bar's Live button, and
+ * switches for the run and for one screen.
+ */
+function Harness({ start = false, two = false, remote = true }: { start?: boolean; two?: boolean; remote?: boolean }) {
   const [playing, setPlaying] = useState(start);
   const [shown, setShown] = useState(true);
-  return (
-    <HubLiveProvider peer={peer}>
+  const page = (
+    <>
       <button onClick={() => setPlaying((p) => !p)}>toggle</button>
       <button onClick={() => setShown((s) => !s)}>screen</button>
+      <LiveButton />
       {shown && <Card id="a" running={playing ? RUN : null} />}
       {two && <Card id="b" running={playing ? RUN : null} />}
-    </HubLiveProvider>
+    </>
   );
+  return remote ? <LiveProvider daemon={{ events: [] }} onSettings={() => undefined} peer={peer}>{page}</LiveProvider> : page;
 }
 
 /** A streamer that is up: the first poll brings its offer. `pie: false` keeps it waiting for Play In Editor. */
@@ -77,7 +80,6 @@ function streamer(pie = true) {
 }
 
 beforeEach(() => {
-  onRemote(true);
   for (const f of Object.values(m)) f.mockReset();
   m.viewport.mockResolvedValue(status());
   m.joinViewport.mockResolvedValue({ viewer: "v1", iceServers: [], status: status() });
@@ -87,7 +89,6 @@ beforeEach(() => {
 });
 afterEach(() => {
   cleanup();
-  onRemote(false);
 });
 
 const watch = (id = "a") => fireEvent.click(within(screen.getByTestId(id)).getByRole("button", { name: "Watch" }));
@@ -163,28 +164,24 @@ describe("the hub's Viewport card", () => {
   });
 
   it("opens the full viewer on the same viewer, from the card or the bar's Live button", async () => {
-    let open: (() => void) | null = null;
-    render(<LiveHostContext.Provider value={(f) => { open = f; }}><Harness start /></LiveHostContext.Provider>);
+    render(<Harness start />);
     watch();
     await waitFor(() => screen.getByLabelText("Play In Editor, live"));
     fireEvent.click(within(screen.getByRole("region", { name: "Viewport" })).getAllByRole("button", { name: "Open Play In Editor" })[0]);
     const dialog = await screen.findByRole("dialog", { name: "Play In Editor" });
-    expect(dialog.querySelector("video")).not.toBeNull();
+    await waitFor(() => expect((dialog.querySelector("video") as HTMLVideoElement & { srcObject: unknown }).srcObject).not.toBeNull());
     expect(m.joinViewport).toHaveBeenCalledTimes(1);
     fireEvent.click(screen.getByText("Close"));
-    expect(open).not.toBeNull();
-    act(() => open!());
+    fireEvent.click(screen.getByRole("button", { name: "Watch Play In Editor live" }));
     await screen.findByRole("dialog", { name: "Play In Editor" });
     expect(m.joinViewport).toHaveBeenCalledTimes(1);
   });
 
   it("draws nothing and never connects in Studio on the computer", async () => {
-    onRemote(false);
-    let open: (() => void) | null = null;
-    render(<LiveHostContext.Provider value={(f) => { open = f; }}><Harness start /></LiveHostContext.Provider>);
+    render(<Harness start remote={false} />);
     await act(async () => undefined);
     expect(screen.queryByRole("region", { name: "Viewport" })).toBeNull();
-    expect(open).toBeNull();
+    expect(screen.queryByRole("button", { name: "Watch Play In Editor live" })).toBeNull();
     expect(m.viewport).not.toHaveBeenCalled();
     expect(m.joinViewport).not.toHaveBeenCalled();
   });

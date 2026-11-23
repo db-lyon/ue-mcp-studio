@@ -38,9 +38,6 @@ import { RunScreen } from "./Run";
 import { QueueScreen } from "./Queue";
 import { CheckPicker, GoalDialog, GoalPicker, RequirePicker } from "./dialogs";
 import type { GoalPreset } from "./state";
-import { HubLiveProvider } from "./live";
-import type { DaemonState } from "../../state";
-import type { SettingsSection } from "../settings/sections";
 import "./hub.css";
 
 type Overlay =
@@ -69,17 +66,13 @@ function useHubRoute(): [HubRoute, (r: HubRoute) => void] {
   return [route, go];
 }
 
-export function HubView({ data, narrow, onOpenChat, onChat, daemon, onSettings }: {
+export function HubView({ data, narrow, onOpenChat, onChat }: {
   data: HubData;
   narrow: boolean;
   /** Open a session, and a playtest's card in it. */
   onOpenChat: (sessionId: string, runId?: string) => void;
   /** Go to the Chat tab, where a playtest is asked for. */
   onChat?: () => void;
-  /** The event stream, which the live viewport follows for the editor coming and going. */
-  daemon?: Pick<DaemonState, "events">;
-  /** Open Settings, from a way forward the live viewport offers. */
-  onSettings?: (s: SettingsSection) => void;
 }) {
   const [route, go] = useHubRoute();
   const [overlay, setOverlay] = useState<Overlay | null>(null);
@@ -146,7 +139,7 @@ export function HubView({ data, narrow, onOpenChat, onChat, daemon, onSettings }
   const o = data.overview;
   if (!o) {
     return (
-      <div className="playhub hub-loading">
+      <div className="hub-root hub-loading">
         {data.error ? <div className="banner bad" role="alert">The hub did not load: {data.error} <button className="small-button" onClick={data.reload}>Try again</button></div> : <Placeholder rows={6} />}
       </div>
     );
@@ -185,8 +178,7 @@ export function HubView({ data, narrow, onOpenChat, onChat, daemon, onSettings }
 
   return (
     <HubContext.Provider value={ctx}>
-      <HubLiveProvider daemon={daemon} onSettings={onSettings}>
-      <div className={`playhub ${narrow ? "narrow" : "wide"}`}>
+      <div className={`hub-root ${narrow ? "narrow" : "wide"}`}>
         {narrow ? <HubBar onPalette={() => setOverlay({ kind: "palette" })} /> : <HubRail onPalette={() => setOverlay({ kind: "palette" })} onShortcuts={() => setOverlay({ kind: "shortcuts" })} />}
         <div className="hub-main">
           {data.error && <div className="banner warn small" role="alert">Could not refresh: {data.error}</div>}
@@ -200,7 +192,6 @@ export function HubView({ data, narrow, onOpenChat, onChat, daemon, onSettings }
         {overlay?.kind === "require" && <RequirePicker goalId={overlay.goalId} onClose={() => setOverlay(null)} />}
         {overlay?.kind === "addToGoal" && <GoalPicker checkIds={overlay.checkIds} onClose={() => setOverlay(null)} />}
       </div>
-      </HubLiveProvider>
     </HubContext.Provider>
   );
 }
