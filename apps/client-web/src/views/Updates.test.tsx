@@ -92,8 +92,11 @@ describe("updates", () => {
     const posted: string[] = [];
     vi.stubGlobal("fetch", vi.fn(async (url: string, init?: RequestInit) => {
       if (url === "/v1/ext/studio/updates/run") return new Response(JSON.stringify({ run: null }));
+      if (url === "/v1/ext/studio/updates/consent" && !init?.method) return new Response(JSON.stringify({ hold: null }));
       if (!init?.method) return new Response(JSON.stringify(url.includes("/ext/studio/") ? studio(true, true) : ueMcp(true)));
       posted.push(url);
+      // Nobody else is using the editor: the consent check holds nothing.
+      if (url.endsWith("/consent")) return new Response(JSON.stringify({ request: null }));
       return url.endsWith("/plugin")
         ? new Response(JSON.stringify({ error: "the editor would not stop" }), { status: 500 })
         : new Response(JSON.stringify({ ok: true }));
@@ -103,7 +106,7 @@ describe("updates", () => {
     expect(screen.getAllByRole("button", { name: "Update" })).toHaveLength(1);
     await act(async () => fireEvent.click(screen.getByRole("button", { name: "Update" })));
     await waitFor(() => expect(screen.getByText("the editor would not stop")).toBeTruthy());
-    expect(posted).toEqual(["/v1/ext/studio/updates/ueMcp", "/v1/ext/studio/updates/plugin"]);
+    expect(posted).toEqual(["/v1/ext/studio/updates/consent", "/v1/ext/studio/updates/ueMcp", "/v1/ext/studio/updates/plugin"]);
     // ue-mcp's update fetches the binaries for the version itself; the file name is not a source to pass.
     const apply = (fetch as unknown as { mock: { calls: Array<[string, RequestInit?]> } }).mock.calls.find(([u]) => u === "/v1/ext/studio/updates/ueMcp")!;
     expect(JSON.parse(String(apply[1]!.body))).toEqual({ version: "1.4.0-beta.2" });

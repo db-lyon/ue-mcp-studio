@@ -193,6 +193,10 @@ export const api = {
   editor: (op: "start" | "stop" | "restart" | "rebuild", body?: EditorOpBody) => call<Record<string, unknown>>("POST", `/v1/editor/${op}`, body),
   /** A person cancels a held editor operation (feature "editor.consent"). */
   denyDisruption: (id: string, by: string) => call<unknown>("POST", `/v1/disruptions/${encodeURIComponent(id)}/deny`, { by }),
+  /** A person approves a pending request, whatever the sessions answered. A paired browser is asked for the PIN. */
+  approveDisruption: (id: string, by: string) => call<unknown>("POST", `/v1/disruptions/${encodeURIComponent(id)}/approve`, { by }),
+  /** The requests to stop, restart, rebuild or patch the editor, and what each session answered (feature "editor.consent"). */
+  disruptions: () => call<unknown>("GET", "/v1/disruptions"),
   settings: () => call<unknown>("GET", "/v1/ext/studio/settings").then(settingsOf),
   saveSettings: (u: StudioSettingsUpdate) => call<unknown>("PUT", "/v1/ext/studio/settings", u).then(settingsOf),
   models: () => call<unknown>("GET", "/v1/ext/studio/models").then(catalogOf),

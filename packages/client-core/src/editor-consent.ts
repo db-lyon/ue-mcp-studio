@@ -109,18 +109,89 @@ export function consentHolders(r: EditorDisruptionRequest): ConsentHolder[] {
     .sort((a, b) => Number(b.blocked) - Number(a.blocked));
 }
 
-const LEAD: Record<ConsentOp, string> = {
+/** What a person is asked about: a button's operation, or an Update that closes the editor. */
+export type AskKind = ConsentOp | "update";
+
+const LEAD: Record<AskKind, string> = {
   stop: "Stopping the editor now interrupts those sessions' work in it.",
   restart: "Restarting the editor now interrupts those sessions' work in it.",
   rebuild: "Rebuilding now closes the editor and interrupts those sessions' work in it.",
+  update: "Updating now closes the editor and interrupts those sessions' work in it.",
 };
 
-const VERB: Record<ConsentOp, string> = { stop: "Stop", restart: "Restart", rebuild: "Rebuild" };
+const VERB: Record<AskKind, string> = { stop: "Stop", restart: "Restart", rebuild: "Rebuild", update: "Update" };
 
 /** The words of the ask, the same on every client. */
-export function consentCopy(op: ConsentOp): { title: string; lead: string; approve: string; cancel: string } {
+export function consentCopy(op: AskKind): { title: string; lead: string; approve: string; cancel: string } {
   return { title: "Other sessions are using the editor", lead: LEAD[op], approve: `${VERB[op]} anyway`, cancel: "Cancel" };
 }
+
+// ── Requests waiting for a person ─────────────────────────────────
+
+/** The daemon feature (GET /v1/health) that says it has the gate and its routes. */
+export const CONSENT_FEATURE = "editor.consent";
+
+/** A request still being decided, which a person can approve or deny. */
+export const isOpenRequest = (r: EditorDisruptionRequest): boolean => r.state === "pending" || r.state === "confirm" || r.state === "blocked";
+
+/**
+ * A request that belongs on the pending list: open, and not one the person in
+ * Studio made, since the button or Update that made it is already asking them.
+ */
+export const isPendingForPerson = (r: EditorDisruptionRequest): boolean => isOpenRequest(r) && r.requester.label !== STUDIO_REQUESTER;
+
+/** The requests GET /v1/disruptions lists, or none when the body is anything else. */
+export function requestsOf(body: unknown): EditorDisruptionRequest[] {
+  const list = isObj(body) && Array.isArray(body.requests) ? body.requests : [];
+  return list.filter(isRequest);
+}
+
+/**
+ * The pending list after one event from the daemon's stream: a request opened
+ * or changed is put in (or replaced), one decided is taken out. Any other
+ * event leaves the list as it was, and returns the same array.
+ */
+export function applyDisruptionEvent(list: EditorDisruptionRequest[], event: { type: string; data?: unknown }): EditorDisruptionRequest[] {
+  if (event.type !== "disruption.requested" && event.type !== "disruption.updated") return list;
+  if (!isRequest(event.data)) return list;
+  const r = event.data;
+  const rest = list.filter((x) => x.id !== r.id);
+  return isPendingForPerson(r) ? [...rest, r] : rest.length === list.length ? list : rest;
+}
+
+const OP_PHRASE: Record<EditorDisruptionRequest["op"], string> = {
+  stop: "stop the editor",
+  restart: "restart the editor",
+  rebuild: "rebuild the editor",
+  build: "build the project while the editor is open",
+  live_coding: "patch the running editor with Live Coding",
+};
+
+/** "Claude Code asks to rebuild the editor". */
+export const requestTitle = (r: EditorDisruptionRequest): string => `${r.requester.label || r.requester.id} asks to ${OP_PHRASE[r.op] ?? r.op}`;
+
+const ANSWER: Record<EditorDisruptionAnswer["answer"], string> = { go: "Agreed", ...STATE };
+
+/** One session's answer to a request, every answer including those that agreed. */
+export interface AnswerLine {
+  session: string;
+  label: string;
+  state: string;
+  reason: string;
+  tone: "ok" | "warn" | "bad";
+}
+
+/** Every session's answer, blocks first, then waits, then those that agreed. */
+export function answerLines(r: EditorDisruptionRequest): AnswerLine[] {
+  const rank = (a: EditorDisruptionAnswer["answer"]) => (a === "block" ? 0 : a === "go" ? 2 : 1);
+  return [...r.answers]
+    .filter((a) => a.answer in ANSWER)
+    .sort((a, b) => rank(a.answer) - rank(b.answer))
+    .map((a) => ({ session: a.session, label: a.label || a.session, state: ANSWER[a.answer], reason: a.reason, tone: a.answer === "go" ? "ok" : a.answer === "block" ? "bad" : "warn" }));
+}
+
+/** The words of the pending list, the same on every client. */
+export const PENDING_COPY = { approve: "Approve", deny: "Deny", region: "Editor requests needing your answer", notSent: "Your answer was not sent. Try again." };
 
 /** One holder as a single line: "Claude Code: Waiting, busy (blueprint.add_variable)". */
 export const holderLine = (h: ConsentHolder): string => `${h.label}: ${h.state}${h.reason ? `, ${h.reason}` : ""}`;

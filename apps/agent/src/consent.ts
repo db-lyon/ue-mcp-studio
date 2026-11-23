@@ -223,18 +223,35 @@ export class ConsentLedger {
     private readonly fetchFn: Fetch = fetch as unknown as Fetch,
   ) {}
 
-  private async send<T>(method: string, path: string, body?: unknown): Promise<T> {
+  private async send<T>(method: string, path: string, body?: unknown, opts: { timeoutMs?: number; accept?: number[] } = {}): Promise<T> {
     const at = this.endpoint();
     if (!at) throw new LedgerError(0, "the daemon's address is not published");
     const res = await this.fetchFn(`http://127.0.0.1:${at.port}${path}`, {
       method,
       headers: { authorization: `Bearer ${at.token}`, "content-type": "application/json" },
       ...(body !== undefined ? { body: JSON.stringify(body) } : {}),
-      signal: AbortSignal.timeout(10_000),
+      signal: AbortSignal.timeout(opts.timeoutMs ?? 10_000),
     });
     const parsed = (await res.json().catch(() => ({}))) as Record<string, unknown>;
-    if (res.status < 200 || res.status >= 300) throw new LedgerError(res.status, typeof parsed.error === "string" ? parsed.error : `${method} ${path} answered ${res.status}`);
+    if ((res.status < 200 || res.status >= 300) && !opts.accept?.includes(res.status)) {
+      throw new LedgerError(res.status, typeof parsed.error === "string" ? parsed.error : `${method} ${path} answered ${res.status}`);
+    }
     return parsed as T;
+  }
+
+  /** A person's request to stop, restart or rebuild (Studio's Update), opened or re-read without running anything. */
+  ask(op: DisruptiveOp, requester: string, reason?: string): Promise<DisruptionView> {
+    return this.send("POST", "/v1/disruptions", { op, requester, ...(reason ? { reason } : {}) });
+  }
+
+  /**
+   * A person's editor operation through the daemon's HTTP route, which takes
+   * the override (`force`) and an approved `requestId` that the extension API
+   * does not. A 409 is answered like a result: its first step is "consent" and
+   * it carries the request. A rebuild can take as long as the project's build.
+   */
+  editorOperation(op: "stop" | "restart" | "rebuild", body: { requester: string; reason?: string; force?: boolean; requestId?: string }): Promise<Record<string, unknown>> {
+    return this.send("POST", `/v1/editor/${op}`, body, { timeoutMs: 3_600_000, accept: [409] });
   }
 
   report(id: string, state: { label: string; busy: string[]; parent?: string }): Promise<unknown> {

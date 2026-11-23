@@ -6,9 +6,10 @@
  */
 import { useEffect, useState, useSyncExternalStore } from "react";
 import { StyleSheet, View } from "react-native";
-import { UPDATE_RETRY_ON_COMPUTER, STEP_NAME, STEP_NOTE, waitingSteps, waitingWho, type UpdateRun } from "@ue-mcp-studio/client-core";
+import { PENDING_COPY, STUDIO_REQUESTER, UPDATE_RETRY_ON_COMPUTER, STEP_NAME, STEP_NOTE, holdOf, waitingSteps, waitingWho, type UpdateHold, type UpdateRun } from "@ue-mcp-studio/client-core";
 import { Banner, Button, edgePadding, font, Row, Spacer, Spinner, T, useInsets, useStyles, useTheme, type Theme } from "../ui";
 import { useProjectNav } from "../nav";
+import { EditorConsent } from "../screens/editor/EditorConsent";
 import type { DaemonEvent } from "../state";
 import { ConnectionOverlay, useConnection } from "./ConnectionOverlay";
 
@@ -41,10 +42,18 @@ export function UpdateRunner({ streaming, events, onReload }: { streaming: boole
     if (!run || run.error) setHidden(false);
   }, [run === null, !!run?.error]);
 
+  // An Update the editor consent gate holds: the computer keeps it, and the phone can answer it.
+  const { api } = useProjectNav();
+  const [hold, setHold] = useState<UpdateHold | null>(null);
+  useEffect(() => {
+    if (streaming) void api.updateHold().then(setHold, () => undefined);
+  }, [streaming, api]);
+
   const last = events[events.length - 1];
   useEffect(() => {
     if (current && last?.type === "studio.update.progress" && typeof last.data.message === "string") setRun({ ...current, detail: last.data.message });
     if (last?.type === "studio.update.run") setRun((last.data.run as UpdateRun | null) ?? null);
+    if (last?.type === "studio.update.consent") setHold(holdOf(last.data));
   }, [last?.id]);
 
   const connection = useConnection(streaming, events, !!run);
@@ -65,6 +74,7 @@ export function UpdateRunner({ streaming, events, onReload }: { streaming: boole
     return () => clearTimeout(t);
   }, [run?.summary]);
 
+  if (hold) return <><UpdateHeld hold={hold} />{overlay}</>;
   if (run && waitingSteps(run).length > 0) return <><UpdateWaiting run={run} />{overlay}</>;
   if (run && !escalated && hidden && !run.error && run.summary === undefined) return <><UpdateHidden run={run} onShow={() => setHidden(false)} onReload={onReload} />{overlay}</>;
   if (run && !escalated) return <UpdateScreen run={run} slow={slow} onClose={() => setRun(null)} onHide={() => setHidden(true)} onReload={onReload} />;
@@ -84,6 +94,32 @@ export function UpdateHidden({ run, onShow, onReload }: { run: UpdateRun; onShow
       {onReload ? <Button title="Reload now" variant="ghost" onPress={onReload} /> : null}
       <Button title="Show" variant="primary" onPress={onShow} />
     </Banner>
+  );
+}
+
+/**
+ * An Update the computer is holding for the other sessions using the editor:
+ * who and why, with Update anyway (the request approved, behind the PIN) and
+ * Cancel (denied). The computer goes on from the answer.
+ */
+export function UpdateHeld({ hold }: { hold: UpdateHold }) {
+  const { api } = useProjectNav();
+  const t = useTheme();
+  const insets = useInsets();
+  const [error, setError] = useState<string | null>(null);
+  const answer = (act: (id: string, by: string) => Promise<unknown>) => () => {
+    setError(null);
+    void act(hold.request.id, STUDIO_REQUESTER).catch((e: Error) => setError(e.message || PENDING_COPY.notSent));
+  };
+  return (
+    <View testID="update-held" style={{ marginLeft: 6 + insets.left, marginRight: 6 + insets.right, marginBottom: 6 + insets.bottom }}>
+      <EditorConsent ask={{ op: "update", request: hold.request }} onApprove={answer(api.approveDisruption)} onCancel={answer(api.denyDisruption)} />
+      {error ? (
+        <Banner kind="bad" role="alert">
+          <T size={12} style={{ color: t.c.badText }}>{error}</T>
+        </Banner>
+      ) : null}
+    </View>
   );
 }
 

@@ -1,5 +1,8 @@
 import { describe, expect, it } from "vitest";
-import { HttpError, consentAskOf, consentCopy, consentHolders, consentRequestOf, holderLine, isConsentOp, type EditorDisruptionRequest } from "../src/index.js";
+import {
+  HOLD_EXPIRED, HttpError, PENDING_COPY, STUDIO_REQUESTER, answerLines, applyDisruptionEvent, consentAskOf, consentCopy, consentHolders, consentRequestOf, holdOf, holderLine,
+  isConsentOp, isOpenRequest, isPendingForPerson, requestTitle, requestsOf, type EditorDisruptionRequest,
+} from "../src/index.js";
 
 const request = (answers: EditorDisruptionRequest["answers"]): EditorDisruptionRequest => ({
   id: "r-1a2b3c",
@@ -74,8 +77,71 @@ describe("consentCopy", () => {
     expect(["start", "stop", "restart", "rebuild"].filter(isConsentOp)).toEqual(["stop", "restart", "rebuild"]);
   });
 
+  it("asks about an Update that closes the editor the same way", () => {
+    expect(consentCopy("update")).toEqual({
+      title: "Other sessions are using the editor",
+      lead: "Updating now closes the editor and interrupts those sessions' work in it.",
+      approve: "Update anyway",
+      cancel: "Cancel",
+    });
+  });
+
   it("has no em dashes", () => {
     const dash = String.fromCharCode(0x2014);
-    for (const op of ["stop", "restart", "rebuild"] as const) expect(JSON.stringify(consentCopy(op))).not.toContain(dash);
+    for (const op of ["stop", "restart", "rebuild", "update"] as const) expect(JSON.stringify(consentCopy(op))).not.toContain(dash);
+    expect(JSON.stringify(PENDING_COPY) + HOLD_EXPIRED).not.toContain(dash);
+  });
+});
+
+describe("the requests waiting for a person", () => {
+  const agent = (state: EditorDisruptionRequest["state"], id = "r-a1"): EditorDisruptionRequest => ({
+    ...request([answer("Claude Code", "go", "idle for 400s"), answer("Studio: Lights", "wait_until_released", "busy (a Studio reply)"), answer("Codex", "block", "saving a level")]),
+    id,
+    op: "restart",
+    action: "editor.restart_editor",
+    reason: "load the new C++ class",
+    requester: { id: "mcp:cursor", label: "Cursor" },
+    state,
+  });
+
+  it("lists the open requests GET /v1/disruptions answers, leaving out the person's own", () => {
+    const own = { ...agent("pending", "r-own"), requester: { id: "http:the user in Studio", label: STUDIO_REQUESTER } };
+    const body = { enforcing: true, requests: [agent("pending"), agent("approved", "r-b2"), own, { id: "" }] };
+    expect(requestsOf(body).filter(isPendingForPerson).map((r) => r.id)).toEqual(["r-a1"]);
+    expect(requestsOf(null)).toEqual([]);
+    expect(isOpenRequest(agent("blocked"))).toBe(true);
+    expect(isOpenRequest(agent("confirm"))).toBe(true);
+    expect(isOpenRequest(agent("done"))).toBe(false);
+  });
+
+  it("follows the event stream: a request opened goes in, a change replaces it, a decision takes it out", () => {
+    let list: EditorDisruptionRequest[] = [];
+    list = applyDisruptionEvent(list, { type: "disruption.requested", data: agent("pending") });
+    expect(list.map((r) => r.state)).toEqual(["pending"]);
+    list = applyDisruptionEvent(list, { type: "disruption.updated", data: agent("blocked") });
+    expect(list.map((r) => r.state)).toEqual(["blocked"]);
+    const same = applyDisruptionEvent(list, { type: "editor.connected", data: agent("approved") });
+    expect(same).toBe(list);
+    expect(applyDisruptionEvent(list, { type: "disruption.updated", data: agent("approved", "r-other") })).toBe(list);
+    list = applyDisruptionEvent(list, { type: "disruption.updated", data: agent("denied") });
+    expect(list).toEqual([]);
+  });
+
+  it("says who asks for what, and every session's answer, blocks first and agreements last", () => {
+    expect(requestTitle(agent("pending"))).toBe("Cursor asks to restart the editor");
+    expect(requestTitle({ ...agent("pending"), op: "live_coding" })).toBe("Cursor asks to patch the running editor with Live Coding");
+    expect(answerLines(agent("pending")).map((a) => `${a.label}: ${a.state} (${a.tone}), ${a.reason}`)).toEqual([
+      "Codex: Blocked (bad), saving a level",
+      "Studio: Lights: Waiting (warn), busy (a Studio reply)",
+      "Claude Code: Agreed (ok), idle for 400s",
+    ]);
+  });
+
+  it("reads an Update the agent holds off its event and its route", () => {
+    const r = agent("pending");
+    expect(holdOf({ hold: { request: r, source: "queue" } })).toEqual({ request: r, source: "queue" });
+    expect(holdOf({ hold: null, decided: "approve" })).toBeNull();
+    expect(holdOf({ hold: { request: r, source: "elsewhere" } })).toBeNull();
+    expect(holdOf(null)).toBeNull();
   });
 });

@@ -17,6 +17,7 @@ import { sectionOf, type SettingsSection } from "./views/settings/sections";
 import { VcsChip } from "./chat/VcsChip";
 import { EditorBanner } from "./views/EditorBanner";
 import { DialogBanner } from "./views/DialogBanner";
+import { PendingDisruptions } from "./views/PendingDisruptions";
 import { VersionNotice } from "./views/VersionNotice";
 import { RemoteApprovalBanner } from "./views/remote/approvals";
 import { RemoteLock } from "./views/remote/RemoteLock";
@@ -247,6 +248,7 @@ function Studio({ daemon }: { daemon: DaemonState }) {
           </div>
         )}
         <DialogBanner daemon={daemon} />
+        <PendingDisruptions daemon={daemon} />
         <VersionNotice daemon={daemon} />
         <RemoteApprovalBanner onOpenAsk={(o) => { if (o.tab === "Settings") setSection(o.section ?? "general"); setTab(o.tab); }} />
         {!narrow && <EditorBanner daemon={daemon} />}

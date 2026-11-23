@@ -36,17 +36,28 @@ describe("remotePath", () => {
     ]) expect(remotePath(m, p), `${m} ${p}`).toBeNull();
   });
 
-  it("lets a paired phone cancel a held editor operation, and nothing else about consent", () => {
+  it("lets a paired phone list pending requests, approve or deny one, and nothing else about consent", () => {
     expect(remotePath("POST", "/v1/disruptions/r-1a2b3c/deny")).toBe("/v1/disruptions/r-1a2b3c/deny");
+    expect(remotePath("POST", "/v1/disruptions/r-1a2b3c/approve")).toBe("/v1/disruptions/r-1a2b3c/approve");
+    expect(remotePath("GET", "/v1/disruptions")).toBe("/v1/disruptions");
     for (const [m, p] of [
-      ["POST", "/v1/disruptions/r-1a2b3c/approve"],
       ["POST", "/v1/disruptions/r-1a2b3c/vote"],
+      ["POST", "/v1/disruptions/r-1a2b3c/confirm"],
       ["POST", "/v1/disruptions"],
-      ["GET", "/v1/disruptions"],
+      ["DELETE", "/v1/disruptions"],
       ["GET", "/v1/disruptions/r-1a2b3c/deny"],
       ["POST", "/v1/disruptions/participants/x/release"],
+      ["PUT", "/v1/disruptions/participants/x"],
       ["POST", "/v1/disruptions/r-ZZ/deny"],
+      ["POST", "/v1/disruptions/r-ZZ/approve"],
     ]) expect(remotePath(m, p), `${m} ${p}`).toBeNull();
+  });
+
+  it("lets a paired phone read a held Update, never start the consent check", () => {
+    expect(remotePath("GET", "/v1/ext/studio/updates/consent")).toBe("/v1/ext/studio/updates/consent");
+    expect(remotePath("POST", "/v1/ext/studio/updates/consent")).toBeNull();
+    expect(remotePath("POST", "/v1/ext/studio/updates/plugin")).toBeNull();
+    expect(remotePath("GET", "/v1/ext/studio/updates/consentx")).toBeNull();
   });
 
   it("lets ids and paths with slashes through as data: playtest verdicts and Git diffs", () => {

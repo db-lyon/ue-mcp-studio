@@ -43,7 +43,8 @@
 import { registerVersionNotice } from "./version-notice.js";
 import { registerWhatsNew } from "./whats-new.js";
 import { readDiscovery, type DaemonExtensionApi } from "ue-mcp/daemon";
-import { ConsentLedger } from "./consent.js";
+import { CONSENT_FEATURE, ConsentLedger, type DisruptionView } from "./consent.js";
+import { UPDATE_REASON, UPDATE_REQUESTER, UpdateHold, consentOf, updateOp } from "./update-hold.js";
 import { registerQueueRoutes } from "./queue-routes.js";
 import { registerVideoRoutes } from "./video-routes.js";
 import { PlaytestFlow } from "./playtest-flow.js";
@@ -269,6 +270,9 @@ export function registerChat(api: DaemonExtensionApi, agentVersion = "0.0.0", pa
     const d = readDiscovery(api.projectDir);
     return d ? { port: d.port, token: d.token } : null;
   };
+  /** ue-mcp's editor consent ledger, over the daemon's own HTTP API. */
+  const ledger = new ConsentLedger(endpoint);
+  const consentOn = (): boolean => ((api as { features?: readonly string[] }).features ?? []).includes(CONSENT_FEATURE);
   // The main agent's vendor's own files: instructions, subagents and skills (native.ts), read again at most every few seconds.
   const skillOwners = (): Map<string, string> => {
     const skills = required((api as unknown as { skills?: { list(): Array<{ dir: string; owner: { kind: string; package?: string } }> } }).skills, "skills");
@@ -349,7 +353,7 @@ export function registerChat(api: DaemonExtensionApi, agentVersion = "0.0.0", pa
     flowStepApproval: () => offersStepApproval(stepHost),
     contextWindow: knownWindow,
     // ue-mcp's editor consent ledger: each conversation takes part in deciding whether the editor may be stopped (used on a daemon with "editor.consent").
-    consent: new ConsentLedger(endpoint),
+    consent: ledger,
     // Claude sign-in turns run in host processes beside the bundle, so an update installs while they run.
     turnHosts: new TurnHosts({
       dataDir: api.dataDir,
@@ -442,6 +446,18 @@ export function registerChat(api: DaemonExtensionApi, agentVersion = "0.0.0", pa
   // Studio's own updates: the extension and the editor plugin, against the release channel.
   // A Studio update or restart that fails in the background stops the panel's run with what npm said.
   const updater = new Updater(api, agentVersion, (type, data) => api.events.publish(type, data), fetch, () => readChannel(), (step, error) => updates.fail(step, error));
+  // An Update closes the editor as the person who clicked it, so it carries their override past the consent gate.
+  updater.usePersonOps((op, consent) => consentOn()
+    ? ledger.editorOperation(op, { requester: UPDATE_REQUESTER, reason: UPDATE_REASON, ...(consent.force ? { force: true } : {}) })
+    : api.editorOperation(op));
+  // An Update the gate held, shown on every client until the request is decided; the queue goes on from a waiting step's answer.
+  const hold = new UpdateHold({
+    publish: (type, data) => api.events.publish(type, data),
+    decided: (source, decision) => {
+      if (source === "queue") void updates.decide(decision);
+    },
+  });
+  api.events.subscribe((e) => hold.onEvent(e));
   // Closing the editor waits while any turn is in progress; restarting the daemon only while a turn runs inside it.
   const writeRestartCause = (cause: string) => {
     fs.mkdirSync(api.dataDir, { recursive: true });
@@ -456,18 +472,24 @@ export function registerChat(api: DaemonExtensionApi, agentVersion = "0.0.0", pa
     interruptTurns: () => {
       for (const id of runner.activeSessions()) runner.interrupt(id, { by: "studio", why: "the user chose Restart now to install an update" });
     },
-    run: async (step) => {
-      if (step === "plugin") return updater.updatePlugin();
+    run: async (step, consent) => {
+      if (step === "plugin") return updater.updatePlugin(consent);
       writeRestartCause(step === "studio" ? "Studio's daemon restarted to install a Studio update" : "Studio's daemon restarted to load the updated ue-mcp");
       const r = step === "studio" ? await updater.updateStudio() : await updater.restartDaemon();
       if (!r.started) fs.rmSync(path.join(api.dataDir, RESTART_CAUSE_FILE), { force: true });
       return { ok: r.started, started: r.started, error: r.error };
     },
+    held: (request) => hold.set(request, "queue"),
     publish: (type, data) => api.events.publish(type, data),
   });
-  const stepBody = (body: unknown): { now?: boolean; then?: DeferredStep[] } => {
+  const stepBody = (body: unknown): { now?: boolean; then?: DeferredStep[]; force?: boolean } => {
     const b = (body ?? {}) as { now?: unknown; then?: unknown };
-    return { now: b.now === true, then: Array.isArray(b.then) ? b.then.filter((s): s is DeferredStep => (DEFERRED_STEPS as readonly unknown[]).includes(s)) : [] };
+    return { now: b.now === true, then: Array.isArray(b.then) ? b.then.filter((s): s is DeferredStep => (DEFERRED_STEPS as readonly unknown[]).includes(s)) : [], ...consentOf(body) };
+  };
+  /** A step the panel ran that the gate held: every client is asked, and the panel goes on from the answer. */
+  const heldStep = (request: DisruptionView, error: string | undefined) => {
+    hold.set(request, "panel");
+    return { status: 409, body: { ok: false, error, request } };
   };
   registerAgentSettings(api, () => updates.request("restart", {}), playtests);
   registerEndpointRoutes(api, {
@@ -528,6 +550,7 @@ export function registerChat(api: DaemonExtensionApi, agentVersion = "0.0.0", pa
   const stepRoute = async (step: DeferredStep, body: unknown) => {
     const r = await updates.request(step, stepBody(body));
     if (r.deferred) return { status: 202, body: { ok: true, deferred: r.deferred } };
+    if (!r.ok && r.request) return heldStep(r.request, r.error);
     if (!r.ok) return { status: 500, body: { error: r.error } };
     return { status: r.started ? 202 : 200, body: r };
   };
@@ -538,6 +561,22 @@ export function registerChat(api: DaemonExtensionApi, agentVersion = "0.0.0", pa
     channel: () => readChannel(),
   });
   api.route("GET", "/updates", async () => ({ body: { ...(await updater.check()), deferred: updates.steps(), failure: updater.lastFailure() } }));
+  // An Update held for the other sessions using the editor, for a client that loads while it is held.
+  api.route("GET", "/updates/consent", () => ({ body: { hold: hold.current() } }));
+  /**
+   * Before an Update closes the editor: the person's request to the other
+   * sessions, opened now so the panel can ask before anything is downloaded.
+   * Null when no step closes the editor, the gate approved it at once, or the
+   * daemon has no gate.
+   */
+  api.route("POST", "/updates/consent", async (req) => {
+    const steps = (req.body as { steps?: unknown } | undefined)?.steps;
+    const op = consentOn() && Array.isArray(steps) ? updateOp(steps.filter((s): s is string => typeof s === "string"), updater.bridgeKind() === "source") : null;
+    const request = op ? await ledger.ask(op, UPDATE_REQUESTER, UPDATE_REASON).catch(() => null) : null;
+    if (!request || request.state === "approved") return { body: { request: null } };
+    hold.set(request, "panel");
+    return { body: { request } };
+  });
   // Stable or beta, for every project: Update follows it for Studio and the editor plugin.
   api.route("PUT", "/updates/channel", (req) => {
     const channel = (req.body as { channel?: unknown } | undefined)?.channel;
@@ -594,7 +633,8 @@ export function registerChat(api: DaemonExtensionApi, agentVersion = "0.0.0", pa
   api.route("POST", "/updates/plugin", (req) => stepRoute("plugin", req.body));
   api.route("POST", "/updates/ueMcp", async (req) => {
     const version = String((req.body as { version?: unknown } | undefined)?.version ?? "");
-    const r = await updater.updateUeMcp(version);
+    const r = await updater.updateUeMcp(version, consentOf(req.body));
+    if (r.request) return heldStep(r.request, r.error);
     return r.ok ? { body: { ok: true } } : { status: 500, body: { ok: false, error: r.error } };
   });
   // Restart now: end the turns in progress and run the waiting steps.

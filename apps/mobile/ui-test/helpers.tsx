@@ -22,7 +22,7 @@ const NAMES: Array<keyof StudioApi> = [
   "resolveAssets", "reportAssetMiss", "openAsset", "readFile",
 ];
 /** The editor and flow routes. */
-const EDITOR_NAMES: Array<keyof StudioApi> = ["daemonHealth", "busy", "stopBusy", "editor", "denyDisruption", "flows", "planFlow", "flow"];
+const EDITOR_NAMES: Array<keyof StudioApi> = ["daemonHealth", "busy", "stopBusy", "editor", "denyDisruption", "approveDisruption", "disruptions", "updateHold", "flows", "planFlow", "flow"];
 /** The playtest, form and asset routes. */
 const PLAYTEST_NAMES: Array<keyof StudioApi> = [
   "forms", "answerForm", "qaRuns", "qaPlaytests", "qaPlaytestCard", "qaPlaytestScript", "qaPlaytestSave", "qaPlaytestDelete", "qaStatus", "qaVerdict", "qaAssign", "qaCancelAssign",
