@@ -72,6 +72,8 @@ export function settingsOf(raw: unknown): StudioSettings {
     connected: Object.fromEntries(PROVIDER_IDS.map((p) => [p, connected[p] === true])) as Record<ProviderId, boolean>,
     ...(typeof s.endpoints === "number" ? { endpoints: s.endpoints } : {}),
     account: typeof account.login === "string" ? { login: account.login, via: account.via === "ue-mcp-login" ? "ue-mcp-login" : "studio", ...signInMethodsOf(account) } : null,
+    // Each experiment is on only when the agent says true; an agent before experiments has none.
+    experiments: { playtestHub: obj(s.experiments).playtestHub === true },
   };
 }
 

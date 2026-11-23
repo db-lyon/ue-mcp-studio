@@ -51,9 +51,19 @@ describe("the navigation drawer", () => {
     expect(screen.getByText("Docs")).toBeTruthy();
   });
 
-  it("hides the Playtests page for now, even while playtests need the user", () => {
+  it("hides the Playtests page while the Playtest Hub is off, even while playtests need the user", () => {
     setup(true, "Chat", 0, 2);
     expect(screen.queryByText("Playtests")).toBeNull();
+  });
+
+  it("lists Playtests with its inbox count once the Playtest Hub is on", () => {
+    m.sessions.mockResolvedValue({ sessions: [] });
+    const onTab = vi.fn();
+    render(<NavDrawer open tab="Chat" session={null} updates={0} playtestsWaiting={3} showPlaytests onClose={vi.fn()} onTab={onTab} onSession={vi.fn()} onNewSession={vi.fn()} />);
+    const item = screen.getByText("Playtests").closest("button")!;
+    expect(item.querySelector(".tab-count")?.textContent).toBe("3");
+    fireEvent.click(item);
+    expect(onTab).toHaveBeenCalledWith("Playtests");
   });
 
   it("lists the recent sessions when it opens, leaving archived ones out, and marks the open one", async () => {

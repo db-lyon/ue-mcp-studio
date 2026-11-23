@@ -23,6 +23,8 @@ import { RemoteLock } from "./views/remote/RemoteLock";
 import { DockToggle } from "./views/DockToggle";
 import { NavDrawer } from "./views/NavDrawer";
 import { PlaytestsView, usePlaytestIndex } from "./views/Playtests";
+import { HubView } from "./views/hub/Hub";
+import { useExperiments, useHubOverview } from "./views/hub/state";
 import { playtestMatches } from "@ue-mcp-studio/shared";
 import { NARROW, useMedia } from "./layout";
 import { readLocation, writeLocation } from "./location";
@@ -39,10 +41,9 @@ import { Slot } from "./extensions/Slot";
 
 const NO_CTX = {};
 
-// Playtests is hidden for now; its view stays for when it comes back.
 const TABS = ["Chat", "Viewport", "Playtests", "Plugins", "Settings"] as const;
-// Playtests is hidden for now; its view stays for when it comes back.
-const SHOWN: readonly (typeof TABS)[number][] = TABS.filter((t) => t !== "Playtests");
+// Playtests shows only with the Playtest Hub experiment on; otherwise its old page stays reachable by URL alone.
+const WITHOUT_PLAYTESTS: readonly (typeof TABS)[number][] = TABS.filter((t) => t !== "Playtests");
 type Tab = (typeof TABS)[number];
 
 /** Studio, or the one screen that says it needs a newer ue-mcp. */
@@ -145,10 +146,17 @@ function Studio({ daemon }: { daemon: DaemonState }) {
   const updates = useUpdateCount();
   // The project's playtests: the page's rows, and the count on its tab of those that wait for the user.
   const playtests = usePlaytestIndex(daemon);
-  const playtestsWaiting = (playtests.index?.playtests ?? []).filter((e) => playtestMatches(e, "needs-you")).length;
-  const openPlaytest = (sessionId: string, runId: string) => {
+  // The Playtest Hub experiment: the tab shows, draws the hub, and counts its inbox.
+  const experiments = useExperiments(daemon.events);
+  const hubOn = experiments?.playtestHub === true;
+  const hub = useHubOverview(daemon, hubOn);
+  const shownTabs = hubOn ? TABS : WITHOUT_PLAYTESTS;
+  const playtestsWaiting = hubOn
+    ? hub.overview?.inbox.length ?? 0
+    : (playtests.index?.playtests ?? []).filter((e) => playtestMatches(e, "needs-you")).length;
+  const openPlaytest = (sessionId: string, runId?: string) => {
     openChat(sessionId);
-    focusRun(runId);
+    if (runId) focusRun(runId);
   };
   // The chat stays mounted once shown, parked while another tab is up, so coming back to it
   // finds the same session, scroll position and composer draft (#40).
@@ -192,11 +200,11 @@ function Studio({ daemon }: { daemon: DaemonState }) {
                 <span className="product">Studio</span>
               </span>
               <nav>
-                {SHOWN.map((t) => (
+                {shownTabs.map((t) => (
                   <button key={t} className={t === tab ? "tab active" : "tab"} onClick={() => setTab(t)}>
                     {t}
                     {t === "Settings" && updates > 0 && <span className="tab-dot" title={`${updates} ${updates === 1 ? "update" : "updates"} available`} />}
-                    {t === "Playtests" && playtestsWaiting > 0 && <span className="tab-count warn" aria-label={`${playtestsWaiting} need you`} title={`${playtestsWaiting} ${playtestsWaiting === 1 ? "playtest needs" : "playtests need"} you`}>{playtestsWaiting}</span>}
+                    {t === "Playtests" && playtestsWaiting > 0 && <span className="tab-count warn" aria-label={`${playtestsWaiting} need you`} title={`${playtestsWaiting} waiting in the inbox`}>{playtestsWaiting}</span>}
                   </button>
                 ))}
               </nav>
@@ -215,6 +223,7 @@ function Studio({ daemon }: { daemon: DaemonState }) {
             session={tab === "Chat" ? readLocation().session : null}
             updates={updates}
             playtestsWaiting={playtestsWaiting}
+            showPlaytests={hubOn}
             onTab={setTab}
             onSession={openChat}
             onNewSession={newSession}
@@ -243,9 +252,13 @@ function Studio({ daemon }: { daemon: DaemonState }) {
             </main>
           )}
           {tab !== "Chat" && (
-            <main className={`view-${tab.toLowerCase()}`}>
+            <main className={`view-${tab.toLowerCase()}${tab === "Playtests" && hubOn ? " hub-host" : ""}`}>
               <ErrorBoundary what={tab} resetKey={tab}>
-                {tab === "Playtests" && <PlaytestsView daemon={daemon} index={playtests} onOpenSession={openPlaytest} onChat={() => setTab("Chat")} />}
+                {tab === "Playtests" && (hubOn
+                  ? <HubView data={hub} narrow={narrow} onOpenChat={openPlaytest} onChat={() => setTab("Chat")} />
+                  // A hub link before the setting has been read waits for it rather than flashing the old page.
+                  : experiments === null && readLocation().sub ? null
+                  : <PlaytestsView daemon={daemon} index={playtests} onOpenSession={openPlaytest} onChat={() => setTab("Chat")} />)}
                 {tab === "Viewport" && <ViewportView daemon={daemon} onSettings={(s) => { setSection(s); setTab("Settings"); }} />}
                 {tab === "Plugins" && <PluginsView daemon={daemon} />}
                 {tab === "Settings" && <SettingsHub daemon={daemon} section={section} onSection={setSection} onTheme={(t: StudioTheme) => void applyTheme(t)} updates={updates} narrow={narrow} />}

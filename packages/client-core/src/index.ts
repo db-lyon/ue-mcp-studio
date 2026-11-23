@@ -47,3 +47,4 @@ export * from "./composer-target.js";
 export * from "./refusal-view.js";
 export * from "./remote-asks.js";
 export * from "./viewport.js";
+export * from "./hub.js";
