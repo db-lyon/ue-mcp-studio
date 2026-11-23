@@ -50,7 +50,7 @@ import type {
   RemoteStatus,
 } from "@ue-mcp-studio/shared";
 import { HttpError, readAll, requestJson, type Transport } from "./transport.js";
-import type { UpdateRun } from "./update-run.js";
+import { holdOf, type UpdateRun } from "./update-run.js";
 import type { EditorOpBody } from "./editor-consent.js";
 import { projectApi } from "./project-api.js";
 import { viewportApi } from "./viewport.js";
@@ -165,6 +165,8 @@ export function studioApi(t: Transport) {
     denyDisruption: (id: string, by: string) => send<unknown>("POST", `/v1/disruptions/${encodeURIComponent(id)}/deny`, { by }),
     refusal: () => get<StudioRefusal>(`${S}/refusal`),
     saveUpdateRun: (run: UpdateRun | null) => send<unknown>("PUT", `${S}/updates/run`, { run }),
+    /** An Update the editor consent gate holds; null when none is held. */
+    updateHold: () => get<unknown>(`${S}/updates/consent`).then(holdOf),
     /** A paired device asks the computer for a change it may not make itself (an update, plugins, a model key). */
     askComputer: (what: "update" | "plugins" | "models") => send<{ ok: true }>("POST", `${S}/remote-asks`, { what }),
     updatesDeferredNow:() => send<{ ok?: boolean; error?: string }>("POST", `${S}/updates/deferred/now`),

@@ -21,6 +21,8 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import { isNewer, type StudioPluginUpdate } from "@ue-mcp-studio/shared";
+import type { DisruptionView } from "./consent.js";
+import { refusalOf, type UpdateConsent } from "./update-hold.js";
 
 export const MANIFEST_URL = process.env.UE_MCP_STUDIO_CHANNEL || "https://github.com/db-lyon/ue-mcp-studio/releases/latest/download/latest.json";
 /** The editor plugin's own channel, when a Studio manifest does not name one. */
@@ -317,6 +319,21 @@ export class Updater {
     private readonly onBackgroundFailure: (step: "studio" | "restart", error: string) => void = () => {},
   ) {}
 
+  /**
+   * How an Update stops or rebuilds the editor: on a daemon with the editor
+   * consent gate, as the person who clicked Update, carrying their override.
+   * Unset (an older daemon), through the extension API as before.
+   */
+  private personOp: ((op: "stop" | "rebuild", consent: UpdateConsent) => Promise<Record<string, unknown>>) | null = null;
+
+  usePersonOps(op: ((op: "stop" | "rebuild", consent: UpdateConsent) => Promise<Record<string, unknown>>) | null): void {
+    this.personOp = op;
+  }
+
+  private closeEditor(op: "stop" | "rebuild", consent: UpdateConsent): Promise<Record<string, unknown>> {
+    return this.personOp ? this.personOp(op, consent) : this.host.editorOperation(op);
+  }
+
   /** The ue-mcp package a daemon this updater starts runs: see daemonPackage. */
   private async ueMcpPackage(): Promise<string> {
     const m = await this.manifest().catch(() => null);
@@ -516,7 +533,7 @@ export class Updater {
    * the editor is rebuilt on it, so the editor never starts on source it has
    * not built.
    */
-  async updateUeMcp(version: string): Promise<{ ok: boolean; error?: string }> {
+  async updateUeMcp(version: string, consent: UpdateConsent = {}): Promise<{ ok: boolean; error?: string; request?: DisruptionView }> {
     const uproject = this.uproject();
     if (!uproject) return { ok: false, error: "could not find the project" };
     if (!/^\d+\.\d+\.\d+(-[0-9A-Za-z.]+)?$/.test(version)) return { ok: false, error: `not a version: ${version}` };
@@ -528,7 +545,10 @@ export class Updater {
     const deployed = await this.runUeMcp(version, ["update", uproject, "--no-build"]);
     if (!deployed.ok) return deployed;
     this.publish("update.progress", { part: "ueMcp", message: "Rebuilding the editor on the new bridge" });
-    const rebuilt = await this.host.editorOperation("rebuild");
+    const rebuilt = await this.closeEditor("rebuild", consent);
+    // Other sessions are using the editor: the source is deployed, and the rebuild waits for the person.
+    const held = refusalOf(rebuilt);
+    if (held) return { ok: false, error: held.reason, request: held.request };
     const failed = ((rebuilt.steps as Array<{ step: string; ok: boolean; result?: string }> | undefined) ?? []).find((s) => !s.ok);
     return failed ? { ok: false, error: `The bridge source ${version} is deployed, but ${failed.step} failed: ${failed.result ?? "no detail"}` } : { ok: true };
   }
@@ -573,7 +593,7 @@ export class Updater {
   }
 
   /** Download, check, unpack, then stop the editor, swap the plugin folder and start the editor again. */
-  async updatePlugin(): Promise<{ ok: boolean; version?: string; error?: string }> {
+  async updatePlugin(consent: UpdateConsent = {}): Promise<{ ok: boolean; version?: string; error?: string; request?: DisruptionView }> {
     if (this.busy) return { ok: false, error: `an update is already running (${this.busy})` };
     this.busy = "plugin";
     const target = this.pluginDir();
@@ -614,7 +634,11 @@ export class Updater {
       this.step("Closing the editor");
       // Asked whether or not a bridge is connected: an editor still starting holds the plugin too.
       // Windows lets the folder be renamed under a running editor, so a stop that failed ends here.
-      const stopped = stepFailure(await this.host.editorOperation("stop"));
+      const stop = await this.closeEditor("stop", consent);
+      // Other sessions are using the editor: nothing was moved, and the step waits for the person.
+      const held = refusalOf(stop);
+      if (held) return { ok: false, error: held.reason, request: held.request };
+      const stopped = stepFailure(stop);
       if (stopped) throw new Error(`the editor did not close (${stopped}), so the plugin was left as it is`);
       this.step("Replacing the plugin");
       fs.rmSync(previous, { recursive: true, force: true });
@@ -632,7 +656,8 @@ export class Updater {
       if (build.kind === "source") {
         // Built before the editor starts, so it never starts without the plugin or asks to rebuild it.
         this.step(`Building the plugin for Unreal Engine ${engine} and starting the editor`);
-        const notBuilt = stepFailure(await this.host.editorOperation("rebuild").catch((e) => ({ steps: [{ step: "rebuild", ok: false, result: e instanceof Error ? e.message : String(e) }] })));
+        // The editor is already closed by this update, so the rebuild interrupts no one: it goes ahead.
+        const notBuilt = stepFailure(await this.closeEditor("rebuild", { force: true }).catch((e) => ({ steps: [{ step: "rebuild", ok: false, result: e instanceof Error ? e.message : String(e) }] })));
         if (notBuilt) return { ok: false, version: p.version, error: `The plugin ${p.version} source is in place for Unreal Engine ${engine}, but ${notBuilt}` };
         return { ok: true, version: p.version };
       }

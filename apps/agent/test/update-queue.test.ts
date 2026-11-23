@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
-import { UpdateQueue, type DeferredStep } from "../src/update-queue.js";
+import { HOLD_EXPIRED, UpdateQueue, type DeferredStep } from "../src/update-queue.js";
 
 let dir: string;
 let busy: boolean;
@@ -173,6 +173,106 @@ describe("turns that run in host processes", () => {
     await q.tick();
     expect(ran).toEqual(["studio"]);
     expect(interrupted).toBe(0);
+    q.stop();
+  });
+});
+
+describe("a waiting step the editor consent gate holds", () => {
+  const request = { id: "r-77", op: "stop", state: "pending", requester: { id: "http:the user in Studio", label: "the user in Studio" }, answers: [] } as never;
+  let consents: Array<{ step: DeferredStep; force?: boolean }>;
+  let holding: boolean;
+  let held: unknown[];
+  const gated = () =>
+    new UpdateQueue({
+      dataDir: dir,
+      busy: () => busy,
+      run: async (step, consent) => {
+        consents.push({ step, ...consent });
+        if (step === "plugin" && holding && !consent.force) return { ok: false, error: "Claude Code is busy", request };
+        ran.push(step);
+        return { ok: true, started: step !== "plugin" };
+      },
+      held: (r) => held.push(r),
+      interruptTurns: () => undefined,
+      publish: (type, data) => published.push({ type, data }),
+      pollMs: 60_000,
+    });
+
+  beforeEach(() => {
+    consents = [];
+    holding = true;
+    held = [];
+    busy = true;
+    fs.writeFileSync(runFile(), JSON.stringify({ steps: [{ key: "plugin", state: "pending" }, { key: "studio", state: "pending" }] }));
+  });
+
+  it("keeps the steps, held on the request, and asks the person instead of failing the run", async () => {
+    const q = gated();
+    await q.request("plugin", { then: ["studio"] });
+    busy = false;
+    await q.tick();
+    expect(held).toEqual([request]);
+    expect(ran).toEqual([]);
+    expect(q.steps()).toEqual(["plugin", "studio"]);
+    expect(q.heldOn()).toBe("r-77");
+    expect(savedRun().steps[0]).toEqual({ key: "plugin", state: "deferred" });
+    // Nothing runs again by itself while the person decides.
+    await q.tick();
+    expect(consents).toHaveLength(1);
+    q.stop();
+  });
+
+  it("runs every step with the override once the request is approved", async () => {
+    const q = gated();
+    await q.request("plugin", { then: ["studio"] });
+    busy = false;
+    await q.tick();
+    await q.decide("approve");
+    expect(ran).toEqual(["plugin", "studio"]);
+    expect(consents.slice(1)).toEqual([{ step: "plugin", force: true }, { step: "studio", force: true }]);
+    expect(q.steps()).toEqual([]);
+    q.stop();
+  });
+
+  it("drops the steps and the run when the request is denied", async () => {
+    const q = gated();
+    await q.request("plugin", { then: ["studio"] });
+    busy = false;
+    await q.tick();
+    await q.decide("deny");
+    expect(ran).toEqual([]);
+    expect(q.steps()).toEqual([]);
+    expect(fs.existsSync(runFile())).toBe(false);
+    expect(published.at(-1)).toEqual({ type: "update.run", data: { run: null } });
+  });
+
+  it("stops the run with why when nobody answered in time", async () => {
+    const q = gated();
+    await q.request("plugin", { then: ["studio"] });
+    busy = false;
+    await q.tick();
+    await q.decide("expired");
+    expect(q.steps()).toEqual([]);
+    expect(savedRun()).toMatchObject({ error: HOLD_EXPIRED, steps: [{ key: "plugin", state: "failed" }, { key: "studio", state: "pending" }] });
+  });
+
+  it("keeps the person's Update anyway with steps that wait for a turn", async () => {
+    const q = gated();
+    expect(await q.request("plugin", { then: ["studio"], force: true })).toMatchObject({ deferred: ["plugin", "studio"] });
+    busy = false;
+    await q.tick();
+    expect(held).toEqual([]);
+    expect(ran).toEqual(["plugin", "studio"]);
+    expect(consents).toEqual([{ step: "plugin", force: true }, { step: "studio", force: true }]);
+  });
+
+  it("runs a step that nothing waits on with the override it was given", async () => {
+    busy = false;
+    const q = gated();
+    expect(await q.request("plugin", { force: true })).toMatchObject({ ok: true });
+    expect(consents).toEqual([{ step: "plugin", force: true }]);
+    holding = true;
+    expect(await q.request("plugin")).toMatchObject({ ok: false, request });
     q.stop();
   });
 });

@@ -210,6 +210,16 @@ export const SETTINGS_SCENARIOS: Record<string, Scenario> = {
     post: (p) => (p === "/v1/editor/rebuild" ? { status: 409, body: { error: "Not run yet: request r-1a2b3c to rebuild the editor is waiting on the other sessions using this editor.", request: HELD_REBUILD } } : undefined),
     clicks: [".problem .actions button.primary", ".problem .banner .actions button.primary"],
   }),
+  "settings-pending-disruption": page("General while another session asks to rebuild the editor: who asks, what for, each session's answer, with Approve and Deny above every view", "general", {
+    get: (p) => (p === "/v1/health" ? CONSENT_HEALTH : p === "/v1/disruptions" ? { enforcing: true, requests: [AGENT_REBUILD] } : undefined),
+  }),
+  "settings-update-held": page("General after Update while other sessions use the editor: the update asks who holds it and why, with Update anyway and Cancel", "general", {
+    get: (p) => (p === "/v1/health"
+      ? CONSENT_HEALTH
+      : p === "/v1/ext/studio/updates/run"
+        ? { run: { steps: [{ key: "ueMcp", state: "done" }, { key: "plugin", state: "pending" }, { key: "studio", state: "pending" }], target: "1.4.12", at: Date.now(), consent: HELD_UPDATE } }
+        : p === "/v1/ext/studio/updates/consent" ? { hold: { request: HELD_UPDATE, source: "panel" } } : undefined),
+  }),
   "settings-project-yaml": page("Project with Advanced open: ue-mcp.yml highlighted, focused, with a line longer than the box", "project", {
     get: (p) => (p === "/v1/ext/studio/config" ? { path: "C:/Projects/StudioE2E/ue-mcp.yml", exists: true, text: YAML } : undefined),
     click: "details.advanced > summary",
@@ -328,6 +338,33 @@ export const HELD_REBUILD = {
     { session: "studio:s-4", label: "Studio: Dress the courtyard", answer: "block", reason: "a playtest is recording", auto: false },
   ],
   self: { attestationRequired: false, attested: null, inflight: [] },
+};
+
+/** An Update held on the same sessions: Studio's own request, to stop the editor for the editor plugin. */
+export const HELD_UPDATE = { ...HELD_REBUILD, id: "r-4d5e6f", op: "stop", action: "POST /v1/editor/stop", reason: "installing an update" };
+
+/** Another session's request waiting for a person: Claude Code asks to rebuild while a Studio conversation replies. */
+export const AGENT_REBUILD = {
+  ...HELD_REBUILD,
+  id: "r-7a8b9c",
+  op: "restart",
+  action: "editor.restart_editor",
+  reason: "load the new DoorComponent C++ class",
+  requester: { id: "mcp-7f2a", label: "Claude Code" },
+  state: "pending",
+  expiresAt: "2099-11-04T23:39:00Z",
+  answers: [
+    { session: "studio:s-4", label: "Studio: Dress the courtyard", answer: "wait_until_released", reason: "busy (a Studio reply)", auto: true },
+    { session: "mcp-91c0", label: "Cursor", answer: "go", reason: "idle for 412s", auto: true },
+  ],
+  self: { attestationRequired: true, attested: "none", inflight: [] },
+};
+
+/** The harness's daemon with the editor consent gate. */
+const CONSENT_HEALTH = {
+  ok: true, pid: 1, version: "1.4.12", apiVersion: 1, projectRoot: "c:/projects/studioe2e", startedAt: "2026-11-04T22:00:00Z",
+  editors: [{ name: "StudioE2E", connected: true, port: 1, pid: 1, lastDisconnect: null }],
+  clients: 2, inflight: 0, lastEventId: 0, extensions: [{ name: "studio", version: "dev" }], ui: "dev", features: ["checkpoints", "editor.consent"],
 };
 
 export const INSTALL = {

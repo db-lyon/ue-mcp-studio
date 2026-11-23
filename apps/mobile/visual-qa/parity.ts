@@ -159,6 +159,9 @@ export const PARITY: Record<string, ParityEntry> = {
   "settings-project-attention": {owner: "agent-b"},
   "settings-project-rebuild": {owner: "agent-b"},
   "settings-project-rebuild-held": {owner: "agent-b", clicks: ["Rebuild", "Close the editor and rebuild"]},
+  "settings-pending-disruption": {owner: "shell"},
+  // A phone never runs an update; it shows the computer's held one as a banner with the same answers.
+  "settings-update-held": {owner: "agent-b"},
   "settings-project-yaml": {owner: "agent-b", clicks: ["Advanced: ue-mcp.yml"], scroll: "Advanced"},
   "settings-general": {owner: "agent-b"},
   "settings-whats-new-card": {owner: "agent-b"},

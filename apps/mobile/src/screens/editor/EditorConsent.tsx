@@ -5,10 +5,11 @@
  */
 import { useState } from "react";
 import { View } from "react-native";
-import { STUDIO_REQUESTER, consentAskOf, consentCopy, consentHolders, type ConsentAsk, type ConsentOp, type EditorOpBody } from "@ue-mcp-studio/client-core";
+import { STUDIO_REQUESTER, consentAskOf, consentCopy, consentHolders, type AskKind, type ConsentAsk, type ConsentOp, type EditorDisruptionRequest, type EditorOpBody } from "@ue-mcp-studio/client-core";
 import { Banner, Button, T, bannerText, useTheme } from "../../ui";
 
-export function EditorConsent({ ask, onApprove, onCancel }: { ask: ConsentAsk; onApprove: () => void; onCancel: () => void }) {
+/** `ask.op` is a button's operation, or "update" for an Update that closes the editor. */
+export function EditorConsent({ ask, onApprove, onCancel }: { ask: { op: AskKind; request: EditorDisruptionRequest }; onApprove: () => void; onCancel: () => void }) {
   const t = useTheme();
   const copy = consentCopy(ask.op);
   const holders = consentHolders(ask.request);

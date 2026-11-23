@@ -28,6 +28,10 @@ export function projectApi(t: Transport) {
     editor: (op: EditorOp, body?: EditorOpBody) => send<Record<string, unknown>>("POST", `/v1/editor/${op}`, body),
     /** A person cancels a held editor operation: the sessions it was put to stop waiting on it (feature "editor.consent"). */
     denyDisruption: (id: string, by: string) => send<unknown>("POST", `/v1/disruptions/${enc(id)}/deny`, { by }),
+    /** A person approves a pending request, whatever the sessions answered. On a paired phone it takes the PIN. */
+    approveDisruption: (id: string, by: string) => send<unknown>("POST", `/v1/disruptions/${enc(id)}/approve`, { by }),
+    /** The requests to stop, restart, rebuild or patch the editor, and what each session answered (feature "editor.consent"). */
+    disruptions: () => get<unknown>("/v1/disruptions"),
     flows: () => get<{ flows: FlowListing[] }>("/v1/flows"),
     planFlow: (name: string) => get<unknown>(`/v1/flows/${enc(name)}/plan`),
     flow: (sessionId: string, request: FlowRunRequest) => send<{ sessionId: string }>("POST", `${S}/sessions/${enc(sessionId)}/flow`, request),

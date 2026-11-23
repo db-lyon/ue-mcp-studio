@@ -6,7 +6,7 @@
  * shared): the page that loads next settles the step that was running against
  * what the updates now say, then runs the rest.
  */
-import { STEP_NAME, waitingSteps, type RunStep, type StepKey, type StepState, type UpdateRun } from "@ue-mcp-studio/client-core";
+import { STEP_NAME, consentRequestOf, waitingSteps, type EditorDisruptionRequest, type RunStep, type StepKey, type StepState, type UpdateRun } from "@ue-mcp-studio/client-core";
 import { daemonMoves, daemonTarget, pluginStep, readUpdates, withFloor, type StudioUpdates, type UeMcpUpdate } from "./Updates";
 
 export { STEP_NAME, STEP_NOTE, waitingSteps, type RunStep, type StepKey, type StepState, type UpdateRun } from "@ue-mcp-studio/client-core";
@@ -126,22 +126,44 @@ export function summaryOf(u: Updates): string {
   return parts.length ? `${parts.join(", ")}.` : "";
 }
 
-async function post(url: string, body?: unknown): Promise<{ ok: boolean; error?: string; deferred?: StepKey[] }> {
+/** What a step's route answered. `request`: ue-mcp's editor consent gate held the step (a 409). */
+export type StepAnswer = { ok: boolean; error?: string; deferred?: StepKey[]; request?: EditorDisruptionRequest };
+
+async function post(url: string, body?: unknown): Promise<StepAnswer> {
   const res = await fetch(url, {
     method: "POST",
     credentials: "same-origin",
     headers: body ? { "content-type": "application/json" } : undefined,
     body: body ? JSON.stringify(body) : undefined,
   }).catch((e: Error) => ({ ok: false, json: async () => ({ error: e.message }) }) as Response);
-  const j = (await res.json().catch(() => ({}))) as { error?: string; ok?: boolean; deferred?: StepKey[] };
-  return { ok: res.ok && j.ok !== false, error: j.error, ...(Array.isArray(j.deferred) ? { deferred: j.deferred } : {}) };
+  const j = (await res.json().catch(() => ({}))) as { error?: string; ok?: boolean; deferred?: StepKey[]; request?: unknown };
+  const request = consentRequestOf({ status: res.status, body: j });
+  return { ok: res.ok && j.ok !== false, error: j.error, ...(Array.isArray(j.deferred) ? { deferred: j.deferred } : {}), ...(request ? { request } : {}) };
+}
+
+/**
+ * Before an Update closes the editor: the request it puts to the other
+ * sessions using it, when they have not all agreed (ue-mcp feature
+ * "editor.consent"). Null when no step closes the editor, nobody holds it, or
+ * the daemon has no gate, and on any error, so Update goes on as before.
+ */
+export async function askBeforeUpdate(run: UpdateRun, send: (url: string, body?: unknown) => Promise<unknown> = postJson): Promise<EditorDisruptionRequest | null> {
+  const j = await send("/v1/ext/studio/updates/consent", { steps: run.steps.filter((s) => s.state === "pending").map((s) => s.key) }).catch(() => null);
+  return consentRequestOf({ status: 409, body: j });
+}
+
+async function postJson(url: string, body?: unknown): Promise<unknown> {
+  const res = await fetch(url, { method: "POST", credentials: "same-origin", headers: { "content-type": "application/json" }, body: JSON.stringify(body ?? {}) });
+  return res.ok ? res.json() : null;
 }
 
 /**
  * Run the pending steps in order, reporting each change. A step that takes
  * the daemon down ends this page's part: the page that loads next resumes.
+ * A step the consent gate holds ends it too, with the run holding the
+ * request; the person's Update anyway runs it again with `force`.
  */
-export async function execute(start: UpdateRun, onChange: (run: UpdateRun) => void, send: (url: string, body?: unknown) => Promise<{ ok: boolean; error?: string; deferred?: StepKey[] }> = post): Promise<void> {
+export async function execute(start: UpdateRun, onChange: (run: UpdateRun) => void, send: (url: string, body?: unknown) => Promise<StepAnswer> = post): Promise<void> {
   let run = start;
   const set = (next: UpdateRun) => {
     run = next;
@@ -151,7 +173,8 @@ export async function execute(start: UpdateRun, onChange: (run: UpdateRun) => vo
   const mark = (key: StepKey, state: StepState, extra: Partial<UpdateRun> = {}) =>
     set({ ...run, ...extra, steps: run.steps.map((s) => (s.key === key ? { ...s, state } : s)) });
 
-  if (waitingSteps(run).length > 0) return onChange(run);
+  if (waitingSteps(run).length > 0 || run.consent) return onChange(run);
+  const force = run.force ? { force: true } : {};
   for (const step of start.steps) {
     if (step.state !== "pending") continue;
     mark(step.key, "active", { detail: undefined });
@@ -162,8 +185,13 @@ export async function execute(start: UpdateRun, onChange: (run: UpdateRun) => vo
     // much older ue-mcp: the release being installed checks the result and puts the old files back when
     // it would not load. A source bridge is rebuilt on before anything starts the editor.
     const r = step.key === "ueMcp"
-      ? await send("/v1/ext/studio/updates/ueMcp", { version: run.target })
-      : await send(`/v1/ext/studio/updates/${step.key}`, { then });
+      ? await send("/v1/ext/studio/updates/ueMcp", { version: run.target, ...force })
+      : await send(`/v1/ext/studio/updates/${step.key}`, { then, ...force });
+    // Other sessions are using the editor this step closes: the run waits for the person's answer.
+    if (!r.ok && r.request) {
+      mark(step.key, "pending", { consent: r.request, detail: undefined });
+      return;
+    }
     // A turn is in progress: the agent runs this and the rest once it finishes.
     if (r.ok && r.deferred) {
       set({ ...run, detail: undefined, steps: run.steps.map((s) => (r.deferred!.includes(s.key) && s.state !== "done" ? { ...s, state: "deferred" } : s)) });
