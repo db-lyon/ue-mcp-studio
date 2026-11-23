@@ -2,7 +2,7 @@
 import { DEFAULT_ACCEPTANCE, type CheckState, type Goal, type GoalState, type HubOverview, type RunRecord } from "@ue-mcp-studio/shared";
 
 const goalOf = (id: string, title: string, over: Partial<Goal> = {}): Goal => ({
-  schema: 1, id, kind: "goal", title, acceptance: DEFAULT_ACCEPTANCE, checks: [], createdAt: "2026-11-01T00:00:00Z", updatedAt: "2026-11-01T00:00:00Z", ...over,
+  schema: 1, id, kind: "goal", title, acceptance: DEFAULT_ACCEPTANCE, checks: [], ...over,
 });
 
 const runOf = (runId: string, name: string, outcome: RunRecord["outcome"], startedAt = "2026-11-22T10:00:00Z"): RunRecord => ({
@@ -12,6 +12,7 @@ const runOf = (runId: string, name: string, outcome: RunRecord["outcome"], start
 export const jumpCheck: CheckState = {
   id: "script:/Game/Tests/Jump", check: { kind: "script", target: "/Game/Tests/Jump" }, name: "Jump", goalIds: ["movement"], health: "failing",
   last: runOf("run-jump-2", "Jump", "failed"), recent: ["failed", "passed", "passed"], passRate: 2 / 3, map: "/Game/Maps/Arena", steps: 4,
+  change: { kind: "regressed", runId: "run-jump-2", at: "2026-11-22T10:00:00Z" },
 };
 export const swimCheck: CheckState = {
   id: "script:/Game/Tests/Swim", check: { kind: "script", target: "/Game/Tests/Swim" }, name: "Swim", goalIds: ["movement"], health: "passing",
@@ -45,6 +46,7 @@ export function hubFixture(): HubOverview {
     ],
     queue: { paused: false, current: null, queued: [], recent: [], schedules: [], editor: { connected: true } },
     recent: [jumpCheck.last!, swimCheck.last!],
+    evidence: { store: "local", current: { vcs: "git", revision: "a1b2c3d4e5f60718", dirty: 0 } },
     editor: { connected: true },
     warnings: [],
   };

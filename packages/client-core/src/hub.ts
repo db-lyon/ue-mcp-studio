@@ -8,6 +8,7 @@
 import {
   CHECK_HEALTH_ORDER,
   DEFAULT_ACCEPTANCE,
+  FAILING_ITEM_STATES,
   GOAL_STATUS_ORDER,
   ATTENTION_ORDER,
   HUB_CHANGED,
@@ -19,8 +20,16 @@ import {
   loopIfRequired,
   linkHost,
   planOptionsFor,
+  ranDirty,
   trackerLinkOf,
+  triggerOf,
+  type CheckChange,
   type CheckDetail,
+  type CurrentProvenance,
+  type EvidenceScope,
+  type RunProvenance,
+  type RunTrigger,
+  type RunVcs,
   type CheckUpdate,
   type TrackerLink,
   type CheckHealth,
@@ -51,6 +60,9 @@ import {
   type RunStepSpan,
   type Schedule,
   type ScheduleDraft,
+  type SignOff,
+  type SignOffLapse,
+  type SignOffState,
   type ViewportEditorState,
   type ViewportStatus,
 } from "@ue-mcp-studio/shared";
@@ -91,8 +103,8 @@ export function hubApi(request: HubRequest) {
     addRequire: (id: string, goalId: string, required?: boolean) => request<{ goal: Goal }>("POST", `${goal(id)}/requires`, required === undefined ? { goal: goalId } : { goal: goalId, required }),
     removeRequire: (id: string, goalId: string) => request<{ goal: Goal }>("DELETE", `${goal(id)}/requires/${enc(goalId)}`),
     orderRequires: (id: string, order: string[]) => request<{ goal: Goal }>("PUT", `${goal(id)}/requires`, { order }),
-    signOff: (id: string, note?: string) => request<{ goal: Goal }>("POST", `${goal(id)}/sign-off`, note ? { note } : {}),
-    clearSignOff: (id: string) => request<{ goal: Goal }>("DELETE", `${goal(id)}/sign-off`),
+    signOff: (id: string, note?: string) => request<{ signOff: SignOff }>("POST", `${goal(id)}/sign-off`, note ? { note } : {}),
+    clearSignOff: (id: string) => request<void>("DELETE", `${goal(id)}/sign-off`),
     writePlaytests: (id: string, text?: string) => request<{ sessionId: string }>("POST", `${goal(id)}/write-playtests`, text ? { text } : {}),
     check: (checkId: string, page: { limit?: number; before?: string } = {}) =>
       request<CheckDetail>("GET", `${HUB_BASE}/checks/${enc(checkId)}${pageQuery(page)}`),
@@ -104,11 +116,10 @@ export function hubApi(request: HubRequest) {
     plan: (req: PlanRequest) => request<{ plan: PlanRun }>("POST", `${HUB_BASE}/plans`, req),
     cancelPlan: (id: string) => request<{ plan: PlanRun }>("POST", `${HUB_BASE}/plans/${enc(id)}/cancel`, {}),
     movePlan: (id: string, to: number) => request<QueueState>("POST", `${HUB_BASE}/plans/${enc(id)}/move`, { to }),
-    pause: (paused: boolean) => request<QueueState>("PUT", `${HUB_BASE}/queue/paused`, { paused }),
-    createSchedule: (s: ScheduleDraft) => request<{ schedule: Schedule }>("POST", `${HUB_BASE}/schedules`, s),
+    pause: (paused: boolean) => request<QueueState>("PUT", `${HUB_BASE}/queue/paused`, { paused }),    createSchedule: (s: ScheduleDraft) => request<{ schedule: Schedule }>("POST", `${HUB_BASE}/schedules`, s),
     updateSchedule: (id: string, s: Partial<ScheduleDraft>) => request<{ schedule: Schedule }>("PUT", `${HUB_BASE}/schedules/${enc(id)}`, s),
     deleteSchedule: (id: string) => request<void>("DELETE", `${HUB_BASE}/schedules/${enc(id)}`),
-    assignFailing: (goalId?: string) => request<{ queued: number }>("POST", `${HUB_BASE}/assign-failing`, goalId ? { goalId } : {}),
+    assignFailing: (goalId?: string) => request<{ queued: number; plan: PlanRun | null }>("POST", `${HUB_BASE}/assign-failing`, goalId ? { goalId } : {}),
     runCheck: (checkId: string, replay?: boolean) => request<{ plan: PlanRun }>("POST", `${HUB_BASE}/checks/${enc(checkId)}/run`, replay ? { replay } : {}),
     /** A manual step's verdict: the existing playtest route, so the card in chat settles too. */
     verdict: (runId: string, step: number, verdict: QaVerdict, note?: string) =>
@@ -238,6 +249,7 @@ export const PLAN_ITEM_LOOK: Record<PlanItemState, StatusLook> = {
   running: { label: "Running", glyph: "running", tone: "run" },
   queued: { label: "Queued", glyph: "queued", tone: "idle" },
   skipped: { label: "Skipped", glyph: "skip", tone: "idle" },
+  crashed: { label: "Crashed", glyph: "fail", tone: "bad" },
   cancelled: { label: "Cancelled", glyph: "stop", tone: "idle" },
   passed: { label: "Passed", glyph: "check", tone: "ok" },
 };
@@ -294,6 +306,80 @@ export const RUN_SOURCE_LABEL: Record<RunSource, string> = {
   outside: "Started outside Studio",
 };
 
+/** The runs that never count toward health, by why they ran. */
+export const RUN_TRIGGER_LABEL: Record<Exclude<RunTrigger, "run">, string> = {
+  replay: "Replay",
+  loop: "Fix loop attempt",
+};
+
+export const CHECK_CHANGE_LOOK: Record<CheckChange["kind"], StatusLook> = {
+  fixed: { label: "Fixed", glyph: "check", tone: "ok" },
+  regressed: { label: "Regressed", glyph: "fail", tone: "bad" },
+};
+
+// ---------- Provenance ----------
+
+/** A revision as its source control names it: a short commit, or "changelist 1234" and the like. */
+export function revisionText(vcs: RunVcs | null, revision: string | null): string | null {
+  if (!revision) return null;
+  switch (vcs) {
+    case "git": return revision.slice(0, 7);
+    case "perforce": return `changelist ${revision}`;
+    case "svn": return `revision ${revision}`;
+    case "plastic": return `changeset ${revision}`;
+    default: return revision;
+  }
+}
+
+const changedFiles = (n: number): string => `${n} changed ${n === 1 ? "file" : "files"}`;
+
+/**
+ * Whose view every status is: "On this computer at a1b2c3d", with the
+ * workspace's changed files when it has some, since runs over them do not
+ * count toward acceptance.
+ */
+export function evidenceLabel(e: EvidenceScope): string {
+  const c: CurrentProvenance = e.current;
+  const where = "On this computer";
+  if (c.vcs === "none") return where;
+  const rev = revisionText(c.vcs, c.revision);
+  const base = rev ? `${where} at ${rev}` : `${where}, revision unknown`;
+  return c.dirty ? `${base} with ${changedFiles(c.dirty)}` : base;
+}
+
+/** What tells a run apart in a list: why it does not count, and what it tested when that is not the plain case. */
+export interface RunMark {
+  label: string;
+  title: string;
+}
+
+/** A run's marks: a replay or a fix loop attempt, uncommitted changes, or an unknown revision. */
+export function runMarks(r: Pick<RunRecord, "trigger" | "replayOf" | "provenance">): RunMark[] {
+  const marks: RunMark[] = [];
+  const trigger = triggerOf(r);
+  if (trigger !== "run") marks.push({ label: RUN_TRIGGER_LABEL[trigger], title: "Not counted toward health or pass rate" });
+  if (!r.provenance) marks.push({ label: "Revision unknown", title: "Studio did not see this run start, so what it tested is unknown. It never counts toward acceptance." });
+  else if (ranDirty(r)) marks.push({ label: "Uncommitted changes", title: `Ran with ${changedFiles(r.provenance.dirty!)}, so it does not count toward acceptance` });
+  return marks;
+}
+
+/** What a run tested, as short parts: "At a1b2c3d", "2 changed files", "Script 3f2a9c1", "UE 5.5", "2 players, listen server". */
+export function provenanceParts(p: RunProvenance | undefined): string[] {
+  if (!p) return ["Revision unknown"];
+  const parts: string[] = [];
+  const rev = revisionText(p.vcs, p.revision);
+  if (p.vcs === "none") parts.push("No source control");
+  else parts.push(rev ? `At ${rev}` : "Revision unknown");
+  if (p.dirty) parts.push(changedFiles(p.dirty));
+  if (p.scriptHash) parts.push(`Script ${p.scriptHash.split(":").pop()!.slice(0, 7)}`);
+  if (p.engine) parts.push(`UE ${p.engine}`);
+  if (p.players) {
+    const mode = p.players.netMode === "listen" ? ", listen server" : p.players.netMode === "client" ? ", dedicated server" : "";
+    parts.push(`${p.players.count} ${p.players.count === 1 ? "player" : "players"}${mode}`);
+  }
+  return parts;
+}
+
 /** Every string the hub shows that is not a status or a kind, in one place for both clients. */
 export const HUB_COPY = {
   title: "Playtests",
@@ -310,7 +396,11 @@ export const HUB_COPY = {
   runSelected: "Run selected",
   addToGoal: "Add to goal",
   addChecks: "Add checks",
-  assignFailing: "Assign failing",
+  assignFailing: "Fix failing with an agent",
+  /** After Fix failing with an agent: what was queued, and where the work happens. */
+  fixesQueued: (n: number) => (n ? `Queued ${n === 1 ? "a fix" : `${n} fixes`}. Each runs in its own chat session.` : "No failing checks to fix"),
+  /** A fix item's line: the chat session its agents work in. */
+  fixChat: "Open chat",
   writePlaytests: "Write playtests for this goal",
   signOff: "Sign off",
   clearSignOff: "Clear sign-off",
@@ -336,14 +426,36 @@ export const HUB_COPY = {
   queueIdle: "Nothing is running.",
   queueEmpty: "Nothing queued.",
   paused: "Paused: runs wait until the queue resumes.",
-  editorDown: "The editor is not connected. Queued runs start when it is back.",
+  pausedByRelease: "Paused because you released the editor. Resume when Studio may use it again.",
+  pausedByReconnect: "Paused because the editor reconnected. Resume when Studio may use it again.",
+  waiting: (why: string) => `Waiting: ${why}`,
+  editorDown: "The editor is not connected. When it is back, resume the queue to go on.",
   filterPlaceholder: "Filter by name, map or goal",
   palettePlaceholder: "Jump to a goal, check or run, or type a command",
   paletteEmpty: "No matches.",
   failNoteLabel: "What went wrong?",
   noSchedules: "No schedules.",
   shortcuts: "Keyboard shortcuts",
+  evidenceLocal: "Status comes from the runs on this computer only, so a teammate may see another status for the same goal.",
 } as const;
+
+/** Why the queue is paused, in the words of whoever paused it. */
+export const queuePausedText = (q: Pick<QueueState, "pausedBy">): string =>
+  q.pausedBy === "release" ? HUB_COPY.pausedByRelease : q.pausedBy === "reconnect" ? HUB_COPY.pausedByReconnect : HUB_COPY.paused;
+
+// ---------- Sign-off ----------
+
+const LAPSE_TEXT: Record<SignOffLapse, string> = {
+  failed: "A required check failed after it.",
+  requirements: "The goal's requirements changed after it.",
+  revision: "The project moved to another revision, and a required check's script or map changed or has not run there yet.",
+};
+
+/** A sign-off in words: who gave it and from where, or, once it lapsed, why it no longer counts. */
+export function signOffText(s: SignOffState): { title: string; detail?: string } {
+  if (s.lapsed) return { title: "Signed off on an earlier revision", detail: LAPSE_TEXT[s.lapsed] };
+  return { title: `Signed off by ${s.record.by}${s.record.via ? ` from ${s.record.via}` : ""}` };
+}
 
 // ---------- Time ----------
 
@@ -506,13 +618,13 @@ export function goalSummary(all: readonly GoalState[]): string {
 }
 
 /**
- * Checks that just broke: the newest finished run failed and the one before
- * it passed. Newest break first.
+ * Checks that just broke: the newest result failed where the one before it
+ * passed on something else (CheckState.change). Newest break first.
  */
 export function regressions(checks: readonly CheckState[]): CheckState[] {
   return checks
-    .filter((c) => c.recent[0] === "failed" && c.recent[1] === "passed")
-    .sort((a, b) => byText(b.last?.startedAt ?? "", a.last?.startedAt ?? ""));
+    .filter((c) => c.change?.kind === "regressed")
+    .sort((a, b) => byText(b.change!.at, a.change!.at));
 }
 
 /** How often a check's result flipped between passed and failed across its recent runs. */
@@ -706,13 +818,13 @@ export interface PlanProgress {
   current: PlanRun["items"][number] | null;
 }
 
-const SETTLED: readonly PlanItemState[] = ["passed", "failed", "unjudged", "skipped", "error", "cancelled"];
+const SETTLED: readonly PlanItemState[] = ["passed", "failed", "unjudged", "skipped", "error", "crashed", "cancelled"];
 
 export function planProgress(p: Pick<PlanRun, "items">): PlanProgress {
   return {
     done: p.items.filter((i) => SETTLED.includes(i.state)).length,
     total: p.items.length,
-    failed: p.items.filter((i) => i.state === "failed" || i.state === "error").length,
+    failed: p.items.filter((i) => FAILING_ITEM_STATES.includes(i.state)).length,
     waiting: p.items.filter((i) => i.state === "needs_you").length,
     current: p.items.find((i) => i.state === "running" || i.state === "needs_you") ?? null,
   };

@@ -20,6 +20,7 @@ import {
   progressText,
   requiredRows,
   shortAgo,
+  signOffText,
   withLink,
   withoutLink,
 } from "@ue-mcp-studio/client-core";
@@ -27,7 +28,7 @@ import { needsSignOff, type TrackerLink } from "@ue-mcp-studio/shared";
 import { HubLinks } from "./links";
 import { api } from "../../api";
 import { useCursor, useHub } from "./state";
-import { Empty, HubIcon, HubLink, Progress, ScreenHead, StatusMark, StatusPill } from "./parts";
+import { Empty, EvidenceScope, HubIcon, HubLink, Progress, ScreenHead, StatusMark, StatusPill } from "./parts";
 import { CheckRow, GoalRow } from "./rows";
 
 /** Up and down for one row of an ordered list; each is disabled at its end. */
@@ -53,6 +54,7 @@ export function GoalScreen({ goalId }: { goalId: string }) {
   const [at, setAt, move] = useCursor(checks.length, list);
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [note, setNote] = useState("");
+  const signed = g?.signOff ? signOffText(g.signOff) : null;
   const [writing, setWriting] = useState(false);
 
   const failing = checks.filter((c) => c.health === "failing").length;
@@ -61,7 +63,7 @@ export function GoalScreen({ goalId }: { goalId: string }) {
     if (!g) return;
     try {
       const r = await api.hub.assignFailing(g.goal.id);
-      hub.notify(r.queued ? `Queued ${r.queued} failing ${r.queued === 1 ? "check" : "checks"} for subagents, one at a time` : "No failing checks to assign");
+      hub.notify(HUB_COPY.fixesQueued(r.queued));
     } catch (e) {
       hub.notify((e as Error).message, "bad");
     }
@@ -186,10 +188,10 @@ export function GoalScreen({ goalId }: { goalId: string }) {
         back={back ? { label: back.goal.title, route: { screen: "goal", goalId: back.goal.id } } : { label: HUB_COPY.overview, route: { screen: "overview" } }}
         eyebrow={goal.kind === "milestone" ? "Milestone" : "Goal"}
         title={goal.title}
-        sub={<><StatusPill look={look} /><span className="dim">{progressText(g.progress)}</span></>}
+        sub={<><StatusPill look={look} /><span className="dim">{progressText(g.progress)}</span><EvidenceScope /></>}
         actions={<>
           <button className="primary" onClick={runGoal} disabled={runnable === 0} title="Run every check in order, the required goals' first (r)"><HubIcon name="play" size={12} /> {HUB_COPY.runGoal}</button>
-          {failing > 0 && <button onClick={() => void assignFailing()} title="Each failing check goes to a subagent's fix loop, one at a time (a)"><HubIcon name="assign" size={12} /> {HUB_COPY.assignFailing}</button>}
+          {failing > 0 && <button onClick={() => void assignFailing()} title="Each failing check goes to a fix loop in its own chat session, one at a time (a)"><HubIcon name="assign" size={12} /> {HUB_COPY.assignFailing}</button>}
           <button className="ghost" onClick={() => hub.editGoal(goal.id)} title={HUB_COPY.editGoal}><HubIcon name="edit" size={12} /> Edit</button>
         </>}
       />
@@ -216,19 +218,21 @@ export function GoalScreen({ goalId }: { goalId: string }) {
       <section className="hub-card hub-acceptance">
         <div className="hub-card-head"><span>Done when</span></div>
         <p className="small">{acceptanceText(goal)}</p>
-        {(needsSignOff(goal) || goal.signOff) && (goal.signOff ? (
+        {g.signOff && signed && (
           <div className="hub-signed">
-            <StatusPill look={GOAL_STATUS_LOOK.met}>Signed off by {goal.signOff.by}, {shortAgo(goal.signOff.at)}</StatusPill>
-            {goal.signOff.note && <span className="muted small">"{goal.signOff.note}"</span>}
+            <StatusPill look={g.signOff.lapsed ? GOAL_STATUS_LOOK.at_risk : GOAL_STATUS_LOOK.met}>{signed.title}, {shortAgo(g.signOff.record.at)}</StatusPill>
+            {signed.detail && <span className="muted small">{signed.detail}</span>}
+            {g.signOff.record.note && <span className="muted small">"{g.signOff.record.note}"</span>}
             <span className="spacer" />
-            <button className="ghost small-button" onClick={() => void clearSignOff()}>{HUB_COPY.clearSignOff}</button>
+            {!g.signOff.lapsed && <button className="ghost small-button" onClick={() => void clearSignOff()}>{HUB_COPY.clearSignOff}</button>}
           </div>
-        ) : (
+        )}
+        {needsSignOff(goal) && (!g.signOff || g.signOff.lapsed) && (
           <form className="hub-signoff" onSubmit={(e) => { e.preventDefault(); void signOff(); }}>
             <input value={note} onChange={(e) => setNote(e.target.value)} placeholder="Note (optional)" aria-label="Sign-off note" />
             <button type="submit">{HUB_COPY.signOff}</button>
           </form>
-        ))}
+        )}
       </section>
 
       <section className="hub-section" aria-label={HUB_COPY.requiredGoals}>

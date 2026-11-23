@@ -9,7 +9,8 @@
  * - no progress: the steps that failed fail the same way again;
  * - the agent reports a step that contradicts the design or another step, a
  *   change needed outside the project, or something only a person can do;
- * - a call refused by a guard or by Playtest runs, or a write outside the project;
+ * - a call refused by a guard or by Playtest runs, or a write outside the project
+ *   (the write lease refuses saving a package the person has unsaved changes in);
  * - the editor crashed twice in a row, or a build failed twice in a row;
  * - it has made MAX_ATTEMPTS attempts.
  *
@@ -330,6 +331,17 @@ export interface LoopOptions {
   log?: { warn(message: string, detail?: unknown): void };
   /** A loop that stopped for the user, which this one goes on from: its first attempt fixes what still failed. */
   carry?: LoopCarry | null;
+  /**
+   * The per-package write lease (hub/write-lease.ts): taken before each
+   * attempt, so the attempt's agents never save a package the person has
+   * unsaved changes in, and released when the attempt ends.
+   */
+  writes?: LoopWrites;
+}
+
+export interface LoopWrites {
+  begin(sessionId: string): Promise<void>;
+  end(sessionId: string): void;
 }
 
 /** The checkpoints of a loop the user chose to run without them: nothing is taken, so nothing can be reverted. */
@@ -427,12 +439,18 @@ export class PlaytestLoop {
         const startRun = run.runId;
         this.attemptCrashed = false;
         this.attemptBuildFailed = false;
+        // What is unsaved now is the person's: the attempt's agents have changed nothing yet.
+        if (this.o.writes) {
+          await this.o.writes.begin(this.sessionId);
+          if (this.cancelled) return this.stop();
+        }
         const { callId, done } = this.o.agents.assign(this.sessionId, `${playtestDescription(run)}, attempt ${n}`, prompt);
         const attempt: QaLoopAttempt = { n, callId, before, changes: [], failing: [], startedAt: iso(this.now()) };
         this.loop.attempts.push(attempt);
         this.current = { sessionId: this.sessionId, callId };
         this.save("running");
         const r = await done;
+        this.o.writes?.end(this.sessionId);
         attempt.endedAt = iso(this.now());
         this.current = null;
         // Every attempt, a stopped one too, ends in a checkpoint, so its changes can be reverted.
@@ -467,6 +485,7 @@ export class PlaytestLoop {
       }
     } finally {
       unsubscribe();
+      this.o.writes?.end(this.sessionId);
     }
   }
 

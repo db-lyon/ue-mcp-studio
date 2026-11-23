@@ -84,6 +84,9 @@ import { registerDialogs } from "./dialog-routes.js";
 import { registerForms } from "./forms.js";
 import { registerQa } from "./qa.js";
 import { registerHub } from "./hub/routes.js";
+import { WriteLease } from "./hub/write-lease.js";
+import type { PieWatch } from "./viewport/pie-watch.js";
+import type { Presence } from "./notify.js";
 import type { Hub } from "./hub/hub.js";
 import { PlaytestIndex, registerPlaytestIndex, type PlaytestIndexHost } from "./playtest-index.js";
 import { registerReview } from "./review.js";
@@ -113,7 +116,7 @@ import { KEY_PROVIDER_IDS, STUDIO_PLAN_AVAILABLE, conventionOf, endpointIdOf, en
 /** The longest a turn that starts or resumes after the daemon starts waits for the sign-ins to be read. */
 const SIGN_INS_READY_MS = 20_000;
 
-export function registerChat(api: DaemonExtensionApi, agentVersion = "0.0.0", packageDir?: string, sharedAccount?: AccountSource): { runner: AgentRunner; dispose(): void } {
+export function registerChat(api: DaemonExtensionApi, agentVersion = "0.0.0", packageDir?: string, sharedAccount?: AccountSource, pie?: PieWatch): { runner: AgentRunner; dispose(): void } {
   const settings = new SettingsStore(api.dataDir);
   // A sign-in from the panel wins; otherwise the account from `ue-mcp login`. Remote control reads the same source.
   const account = sharedAccount ?? new AccountSource(settings, () => api.registryAccount());
@@ -316,6 +319,10 @@ export function registerChat(api: DaemonExtensionApi, agentVersion = "0.0.0", pa
   };
   // The Playtest Hub, registered below over the runner's cards; the agent's hub tools reach it only while its experiment is on.
   let hubForAgent: Hub | null = null;
+  // A fix loop's write lease: its agents never save a package the person has unsaved changes in.
+  const writes = new WriteLease((c, a, args) => api.callAction(c, a, args), api.log);
+  // Who is at this computer, from the notifier registered below; the hub reads it only when it decides to start work.
+  let presence: Presence | null = null;
   const runner = new AgentRunner({
     // callAction takes the turn's signal on a daemon with "callAction.signal"; the pinned ue-mcp's types do not say so yet.
     host: api as unknown as AgentHost,
@@ -325,6 +332,7 @@ export function registerChat(api: DaemonExtensionApi, agentVersion = "0.0.0", pa
     busy,
     dialogs,
     qa,
+    writes,
     forms,
     // The notifier is registered below, once the runner exists; a call comes only from a turn, after both.
     notify: (sessionId, title, text) => notifications.notifier.emit("agent.notice", sessionId, title, text, { sessionId }),
@@ -416,6 +424,7 @@ export function registerChat(api: DaemonExtensionApi, agentVersion = "0.0.0", pa
       const s = store.get(sid);
       return s && !review.on(s) ? "Review is off in this session, so no checkpoints would let you undo its changes. Turn it on in the session's Checkpoints panel." : null;
     },
+    writes,
   });
   // The Playtest Hub (/hub, hub/routes.ts): goals, run history, the plan queue and schedules, over the cards above.
   const hub = registerHub(api, {
@@ -426,8 +435,18 @@ export function registerChat(api: DaemonExtensionApi, agentVersion = "0.0.0", pa
     // A replay a plan starts goes through the card's session, as an assigned subagent's would, so the run takes the card.
     replay: (sid, args) => qa.wrap(api as unknown as AgentHost, sid, { assigned: true }).callAction("pie", "script_replay", args),
     writePlaytests: (sid, text) => runner.playtest(sid, { text }),
-    signer: () => (settings.accountToken() ? settings.accountLogin() : null) ?? account.registryLogin()?.login ?? "you",
+    signer: () => (settings.accountToken() ? settings.accountLogin() : null) ?? account.registryLogin()?.login ?? null,
     enabled: () => settings.experiments().playtestHub,
+    // What else holds the editor, for the hub's occupancy answer.
+    editor: {
+      pie: () => pie?.get() ?? false,
+      onPie: (listener) => pie?.listen(listener) ?? (() => {}),
+      dialogs: () => dialogs.state().dialogs.length,
+      busy: () => busy.state(),
+      inputAgeMs: () => presence?.desktopInputAgeMs() ?? null,
+    },
+    // Read when a run starts, long after the updater below exists.
+    engine: () => updater.engine(),
   });
   hubForAgent = hub;
 
@@ -1077,6 +1096,7 @@ export function registerChat(api: DaemonExtensionApi, agentVersion = "0.0.0", pa
     session: (id) => store.get(id) as NotifySession | undefined,
     window: (model) => knownWindow(model),
   });
+  presence = notifications.notifier.presence;
 
   runner.recover();
   return {

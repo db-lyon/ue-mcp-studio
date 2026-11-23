@@ -22,9 +22,20 @@
  *   (QaBroker.stopRun). The run is "unjudged": no result, since nobody
  *   being there says nothing about the game.
  *
- * Every run behaves the same, whoever started it: a chat card, a hub plan or
- * an agent. Holds are kept in memory: after a daemon restart a run still
- * waiting is held again from the moment it is read.
+ * Every run Studio started behaves the same: a chat card, a hub plan or an
+ * agent. Studio acts only on what it started:
+ *
+ * - A run another MCP client started (no session) is never held: that client
+ *   asks its own person, and its run, its PIE and its timing are its own.
+ * - PIE is paused, resumed and stopped for a run only when that run started
+ *   the session (QaRun.pieStarted). A run that joined PIE already running,
+ *   the developer's own, holds for its verdict without touching their game.
+ *   The editor's Pause covers every PIE world, so this is the narrowest
+ *   control ue-mcp offers today; ue-mcp-asks.md asks for run-scoped PIE
+ *   control and pie.paused/pie.resumed events.
+ *
+ * Holds are kept in memory: after a daemon restart a run still waiting is
+ * held again from the moment it is read.
  */
 import type { ActionResult } from "ue-mcp/daemon";
 import { QA_NO_VERDICT, qaWaitingForPerson, type QaHeld, type QaRun } from "@ue-mcp-studio/shared";
@@ -42,6 +53,8 @@ export interface VerdictHoldOptions {
 
 interface Hold extends QaHeld {
   timer: ReturnType<typeof setTimeout>;
+  /** The run started the PIE session it plays in: pausing and stopping it is Studio's to do. */
+  ownsPie: boolean;
 }
 
 /** The answer's error, or null when the call worked. */
@@ -67,23 +80,28 @@ export class VerdictHold {
 
   /** Every run holding for a verdict, oldest first. */
   held(): QaHeld[] {
-    return [...this.holds.values()].map(({ timer: _t, ...h }) => h).sort((a, b) => (a.since < b.since ? -1 : 1));
+    return [...this.holds.values()].map(({ timer: _t, ownsPie: _o, ...h }) => h).sort((a, b) => (a.since < b.since ? -1 : 1));
   }
 
-  /** The run is being stopped, and PIE with it when it was held: nothing to resume after. Returns whether it was held. */
+  /**
+   * The run is being stopped: nothing to resume after. Returns whether PIE
+   * should stop with it: it was held, and the run started that session.
+   */
   stopping(runId: string): boolean {
     const hold = this.holds.get(runId);
     if (hold) hold.paused = false;
-    return !!hold;
+    return !!hold?.ownsPie;
   }
 
   /** A run changed: hold it at a step that now waits for a person, or let it go once it no longer does. */
   observe(run: QaRun): void {
-    const step = qaWaitingForPerson(run);
+    // Only a run Studio started is Studio's to hold.
+    const step = run.sessionId ? qaWaitingForPerson(run) : null;
     const had = this.holds.get(run.runId);
     if (had && step?.index === had.step) return;
     if (had) this.release(had);
     if (!step) return;
+    const ownsPie = run.pieStarted === true;
     const since = this.now();
     const ms = Math.max(1, this.o.waitMinutes(run)) * 60_000;
     const hold: Hold = {
@@ -94,12 +112,15 @@ export class VerdictHold {
       instruction: step.instruction,
       since: new Date(since).toISOString(),
       dueAt: new Date(since + ms).toISOString(),
-      paused: true,
+      paused: ownsPie,
+      ownsPie,
       timer: setTimeout(() => void this.lapse(run.runId), ms),
     };
     hold.timer.unref?.();
     this.holds.set(run.runId, hold);
     this.changed();
+    // PIE the run joined is the developer's: it plays on.
+    if (!ownsPie) return;
     void this.setPaused(true).then((error) => {
       if (!error || this.holds.get(run.runId) !== hold) return;
       this.o.log.warn(`playtest: PIE could not be paused for ${run.scriptName}: ${error}`);
@@ -118,7 +139,7 @@ export class VerdictHold {
       hold.paused = false;
       this.changed();
     }
-    const { timer: _t, ...view } = hold;
+    const { timer: _t, ownsPie: _o, ...view } = hold;
     return { held: view };
   }
 

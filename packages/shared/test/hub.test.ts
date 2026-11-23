@@ -14,8 +14,10 @@ import {
   goalStatus,
   goalTree,
   loopIfRequired,
+  requirementsKey,
   rollUpGoals,
   needsSignOff,
+  signOffLapse,
   outcomeOf,
   parseCheckId,
   GOAL_ID,
@@ -25,10 +27,13 @@ import {
   uniqueLinks,
   type AcceptanceRule,
   type CheckRef,
+  type CurrentProvenance,
   type Goal,
   type QaStep,
   type RunOutcome,
+  type RunProvenance,
   type RunRecord,
+  type SignOff,
 } from "../src/index.js";
 
 describe("tracker links", () => {
@@ -57,14 +62,26 @@ const DAY = 86_400_000;
 const script: CheckRef = { kind: "script", target: "/Game/Tests/Door" };
 
 let n = 0;
-/** Runs newest first, each a day older than the one before. */
+/** What a run tested: by default the workspace HEAD, clean, at the script's first version. */
+const prov = (over: Partial<RunProvenance> = {}): RunProvenance => ({ vcs: "git", revision: "head", dirty: 0, scriptHash: "sha256:v1", engine: "5.5", players: null, ...over });
+const HEAD: CurrentProvenance = { vcs: "git", revision: "head", dirty: 0 };
+/** Runs newest first, each an hour older than the one before, all on the same provenance. */
 const runs = (...outcomes: RunOutcome[]): RunRecord[] => outcomes.map((outcome, i) => {
   const at = new Date(NOW - (i + 1) * 3600_000).toISOString();
-  return { runId: `r${n++}`, kind: "script", target: script.target, name: "Door", outcome, startedAt: at, endedAt: at, source: "person" };
+  return { runId: `r${n++}`, kind: "script", target: script.target, name: "Door", outcome, startedAt: at, endedAt: at, source: "person", provenance: prov() };
+});
+/** The same runs, each given its own provenance, trigger or none. */
+const tested = (rs: RunRecord[], ...over: Array<Partial<RunRecord> | null>): RunRecord[] => rs.map((r, i) => {
+  const o = over[i];
+  if (o === null) {
+    const { provenance: _none, ...rest } = r;
+    return rest;
+  }
+  return { ...r, ...o };
 });
 
 const goal = (over: Partial<Goal> = {}): Goal => ({
-  schema: 1, id: "g", kind: "goal", title: "G", acceptance: { ...DEFAULT_ACCEPTANCE }, checks: [script], createdAt: "", updatedAt: "", ...over,
+  schema: 1, id: "g", kind: "goal", title: "G", acceptance: { ...DEFAULT_ACCEPTANCE }, checks: [script], ...over,
 });
 const state = (rs: RunRecord[], ref: CheckRef = script, acceptance: AcceptanceRule = DEFAULT_ACCEPTANCE, missing = false) =>
   ({ state: checkStateOf({ check: ref, runs: rs, acceptance, now: NOW, goalIds: ["g"], missing }), runs: rs });
@@ -126,6 +143,81 @@ describe("checkSatisfied", () => {
   });
 });
 
+describe("provenance", () => {
+  const two = { ...DEFAULT_ACCEPTANCE, stableRuns: 2 };
+
+  it("flaky only when results are mixed on the same revision and script version", () => {
+    expect(checkHealth({ check: script, runs: runs("passed", "failed"), now: NOW })).toBe("flaky");
+    // A fail on an older revision, then a pass: fixed, not flaky.
+    const fixed = tested(runs("passed", "failed"), {}, { provenance: prov({ revision: "old" }) });
+    expect(checkHealth({ check: script, runs: fixed, now: NOW })).toBe("passing");
+    expect(checkStateOf({ check: script, runs: fixed, now: NOW, goalIds: [] }).change).toMatchObject({ kind: "fixed", runId: fixed[0].runId });
+    // The script was edited between them: also a change, not flakiness.
+    expect(checkHealth({ check: script, runs: tested(runs("passed", "failed"), {}, { provenance: prov({ scriptHash: "sha256:v0" }) }), now: NOW })).toBe("passing");
+  });
+
+  it("reads a fail after a pass on another revision as regressed, and on the same one as no change", () => {
+    const broke = tested(runs("failed", "passed"), {}, { provenance: prov({ revision: "old" }) });
+    expect(checkStateOf({ check: script, runs: broke, now: NOW, goalIds: [] }).change).toMatchObject({ kind: "regressed", runId: broke[0].runId });
+    expect(checkStateOf({ check: script, runs: runs("failed", "passed"), now: NOW, goalIds: [] }).change).toBeUndefined();
+    expect(checkStateOf({ check: script, runs: runs("passed", "passed"), now: NOW, goalIds: [] }).change).toBeUndefined();
+  });
+
+  it("never counts replays or fix loop attempts toward health, pass rate or acceptance", () => {
+    const rs = tested(runs("failed", "passed", "passed"), { trigger: "replay", replayOf: "x" }, { trigger: "loop" });
+    expect(checkHealth({ check: script, runs: rs, now: NOW })).toBe("passing");
+    const s = checkStateOf({ check: script, runs: rs, now: NOW, goalIds: [] });
+    expect(s.recent).toEqual(["passed"]);
+    expect(s.passRate).toBe(1);
+    expect(s.last?.runId).toBe(rs[0].runId);
+    // A loop's pass does not make a failing check pass.
+    expect(checkHealth({ check: script, runs: tested(runs("passed", "failed"), { trigger: "loop" }), now: NOW })).toBe("failing");
+    expect(checkSatisfied(tested(runs("passed", "passed"), { trigger: "loop" }), two, HEAD)).toBe(false);
+    // A record kept before triggers were is a replay by its replayOf.
+    expect(checkHealth({ check: script, runs: tested(runs("failed", "passed"), { replayOf: "x" }), now: NOW })).toBe("passing");
+  });
+
+  it("takes a dirty run as the newest word for health, but not for flakiness or acceptance", () => {
+    const dirty = tested(runs("failed", "passed"), { provenance: prov({ dirty: 3 }) });
+    expect(checkHealth({ check: script, runs: dirty, now: NOW })).toBe("failing");
+    const passedDirty = tested(runs("passed", "failed"), { provenance: prov({ dirty: 3 }) });
+    expect(checkHealth({ check: script, runs: passedDirty, now: NOW })).toBe("passing");
+    expect(checkSatisfied(passedDirty, DEFAULT_ACCEPTANCE, HEAD)).toBe(false);
+    expect(checkSatisfied(tested(runs("passed", "passed"), { provenance: prov({ dirty: 1 }) }), DEFAULT_ACCEPTANCE, HEAD)).toBe(true);
+  });
+
+  it("counts stable runs only on the current revision and the newest script version", () => {
+    expect(checkSatisfied(runs("passed", "passed"), two, HEAD)).toBe(true);
+    expect(checkSatisfied(runs("passed", "passed"), two, { ...HEAD, revision: "next" })).toBe(false);
+    expect(checkSatisfied(tested(runs("passed", "passed"), {}, { provenance: prov({ revision: "old" }) }), two, HEAD)).toBe(false);
+    expect(checkSatisfied(tested(runs("passed", "passed"), {}, { provenance: prov({ scriptHash: "sha256:v0" }) }), two, HEAD)).toBe(false);
+    // A project under no source control compares nothing but the script.
+    const none = { vcs: "none" as const, revision: null, dirty: null };
+    expect(checkSatisfied(tested(runs("passed"), { provenance: prov({ vcs: "none", revision: null, dirty: null }) }), DEFAULT_ACCEPTANCE, none)).toBe(true);
+  });
+
+  it("never treats a run of unknown revision as current", () => {
+    const old = tested(runs("passed", "passed"), null, null);
+    expect(checkHealth({ check: script, runs: old, now: NOW })).toBe("passing");
+    expect(checkSatisfied(old, DEFAULT_ACCEPTANCE)).toBe(false);
+    expect(checkSatisfied(old, DEFAULT_ACCEPTANCE, HEAD)).toBe(false);
+    expect(checkSatisfied(tested(runs("passed"), { provenance: prov({ revision: null }) }), DEFAULT_ACCEPTANCE, HEAD)).toBe(false);
+    // Unknown never matches, so mixed old results are a change, not flakiness.
+    expect(checkHealth({ check: script, runs: tested(runs("passed", "failed"), null, null), now: NOW })).toBe("passing");
+    expect(goalStatus(goal(), [{ state: checkStateOf({ check: script, runs: old, now: NOW, goalIds: ["g"], current: HEAD }), runs: old }], [], [], HEAD).status).toBe("at_risk");
+  });
+
+  it("is stale when a dependency changed since the pass, where both have fingerprints, else by age", () => {
+    const pass = tested(runs("passed"), { provenance: prov({ dependencies: { "/Game/Maps/Glade": "a", "/Game/BP_Door": "b" } }) });
+    expect(checkHealth({ check: script, runs: pass, now: NOW, current: { ...HEAD, dependencies: { "/Game/BP_Door": "b" } } })).toBe("passing");
+    expect(checkHealth({ check: script, runs: pass, now: NOW, current: { ...HEAD, dependencies: { "/Game/BP_Door": "c" } } })).toBe("stale");
+    const oldPass = tested(pass, { startedAt: new Date(NOW - 20 * DAY).toISOString(), endedAt: new Date(NOW - 20 * DAY).toISOString() });
+    // Fingerprints that say nothing changed outweigh age; none at all fall back to it.
+    expect(checkHealth({ check: script, runs: oldPass, now: NOW, current: { ...HEAD, dependencies: { "/Game/BP_Door": "b" } } })).toBe("passing");
+    expect(checkHealth({ check: script, runs: oldPass, now: NOW, current: HEAD })).toBe("stale");
+  });
+});
+
 describe("checkStateOf", () => {
   it("recent and passRate from finished runs only", () => {
     const s = checkStateOf({ check: script, runs: runs("running", "passed", "failed"), now: NOW, goalIds: [] });
@@ -171,14 +263,14 @@ describe("goalStatus", () => {
   it("sign-off: needs you once everything passes, met once given", () => {
     const g = goal({ acceptance: { ...DEFAULT_ACCEPTANCE, signOff: true } });
     expect(goalStatus(g, [state(runs("passed"))]).status).toBe("needs_you");
-    expect(goalStatus({ ...g, signOff: { by: "you", at: "2026-11-23" } }, [state(runs("passed"))]).status).toBe("met");
+    expect(goalStatus(g, [state(runs("passed"))], [], [], undefined, true).status).toBe("met");
   });
 
   it("a manual check is satisfied by the goal's sign-off", () => {
     const manual: CheckRef = { kind: "manual", target: "The door looks right" };
     const g = goal({ checks: [script, manual] });
     expect(goalStatus(g, [state(runs("passed")), state([], manual)]).progress).toEqual({ met: 1, total: 2 });
-    expect(goalStatus({ ...g, signOff: { by: "you", at: "x" } }, [state(runs("passed")), state([], manual)])).toEqual({ status: "met", progress: { met: 2, total: 2 } });
+    expect(goalStatus(g, [state(runs("passed")), state([], manual)], [], [], undefined, true)).toEqual({ status: "met", progress: { met: 2, total: 2 } });
   });
 
   it("waits on a person when only a required manual check's sign-off is missing, without the sign-off rule", () => {
@@ -267,6 +359,64 @@ describe("the relationship graph", () => {
   });
 });
 
+describe("sign-off", () => {
+  const g = goal({ acceptance: { ...DEFAULT_ACCEPTANCE, signOff: true } });
+  const signed = (rs: RunRecord[], over: Partial<SignOff> = {}): SignOff => ({
+    goalId: "g", by: "octocat", at: new Date(NOW - 30 * 60_000).toISOString(), revision: "head", runIds: [rs[0].runId], requirements: requirementsKey(g), ...over,
+  });
+
+  it("the requirements ignore order and optional entries, and change with acceptance, required checks and required goals", () => {
+    const other: CheckRef = { kind: "script", target: "/Game/Tests/Other" };
+    const two = goal({ checks: [script, other], requires: [{ goal: "a" }, { goal: "b" }] });
+    expect(requirementsKey({ ...two, checks: [other, script], requires: [{ goal: "b" }, { goal: "a" }] })).toBe(requirementsKey(two));
+    expect(requirementsKey({ ...two, checks: [...two.checks, { ...script, target: "/Game/Opt", required: false }] })).toBe(requirementsKey(two));
+    expect(requirementsKey({ ...two, checks: [script] })).not.toBe(requirementsKey(two));
+    expect(requirementsKey({ ...two, requires: [{ goal: "a" }] })).not.toBe(requirementsKey(two));
+    expect(requirementsKey({ ...two, acceptance: { ...two.acceptance, stableRuns: 2 } })).not.toBe(requirementsKey(two));
+  });
+
+  it("holds while it describes the goal, and counts toward its status only then", () => {
+    const rs = runs("passed");
+    const s = signed(rs);
+    expect(signOffLapse(s, g, [state(rs)], HEAD)).toBeNull();
+    const [st] = rollUpGoals([g], () => [state(rs)], HEAD, new Map([["g", s]]));
+    expect(st).toMatchObject({ status: "met", signOff: { record: s, lapsed: null } });
+    // Without the workspace the revision is not compared.
+    expect(signOffLapse({ ...s, revision: "old" }, g, [state(rs)])).toBeNull();
+  });
+
+  it("lapses when the requirements change", () => {
+    const rs = runs("passed");
+    expect(signOffLapse(signed(rs), { ...g, acceptance: { ...g.acceptance, stableRuns: 2 } }, [state(rs)], HEAD)).toBe("requirements");
+  });
+
+  it("lapses when a required check fails after it, but not for an optional one or a failure before it", () => {
+    const before = runs("passed", "failed");
+    expect(signOffLapse(signed(before), g, [state(before)], HEAD)).toBeNull();
+    const after = tested(runs("failed"), { startedAt: new Date(NOW).toISOString(), endedAt: new Date(NOW).toISOString() });
+    expect(signOffLapse(signed(before), g, [state([...after, ...before])], HEAD)).toBe("failed");
+    const optional: CheckRef = { ...script, required: false };
+    const loose = { ...g, checks: [optional] };
+    expect(signOffLapse(signed(before, { requirements: requirementsKey(loose) }), loose, [state([...after, ...before], optional)], HEAD)).toBeNull();
+    const [st] = rollUpGoals([g], () => [state([...after, ...before])], HEAD, new Map([["g", signed(before)]]));
+    expect(st.signOff?.lapsed).toBe("failed");
+    expect(st.status).toBe("failing");
+  });
+
+  it("past its revision, holds only once the check passed there on the script and map it judged", () => {
+    const old = tested(runs("passed"), { provenance: prov({ revision: "old" }), map: "/Game/Maps/A" });
+    const s = signed(old, { revision: "old" });
+    // Nothing has run on the new revision yet: unknown never holds.
+    expect(signOffLapse(s, g, [state(old)], HEAD)).toBe("revision");
+    const same = tested(runs("passed"), { map: "/Game/Maps/A" });
+    expect(signOffLapse(s, g, [state([...same, ...old])], HEAD)).toBeNull();
+    const script2 = tested(runs("passed"), { provenance: prov({ scriptHash: "sha256:v2" }), map: "/Game/Maps/A" });
+    expect(signOffLapse(s, g, [state([...script2, ...old])], HEAD)).toBe("revision");
+    const otherMap = tested(runs("passed"), { map: "/Game/Maps/B" });
+    expect(signOffLapse(s, g, [state([...otherMap, ...old])], HEAD)).toBe("revision");
+  });
+});
+
 describe("goalSlug and ids", () => {
   it("lowercase words joined by dashes, at most 64 characters, never empty", () => {
     expect(goalSlug("A new player finishes the tutorial!")).toBe("a-new-player-finishes-the-tutorial");
@@ -276,6 +426,9 @@ describe("goalSlug and ids", () => {
     expect(long.length).toBeLessThanOrEqual(64);
     expect(long.endsWith("-")).toBe(false);
     expect(GOAL_ID.test(long)).toBe(true);
+    // Only ASCII letters and digits, so the slug is always a valid id; room is left for a suffix when asked.
+    expect(goalSlug("ジャンプ")).toBe("goal");
+    expect(goalSlug("Naïve über jump", 10)).toBe("naive-uber");
   });
 
   it("check ids round-trip, and a bad one is null", () => {

@@ -15,7 +15,10 @@ let runs: Map<string, QaRun>;
 let starts: string[];
 let stops: Array<{ runId: string; reason: string }>;
 let connected: boolean;
+/** What occupies the editor, as the runner answers occupied(). */
 let busy: string | null;
+let fixStops: string[];
+let pieEnds: number;
 /** What starting each script does; a run id by default. */
 let onStart: (script: string) => ItemStart;
 let n: number;
@@ -30,11 +33,11 @@ const qa = (runId: string, state: string, statuses: string[], judges: string[] =
 
 const runner = (): QueueRunner => ({
   connected: () => connected,
-  busy: () => busy,
+  occupied: () => busy,
   start: async (item) => {
     starts.push(item.check.target);
     const r = onStart(item.check.target);
-    if ("runId" in r && !runs.has(r.runId)) runs.set(r.runId, qa(r.runId, "running", ["running", "pending"]));
+    if ("runId" in r && !runs.has(r.runId)) runs.set(r.runId, { ...qa(r.runId, "running", ["running", "pending"]), pieStarted: true });
     return r;
   },
   run: (id) => runs.get(id),
@@ -42,6 +45,8 @@ const runner = (): QueueRunner => ({
     stops.push({ runId, reason });
   },
   refresh: async () => {},
+  stopFix: async (item) => void fixStops.push(item.check.target),
+  endPie: async () => void (pieEnds += 1),
 });
 
 const plan = (scripts: string[], options: Partial<PlanOptions> = {}): PlanRun => ({
@@ -65,6 +70,8 @@ beforeEach(() => {
   stops = [];
   connected = true;
   busy = null;
+  fixStops = [];
+  pieEnds = 0;
   n = 0;
   let i = 0;
   onStart = () => ({ runId: `run${i++}` });
@@ -140,7 +147,7 @@ describe("PlanQueue", () => {
     expect(p.state).toBe("done");
   });
 
-  it("waits while paused, while the editor is away, and while a loop holds the editor", async () => {
+  it("waits while paused, while the editor is away, and while something else occupies it, saying why", async () => {
     const q = make();
     q.setPaused(true);
     q.enqueue(plan(["/Game/A"]));
@@ -151,12 +158,119 @@ describe("PlanQueue", () => {
     await settle();
     expect(starts).toEqual([]);
     connected = true;
-    busy = "a subagent loop is running a playtest";
+    busy = "Play In Editor is in use";
     await q.pump();
     expect(starts).toEqual([]);
+    expect(q.state().waiting).toBe("Play In Editor is in use");
+    expect(q.state().lease).toBeNull();
     busy = null;
     await q.pump();
     expect(starts).toEqual(["/Game/A"]);
+    expect(q.state().waiting).toBeNull();
+  });
+
+  it("takes the lease before an item starts, records the run and its PIE, and releases it when the item settles, ending only the PIE the run started", async () => {
+    const q = make();
+    q.enqueue({ ...plan(["/Game/A", "/Game/B"]), title: "Run Tutorial" });
+    await settle();
+    expect(q.state().lease).toMatchObject({ editor: "workspace", purpose: "Run Tutorial: /Game/A", item: 0, work: "run", runId: "run0", pie: true });
+    q.observe(qa("run0", "finished", ["passed", "passed"]));
+    await settle();
+    expect(pieEnds).toBe(1);
+    expect(q.state().lease).toMatchObject({ item: 1, runId: "run1" });
+    // A run that joined PIE already running: the lease holds no PIE, so none is ended.
+    runs.set("run1", qa("run1", "running", ["running"]));
+    q.lease.update({ pie: false });
+    q.observe(qa("run1", "finished", ["passed"]));
+    await settle();
+    expect(pieEnds).toBe(1);
+    expect(q.state().lease).toBeNull();
+  });
+
+  it("Release the editor: pauses, stops the hub's run, ends its PIE, puts the item back, and only a person resumes", async () => {
+    const q = make();
+    q.enqueue(plan(["/Game/A", "/Game/B"]));
+    await settle();
+    await q.release();
+    expect(stops).toEqual([{ runId: "run0", reason: "The editor was released" }]);
+    expect(pieEnds).toBe(1);
+    const s = q.state();
+    expect(s).toMatchObject({ paused: true, pausedBy: "release", lease: null });
+    expect(s.current!.items[0]).toMatchObject({ state: "queued", runId: null, reason: "The editor was released" });
+    // The stopped run's events no longer move the item.
+    q.observe({ ...qa("run0", "stopped", ["running", "pending"]), stopReason: "The editor was released" });
+    await q.pump();
+    expect(starts).toEqual(["/Game/A"]);
+    q.setPaused(false);
+    await settle();
+    expect(starts).toEqual(["/Game/A", "/Game/A"]);
+    expect(q.state().pausedBy).toBeNull();
+  });
+
+  it("after the editor reconnects with work waiting, the queue waits for a person; with nothing waiting it stays as it was", async () => {
+    const q = make();
+    expect(q.reconnected()).toBe(false);
+    expect(q.paused()).toBe(false);
+    q.setPaused(true);
+    q.enqueue(plan(["/Game/A"]));
+    q.setPaused(false);
+    await settle();
+    q.observe(qa("run0", "finished", ["passed"]));
+    q.enqueue(plan(["/Game/B"]));
+    busy = "The editor is restarting";
+    await settle();
+    expect(q.reconnected()).toBe(true);
+    busy = null;
+    await q.tick();
+    expect(starts).toEqual(["/Game/A"]);
+    expect(q.state()).toMatchObject({ paused: true, pausedBy: "reconnect", waiting: null });
+    q.setPaused(false);
+    await settle();
+    expect(starts).toEqual(["/Game/A", "/Game/B"]);
+  });
+
+  it("a crash during an item's run is that item's outcome, once: crashed, with the reason, never retried", async () => {
+    const crashed: string[] = [];
+    const q = new PlanQueue({ dataDir: root, runner: runner(), now: () => "2026-11-23T01:00:00.000Z", crashed: (runId) => void crashed.push(runId) });
+    q.enqueue(plan(["/Game/A", "/Game/B"]));
+    await settle();
+    connected = false;
+    q.editorLost("crashed");
+    expect(q.state().current!.items[0]).toMatchObject({ state: "crashed", reason: "The editor crashed during this run", runId: "run0" });
+    expect(q.state().lease).toBeNull();
+    expect(crashed).toEqual(["run0"]);
+    connected = true;
+    q.reconnected();
+    q.setPaused(false);
+    await settle();
+    // The next item runs; the crashed one is not started again.
+    expect(starts).toEqual(["/Game/A", "/Game/B"]);
+    q.observe(qa("run1", "finished", ["passed"]));
+    await settle();
+    expect(q.state().recent[0].items.map((i) => i.state)).toEqual(["crashed", "passed"]);
+  });
+
+  it("a fix plan runs one fix loop at a time in its chat session, follows the loop on its card, and Release stops the loop", async () => {
+    onStart = (s) => ({ runId: `card-${s}`, sessionId: `fix-${s}` });
+    const q = make();
+    q.enqueue({ ...plan(["/Game/A", "/Game/B"]), work: "fix", title: "Fix what is failing" });
+    await settle();
+    expect(q.state().current!.items[0]).toMatchObject({ state: "running", sessionId: "fix-/Game/A" });
+    expect(q.state().lease).toMatchObject({ work: "fix", sessionId: "fix-/Game/A" });
+    const loopRun = (runId: string, state: "running" | "done", loop: "running" | "passed" | "needs_you", blocker?: string): QaRun => ({
+      ...qa(runId, "finished", ["failed"]),
+      script: "/Game/A",
+      assignment: { callId: "c", sessionId: "fix-/Game/A", state, at: "", loop: { id: "l", state: loop, attempts: [], baseline: "", startedAt: "", ...(blocker ? { blocker: { kind: "no_progress", reason: blocker, evidence: [] } } : {}) } },
+    });
+    q.observe(loopRun("attempt1", "running", "running"));
+    expect(q.state().current!.items[0]).toMatchObject({ state: "running", runId: "attempt1" });
+    q.observe(loopRun("attempt1", "done", "needs_you", "No progress: Step 1 fails the same way on two attempts in a row."));
+    await settle();
+    expect(q.state().current!.items[0]).toMatchObject({ state: "failed", reason: "No progress: Step 1 fails the same way on two attempts in a row." });
+    expect(starts).toEqual(["/Game/A", "/Game/B"]);
+    await q.release();
+    expect(fixStops).toEqual(["/Game/B"]);
+    expect(q.state().current!.items[1]).toMatchObject({ state: "queued", sessionId: "fix-/Game/B", reason: "The editor was released" });
   });
 
   it("cancel: a queued plan leaves, the running one stops its run", async () => {

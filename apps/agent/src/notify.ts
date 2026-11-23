@@ -121,6 +121,18 @@ export class Presence {
     return parts.join(", ") || "none";
   }
 
+  /** How long since someone last used this computer, from the freshest desktop report; null when no desktop reported lately. */
+  desktopInputAgeMs(): number | null {
+    const cutoff = this.now() - PRESENCE_TTL_MS;
+    let best: number | null = null;
+    for (const p of this.seen.values()) {
+      if (p.device !== "desktop" || p.at < cutoff || typeof p.inputAgeMs !== "number") continue;
+      const age = p.inputAgeMs + (this.now() - p.at);
+      if (best === null || age < best) best = age;
+    }
+    return best;
+  }
+
   /** Device classes in use now. */
   active(): NotifyDevice[] {
     const out = new Set<NotifyDevice>();

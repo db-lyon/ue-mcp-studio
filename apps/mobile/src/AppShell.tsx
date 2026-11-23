@@ -41,7 +41,7 @@ import { CompatBanner } from "./native/CompatBanner";
 import { useDeviceOnline } from "./native/online";
 import { OFFLINE_STRIP } from "./views/OfflineBanner";
 import { FileViewerProvider } from "./chat/FileViewer";
-import { HeldBar, HeldContext, useHeld } from "./held";
+import { HeldBar, HeldContext, LeaseBar, useHeld, useLease } from "./held";
 // Ways out of the project the drawer offers at all times: the projects list and pairing.
 import { Exits } from "./exits";
 
@@ -172,6 +172,8 @@ function Studio({ daemon, initial, onBack, device }: { daemon: ReturnType<typeof
   const openPlaytest = (sessionId: string) => openChat(sessionId);
   // Runs holding at a manual step for a verdict, PIE paused: the bar under the top bar, and the cards' Resume and watch.
   const held = useHeld(daemon);
+  // While the Playtest Hub holds the editor: the bar that says so, with Release the editor.
+  const lease = useLease(daemon);
   // The chat stays mounted once shown, parked while another tab is up, so coming back finds the same session and draft.
   const chatShown = useRef(tab === "Chat");
   if (tab === "Chat") chatShown.current = true;
@@ -208,6 +210,7 @@ function Studio({ daemon, initial, onBack, device }: { daemon: ReturnType<typeof
         </Banner>
       ) : null}
       <DialogBanner daemon={daemon} />
+      <LeaseBar lease={lease} />
       <HeldBar value={held} onOpenCard={(h) => h.sessionId && openChat(h.sessionId)} onWatchLive={watchLive} />
       <VersionNotice daemon={daemon} />
       {/* A landscape navigation bar's side; each view pads the end of its own scrolling by the bottom one. */}

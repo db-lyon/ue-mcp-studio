@@ -3,12 +3,14 @@
  * (client-web held.tsx and held-context.ts): the list from GET /qa/held and
  * studio.qa.held, the context the playtest card reads for Resume and watch,
  * and the bar under the top bar on every tab, with its countdown, the
- * verdict, Stop now, Live and the way to the card.
+ * verdict, Stop now, Live and the way to the card. Beside it, the Playtest
+ * Hub's lease bar: while the hub holds the editor, every tab says so and
+ * offers Release the editor (client-web held.tsx LeaseBar).
  */
 import { createContext, useContext, useEffect, useState } from "react";
 import { View } from "react-native";
-import { HELD_COPY, QA_VERDICTS, heldForBar, heldLeft, heldOfEvent } from "@ue-mcp-studio/client-core";
-import type { QaHeld, QaVerdict } from "@ue-mcp-studio/shared";
+import { HELD_COPY, LEASE_COPY, QA_VERDICTS, heldForBar, heldLeft, heldOfEvent, leaseOfEvent } from "@ue-mcp-studio/client-core";
+import type { EditorLease, QaHeld, QaVerdict } from "@ue-mcp-studio/shared";
 import { useProjectNav } from "./nav";
 import type { DaemonState } from "./state";
 import { Banner, T, useTheme } from "./ui";
@@ -49,6 +51,48 @@ export function useHeld(daemon: Pick<DaemonState, "events" | "streaming">): Held
     setHeld((list) => list.map((h) => (h.runId === runId ? r.held : h)));
   };
   return { held, resume };
+}
+
+/** The hub's lease as the agent has it: read when the stream comes up, then replaced by each studio.hub.lease. */
+export function useLease(daemon: Pick<DaemonState, "events" | "streaming">): EditorLease | null {
+  const { api } = useProjectNav();
+  const [lease, setLease] = useState<EditorLease | null>(null);
+  useEffect(() => {
+    if (!daemon.streaming) return;
+    // An agent without the hub has no route: nothing is leased then.
+    api.hubLease().then((r) => setLease(r?.lease ?? null), () => setLease(null));
+  }, [daemon.streaming, api]);
+  const last = [...daemon.events].reverse().find((e) => leaseOfEvent(e) !== null);
+  useEffect(() => {
+    const next = last ? leaseOfEvent(last) : null;
+    if (next) setLease(next.lease);
+  }, [last?.id]);
+  return lease;
+}
+
+/** The bar while the Playtest Hub holds the editor: what it runs, and Release the editor. */
+export function LeaseBar({ lease }: { lease: EditorLease | null }) {
+  const t = useTheme();
+  const { api } = useProjectNav();
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  if (!lease) return null;
+  const release = () => {
+    setBusy(true);
+    setError(null);
+    api.hubRelease().catch((e: Error) => setError(e.message)).finally(() => setBusy(false));
+  };
+  return (
+    <Banner role="status" style={[SHELL_BANNER, { flexDirection: "column", alignItems: "stretch", gap: 8 }]}>
+      <T style={{ color: t.c.text }}>
+        <T weight={700} style={{ color: t.c.text }}>{LEASE_COPY.holding}</T> {lease.purpose}
+      </T>
+      <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 6 }}>
+        <SmallButton title={LEASE_COPY.release} label={LEASE_COPY.releaseHelp} danger disabled={busy} onPress={release} />
+      </View>
+      {error ? <T accessibilityRole="alert" style={{ color: t.c.badText }}>{error}</T> : null}
+    </Banner>
+  );
 }
 
 export function HeldBar({ value, onOpenCard, onWatchLive }: { value: HeldValue; onOpenCard: (h: QaHeld) => void; onWatchLive: () => void }) {

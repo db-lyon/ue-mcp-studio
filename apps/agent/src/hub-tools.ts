@@ -101,7 +101,7 @@ export const HUB_TOOLS = [
   },
   {
     name: HUB_CREATE_GOAL,
-    description: `Create a goal: a file in the project's goals folder (QA/Goals by default), named by an id made from the title unless id is given. Only title is required. The user may be asked to allow it first.`,
+    description: `Create a goal: a file in the project's goals folder (QA/Goals by default), named by an id made from the title and a short random ending unless id is given. Only title is required. The user may be asked to allow it first.`,
     input_schema: { type: "object" as const, properties: { id: S("A file name to use: lowercase letters, digits and dashes"), ...GOAL_FIELDS }, required: ["title"] },
   },
   {
@@ -178,7 +178,7 @@ interface GoalChange {
   create: boolean;
   /** The goal as it would be written. */
   plan: () => Goal;
-  apply: () => Goal;
+  apply: () => Promise<Goal>;
 }
 
 /** The goal a check link goes to: the one named, else the one goal listing the check. */
@@ -340,7 +340,7 @@ export async function runHubTool(hub: HubToolTarget | null, name: string, input:
       case HUB_REQUIRE_GOAL:
       case HUB_UNREQUIRE_GOAL: {
         const change = goalChange(hub, name, input)!;
-        const goal = change.apply();
+        const goal = await change.apply();
         return { text: `${change.create ? "Created" : "Saved"} ${rel(goal.id)}:\n${hub.goals.textOf(goal.id) ?? json(goal)}`, isError: false };
       }
     }

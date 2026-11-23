@@ -11,8 +11,8 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import type { ActionResult } from "ue-mcp/daemon";
-import { HUB_ROUTES, type HubOverview, type PlanRun, type QueueState } from "@ue-mcp-studio/shared";
-import { remotePath } from "@ue-mcp-studio/remote";
+import { HUB_ROUTES, qaRunFromAnswer, type CurrentProvenance, type HubOverview, type PlanRun, type QueueState } from "@ue-mcp-studio/shared";
+import { PAIRED_DEVICE_HEADER, remotePath } from "@ue-mcp-studio/remote";
 import { SessionStore } from "../src/sessions.js";
 import { QaBroker, type QaHost } from "../src/qa.js";
 import { PlaytestIndex } from "../src/playtest-index.js";
@@ -46,6 +46,12 @@ let routes: Map<string, Handler>;
 let k: number;
 let hub: Hub;
 let broker: QaBroker;
+/** The project's source control state, as the fake workspace reports it. */
+let workspace: CurrentProvenance;
+/** Play In Editor runs in the fake editor, whoever started it. */
+let pie: boolean;
+/** Modal dialogs open in the fake editor. */
+let dialogs: number;
 
 const steps = (statuses: string[]) => statuses.map((s, index) => ({ index, instruction: STEPS[index].instruction, judge: STEPS[index].judge, status: s }));
 
@@ -61,11 +67,17 @@ const host = (): QaHost & Record<string, unknown> => ({
         return listed.includes(String(args.path)) ? ok({ path: args.path, name: String(args.path).split("/").pop(), steps: STEPS }) : fail(`no script at ${String(args.path)}`);
       case "script_run": {
         const runId = `script_${String(args.script).split("/").pop()}_${k++}`;
-        const s = { run_id: runId, script: args.script, script_name: String(args.script).split("/").pop(), state: "armed", mode: "full", steps: steps(["pending", "pending"]), awaiting: [], last_seq: 1 };
+        // As ue-mcp does: start_pie starts PIE only when none runs, and says whether it did.
+        const started = args.start_pie === true && !pie;
+        if (started) pie = true;
+        const s = { run_id: runId, script: args.script, script_name: String(args.script).split("/").pop(), state: "armed", mode: "full", steps: steps(["pending", "pending"]), awaiting: [], last_seq: 1, pie_started: started };
         status.set(runId, s);
         held = runId;
         return ok(s);
       }
+      case "play_in_editor":
+        if (args.pieAction === "stop") pie = false;
+        return ok({});
       case "script_status":
       case "script_results":
         return ok(status.get(String(args.run_id)) ?? { run_id: args.run_id, state: "idle", steps: [] });
@@ -99,7 +111,7 @@ const host = (): QaHost & Record<string, unknown> => ({
 });
 
 /** Call a registered route as the daemon would, matching :params. */
-async function call(method: string, url: string, body?: unknown): Promise<{ status: number; body: any }> {
+async function call(method: string, url: string, body?: unknown, headers: Record<string, string> = {}): Promise<{ status: number; body: any }> {
   const [p, qs] = url.split("?");
   for (const [key, h] of routes) {
     const [m, pattern] = key.split(" ");
@@ -110,7 +122,7 @@ async function call(method: string, url: string, body?: unknown): Promise<{ stat
     const params: Record<string, string> = {};
     if (!a.every((seg, i) => (seg.startsWith(":") ? ((params[seg.slice(1)] = decodeURIComponent(b[i])), true) : seg === b[i]))) continue;
     const query = Object.fromEntries(new URLSearchParams(qs ?? ""));
-    const r = (await h({ params, query, body })) as { status?: number; body?: unknown };
+    const r = (await h({ params, query, body, headers })) as { status?: number; body?: unknown };
     return { status: r.status ?? 200, body: r.body };
   }
   throw new Error(`no route ${method} ${url}`);
@@ -119,11 +131,14 @@ async function call(method: string, url: string, body?: unknown): Promise<{ stat
 const settle = () => new Promise((r) => setTimeout(r, 0));
 const enc = encodeURIComponent;
 
-function setup(o: { writePlaytests?: (sid: string, text: string) => Promise<void>; enabled?: boolean } = {}) {
+function setup(o: { writePlaytests?: (sid: string, text: string) => Promise<void>; enabled?: boolean; signer?: () => string | null } = {}) {
   const h = host();
   broker = new QaBroker({ host: h, store });
   const index = new PlaytestIndex({ host: h as never, broker, store });
-  hub = registerHub(h as never, { broker, index, store, playtestRuns: () => "manual", signer: () => "octocat", enabled: () => o.enabled !== false, writePlaytests: o.writePlaytests, timers: false });
+  hub = registerHub(h as never, {
+    broker, index, store, playtestRuns: () => "manual", signer: o.signer ?? (() => "octocat"), enabled: () => o.enabled !== false, writePlaytests: o.writePlaytests, timers: false, engine: () => "5.5", workspace: async () => workspace,
+    editor: { pie: () => pie, dialogs: () => dialogs, busy: () => ({ now: Date.now(), calls: [] }), inputAgeMs: () => null },
+  });
   return h;
 }
 
@@ -140,6 +155,9 @@ beforeEach(() => {
   held = null;
   routes = new Map();
   k = 0;
+  workspace = { vcs: "git", revision: "abc1234def", dirty: 0 };
+  pie = false;
+  dialogs = 0;
 });
 afterEach(() => {
   hub?.dispose();
@@ -168,8 +186,6 @@ describe("routes", () => {
     expect((await call("PUT", `/hub/goals/${id}`, { priority: "p9" })).status).toBe(400);
     expect((await call("POST", `/hub/goals/${id}/checks`, { checks: [{ kind: "script", target: JUMP }] })).body.goal.checks).toHaveLength(2);
     expect((await call("DELETE", `/hub/goals/${id}/checks/${enc(`script:${JUMP}`)}`)).body.goal.checks).toHaveLength(1);
-    expect((await call("POST", `/hub/goals/${id}/sign-off`, { note: "ok" })).body.goal.signOff).toMatchObject({ by: "octocat", note: "ok" });
-    expect((await call("DELETE", `/hub/goals/${id}/sign-off`)).body.goal.signOff).toBeUndefined();
     expect((await call("DELETE", `/hub/goals/${id}`)).status).toBe(204);
     expect((await call("DELETE", `/hub/goals/${id}`)).status).toBe(404);
   });
@@ -181,7 +197,7 @@ describe("routes", () => {
     const beta = await mk("Beta", { kind: "milestone" });
     const door = await mk("Door", { checks: [{ kind: "script", target: DOOR }] });
     const jump = await mk("Jump", { checks: [{ kind: "script", target: JUMP }, { kind: "script", target: DOOR }] });
-    await mk("Loose");
+    const loose = await mk("Loose");
     expect((await call("POST", `/hub/goals/${alpha}/requires`, { goal: door })).status).toBe(200);
     await call("POST", `/hub/goals/${alpha}/requires`, { goal: jump });
     await call("POST", `/hub/goals/${beta}/requires`, { goal: door });
@@ -194,7 +210,7 @@ describe("routes", () => {
     const g = (id: string) => o.goals.find((x) => x.goal.id === id)!;
     expect(g(door).parents).toEqual([alpha, beta]);
     expect(g(alpha).requires).toEqual([{ goal: jump, required: true, status: "not_started" }, { goal: door, required: true, status: "not_started" }]);
-    expect(g("loose").unused).toBe(true);
+    expect(g(loose).unused).toBe(true);
     expect(g(door).unused).toBeUndefined();
     expect(g(alpha).unused).toBeUndefined();
     // Running a milestone runs each check reachable through its goals once, in order.
@@ -224,10 +240,10 @@ describe("routes", () => {
 describe("overview", () => {
   it("checks are the goals' and the editor's scripts; a script the editor no longer lists is missing only while it is connected", async () => {
     setup();
-    await call("POST", "/hub/goals", { title: "Gone", checks: [{ kind: "script", target: "/Game/Tests/Deleted" }, { kind: "manual", target: "Feels good" }] });
+    const gone = (await call("POST", "/hub/goals", { title: "Gone", checks: [{ kind: "script", target: "/Game/Tests/Deleted" }, { kind: "manual", target: "Feels good" }] })).body.goal.id;
     const o = (await call("GET", "/hub")).body as HubOverview;
     expect(o.checks.map((c) => c.id).sort()).toEqual([`manual:Feels good`, `script:${DOOR}`, `script:${JUMP}`, "script:/Game/Tests/Deleted"].sort());
-    expect(o.checks.find((c) => c.id === "script:/Game/Tests/Deleted")).toMatchObject({ health: "missing", missing: true, goalIds: ["gone"] });
+    expect(o.checks.find((c) => c.id === "script:/Game/Tests/Deleted")).toMatchObject({ health: "missing", missing: true, goalIds: [gone] });
     expect(o.checks.find((c) => c.id === `script:${DOOR}`)).toMatchObject({ health: "never_run", goalIds: [], map: "/Game/Maps/Test", name: "DoorOpens" });
     expect(o.goals[0].status).toBe("failing");
     expect(o.attention.map((i) => i.kind)).toEqual(["missing_check"]);
@@ -246,6 +262,74 @@ describe("overview", () => {
     fs.writeFileSync(path.join(root, "project", "QA", "Goals", "bad.json"), "{");
     setup();
     expect(((await call("GET", "/hub")).body as HubOverview).warnings[0]).toContain("bad.json is not valid JSON");
+  });
+});
+
+describe("sign-off", () => {
+  /** A finished run of the door check, with what it tested. */
+  const doorRun = (runId: string, at: string, passed: boolean, tested?: { revision: string; scriptHash: string }) => {
+    hub.runs.record(qaRunFromAnswer({ run_id: runId, script: DOOR, script_name: "DoorOpens", state: "finished", steps: [{ index: 0, instruction: "x", judge: "auto", status: passed ? "passed" : "failed" }] }, { seenAt: at })!, { startedAt: at, endedAt: at });
+    if (tested) hub.runs.setProvenance(runId, { vcs: "git", revision: tested.revision, dirty: 0, scriptHash: tested.scriptHash, engine: "5.5", players: null });
+  };
+  const goalState = async (id: string) => (await call("GET", `/hub/goals/${id}`)).body;
+  /** Minutes before now, recent enough that no pass is stale. */
+  const ago = (min: number) => new Date(Date.now() - min * 60_000).toISOString();
+
+  it("is refused without a signed-in account, and never recorded as a placeholder", async () => {
+    setup({ signer: () => null });
+    const id = (await call("POST", "/hub/goals", { title: "Door", acceptance: { signOff: true }, checks: [{ kind: "script", target: DOOR }] })).body.goal.id;
+    const r = await call("POST", `/hub/goals/${id}/sign-off`, {});
+    expect(r.status).toBe(409);
+    expect(r.body.error).toBe("Sign in to your ue-mcp account to sign off a goal: a sign-off records who gave it.");
+    expect((await goalState(id)).signOff).toBeUndefined();
+  });
+
+  it("records the account, the paired device it came from, the revision and the runs, on this computer and not in the goal file", async () => {
+    setup();
+    const id = (await call("POST", "/hub/goals", { title: "Door", acceptance: { signOff: true }, checks: [{ kind: "script", target: DOOR }] })).body.goal.id;
+    const fileBefore = fs.readFileSync(path.join(root, "project", "QA", "Goals", `${id}.json`), "utf-8");
+    doorRun("r1", ago(30), true, { revision: "abc1234def", scriptHash: "sha256:1" });
+    expect((await goalState(id)).status).toBe("needs_you");
+    const r = await call("POST", `/hub/goals/${id}/sign-off`, { note: "Played it" }, { [PAIRED_DEVICE_HEADER]: encodeURIComponent("Ama's phone") });
+    expect(r.body.signOff).toMatchObject({ goalId: id, by: "octocat", via: "Ama's phone", note: "Played it", revision: "abc1234def", runIds: ["r1"] });
+    expect(fs.readFileSync(path.join(root, "project", "QA", "Goals", `${id}.json`), "utf-8")).toBe(fileBefore);
+    const g = await goalState(id);
+    expect(g.status).toBe("met");
+    expect(g.signOff).toMatchObject({ record: { by: "octocat" }, lapsed: null });
+    // At this computer there is no paired device to name.
+    expect((await call("POST", `/hub/goals/${id}/sign-off`, {})).body.signOff.via).toBeUndefined();
+    expect((await call("DELETE", `/hub/goals/${id}/sign-off`)).status).toBe(204);
+    expect((await goalState(id)).signOff).toBeUndefined();
+  });
+
+  it("lapses when the requirements change, the revision moves past what it judged, or a required check fails after it", async () => {
+    setup();
+    const id = (await call("POST", "/hub/goals", { title: "Door", acceptance: { signOff: true }, checks: [{ kind: "script", target: DOOR }] })).body.goal.id;
+    doorRun("r1", ago(30), true, { revision: "abc1234def", scriptHash: "sha256:1" });
+    await call("POST", `/hub/goals/${id}/sign-off`, {});
+    await call("PUT", `/hub/goals/${id}`, { acceptance: { stableRuns: 2 } });
+    expect((await goalState(id)).signOff.lapsed).toBe("requirements");
+    await call("PUT", `/hub/goals/${id}`, { acceptance: { stableRuns: 1 } });
+    expect((await goalState(id)).signOff.lapsed).toBeNull();
+
+    // A pull: the sign-off is kept on this computer, and lapses until the check passes on the new revision with the same script.
+    hub.dispose();
+    workspace = { vcs: "git", revision: "fff0000", dirty: 0 };
+    setup();
+    let g = await goalState(id);
+    expect(g.signOff.lapsed).toBe("revision");
+    expect(g.status).not.toBe("met");
+    doorRun("r2", ago(20), true, { revision: "fff0000", scriptHash: "sha256:1" });
+    g = await goalState(id);
+    expect(g.signOff.lapsed).toBeNull();
+    expect(g.status).toBe("met");
+    doorRun("r3", ago(10), true, { revision: "fff0000", scriptHash: "sha256:2" });
+    expect((await goalState(id)).signOff.lapsed).toBe("revision");
+
+    doorRun("r4", "2099-01-01T00:00:00.000Z", false, { revision: "fff0000", scriptHash: "sha256:2" });
+    g = await goalState(id);
+    expect(g.signOff.lapsed).toBe("failed");
+    expect(g.status).toBe("failing");
   });
 });
 
@@ -356,6 +440,28 @@ describe("plans", () => {
     await expect(hub.plan({ scope: { kind: "all" } }, "agent")).rejects.toMatchObject({ status: 409 });
   });
 
+  it("records what a run tested when it starts, and ue-mcp's own fields from results.json when it ends", async () => {
+    workspace = { vcs: "git", revision: "abc1234def", dirty: 2 };
+    setup();
+    await call("POST", `/hub/checks/${enc(`script:${DOOR}`)}/run`, {});
+    for (let i = 0; i < 4; i++) await settle();
+    const runId = "script_DoorOpens_0";
+    const started = hub.runs.get(runId)!;
+    expect(started).toMatchObject({ trigger: "run", provenance: { vcs: "git", revision: "abc1234def", dirty: 2, engine: "5.5", players: null } });
+    expect(started.provenance!.scriptHash).toMatch(/^sha256:[0-9a-f]{64}$/);
+    // The overview says whose view it is and the workspace it compares with.
+    expect(((await call("GET", "/hub")).body as HubOverview).evidence).toEqual({ store: "local", current: workspace });
+
+    // ue-mcp's results.json carries its own script hash and fingerprints: they are taken, the revision stays Studio's.
+    const dir = path.join(root, "project", "Saved", "MCPObservations", runId);
+    fs.mkdirSync(dir, { recursive: true });
+    fs.writeFileSync(path.join(dir, "results.json"), JSON.stringify({ run_id: runId, provenance: { script_hash: "f00d", dependencies: { "/Game/Maps/Test": "aa" } } }));
+    status.set(runId, { ...status.get(runId)!, state: "finished", steps: steps(["passed", "passed"]) });
+    await broker.status(runId);
+    for (let i = 0; i < 4; i++) await settle();
+    expect(hub.runs.get(runId)?.provenance).toMatchObject({ revision: "abc1234def", dirty: 2, scriptHash: "ue-mcp:f00d", dependencies: { "/Game/Maps/Test": "aa" } });
+  });
+
   it("a plan with nothing in scope is refused", async () => {
     setup();
     expect((await call("POST", "/hub/plans", { scope: { kind: "failing" } })).status).toBe(409);
@@ -394,6 +500,112 @@ describe("plans", () => {
     await settle();
     expect(calls.filter((c) => c.action === "script_run")).toHaveLength(1);
     expect((await call("GET", "/hub/queue")).body.queued).toHaveLength(1);
+  });
+});
+
+describe("the editor lease", () => {
+  const queue = async () => (await call("GET", "/hub/queue")).body as QueueState;
+  const runDoor = async () => {
+    await call("POST", "/hub/plans", { scope: { kind: "checks", checks: [{ kind: "script", target: DOOR }] } });
+    for (let i = 0; i < 3; i++) await settle();
+  };
+
+  it("never attaches to the developer's PIE: the plan waits, saying so, and starts once PIE stops", async () => {
+    setup();
+    pie = true;
+    await runDoor();
+    expect(calls.some((c) => c.action === "script_run")).toBe(false);
+    expect(await queue()).toMatchObject({ waiting: "Play In Editor is in use", lease: null });
+    pie = false;
+    await hub.tick();
+    await settle();
+    expect(calls.filter((c) => c.action === "script_run")).toHaveLength(1);
+  });
+
+  it("waits while a dialog is open", async () => {
+    setup();
+    dialogs = 1;
+    await runDoor();
+    expect(calls.some((c) => c.action === "script_run")).toBe(false);
+    expect((await queue()).waiting).toBe("A dialog is open in the editor");
+  });
+
+  it("holds the lease while its run plays, tells the editor once, and Release the editor stops the run, ends the PIE it started and pauses", async () => {
+    setup();
+    await runDoor();
+    const run0 = "script_DoorOpens_0";
+    expect((await call("GET", "/hub/lease")).body.lease).toMatchObject({ editor: "workspace", purpose: "Run DoorOpens: DoorOpens", runId: run0, pie: true });
+    expect(published.some((p) => p.type === "hub.lease" && (p.data as { lease: { runId?: string } | null }).lease?.runId === run0)).toBe(true);
+    expect(calls.filter((c) => c.action === "show_notification").map((c) => c.args)).toEqual([{ text: "Studio is running a playtest", subText: "Run DoorOpens: DoorOpens", severity: "info" }]);
+    status.set(run0, { ...status.get(run0)!, state: "awaiting_verdict", steps: steps(["passed", "awaiting_verdict"]), awaiting: [1] });
+    await hub.tick();
+    const q = (await call("POST", "/hub/release")).body as QueueState;
+    expect(calls.filter((c) => c.action === "script_stop").map((c) => c.args)).toEqual([{ run_id: run0, reason: "The editor was released" }]);
+    expect(calls.filter((c) => c.action === "play_in_editor").map((c) => c.args)).toEqual([{ pieAction: "stop" }]);
+    expect(q).toMatchObject({ paused: true, pausedBy: "release", lease: null });
+    expect(q.current!.items[0]).toMatchObject({ state: "queued", reason: "The editor was released" });
+    expect(broker.hold.held()).toEqual([]);
+    expect((await call("GET", "/hub/lease")).body.lease).toBeNull();
+  });
+
+  it("after the editor reconnects, queued work waits for a person", async () => {
+    setup();
+    pie = true;
+    await runDoor();
+    pie = false;
+    for (const l of listeners) l({ type: "editor.connected", data: {} });
+    await hub.tick();
+    expect(calls.some((c) => c.action === "script_run")).toBe(false);
+    expect(await queue()).toMatchObject({ paused: true, pausedBy: "reconnect" });
+    await call("PUT", "/hub/queue/paused", { paused: false });
+    await settle();
+    expect(calls.filter((c) => c.action === "script_run")).toHaveLength(1);
+  });
+
+  it("an editor crash during the run is the item's outcome, and the next item runs", async () => {
+    setup();
+    await call("POST", "/hub/plans", { scope: { kind: "checks", checks: [{ kind: "script", target: DOOR }, { kind: "script", target: JUMP }] } });
+    for (let i = 0; i < 3; i++) await settle();
+    connected = false;
+    pie = false;
+    for (const l of listeners) l({ type: "editor.disconnected", data: { cause: "crashed" } });
+    connected = true;
+    for (const l of listeners) l({ type: "editor.connected", data: {} });
+    await call("PUT", "/hub/queue/paused", { paused: false });
+    await settle();
+    const q = await queue();
+    expect(q.current!.items[0]).toMatchObject({ state: "crashed", reason: "The editor crashed during this run" });
+    expect(calls.filter((c) => c.action === "script_run").map((c) => c.args.script)).toEqual([DOOR, JUMP]);
+  });
+
+  it("a run that saw project files change is tainted", async () => {
+    setup();
+    await runDoor();
+    const run0 = "script_DoorOpens_0";
+    (hub as unknown as { watch: { touched(): void } }).watch.touched();
+    status.set(run0, { ...status.get(run0)!, state: "finished", steps: steps(["passed", "passed"]) });
+    await hub.tick();
+    expect(hub.runs.get(run0)?.tainted).toBe(true);
+  });
+
+  it("Fix failing with an agent queues a fix plan whose items each open a chat session named for the fix", async () => {
+    setup();
+    const assigned: string[] = [];
+    (broker as unknown as { assign: (runId: string) => Promise<unknown> }).assign = async (runId: string) => {
+      assigned.push(runId);
+      return { run: broker.get(runId)! };
+    };
+    const g = (await call("POST", "/hub/goals", { title: "Doors", checks: [{ kind: "script", target: DOOR }] })).body.goal;
+    hub.runs.record(qaRunFromAnswer({ run_id: "r-old", script: DOOR, script_name: "DoorOpens", state: "finished", steps: [{ index: 0, instruction: "x", judge: "auto", status: "failed" }] }, { seenAt: "2026-11-23T00:00:00.000Z" })!);
+    const r = (await call("POST", "/hub/assign-failing", { goalId: g.id })).body;
+    expect(r).toMatchObject({ queued: 1, plan: { work: "fix", title: "Fix what is failing in Doors" } });
+    for (let i = 0; i < 3; i++) await settle();
+    expect(store.all().map((s) => s.title)).toContain("Fix DoorOpens");
+    const q = await queue();
+    expect(q.current!.items[0]).toMatchObject({ state: "running" });
+    expect(q.current!.items[0].sessionId).toBe(store.all().find((s) => s.title === "Fix DoorOpens")!.id);
+    expect(assigned).toHaveLength(1);
+    expect(q.lease).toMatchObject({ work: "fix" });
   });
 });
 
@@ -448,8 +660,10 @@ describe("run screen", () => {
     expect(d.series["Door.Distance"]).toHaveLength(300);
     expect(d.series["Door.Distance"][0]).toEqual([0, 500]);
     expect(d.series.speed2d).toBeDefined();
-    expect(d.lastPass.runId).toBe("script_DoorOpens_old");
-    expect(d.changedSteps).toEqual([0]);
+    // Backfilled runs tested an unknown script version, so no step is compared with another run's.
+    expect(d.record.provenance).toBeUndefined();
+    expect(d.lastPass).toBeNull();
+    expect(d.changedSteps).toBeUndefined();
     expect(d.resultsUrl).toBe("/v1/ext/studio/qa/runs/script_DoorOpens_new/results");
     const page = (await call("GET", `/hub/runs?check=${enc(`script:${DOOR}`)}&limit=1`)).body;
     expect(page.runs.map((r: { runId: string }) => r.runId)).toEqual(["script_DoorOpens_new"]);
@@ -517,7 +731,7 @@ describe("schedules", () => {
     now = new Date(2026, 10, 23, 2, 1).getTime();
     await hub.tick();
     let got = (await call("GET", "/hub/queue")).body.schedules[0];
-    expect(got).toMatchObject({ lastSkipped: "the editor was not connected", nextRunAt: new Date(2026, 10, 24, 2, 0).toISOString() });
+    expect(got).toMatchObject({ lastSkipped: "The editor is not connected", nextRunAt: new Date(2026, 10, 24, 2, 0).toISOString() });
     connected = true;
     now = new Date(2026, 10, 24, 2, 0, 30).getTime();
     await hub.tick();

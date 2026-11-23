@@ -113,7 +113,21 @@ The reviews ask for less, not more. (Product 3 to 12; editor 8.)
 10. **One word per concept:** playtest (the thing that runs), run, goal, milestone. "Check" stays internal until a second kind runs.
 11. **Checks need an identity that survives asset renames.** ue-mcp ask 9 asks for a stable script id. Until then, Studio follows redirectors through ue-mcp, so a rename never turns goals Failing or loses history.
 
-## What needs your call
+## Decided
+
+The user approved everything on 2026-11-23, including the recommendation on each call:
+
+- evidence stays local for now, honestly labelled, behind a store interface;
+- a dedicated runner editor is built after the fixes;
+- the removals in G go ahead.
+
+Build order:
+
+1. **Wave 1, in parallel:** E with F; A with B; C1 to C5.
+2. **Wave 2:** G and the runner editor.
+3. **Then** an adversarial review of whether the implementation choices are pragmatic.
+
+## What needed your call
 
 1. **A shared evidence store (B):** local only, honestly labelled, for now, or build a shared store next?
 2. **A dedicated runner editor for unattended runs (C):** build it, or keep unattended plans gated on the editor lease?

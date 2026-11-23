@@ -162,18 +162,35 @@ describe("the hub demo's simulation", () => {
     expect(after.recent[0].items[0].state).toBe("failed");
   });
 
-  it("fixes a failing check with a fix loop, so its goal stops failing", () => {
+  it("a fix loop's passing attempt does not count; a run over its uncommitted change reads as fixed, not yet accepted", () => {
     const { call, run } = demo();
     call("PUT", "/hub/queue/paused", { paused: true });
+    for (const p of call<QueueState>("GET", "/hub/queue").queued) call("POST", `/hub/plans/${p.id}/cancel`);
     const id = checkId({ kind: "script", target: "/Game/PIEStudio/Scripts/Combat/PT_Stagger_Wisp" });
     const { queued } = call<{ queued: number }>("POST", "/hub/assign-failing", { goalId: "lantern-combat" });
     expect(queued).toBe(1);
     run(15_000);
-    const o = call<HubOverview>("GET", "/hub");
-    // Fixed, with the failure still in its recent runs: flaky until enough passes follow, by the shared rule.
-    expect(o.checks.find((c) => c.id === id)!.health).toBe("flaky");
-    expect(goalOf(o, "lantern-combat").status).toBe("at_risk");
+    let o = call<HubOverview>("GET", "/hub");
+    const check = () => o.checks.find((c) => c.id === id)!;
+    expect(check().last?.trigger).toBe("loop");
+    expect(check().health).toBe("failing");
+    expect(o.evidence.current.dirty).toBe(1);
+    // The regression is no longer the newest word on the check, so it leaves Needs attention.
     expect(o.attention.some((i) => i.checkId === id)).toBe(false);
+    call("POST", `/hub/checks/${encodeURIComponent(id)}/run`, {});
+    call("PUT", "/hub/queue/paused", { paused: false });
+    run(40_000);
+    // It holds at its manual step: a person passes it.
+    const runId = call<QueueState>("GET", "/hub/queue").current!.items[0].runId!;
+    const step = call<RunDetail>("GET", `/hub/runs/${encodeURIComponent(runId)}`).steps.find((s) => s.status === "awaiting_verdict")!.index;
+    call("POST", `/qa/runs/${encodeURIComponent(runId)}/verdict`, { step, verdict: "pass" });
+    run(40_000);
+    o = call<HubOverview>("GET", "/hub");
+    expect(check().health).toBe("passing");
+    expect(check().change?.kind).toBe("fixed");
+    expect(check().last?.provenance?.dirty).toBe(1);
+    // A run over uncommitted changes never counts toward acceptance.
+    expect(goalOf(o, "lantern-combat").status).toBe("at_risk");
   });
 
   it("writes playtests for a goal after a short wait", () => {
@@ -188,7 +205,7 @@ describe("the hub demo's simulation", () => {
   it("creates, links and deletes goals, and the queue respects pause and moves", () => {
     const { call } = demo();
     const { goal } = call<{ goal: { id: string } }>("POST", "/hub/goals", { title: "Fishing is relaxing", checks: [{ kind: "script", target: "/Game/PIEStudio/Scripts/Fishing/PT_Fishing_Minigame" }] });
-    expect(goal.id).toBe("fishing-is-relaxing");
+    expect(goal.id).toMatch(/^fishing-is-relaxing-[0-9a-z]{4}$/);
     const o = call<HubOverview>("GET", "/hub");
     expect(goalOf(o, goal.id).status).toBe("not_started");
     expect(o.checks.find((c) => c.name === "PT_Fishing_Minigame")!.goalIds).toEqual([goal.id]);

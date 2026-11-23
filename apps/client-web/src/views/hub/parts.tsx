@@ -5,7 +5,7 @@
  */
 import type { AnchorHTMLAttributes, ReactNode } from "react";
 import type { RunOutcome } from "@ue-mcp-studio/shared";
-import { hubHash, sparkBars, sparkLabel, type HubRoute, type StatusGlyph, type StatusLook } from "@ue-mcp-studio/client-core";
+import { HUB_COPY, evidenceLabel, hubHash, sparkBars, sparkLabel, type HubRoute, type StatusGlyph, type StatusLook } from "@ue-mcp-studio/client-core";
 import { useHub } from "./state";
 
 const SHAPES: Record<StatusGlyph, ReactNode> = {
@@ -176,6 +176,12 @@ export function ScreenHead({ title, eyebrow, sub, actions, back }: { title: Reac
       {actions && <div className="hub-head-actions">{actions}</div>}
     </header>
   );
+}
+
+/** Whose view a screen's statuses are: "On this computer at a1b2c3d". Goes in the header of every screen that shows status. */
+export function EvidenceScope() {
+  const { o } = useHub();
+  return <span className="hub-evidence-scope" title={HUB_COPY.evidenceLocal}>{evidenceLabel(o.evidence)}</span>;
 }
 
 /** Placeholder rows while the first answer is on its way. */

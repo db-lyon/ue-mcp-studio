@@ -159,10 +159,34 @@ export const DEFAULT_ACCEPTANCE: AcceptanceRule = { stableRuns: 1, staleAfterDay
 export type GoalPriority = "p0" | "p1" | "p2" | "p3";
 export type GoalKind = "milestone" | "goal";
 
+/**
+ * A person's sign-off of a goal, kept on the machine it was given on beside
+ * the runs it judged, never in the goal file. It records what was signed so
+ * it can lapse (signOffLapse) when that no longer describes the game.
+ */
 export interface SignOff {
+  goalId: string;
+  /** The signed-in ue-mcp account that gave it. */
   by: string;
+  /** The paired browser or phone it came from, by the name it paired with; absent when given at this computer. */
+  via?: string;
   at: string;
   note?: string;
+  /** The revision the workspace was at (RunProvenance.revision's kind of value); null when the project has no source control Studio can read. */
+  revision: string | null;
+  /** The runs it was given against: each required check's results the acceptance rule looked at. */
+  runIds: string[];
+  /** The goal's requirements when it was given (requirementsKey). */
+  requirements: string;
+}
+
+/** Why a sign-off no longer counts: a required check failed after it, the goal's requirements changed, or the workspace moved to another revision. */
+export type SignOffLapse = "failed" | "requirements" | "revision";
+
+/** A goal's sign-off as status reads it. A lapsed one is history: the goal waits for a new one. */
+export interface SignOffState {
+  record: SignOff;
+  lapsed: SignOffLapse | null;
 }
 
 /**
@@ -197,10 +221,7 @@ export interface Goal {
   /** The goals this one requires, in its own order. A goal is met only when its required goals are. */
   requires?: GoalRequirement[];
   checks: CheckRef[];
-  signOff?: SignOff | null;
   archived?: boolean;
-  createdAt: string;
-  updatedAt: string;
 }
 
 /**
@@ -212,19 +233,20 @@ export interface GoalParents {
   parents?: string[];
 }
 
-/** POST /hub/goals. The agent fills id (from the title, made unique), schema, timestamps and defaults. */
-export type GoalDraft = Pick<Goal, "title"> & Partial<Omit<Goal, "schema" | "createdAt" | "updatedAt">> & GoalParents;
+/** POST /hub/goals. The agent fills id (the title's slug and a random suffix, unless one is given), schema and defaults. */
+export type GoalDraft = Pick<Goal, "title"> & Partial<Omit<Goal, "schema">> & GoalParents;
 /** PUT /hub/goals/:id. Given fields change; checks and requires, when given, replace the list. */
-export type GoalUpdate = Partial<Omit<Goal, "schema" | "id" | "createdAt" | "updatedAt">> & GoalParents;
+export type GoalUpdate = Partial<Omit<Goal, "schema" | "id">> & GoalParents;
 
-/** A goal id from a title: lowercase words joined by dashes, at most 64 characters. */
-export function goalSlug(title: string): string {
+/** A goal id's readable part from a title: lowercase ASCII words joined by dashes, at most `max` characters. */
+export function goalSlug(title: string, max = 64): string {
   const s = title
     .toLowerCase()
     .normalize("NFKD")
-    .replace(/[^\p{Letter}\p{Number}]+/gu, "-")
+    .replace(/[̀-ͯ]/g, "")
+    .replace(/[^a-z0-9]+/g, "-")
     .replace(/^-+|-+$/g, "")
-    .slice(0, 64)
+    .slice(0, max)
     .replace(/-+$/g, "");
   return s || "goal";
 }
@@ -234,6 +256,48 @@ export const GOAL_ID = /^[a-z0-9][a-z0-9-]{0,63}$/;
 
 export type RunOutcome = "passed" | "failed" | "needs_you" | "running" | "incomplete" | "unjudged" | "stopped" | "error";
 export type RunSource = "person" | "agent" | "plan" | "schedule" | "outside";
+
+/**
+ * Why a run happened, beside who started it (RunRecord.source): a run of
+ * the check, a replay of an earlier run's recorded input, or an attempt in a
+ * fix loop, which runs a project in the middle of being changed. Only "run"
+ * counts toward health, acceptance and pass rate; the others stay in history.
+ */
+export type RunTrigger = "run" | "replay" | "loop";
+
+/** The source control a project is under; "none" when Studio sees none. */
+export type RunVcs = "git" | "perforce" | "plastic" | "svn" | "none";
+
+/**
+ * What a run tested, read when Studio first saw it running, with the fields
+ * ue-mcp records itself taken from results.json once it ends, where present.
+ * Null is always "not known", never a value: unknown matches nothing.
+ */
+export interface RunProvenance {
+  /** The project's source control, null when it could not be read. */
+  vcs: RunVcs | null;
+  /** The commit, changelist, revision or changeset the workspace was at. */
+  revision: string | null;
+  /** Files changed or opened in source control when the run started: 0 is a clean workspace. */
+  dirty: number | null;
+  /** The script's version: "sha256:<hex>" of its definition as pie(script_read) gave it, or "ue-mcp:<hash>" when results.json carries ue-mcp's own. */
+  scriptHash: string | null;
+  /** The engine version: major.minor from the project file, or ue-mcp's full version when results.json has it. */
+  engine: string | null;
+  /** The players Studio set PIE to before the run, or ue-mcp's record of them. Null: PIE ran as it was left. */
+  players: { count: number; netMode: "standalone" | "listen" | "client" } | null;
+  /** Fingerprints of the assets the script reaches, by package path, when results.json has them. */
+  dependencies?: Record<string, string>;
+}
+
+/** Where the workspace is now, for the rules that compare runs with it. */
+export interface CurrentProvenance {
+  vcs: RunVcs | null;
+  revision: string | null;
+  dirty: number | null;
+  /** Current fingerprints of what a check depends on, when ue-mcp can tell without a run. */
+  dependencies?: Record<string, string>;
+}
 
 /** One run of one check, as the hub's run index keeps it. */
 export interface RunRecord {
@@ -249,14 +313,23 @@ export interface RunRecord {
   /** Step indexes that failed, for comparing runs. */
   failedSteps?: number[];
   source: RunSource;
+  /** Absent on records kept before triggers were: a replay then says so by replayOf. */
+  trigger?: RunTrigger;
   sessionId?: string | null;
   planRunId?: string | null;
   replayOf?: string | null;
   recordingId?: string | null;
   map?: string | null;
+  /** Absent for a run Studio did not see start (backfilled, or kept before provenance was): it tested an unknown revision. */
+  provenance?: RunProvenance;
+  /** Project files changed while the run played (anyone's saves): it tested a project that changed under it. */
+  tainted?: boolean;
   /** Tracker items this run refers to, such as the issue filed from it. Per machine, as the run is. */
   links?: TrackerLink[];
 }
+
+/** A run's trigger, for records kept before triggers were too. */
+export const triggerOf = (r: Pick<RunRecord, "trigger" | "replayOf">): RunTrigger => r.trigger ?? (r.replayOf ? "replay" : "run");
 
 /**
  * A run's outcome from its QaRun, judged by its steps. A live run waiting on
@@ -324,9 +397,9 @@ export interface CheckState {
   goalIds: string[];
   health: CheckHealth;
   last: RunRecord | null;
-  /** Outcomes of the latest finished runs, newest first, at most 20. */
+  /** Outcomes of the latest results (isResult), newest first, at most 20. */
   recent: RunOutcome[];
-  /** Passed share of `recent`, or null with no finished runs. */
+  /** Passed share of `recent`, or null with no results. */
   passRate: number | null;
   /** The script's map and step count, when known. */
   map?: string | null;
@@ -335,6 +408,20 @@ export interface CheckState {
   missing?: boolean;
   /** No goal lists this check, so nothing it proves counts anywhere. */
   unused?: boolean;
+  /** The newest result differs from the one before it, and they tested different things (checkChange). */
+  change?: CheckChange;
+}
+
+/**
+ * A result that turned between two runs that tested different things: a
+ * pass after a fail is "fixed", a fail after a pass "regressed". The same
+ * turn on the same provenance is flakiness, not a change.
+ */
+export interface CheckChange {
+  kind: "fixed" | "regressed";
+  /** The newest result, the run that turned. */
+  runId: string;
+  at: string;
 }
 
 /** One goal a goal requires, with that goal's status. */
@@ -357,6 +444,8 @@ export interface GoalState {
   requires: RequiredGoalState[];
   /** Not a milestone, and nothing requires it: it is part of no milestone and no goal. */
   unused?: boolean;
+  /** The goal's sign-off on this machine, current or lapsed. */
+  signOff?: SignOffState;
 }
 
 /**
@@ -368,8 +457,35 @@ export interface GoalState {
  * get through the run's steps on its own.
  */
 export const RESULT_OUTCOMES: readonly RunOutcome[] = ["passed", "failed", "incomplete", "error"];
-const FINISHED = RESULT_OUTCOMES;
 const DAY = 86_400_000;
+
+/**
+ * Whether a run is a result: an outcome that says something about the game
+ * (RESULT_OUTCOMES) from a plain run of the check. Replays and fix-loop
+ * attempts never are, whatever they show; they stay in history, marked.
+ */
+export const isResult = (r: RunRecord): boolean => RESULT_OUTCOMES.includes(r.outcome) && triggerOf(r) === "run";
+
+/** The run tested uncommitted changes. */
+export const ranDirty = (r: Pick<RunRecord, "provenance">): boolean => (r.provenance?.dirty ?? 0) > 0;
+
+/** Whether a run tested this workspace's revision, or both are under no source control. Unknown never did. */
+export function onRevision(p: RunProvenance | undefined, current: Pick<CurrentProvenance, "vcs" | "revision">): boolean {
+  if (!p?.vcs || !current.vcs || p.vcs !== current.vcs) return false;
+  return p.vcs === "none" || (p.revision !== null && p.revision === current.revision);
+}
+
+/**
+ * Whether two runs tested the same thing: the same revision, the same script
+ * version, and neither over uncommitted changes, which may differ between
+ * them. Unknown never matches.
+ */
+export function sameProvenance(a: Pick<RunRecord, "provenance">, b: Pick<RunRecord, "provenance">): boolean {
+  const p = a.provenance;
+  const q = b.provenance;
+  const clean = (x: RunProvenance): boolean => x.vcs === "none" || x.dirty === 0;
+  return !!p && !!q && clean(p) && clean(q) && !!p.scriptHash && p.scriptHash === q.scriptHash && onRevision(p, q);
+}
 
 export interface HealthInput {
   check: CheckRef;
@@ -377,42 +493,83 @@ export interface HealthInput {
   runs: RunRecord[];
   missing?: boolean;
   acceptance?: AcceptanceRule;
+  /** The workspace now. Without it acceptance does not compare revisions. */
+  current?: CurrentProvenance;
   now?: number;
 }
 
 /**
- * A check's health from its runs. Only RESULT_OUTCOMES count, so a stopped
- * run leaves the health its previous result gave. Flaky: mixed passes and
- * failures within the last stableRuns+2 (at least 3) results while the
- * newest passed.
+ * Stale since a check's last pass: an asset it depends on changed, where the
+ * pass and the workspace both have fingerprints for it; otherwise older than
+ * the rule's age.
  */
-export function checkHealth({ check, runs, missing, acceptance = DEFAULT_ACCEPTANCE, now = Date.now() }: HealthInput): CheckHealth {
-  if (missing) return "missing";
+function staleSince(pass: RunRecord, acceptance: AcceptanceRule, current: CurrentProvenance | undefined, now: number): boolean {
+  const then = pass.provenance?.dependencies;
+  const deps = current?.dependencies;
+  const known = then && deps ? Object.keys(then).filter((k) => k in deps) : [];
+  if (known.length) return known.some((k) => deps![k] !== then![k]);
+  if (acceptance.staleAfterDays === null) return false;
+  const at = Date.parse(pass.endedAt ?? pass.startedAt);
+  return Number.isFinite(at) && now - at > acceptance.staleAfterDays * DAY;
+}
+
+/**
+ * A check's health from its results (isResult): stopped, unjudged, replayed
+ * and fix-loop runs leave the health the result before them gave.
+ *
+ * - Failing: the newest result did not pass.
+ * - Flaky: it passed, and the last stableRuns+2 (at least 3) results on the
+ *   same provenance are mixed. Mixed results across revisions or script
+ *   versions are a fix or a regression (checkChange), not flakiness.
+ * - Stale: staleSince the pass.
+ *
+ * A run over uncommitted changes is the newest word on the check, so a person
+ * changing the game sees what their last run said, but it never shows
+ * flakiness (sameProvenance) and never counts toward acceptance.
+ */
+export function checkHealth(input: HealthInput): CheckHealth {
+  const { runs, acceptance = DEFAULT_ACCEPTANCE, now = Date.now() } = input;
+  if (input.missing) return "missing";
   const live = runs[0];
   if (live?.outcome === "needs_you") return "needs_you";
   if (live?.outcome === "running") return "running";
-  const done = runs.filter((r) => FINISHED.includes(r.outcome));
-  if (check.kind === "manual" && done.length === 0) return "never_run";
+  const done = runs.filter(isResult);
   if (done.length === 0) return "never_run";
   const newest = done[0];
   if (newest.outcome !== "passed") return "failing";
-  const window = done.slice(0, Math.max(3, acceptance.stableRuns + 2));
-  if (window.some((r) => r.outcome === "failed")) return "flaky";
-  if (acceptance.staleAfterDays !== null) {
-    const at = Date.parse(newest.endedAt ?? newest.startedAt);
-    if (Number.isFinite(at) && now - at > acceptance.staleAfterDays * DAY) return "stale";
-  }
+  const same = done.filter((r) => sameProvenance(r, newest)).slice(0, Math.max(3, acceptance.stableRuns + 2));
+  if (same.some((r) => r.outcome !== "passed")) return "flaky";
+  if (staleSince(newest, acceptance, input.current, now)) return "stale";
   return "passing";
 }
 
-/** Whether a check satisfies the acceptance rule: its latest stableRuns finished runs all passed. */
-export function checkSatisfied(runs: RunRecord[], acceptance: AcceptanceRule): boolean {
-  const done = runs.filter((r) => FINISHED.includes(r.outcome)).slice(0, Math.max(1, acceptance.stableRuns));
-  return done.length >= Math.max(1, acceptance.stableRuns) && done.every((r) => r.outcome === "passed");
+/**
+ * Whether a check satisfies the acceptance rule: its latest stableRuns
+ * results on the current revision and the script's newest version all
+ * passed. Runs over uncommitted changes and runs of an unknown revision
+ * never count.
+ */
+export function checkSatisfied(runs: RunRecord[], acceptance: AcceptanceRule, current?: CurrentProvenance): boolean {
+  const need = Math.max(1, acceptance.stableRuns);
+  const counted = runs.filter((r) => isResult(r) && !!r.provenance && !ranDirty(r) && (!current || onRevision(r.provenance, current)));
+  const version = counted[0]?.provenance?.scriptHash;
+  if (!version) return false;
+  const done = counted.filter((r) => r.provenance!.scriptHash === version).slice(0, need);
+  return done.length >= need && done.every((r) => r.outcome === "passed");
+}
+
+/** The newest result's turn from the one before it, when they tested different things. */
+export function checkChange(runs: RunRecord[]): CheckChange | undefined {
+  const [n, p] = runs.filter(isResult);
+  if (!n || !p) return undefined;
+  const passed = (r: RunRecord): boolean => r.outcome === "passed";
+  if (passed(n) === passed(p) || sameProvenance(n, p)) return undefined;
+  return { kind: passed(n) ? "fixed" : "regressed", runId: n.runId, at: n.endedAt ?? n.startedAt };
 }
 
 export function checkStateOf(input: HealthInput & { goalIds: string[]; name?: string; map?: string | null; steps?: number | null }): CheckState {
-  const done = input.runs.filter((r) => FINISHED.includes(r.outcome)).slice(0, 20);
+  const done = input.runs.filter(isResult).slice(0, 20);
+  const change = checkChange(input.runs);
   return {
     id: checkId(input.check),
     check: input.check,
@@ -426,6 +583,7 @@ export function checkStateOf(input: HealthInput & { goalIds: string[]; name?: st
     steps: input.steps ?? null,
     ...(input.missing ? { missing: true } : {}),
     ...(input.goalIds.length === 0 ? { unused: true } : {}),
+    ...(change ? { change } : {}),
   };
 }
 
@@ -437,16 +595,18 @@ export const needsSignOff = (goal: Pick<Goal, "acceptance" | "checks">): boolean
  * A goal's status from its checks (each worked out with the goal's own
  * acceptance rule) and the statuses of the goals it requires. An optional
  * goal (required: false) never blocks: only a verdict waiting in it, or a
- * run in it, shows, as an optional check's would.
+ * run in it, shows, as an optional check's would. `current` is the workspace
+ * acceptance compares revisions with (checkSatisfied). `signedOff`: the goal
+ * has a sign-off that has not lapsed.
  */
-export function goalStatus(goal: Goal, checks: Array<{ state: CheckState; runs: RunRecord[] }>, childStatuses: GoalStatus[] = [], optionalStatuses: GoalStatus[] = []): { status: GoalStatus; progress: { met: number; total: number } } {
+export function goalStatus(goal: Goal, checks: Array<{ state: CheckState; runs: RunRecord[] }>, childStatuses: GoalStatus[] = [], optionalStatuses: GoalStatus[] = [], current?: CurrentProvenance, signedOff = false): { status: GoalStatus; progress: { met: number; total: number } } {
   const optNeeds = optionalStatuses.includes("needs_you");
   const optRunning = optionalStatuses.includes("running");
   const required = checks.filter((c) => c.state.check.required !== false);
-  const met = required.filter((c) => c.state.check.kind !== "manual" && checkSatisfied(c.runs, goal.acceptance)).length;
+  const met = required.filter((c) => c.state.check.kind !== "manual" && checkSatisfied(c.runs, goal.acceptance, current)).length;
   const manualRequired = required.filter((c) => c.state.check.kind === "manual").length;
   // A manual check is satisfied by the goal's sign-off.
-  const metAll = met + (goal.signOff ? manualRequired : 0);
+  const metAll = met + (signedOff ? manualRequired : 0);
   // Required goals count as one each beside the checks, so a milestone made of goals shows how many are met.
   const progress = { met: metAll + childStatuses.filter((s) => s === "met").length, total: required.length + childStatuses.length };
   const hs = checks.map((c) => c.state.health);
@@ -456,16 +616,53 @@ export function goalStatus(goal: Goal, checks: Array<{ state: CheckState; runs: 
   if (hs.includes("running") || childStatuses.includes("running") || optRunning) return { status: "running", progress };
   if (required.length === 0 && childStatuses.length === 0) return { status: "not_started", progress };
   const everyChildMet = childStatuses.every((s): boolean => s === "met");
-  const allMet = metAll === required.length && everyChildMet && (!goal.acceptance.signOff || !!goal.signOff);
+  const allMet = metAll === required.length && everyChildMet && (!goal.acceptance.signOff || signedOff);
   if (allMet) {
     if (reqHs.some((h) => h === "flaky" || h === "stale") || childStatuses.includes("at_risk")) return { status: "at_risk", progress };
     return { status: "met", progress };
   }
   // Everything else is in and only a person's sign-off is missing: the rule asks for one, or required manual checks wait on it.
-  if (!goal.signOff && (goal.acceptance.signOff || manualRequired > 0) && met + manualRequired === required.length && everyChildMet) return { status: "needs_you", progress };
+  if (!signedOff && (goal.acceptance.signOff || manualRequired > 0) && met + manualRequired === required.length && everyChildMet) return { status: "needs_you", progress };
   if (reqHs.every((h) => h === "never_run") && childStatuses.every((s) => s === "not_started")) return { status: "not_started", progress };
   // Some evidence, not all of it passing yet (a check never run, or too few stable runs).
   return { status: "at_risk", progress };
+}
+
+// ---------- Sign-off ----------
+
+/** What a sign-off accepts of a goal: its acceptance rule, required checks and required goals, in a form that ignores their order. */
+export function requirementsKey(goal: Pick<Goal, "acceptance" | "checks" | "requires">): string {
+  const { stableRuns, staleAfterDays, signOff } = goal.acceptance;
+  return JSON.stringify({
+    acceptance: { stableRuns, staleAfterDays, signOff },
+    checks: goal.checks.filter((c) => c.required !== false).map(checkId).sort(),
+    requires: requiresOf(goal).filter((r) => r.required !== false).map((r) => r.goal).sort(),
+  });
+}
+
+/**
+ * Why a sign-off no longer describes the goal, or null while it does:
+ *
+ * - "requirements": the goal's requirements changed since (requirementsKey).
+ * - "failed": a required check has a failing result since.
+ * - "revision": the workspace is at another revision, and a required check's
+ *   newest result there tested another script version or map than the run
+ *   the sign-off was given against, or there is no result there yet to say.
+ *
+ * Without `current` the revision is not compared, as in checkSatisfied.
+ */
+export function signOffLapse(s: SignOff, goal: Goal, checks: Array<{ state: CheckState; runs: RunRecord[] }>, current?: CurrentProvenance): SignOffLapse | null {
+  if (requirementsKey(goal) !== s.requirements) return "requirements";
+  const required = checks.filter((c) => c.state.check.required !== false && c.state.check.kind !== "manual");
+  const failedSince = (r: RunRecord): boolean => isResult(r) && r.outcome !== "passed" && (r.endedAt ?? r.startedAt) > s.at;
+  if (required.some((c) => c.runs.some(failedSince))) return "failed";
+  if (!current || current.revision === s.revision) return null;
+  const sameTest = (c: { runs: RunRecord[] }): boolean => {
+    const signed = c.runs.find((r) => s.runIds.includes(r.runId));
+    const now = c.runs.find((r) => isResult(r) && onRevision(r.provenance, current));
+    return !!signed?.provenance?.scriptHash && !!now?.provenance && now.provenance.scriptHash === signed.provenance.scriptHash && (now.map ?? null) === (signed.map ?? null);
+  };
+  return required.every(sameTest) ? null : "revision";
 }
 
 // ---------- The relationship graph ----------
@@ -589,9 +786,11 @@ export function goalChecksDeep(goals: readonly Pick<Goal, "id" | "requires" | "a
  * Every goal's state: its own checks' status rolled up through the goals it
  * requires, each worked out once. An edge that closes a loop is left out of
  * the roll-up (goalLoops says which), so status never goes round forever;
- * archived and unknown goals count for nothing.
+ * archived and unknown goals count for nothing. `current` as for goalStatus.
+ * `signOffs`: this machine's sign-offs by goal id, each counted unless it
+ * lapsed (signOffLapse).
  */
-export function rollUpGoals(goals: readonly Goal[], checksOf: (g: Goal) => Array<{ state: CheckState; runs: RunRecord[] }>): GoalState[] {
+export function rollUpGoals(goals: readonly Goal[], checksOf: (g: Goal) => Array<{ state: CheckState; runs: RunRecord[] }>, current?: CurrentProvenance, signOffs?: ReadonlyMap<string, SignOff>): GoalState[] {
   const byId = new Map(goals.map((g) => [g.id, g]));
   const { edges } = goalLoops(goals);
   const parents = goalParents(goals);
@@ -604,9 +803,11 @@ export function rollUpGoals(goals: readonly Goal[], checksOf: (g: Goal) => Array
       .filter((x): x is { r: GoalRequirement; child: Goal } => !!x.child && !x.child.archived && !edges.has(`${g.id}>${x.r.goal}`))
       .map((x) => ({ required: x.r.required !== false, status: one(x.child).status }));
     const checks = checksOf(g);
-    const { status, progress } = goalStatus(g, checks, kids.filter((k) => k.required).map((k) => k.status), kids.filter((k) => !k.required).map((k) => k.status));
+    const record = signOffs?.get(g.id);
+    const signOff: SignOffState | undefined = record ? { record, lapsed: signOffLapse(record, g, checks, current) } : undefined;
+    const { status, progress } = goalStatus(g, checks, kids.filter((k) => k.required).map((k) => k.status), kids.filter((k) => !k.required).map((k) => k.status), current, !!signOff && !signOff.lapsed);
     const ps = parents.get(g.id) ?? [];
-    const state: GoalState = { goal: g, status, checks: checks.map((c) => c.state), progress, parents: ps, requires: [], ...(g.kind !== "milestone" && !g.archived && ps.length === 0 ? { unused: true } : {}) };
+    const state: GoalState = { goal: g, status, checks: checks.map((c) => c.state), progress, parents: ps, requires: [], ...(g.kind !== "milestone" && !g.archived && ps.length === 0 ? { unused: true } : {}), ...(signOff ? { signOff } : {}) };
     done.set(g.id, state);
     return state;
   };
@@ -662,7 +863,7 @@ export const NEEDS_PERSON = "needs a person";
  */
 export const needsPerson = (steps: readonly Pick<QaStep, "judge">[]): boolean => steps.some((s) => s.judge === "manual");
 
-export type PlanItemState = "queued" | "running" | "passed" | "failed" | "needs_you" | "unjudged" | "skipped" | "error" | "cancelled";
+export type PlanItemState = "queued" | "running" | "passed" | "failed" | "needs_you" | "unjudged" | "skipped" | "error" | "crashed" | "cancelled";
 export interface PlanItem {
   check: CheckRef;
   name: string;
@@ -670,13 +871,19 @@ export interface PlanItem {
    * needs_you: its run holds at a manual step, PIE paused, until a verdict.
    * unjudged: the run ended without that verdict, no result (reason "no verdict").
    * error: the run could not get through its steps (reason says why).
+   * crashed: the editor crashed during it. Recorded once and never retried; it counts as failing.
    */
   state: PlanItemState;
   runId?: string | null;
+  /** A fix item's chat session, where its loop's agents work. */
+  sessionId?: string | null;
   reason?: string | null;
   startedAt?: string | null;
   endedAt?: string | null;
 }
+
+/** Plan item states that count as failing. */
+export const FAILING_ITEM_STATES: readonly PlanItemState[] = ["failed", "error", "crashed"];
 
 export type PlanState = "queued" | "running" | "paused" | "done" | "cancelled" | "failed";
 export type PlanTrigger = "person" | "schedule" | "agent";
@@ -684,6 +891,8 @@ export type PlanTrigger = "person" | "schedule" | "agent";
 export interface PlanRun {
   id: string;
   title: string;
+  /** What each item does: "run" runs its check (the default), "fix" hands it to a fix loop in a chat session of its own. */
+  work?: "run" | "fix";
   scope: PlanScope;
   options: PlanOptions;
   state: PlanState;
@@ -721,13 +930,66 @@ export type ScheduleDraft = Omit<Schedule, "id" | "lastRunAt" | "lastSkipped" | 
 
 export interface QueueState {
   paused: boolean;
+  /** Why the queue is paused: a person paused it, Release the editor paused it, or the editor reconnected. A person resumes it either way. */
+  pausedBy?: QueuePause | null;
   current: PlanRun | null;
   queued: PlanRun[];
   /** Finished plans, newest first, at most 20. */
   recent: PlanRun[];
   schedules: Schedule[];
   editor: { connected: boolean };
+  /** The hub's hold on the editor while it starts or runs an item. */
+  lease?: EditorLease | null;
+  /** Why the next item waits although the queue is not paused, such as "Play In Editor is in use". */
+  waiting?: string | null;
 }
+
+export type QueuePause = "person" | "release" | "reconnect";
+
+// ---------- The editor lease (per machine) ----------
+
+/**
+ * What else holds the editor, one signal each, from what Studio already
+ * knows: the editor not connected, an editor operation (restart, rebuild),
+ * an open modal dialog, Play In Editor the hub did not start, a playtest the
+ * hub did not start, a chat or fix loop with editor calls in flight, another
+ * MCP client's calls, and someone using this computer.
+ */
+export type OccupancyKind = "disconnected" | "operation" | "dialog" | "pie" | "run" | "agent" | "client" | "input";
+export interface OccupancyReason {
+  kind: OccupancyKind;
+  text: string;
+}
+
+/**
+ * The hub's explicit hold on one editor: taken before it starts a plan item
+ * or a fix loop, released when that ends or when a person releases the
+ * editor. Only the hub acts on what it holds: the run it started, and Play In
+ * Editor when that run started it. `editor` names which editor; today the
+ * developer's own ("workspace") is the only one.
+ */
+export interface EditorLease {
+  editor: string;
+  /** What the hub is doing, such as "Run Tutorial: Door opens". */
+  purpose: string;
+  planRunId: string;
+  /** The item's position in its plan. */
+  item: number;
+  work: "run" | "fix";
+  /** The run the item started, once it has one. */
+  runId?: string | null;
+  /** The fix loop's chat session. */
+  sessionId?: string | null;
+  /** The item's run started Play In Editor, so ending that session is the hub's to do. */
+  pie?: boolean;
+  since: string;
+}
+
+/** The body of `studio.hub.lease` (HUB_LEASE): the lease as it is now, null when the hub holds nothing. */
+export interface HubLeaseEvent {
+  lease: EditorLease | null;
+}
+export const HUB_LEASE = "studio.hub.lease";
 
 // ---------- Needs attention (computed) ----------
 
@@ -756,6 +1018,16 @@ export const ATTENTION_ORDER: readonly AttentionKind[] = ["loop_blocked", "sign_
 
 // ---------- Overview ----------
 
+/**
+ * Where the runs behind every status come from. "local": this computer's
+ * own runs only, so two people can see two statuses for the same goal; a
+ * shared store would answer for more than one computer.
+ */
+export interface EvidenceScope {
+  store: "local";
+  current: CurrentProvenance;
+}
+
 /** GET /hub. Everything the overview and library draw, in one answer. */
 export interface HubOverview {
   /** The folder goal files are read from, relative to the project. */
@@ -767,6 +1039,8 @@ export interface HubOverview {
   queue: QueueState;
   /** Newest runs across the project, at most 30. */
   recent: RunRecord[];
+  /** Whose evidence every status here is worked out from, and the workspace it is compared with. */
+  evidence: EvidenceScope;
   editor: { connected: boolean };
   /** Goal files that did not parse, and the like. */
   warnings: string[];
@@ -809,8 +1083,8 @@ export const HUB_ROUTES = {
   addRequire: "POST /hub/goals/:id/requires { goal, required? } -> { goal } (an existing entry takes the new required)",
   removeRequire: "DELETE /hub/goals/:id/requires/:goalId -> { goal }",
   orderRequires: "PUT /hub/goals/:id/requires { order: goalIds } -> { goal }",
-  signOff: "POST /hub/goals/:id/sign-off { note? } -> { goal }",
-  clearSignOff: "DELETE /hub/goals/:id/sign-off -> { goal }",
+  signOff: "POST /hub/goals/:id/sign-off { note? } -> { signOff: SignOff } (409 without a signed-in account)",
+  clearSignOff: "DELETE /hub/goals/:id/sign-off -> 204",
   writePlaytests: "POST /hub/goals/:id/write-playtests { text? } -> 202 { sessionId }",
   check: "GET /hub/checks/:checkId?limit=&before= -> CheckDetail",
   runs: "GET /hub/runs?check=&limit=&before= -> { runs: RunRecord[], more: boolean }",
@@ -822,9 +1096,11 @@ export const HUB_ROUTES = {
   cancelPlan: "POST /hub/plans/:id/cancel -> { plan }",
   movePlan: "POST /hub/plans/:id/move { to: number } -> QueueState",
   pause: "PUT /hub/queue/paused { paused: boolean } -> QueueState",
+  lease: "GET /hub/lease -> HubLeaseEvent",
+  release: "POST /hub/release -> QueueState (stops what the hub holds on the editor and pauses the queue)",
   createSchedule: "POST /hub/schedules ScheduleDraft -> { schedule }",
   updateSchedule: "PUT /hub/schedules/:id Partial<ScheduleDraft> -> { schedule }",
   deleteSchedule: "DELETE /hub/schedules/:id -> 204",
-  assignFailing: "POST /hub/assign-failing { goalId? } -> { queued: number }",
+  assignFailing: "POST /hub/assign-failing { goalId? } -> { queued: number, plan: PlanRun | null } (a fix plan: one chat session per check)",
   runCheck: "POST /hub/checks/:checkId/run { replay? } -> { plan: PlanRun }",
 } as const;

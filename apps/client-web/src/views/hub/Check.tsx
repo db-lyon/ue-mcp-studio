@@ -7,6 +7,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import type { CheckDetail, QaRun, RunRecord, TrackerLink } from "@ue-mcp-studio/shared";
 import { HubLinks } from "./links";
 import {
+  CHECK_CHANGE_LOOK,
   CHECK_HEALTH_LOOK,
   CHECK_KIND_LABEL,
   GOAL_STATUS_LOOK,
@@ -21,13 +22,15 @@ import {
   hubHash,
   judgeLabel,
   passRateText,
+  revisionText,
   runLength,
+  runMarks,
   shortAgo,
 } from "@ue-mcp-studio/client-core";
 import { api } from "../../api";
 import { QaCard, QaContext, savedScriptActions, type QaLive } from "../../chat/Qa";
 import { useCursor, useHub } from "./state";
-import { Empty, HubIcon, HubLink, Placeholder, ScreenHead, StatusMark, StatusPill, WinLoss } from "./parts";
+import { Empty, EvidenceScope, HubIcon, HubLink, Placeholder, ScreenHead, StatusMark, StatusPill, WinLoss } from "./parts";
 
 const PAGE = 30;
 
@@ -109,7 +112,12 @@ export function CheckScreen({ checkId }: { checkId: string }) {
         back={{ label: HUB_COPY.library, route: { screen: "library" } }}
         eyebrow={CHECK_KIND_LABEL[state.check.kind]}
         title={state.name}
-        sub={<><StatusPill look={look} /><span className="mono small dim hub-path">{state.check.target}</span></>}
+        sub={<>
+          <StatusPill look={look} />
+          {state.change && <StatusPill look={CHECK_CHANGE_LOOK[state.change.kind]} />}
+          <span className="mono small dim hub-path">{state.check.target}</span>
+          <EvidenceScope />
+        </>}
         actions={<>
           <button className="primary" onClick={() => void hub.runCheck(checkId, state.name)} disabled={state.missing} title="Run (r)"><HubIcon name="play" size={12} /> Run</button>
           <button onClick={() => hub.addToGoal([checkId])}><HubIcon name="goal" size={12} /> {HUB_COPY.addToGoal}</button>
@@ -178,13 +186,15 @@ export function RunRow({ r, on, onPoint }: { r: RunRecord; on?: boolean; onPoint
   const { go } = useHub();
   const look = RUN_OUTCOME_LOOK[r.outcome];
   const route = { screen: "run" as const, runId: r.runId };
+  const rev = r.provenance ? revisionText(r.provenance.vcs, r.provenance.revision) : null;
   return (
     <HubLink href={hubHash(route)} onGo={() => go(route)} className={`hub-row hub-run-row ${on ? "on" : ""}`} data-row="" aria-current={on || undefined} onMouseEnter={onPoint}>
       <StatusMark look={look} label={look.label} />
       <span className="hub-row-main">
-        <span className="hub-row-title">{look.label}{r.replayOf ? <span className="pill">Replay</span> : null}</span>
+        <span className="hub-row-title">{look.label}{runMarks(r).map((m) => <span key={m.label} className="pill" title={m.title}>{m.label}</span>)}</span>
         <span className="hub-row-meta">
           <span title={new Date(r.startedAt).toLocaleString()}>{new Date(r.startedAt).toLocaleString(undefined, { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" })}</span>
+          {rev && <span className="mono">{rev}</span>}
           <span>{RUN_SOURCE_LABEL[r.source]}</span>
           {r.failedSteps && r.failedSteps.length > 0 && <span className="hub-bad-text">Failed at step {r.failedSteps.map((s) => s + 1).join(", ")}</span>}
           {r.summary && <span>{r.summary.passed}/{r.summary.total} passed</span>}

@@ -2,8 +2,10 @@
  * Schedules: a plan run at a local time on chosen days of the week, such as
  * "nightly at 02:00". A schedule is a person's standing instruction, so it
  * runs under the Manual playtest-runs setting too. It runs only when the
- * editor is up and the queue idle; otherwise the run is skipped and the
- * reason recorded. Nobody is there to judge unless the schedule says so
+ * queue is idle and nothing else holds the editor (the hub's occupancy
+ * answer, lease.ts, which for an unattended schedule includes someone using
+ * this computer); otherwise the run is skipped and the reason recorded.
+ * Nobody is there to judge unless the schedule says so
  * (options.attended), so its plans skip checks that need a person. Schedules
  * are kept with the queue (queue.ts).
  */

@@ -121,6 +121,14 @@ export interface QaRun {
   manual?: boolean;
   /** Why an ended run ended, as ue-mcp recorded it (a stop's reason, such as QA_NO_VERDICT). */
   stopReason?: string;
+  /**
+   * The run started Play In Editor itself (ue-mcp's pie_started). Only then is
+   * that session the run's: Studio pauses and stops PIE for a run only when
+   * this is true, never a session the run merely joined.
+   */
+  pieStarted?: boolean;
+  /** The players Studio set PIE to before starting the run; absent when Studio left PIE as it was. */
+  pieSetup?: { players: number; netMode: "standalone" | "listen" };
 }
 
 /** How long a run holds at a step waiting for a person's verdict before it is stopped, unless the "Wait for a verdict" setting says otherwise. */
@@ -377,6 +385,7 @@ export function qaRunFromAnswer(answer: unknown, where: { sessionId?: string | n
     ...(recordingId ? { recordingId } : {}),
     ...(a.mode === "manual" ? { manual: true } : {}),
     ...(stopReason ? { stopReason } : {}),
+    ...(a.pie_started === true ? { pieStarted: true } : {}),
   };
   return settle(run);
 }
@@ -391,6 +400,8 @@ export function qaMergeAnswer(run: QaRun, answer: unknown): QaRun {
   if (!a || str(a.run_id) !== run.runId) return run;
   let next = run;
   for (const e of Array.isArray(a.events) ? a.events : []) next = qaApplyEditorEvent(next, e);
+  // Only the start's answer says it started PIE; a later read never takes that back.
+  if (a.pie_started === true && !next.pieStarted) next = { ...next, pieStarted: true };
   const fresh = qaRunFromAnswer(a);
   if (!fresh || fresh.steps.length === 0) return next;
   return settle({

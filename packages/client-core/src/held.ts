@@ -4,7 +4,24 @@
  * agent set, and the words. The agent owns the list and the deadline
  * (GET /qa/held, studio.qa.held); clients only draw them.
  */
-import { QA_VERDICT_WAIT_CHOICES, type QaHeld } from "@ue-mcp-studio/shared";
+import { HUB_LEASE, QA_VERDICT_WAIT_CHOICES, type EditorLease, type QaHeld } from "@ue-mcp-studio/shared";
+
+/**
+ * The hub's hold on the editor (GET /hub/lease, studio.hub.lease), which
+ * both clients show as an app bar beside the verdict bar, with one control
+ * that takes the editor back.
+ */
+export function leaseOfEvent(e: { type: string; data?: unknown }): { lease: EditorLease | null } | null {
+  if (e.type !== HUB_LEASE) return null;
+  const lease = (e.data as { lease?: unknown } | undefined)?.lease;
+  return { lease: lease && typeof lease === "object" ? (lease as EditorLease) : null };
+}
+
+export const LEASE_COPY = {
+  holding: "Studio is running a playtest",
+  release: "Release the editor",
+  releaseHelp: "Stop the playtest or fix Studio started, end the Play In Editor session it started, and pause Studio's queue",
+} as const;
 
 /** The event that carries the whole list whenever it changes. */
 export const HELD_EVENT = "studio.qa.held";

@@ -306,6 +306,9 @@ main.parked { position: absolute; inset: 0; visibility: hidden; pointer-events: 
 .held-actions .qa-verdict { margin-left: 0; }
 .held-bar .qa-fail-note { margin-left: 0; }
 .held-error { color: var(--bad-text); }
+/* The Playtest Hub holding the editor, on every tab (held.tsx LeaseBar). */
+.lease-bar { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.lease-bar .held-text { flex: 1 1 220px; }
 .editor-banner { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
 .editor-banner-text { flex: 1 1 220px; min-width: 0; }
 .editor-banner .elapsed { margin-left: 10px; font-variant-numeric: tabular-nums; }

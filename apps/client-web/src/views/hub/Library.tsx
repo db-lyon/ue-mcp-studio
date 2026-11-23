@@ -7,7 +7,7 @@ import { useMemo, useRef, useState } from "react";
 import type { CheckKind } from "@ue-mcp-studio/shared";
 import { CHECK_KIND_LABEL, HEALTH_FILTERS, HUB_COPY, filterChecks, healthCounts, sortGoals, type HealthFilter } from "@ue-mcp-studio/client-core";
 import { useCursor, useHub } from "./state";
-import { Empty, HubIcon, Kbd, ScreenHead } from "./parts";
+import { Empty, EvidenceScope, HubIcon, Kbd, ScreenHead } from "./parts";
 import { CheckRow } from "./rows";
 
 export function LibraryScreen() {
@@ -55,7 +55,7 @@ export function LibraryScreen() {
 
   return (
     <div className="hub-screen hub-library">
-      <ScreenHead title={HUB_COPY.library} sub={`${o.checks.length} ${o.checks.length === 1 ? "check" : "checks"}`} />
+      <ScreenHead title={HUB_COPY.library} sub={<><span>{o.checks.length} {o.checks.length === 1 ? "check" : "checks"}</span><EvidenceScope /></>} />
       <div className="hub-filters">
         <div className="hub-search">
           <HubIcon name="search" />

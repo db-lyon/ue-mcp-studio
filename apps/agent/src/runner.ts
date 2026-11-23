@@ -308,6 +308,8 @@ export interface RunnerOptions {
   dialogs?: DialogBroker;
   /** Puts the PIE test script runs a session's calls start in the chat, as Playtest cards. */
   qa?: QaBroker;
+  /** A fix loop's write lease: refuses its session's saves of packages the person has unsaved changes in (hub/write-lease.ts). */
+  writes?: { wrap(host: AgentHost, sessionId: string): AgentHost };
   /** The chat's form cards, which the main agent's ask_user raises; without it ask_user answers that it cannot ask here. */
   forms?: FormBroker;
   /**
@@ -632,7 +634,8 @@ export class AgentRunner {
   /** The host a session's tool calls run on: its editor calls are tracked when there is a busy tracker. */
   /** assigned: a subagent the user started from a card, whose runs are the user's. */
   private hostFor(sessionId: string, assigned = false): AgentHost {
-    const host = this.o.dialogs ? this.o.dialogs.wrap(this.o.host, sessionId) : this.o.host;
+    const leased = this.o.writes ? this.o.writes.wrap(this.o.host, sessionId) : this.o.host;
+    const host = this.o.dialogs ? this.o.dialogs.wrap(leased, sessionId) : leased;
     const tracked = this.o.busy ? this.o.busy.wrap(host, sessionId) : host;
     return this.o.qa ? this.o.qa.wrap(tracked, sessionId, { assigned }) : tracked;
   }

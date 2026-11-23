@@ -1,5 +1,6 @@
 /**
- * The Playtest Hub's service: goals (goals.ts), run history (run-index.ts),
+ * The Playtest Hub's service: goals (goals.ts), the runs and what each
+ * tested (an EvidenceStore, kept on this computer by run-index.ts),
  * the plan queue and schedules (queue.ts, schedules.ts) and the Needs
  * attention list (shared buildAttention), put together into the answers
  * HUB_ROUTES name. Status is worked
@@ -28,16 +29,19 @@ import {
   checkId,
   checkStateOf,
   goalChecksDeep,
+  isResult,
   leafName,
   qaEnded,
   qaIsDraft,
   qaScriptKey,
+  requirementsKey,
   rollUpGoals,
   uniqueLinks,
   type AcceptanceRule,
   type CheckDetail,
   type CheckRef,
   type CheckState,
+  type CurrentProvenance,
   type Goal,
   type GoalState,
   type HubChanged,
@@ -50,18 +54,26 @@ import {
   type PlaytestRunsMode,
   type QaRun,
   type QueueState,
+  type EditorLease as EditorLeaseView,
+  type OccupancyReason,
   type RunDetail,
   type RunRecord,
   type RunStepSpan,
   type Schedule,
+  type SignOff,
 } from "@ue-mcp-studio/shared";
 import type { QaBroker } from "../qa.js";
 import type { ListedScript, PlaytestIndex } from "../playtest-index.js";
 import type { SessionStore } from "../sessions.js";
 import { GoalStore } from "./goals.js";
+import { SignOffStore } from "./sign-offs.js";
+import type { EvidenceStore } from "./evidence-store.js";
 import { RunIndex } from "./run-index.js";
 import { PlanQueue, newId, type ItemStart } from "./queue.js";
-import { readResults, readSeries } from "./evidence.js";
+import { EditorLease, ON_EDITOR, WORKSPACE, occupancyOf, type OccupancySignals } from "./lease.js";
+import { ProjectWatch } from "./project-watch.js";
+import { readResults, readResultsFile, readSeries } from "./evidence.js";
+import { provenanceAtStart, scriptHashOf, ueMcpProvenance, withUeMcp, workspaceNow } from "./provenance.js";
 import { scheduleDraftOf, scheduleTurn, scheduleUpdated, withNext } from "./schedules.js";
 import { planOptionsOf, scopeOf } from "./scope.js";
 import { answerOf, bad, checkOfId, conflict, failureOf, isObject, linkOf, notFound } from "./util.js";
@@ -77,6 +89,8 @@ const BACKFILL = 300;
 const BACKFILL_MS = 60_000;
 /** The most runs a page answers. */
 const MAX_PAGE = 200;
+/** How long a reading of the workspace stands for the overview; a run's start always reads it afresh. */
+const WORKSPACE_MS = 10_000;
 
 export interface HubHost {
   projectDir: string;
@@ -92,7 +106,19 @@ export interface HubHost {
 
 export interface HubOptions {
   host: HubHost;
-  broker: Pick<QaBroker, "all" | "get" | "onSaved" | "runScript" | "status" | "assign" | "readScriptAt" | "drafted" | "setPlanWait">;
+  broker: Pick<QaBroker, "all" | "get" | "onSaved" | "runScript" | "status" | "assign" | "cancel" | "stopRun" | "readScriptAt" | "drafted" | "setPlanWait">;
+  /**
+   * What Studio knows of the editor beside its runs, for the occupancy
+   * answer: PIE (PieWatch), open dialogs, calls in flight and editor
+   * operations, and how long since someone used this computer. Without it,
+   * only the runs Studio knows count.
+   */
+  editor?: Omit<OccupancySignals, "connected" | "runs"> & {
+    /** Hear when PIE starts or stops. Returns the unsubscribe. */
+    onPie?(listener: (running: boolean) => void): () => void;
+  };
+  /** Watches project files during runs, for tainted runs; one of the project's own otherwise. */
+  watch?: ProjectWatch;
   index: Pick<PlaytestIndex, "listScripts" | "recorded">;
   store: Pick<SessionStore, "create" | "get" | "all">;
   /** The Playtest runs setting: an agent's plan runs only under Automatic. */
@@ -101,10 +127,14 @@ export interface HubOptions {
   replay?: (sessionId: string, args: Record<string, unknown>) => Promise<ActionResult>;
   /** The /playtest flow in a session; resolves when it ends. */
   writePlaytests?: (sessionId: string, text: string) => Promise<void>;
-  /** Who signs a goal off: the Studio account's login, else "you". */
-  signer: () => string;
+  /** The signed-in ue-mcp account's login, who a sign-off is from; null when none is signed in. */
+  signer: () => string | null;
   /** The experiment is on: schedules fire only then. */
   enabled: () => boolean;
+  /** The project's engine version, major.minor, for what a run tested. */
+  engine?: () => string | null;
+  /** The workspace's source control state now; read from the project's source control otherwise. */
+  workspace?: () => Promise<CurrentProvenance>;
   goalsDir?: string;
   now?: () => number;
   /** Start the timers and the folder watch; tests drive tick() themselves. */
@@ -115,13 +145,20 @@ interface Catalog {
   checks: Map<string, { ref: CheckRef; goalIds: string[]; name?: string; map?: string | null }>;
   listed: Map<string, ListedScript> | null;
   connected: boolean;
+  /** The workspace runs are compared with. */
+  current: CurrentProvenance;
 }
+
+/** What the editor is told while the hub holds it. */
+export const LEASE_NOTICE = "Studio is running a playtest";
 
 const KIND_NAMES: Record<CheckRef["kind"], string> = { script: "Test script", uat: "UAT scenario", repro: "Reproduction test", automation: "Automation test", manual: "Manual check" };
 
 export class Hub {
   readonly goals: GoalStore;
-  readonly runs: RunIndex;
+  readonly signOffs: SignOffStore;
+  /** The runs behind every status: this computer's own (RunIndex), the one store built so far. */
+  readonly runs: EvidenceStore;
   readonly queue: PlanQueue;
   private readonly now: () => number;
   private readonly unsubscribe: Array<() => void> = [];
@@ -133,29 +170,44 @@ export class Hub {
   private firstBackfill = true;
   /** One session per plan for scripts no session has a card of yet. */
   private readonly planSessions = new Map<string, string>();
-  /** Scripts waiting for their fix loop, one loop at a time. */
-  private readonly assignQueue: string[] = [];
-  private assigning = false;
+  /** The developer's editor's lease: the hub's hold on it while an item runs (lease.ts). */
+  readonly lease: EditorLease;
+  /** Project files changed during a run: the run is tainted. */
+  private readonly watch: ProjectWatch;
+  /** Runs the editor no longer knows (a status read answered idle): they hold nothing. */
+  private readonly gone = new Set<string>();
+  /** The plan the editor was last told about, so a plan's items do not each show a notification. */
+  private toldPlan: string | null = null;
   /** Sessions writing playtests for a goal: each script drafted there joins the goal. */
   private readonly linking = new Map<string, string>();
   /** What went wrong in the background, newest last, shown with the overview's warnings. */
   private readonly notes: string[] = [];
+  /** The last reading of the workspace, for the overview. */
+  private workspaceRead: { at: number; value: Promise<CurrentProvenance> } | null = null;
+  /** Runs whose start provenance is being read; the read at their end waits for it. */
+  private readonly capturing = new Map<string, Promise<void>>();
 
   constructor(private readonly o: HubOptions) {
     this.now = o.now ?? Date.now;
     const iso = () => new Date(this.now()).toISOString();
-    this.goals = new GoalStore({ projectDir: o.host.projectDir, dir: o.goalsDir, now: iso, changed: (goalId) => this.changed(["goals", "checks", "attention"], { goalId }), log: o.host.log });
+    this.goals = new GoalStore({ projectDir: o.host.projectDir, dir: o.goalsDir, changed: (goalId) => this.changed(["goals", "checks", "attention"], { goalId }), log: o.host.log });
+    this.signOffs = new SignOffStore(o.host.dataDir);
     this.runs = new RunIndex({ dataDir: o.host.dataDir, now: iso, changed: (runId) => this.changed(["runs", "checks", "goals", "attention"], { runId }), log: o.host.log });
+    this.watch = o.watch ?? new ProjectWatch(o.host.projectDir, o.host.log);
+    this.lease = new EditorLease(WORKSPACE, (lease) => this.leaseChanged(lease));
     this.queue = new PlanQueue({
       dataDir: o.host.dataDir,
       now: iso,
+      lease: this.lease,
       runner: {
         connected: () => this.connected(),
-        busy: () => this.editorBusy(),
-        start: (item, plan) => this.startItem(item, plan),
+        occupied: (plan) => this.occupancy(!plan.options.attended)[0]?.text ?? null,
+        start: (item, plan) => (plan.work === "fix" ? this.startFix(item, plan) : this.startItem(item, plan)),
         run: (runId) => o.broker.get(runId),
         stop: (runId, reason) => this.stopRun(runId, reason),
         refresh: async (runId) => void (await o.broker.status(runId)),
+        stopFix: async (item) => this.stopFix(item),
+        endPie: () => this.endPie(),
       },
       changed: (planRunId) => this.changed(["queue"], { planRunId }),
       finished: (plan) => {
@@ -172,18 +224,34 @@ export class Hub {
     this.unsubscribe.push(o.broker.onSaved((run) => this.saw(run)));
     this.unsubscribe.push(o.host.events.subscribe((e) => {
       // With the experiment off the hub asks the editor for nothing.
-      if (e.type === "editor.connected" && this.o.enabled()) {
-        void this.queue.pump();
+      if (!this.o.enabled()) return;
+      if (e.type === "editor.connected") {
+        // Back after a restart or a crash: queued work waits for a person to resume it.
+        this.queue.reconnected();
         void this.backfill(true);
-        void this.pumpAssign();
+      } else if (e.type === "editor.disconnected") {
+        const cause = typeof e.data.cause === "string" ? e.data.cause : undefined;
+        // Every run on a crashed editor ended with it, though no event will say so.
+        if (cause === "crashed") for (const r of o.broker.all()) if (ON_EDITOR.has(r.state)) this.gone.add(r.runId);
+        this.queue.editorLost(cause);
+      } else if (e.type === "studio.busy.changed" || e.type === "studio.dialog.changed") {
+        // An operation, a call or a dialog ended: the queue may be free to go on.
+        void this.queue.pump();
       }
     }));
+    const offPie = o.editor?.onPie?.((running) => {
+      // The hub's PIE ended: a session started from now on is the developer's.
+      if (!running) this.lease.update({ pie: false });
+      if (this.o.enabled()) void this.queue.pump();
+    });
+    if (offPie) this.unsubscribe.push(offPie);
     this.refreshSchedules();
     if (o.timers !== false) {
       this.goals.watch();
       this.timer = setInterval(() => void this.tick(), TICK_MS);
       this.timer.unref?.();
       if (o.enabled()) {
+        this.watch.start();
         void this.backfill(true);
         void this.queue.pump();
       }
@@ -198,6 +266,7 @@ export class Hub {
     this.timer = null;
     this.publishTimer = null;
     this.goals.dispose();
+    this.watch.stop();
   }
 
   private connected(): boolean {
@@ -208,24 +277,73 @@ export class Hub {
     }
   }
 
-  /** A subagent loop is running a playtest, which holds the editor as a plan's run does. */
-  private loopRunning(): string | null {
-    return this.o.broker.all().some((r) => r.assignment?.state === "running") ? "a subagent loop is running a playtest" : null;
+  /**
+   * Why the editor is not free for the hub now, most decisive first (lease.ts
+   * occupancyOf); empty when it is. What the lease holds never counts. Runs
+   * the editor said it no longer knows hold nothing.
+   */
+  occupancy(unattended = false): OccupancyReason[] {
+    const e = this.o.editor;
+    const signals: OccupancySignals = {
+      connected: () => this.connected(),
+      pie: () => e?.pie() ?? false,
+      dialogs: () => e?.dialogs() ?? 0,
+      busy: () => e?.busy() ?? { now: this.now(), calls: [] },
+      runs: () => this.o.broker.all().filter((r) => !this.gone.has(r.runId)),
+      inputAgeMs: () => e?.inputAgeMs() ?? null,
+    };
+    return occupancyOf(signals, this.lease.held(), { unattended });
   }
 
   /**
-   * Why a plan cannot start its next run now: a fix loop runs or is starting,
-   * or a session's run (a card's Start playtest, an agent's call) is on the
-   * editor, which runs one script at a time. Runs without a session are left
-   * out: nothing reads them again, so a stale one would hold the queue forever.
+   * Read again every run Studio thinks is on the editor and the hub did not
+   * start, so a run whose end was missed does not hold the queue for ever:
+   * one the editor answers idle for is gone.
    */
-  private editorBusy(): string | null {
-    const loop = this.loopRunning();
-    if (loop) return loop;
-    if (this.assigning) return "a subagent loop is starting";
-    const mine = this.queue?.currentRun();
-    const other = this.o.broker.all().some((r) => r.runId !== mine && r.sessionId && !r.manual && !r.deleted && (r.state === "armed" || r.state === "running" || r.state === "awaiting_verdict"));
-    return other ? "another playtest is running" : null;
+  private async refreshOthers(): Promise<void> {
+    const mine = this.lease.held().runId;
+    for (const r of this.o.broker.all()) {
+      if (r.runId === mine || this.gone.has(r.runId) || r.manual || !ON_EDITOR.has(r.state)) continue;
+      const read = await this.o.broker.status(r.runId).catch(() => null);
+      if (read && "answer" in read && read.answer.state === "idle") this.gone.add(r.runId);
+    }
+  }
+
+  /** The lease changed: clients hear of it, and the editor is told once per plan that Studio holds it. */
+  private leaseChanged(lease: EditorLeaseView | null): void {
+    // The daemon names an extension's events after it: this reaches clients as studio.hub.lease (HUB_LEASE).
+    this.o.host.events.publish("hub.lease", { lease } as unknown as Record<string, unknown>);
+    this.changed(["queue"], lease ? { planRunId: lease.planRunId } : {});
+    if (!lease || lease.planRunId === this.toldPlan) return;
+    this.toldPlan = lease.planRunId;
+    // Best effort: the bar in Studio is the signal; a bridge without show_notification changes nothing.
+    void Promise.resolve()
+      .then(() => this.o.host.callAction("editor", "show_notification", { text: LEASE_NOTICE, subText: lease.purpose, severity: "info" }))
+      .catch(() => undefined);
+  }
+
+  /** GET /hub/lease. */
+  leaseView(): { lease: EditorLeaseView | null } {
+    return { lease: this.lease.get() };
+  }
+
+  /**
+   * Release the editor: the queue pauses, the run or fix loop the hub has on
+   * the editor stops, Play In Editor that run started ends, and the lease is
+   * released. Everything else on the editor is left alone.
+   */
+  async release(): Promise<QueueState> {
+    await this.queue.release();
+    return this.queueState();
+  }
+
+  /** End Play In Editor, only while the hub's run started the session running now. */
+  private async endPie(): Promise<void> {
+    if (!this.lease.held().pie || !(this.o.editor?.pie() ?? true)) return;
+    const r = await this.o.host.callAction("editor", "play_in_editor", { pieAction: "stop" });
+    const error = failureOf(r);
+    if (error && !/already/i.test(error)) throw new Error(error);
+    this.lease.update({ pie: false });
   }
 
   private note(text: string): void {
@@ -265,36 +383,51 @@ export class Hub {
     this.o.host.events.publish("hub.changed", body as unknown as Record<string, unknown>);
   }
 
-  /** A run the broker saved: its history, the queue's item, the fix-loop line, and links to a goal. */
+  /** A run the broker saved: its history and what it tested, the queue's item, the fix-loop line, and links to a goal. */
   private saw(run: QaRun): void {
-    this.runs.record(run);
+    const had = this.runs.get(run.runId);
+    const rec = this.runs.record(run);
+    if (rec && !had && !qaEnded(run.state)) this.captureStart(run);
+    if (rec && had && !had.endedAt && rec.endedAt) this.captureEnd(run.runId);
     this.queue.observe(run);
     const goalId = run.sessionId ? this.linking.get(run.sessionId) : undefined;
     if (goalId && qaIsDraft(run) && !run.deleted && run.script !== "inline") {
-      try {
-        const goal = this.goals.get(goalId);
-        if (goal && !goal.checks.some((c) => c.kind === "script" && c.target === qaScriptKey(run.script))) this.goals.addChecks(goalId, [{ kind: "script", target: qaScriptKey(run.script) }]);
-      } catch (e) {
-        this.note(`the playtest written for ${goalId} could not be added to it: ${e instanceof Error ? e.message : String(e)}`);
+      const goal = this.goals.get(goalId);
+      if (goal && !goal.checks.some((c) => c.kind === "script" && c.target === qaScriptKey(run.script))) {
+        this.goals.addChecks(goalId, [{ kind: "script", target: qaScriptKey(run.script) }]).catch((e: unknown) =>
+          this.note(`the playtest written for ${goalId} could not be added to it: ${e instanceof Error ? e.message : String(e)}`));
       }
     }
+    this.taint(run);
     // Drafts and loops change the list without a run record changing.
     if (qaIsDraft(run) || run.assignment) this.changed(["attention", "checks"], { runId: run.runId });
-    if (run.assignment && run.assignment.state !== "running") {
-      void this.pumpAssign();
-      void this.queue.pump();
-    }
+    // Something that held the editor let it go: the queue may go on.
+    if ((run.assignment && run.assignment.state !== "running") || qaEnded(run.state)) void this.queue.pump();
   }
 
-  /** The periodic look: goals folder, queue, schedules, fix loops, backfill. */
+  /** A run seen starting is followed for project file changes; when it ends having seen one, it is tainted. */
+  private taint(run: QaRun): void {
+    if (qaIsDraft(run) || run.manual || run.script === "inline") return;
+    if (!qaEnded(run.state)) {
+      if (run.state !== "idle") this.watch.runStarted(run.runId);
+      return;
+    }
+    if (this.watch.runEnded(run.runId)) this.runs.setTainted(run.runId);
+  }
+
+  /** The periodic look: goals folder, queue, schedules, runs Studio may have missed the end of, backfill. */
   async tick(): Promise<void> {
     try {
       // Off: no plan starts and the editor is not asked; due schedules are only recorded as skipped.
-      if (!this.o.enabled()) return await this.runSchedules();
+      if (!this.o.enabled()) {
+        this.watch.stop();
+        return await this.runSchedules();
+      }
+      this.watch.start();
       this.goals.refresh();
+      if (this.connected()) await this.refreshOthers();
       await this.queue.tick();
       await this.runSchedules();
-      await this.pumpAssign();
       if (this.now() - this.backfilled > 5 * BACKFILL_MS) void this.backfill();
     } catch (e) {
       this.o.host.log.warn("hub: a tick failed", e);
@@ -302,6 +435,44 @@ export class Hub {
   }
 
   // ── History ───────────────────────────────────────────────────────
+
+  /** The workspace now: read afresh, or the last reading while it is recent. */
+  private workspace(fresh = false): Promise<CurrentProvenance> {
+    if (!fresh && this.workspaceRead && this.now() - this.workspaceRead.at < WORKSPACE_MS) return this.workspaceRead.value;
+    const read = this.o.workspace ?? (() => workspaceNow(this.o.host.projectDir));
+    const value = read().catch((): CurrentProvenance => ({ vcs: null, revision: null, dirty: null }));
+    this.workspaceRead = { at: this.now(), value };
+    return value;
+  }
+
+  /**
+   * What a run tests, read as Studio first sees it running: the workspace,
+   * the script's version as pie(script_read) gives it, the engine and the
+   * players Studio set. A run first seen after it ended gets none, since
+   * nothing here knows what it tested.
+   */
+  private captureStart(run: QaRun): void {
+    const job = (async () => {
+      const [workspace, read] = await Promise.all([
+        this.workspace(true),
+        this.o.host.callAction("pie", "script_read", { path: qaScriptKey(run.script) }).catch(() => null),
+      ]);
+      // The run as it is now: the call that started it may have landed after its first events, with the PIE setup.
+      const provenance = provenanceAtStart({ workspace, scriptHash: scriptHashOf(read ? answerOf(read) : null), engine: this.o.engine?.() ?? null, run: this.o.broker.get(run.runId) ?? run });
+      this.runs.setProvenance(run.runId, provenance);
+    })()
+      .catch((e: unknown) => this.o.host.log.warn("hub: what a run tested could not be read", e))
+      .finally(() => this.capturing.delete(run.runId));
+    this.capturing.set(run.runId, job);
+  }
+
+  /** A run that ended: the fields ue-mcp records itself in its results.json, where present, laid over Studio's. */
+  private captureEnd(runId: string): void {
+    void (this.capturing.get(runId) ?? Promise.resolve()).then(() => {
+      const provenance = withUeMcp(this.runs.get(runId)?.provenance, ueMcpProvenance(readResultsFile(this.o.host.projectDir, runId)));
+      if (provenance) this.runs.setProvenance(runId, provenance);
+    });
+  }
 
   /** Read ue-mcp's record of runs into the history. At most one at a time. */
   backfill(force = false): Promise<void> {
@@ -331,6 +502,7 @@ export class Hub {
 
   private async catalog(fresh = false): Promise<Catalog> {
     const connected = this.connected();
+    const current = await this.workspace();
     let list: ListedScript[] | null = null;
     try {
       list = await this.o.index.listScripts(fresh);
@@ -367,7 +539,7 @@ export class Hub {
       const s = c.ref.kind === "script" ? listed?.get(c.ref.target) : undefined;
       if (s) Object.assign(c, { name: s.name, map: s.map ?? null });
     }
-    return { checks, listed, connected };
+    return { checks, listed, connected, current };
   }
 
   /** The script no longer resolves: only said while the editor is connected and has listed its scripts. */
@@ -385,6 +557,7 @@ export class Hub {
       runs,
       missing: this.missing(ref, cat),
       acceptance,
+      current: cat.current,
       now: this.now(),
       goalIds: goalIds ?? entry?.goalIds ?? [],
       name: entry?.name ?? last?.name ?? leafName(ref.target),
@@ -400,9 +573,9 @@ export class Hub {
     return g?.acceptance ?? DEFAULT_ACCEPTANCE;
   }
 
-  /** Every goal's state, rolled up through the goals each requires (shared rollUpGoals). */
+  /** Every goal's state, rolled up through the goals each requires (shared rollUpGoals), with this computer's sign-offs. */
   private goalStates(cat: Catalog): GoalState[] {
-    return rollUpGoals(this.goals.list(), (goal) => goal.checks.map((ref) => this.stateOf(ref, cat, goal.acceptance)));
+    return rollUpGoals(this.goals.list(), (goal) => goal.checks.map((ref) => this.stateOf(ref, cat, goal.acceptance)), cat.current, this.signOffs.all());
   }
 
   async overview(): Promise<HubOverview> {
@@ -417,6 +590,7 @@ export class Hub {
       attention: buildAttention({ runs: this.o.broker.all(), goals, checks, plans: this.queue.state().recent, now: this.now() }),
       queue: this.queueState(),
       recent: this.runs.all().slice(0, 30),
+      evidence: { store: this.runs.scope, current: cat.current },
       editor: { connected: cat.connected },
       warnings: [...this.goals.warnings(), ...this.notes],
     };
@@ -462,7 +636,9 @@ export class Hub {
     if (!record) throw notFound(`no run ${runId}`);
     const steps: RunStepSpan[] = (run?.steps ?? []).map((s) => ({ index: s.index, instruction: s.instruction, status: s.status, judge: s.judge, startMs: s.startedAtMs ?? null, endMs: s.endedAtMs ?? null }));
     const history = this.runs.byCheck(checkId(record));
-    const lastPass = history.find((r) => r.runId !== runId && r.outcome === "passed" && r.startedAt < record.startedAt) ?? null;
+    // Only a pass of the same script version compares step by step: across versions, step 3 may be another step.
+    const version = record.provenance?.scriptHash;
+    const lastPass = version ? history.find((r) => r.runId !== runId && isResult(r) && r.outcome === "passed" && r.startedAt < record.startedAt && r.provenance?.scriptHash === version) ?? null : null;
     const series = readSeries(this.o.host.projectDir, runId);
     let changedSteps: number[] | undefined;
     if (lastPass) {
@@ -512,9 +688,43 @@ export class Hub {
 
   // ── Goals ─────────────────────────────────────────────────────────
 
-  signOff(id: string, body: unknown): Goal {
+  /**
+   * Sign a goal off as the signed-in account, from this computer or from the
+   * paired browser named by `via`. It records the revision, the results of
+   * each required check the acceptance rule looks at, and the goal's
+   * requirements, so it lapses once those no longer hold (signOffLapse).
+   */
+  async signOff(id: string, body: unknown, via?: string): Promise<SignOff> {
+    const goal = this.goals.get(id);
+    if (!goal) throw notFound(`no goal ${id}`);
+    if (body !== undefined && body !== null && !isObject(body)) throw bad("body must be { note? }");
     const note = isObject(body) ? body.note : undefined;
-    return this.goals.signOff(id, this.o.signer(), note);
+    if (note !== undefined && typeof note !== "string") throw bad("note must be a string");
+    const by = this.o.signer();
+    if (!by) throw conflict("Sign in to your ue-mcp account to sign off a goal: a sign-off records who gave it.");
+    const current = await this.workspace(true);
+    const need = Math.max(1, goal.acceptance.stableRuns);
+    const runIds = goal.checks
+      .filter((c) => c.required !== false && c.kind !== "manual")
+      .flatMap((c) => this.runs.byCheck(checkId(c)).filter(isResult).slice(0, need).map((r) => r.runId));
+    const s: SignOff = {
+      goalId: id,
+      by,
+      ...(via ? { via } : {}),
+      at: new Date(this.now()).toISOString(),
+      ...(note?.trim() ? { note: note.trim().slice(0, 2000) } : {}),
+      revision: current.revision,
+      runIds,
+      requirements: requirementsKey(goal),
+    };
+    this.signOffs.set(s);
+    this.changed(["goals", "attention"], { goalId: id });
+    return s;
+  }
+
+  clearSignOff(id: string): void {
+    if (!this.goals.get(id)) throw notFound(`no goal ${id}`);
+    if (this.signOffs.clear(id)) this.changed(["goals", "attention"], { goalId: id });
   }
 
   /**
@@ -706,11 +916,10 @@ export class Hub {
     return draft ?? { error: "the script's card could not be made" };
   }
 
+  /** Stop a run the hub started through the broker, so a verdict hold is released with it (and PIE, when the run started it). */
   private async stopRun(runId: string, reason: string): Promise<void> {
-    const r = await this.o.host.callAction("pie", "script_stop", { run_id: runId, reason });
-    const error = failureOf(r);
-    if (error && !/already/i.test(error)) throw new Error(error);
-    await this.o.broker.status(runId).catch(() => null);
+    const r = await this.o.broker.stopRun(runId, reason);
+    if ("error" in r && !/already|only a run that is going/i.test(r.error)) throw new Error(r.error);
   }
 
   // ── Schedules ─────────────────────────────────────────────────────
@@ -744,16 +953,15 @@ export class Hub {
     if (!this.queue.deleteSchedule(id)) throw notFound(`no schedule ${id}`);
   }
 
-  /** Each due schedule runs its plan when the editor is up and the queue idle; otherwise it records why not. */
+  /** Each due schedule runs its plan when the queue is idle and the editor free (occupancy); otherwise it records why not. */
   private async runSchedules(): Promise<void> {
     const now = new Date(this.now());
     for (const s of [...this.queue.schedules()]) {
       const turn = scheduleTurn(s, now, () => {
         if (!this.o.enabled()) return "the Playtest Hub is off";
-        if (!this.connected()) return "the editor was not connected";
         if (this.queue.paused()) return "the queue was paused";
-        if (!this.queue.idle() || this.loopRunning()) return "the editor was busy with other runs";
-        return null;
+        if (!this.queue.idle()) return "other plans were queued";
+        return this.occupancy(!s.options.attended)[0]?.text ?? null;
       });
       if (!turn) continue;
       let next: Schedule = { ...s };
@@ -773,50 +981,62 @@ export class Hub {
 
   // ── Fix loops ─────────────────────────────────────────────────────
 
-  /** Assign failing: each failing script check's fix loop, queued to run one at a time. Returns how many were queued. */
-  async assignFailing(body: unknown): Promise<{ queued: number }> {
+  /**
+   * Fix failing with an agent: a fix plan in the queue, one item per failing
+   * script check, each a fix loop in a chat session of its own, run one at a
+   * time under the editor's lease like any plan. A script already queued for
+   * a fix, or whose loop runs, is left out. Returns how many were queued.
+   */
+  async assignFailing(body: unknown): Promise<{ queued: number; plan: PlanRun | null }> {
     if (body !== undefined && body !== null && !isObject(body)) throw bad("body must be { goalId? }");
     const goalId = isObject(body) ? body.goalId : undefined;
     if (goalId !== undefined && typeof goalId !== "string") throw bad("goalId must be a goal's id");
     const refs = await this.expand(goalId ? { kind: "failing", goalId } : { kind: "failing" });
-    const scripts = refs.filter((r) => r.kind === "script").map((r) => r.target).filter((s) => !this.assignQueue.includes(s));
-    // A script whose loop already runs is not queued again.
+    const q = this.queue.state();
+    const queued = new Set([q.current, ...q.queued].filter((p): p is PlanRun => p?.work === "fix").flatMap((p) => p.items.filter((i) => i.state === "queued" || i.state === "running").map((i) => i.check.target)));
     const running = new Set(this.o.broker.all().filter((r) => r.assignment?.state === "running").map((r) => qaScriptKey(r.script)));
-    const fresh = scripts.filter((s) => !running.has(s));
-    this.assignQueue.push(...fresh);
-    if (fresh.length) this.changed(["queue", "attention"]);
-    void this.pumpAssign();
-    return { queued: fresh.length };
+    const fresh = refs.filter((r) => r.kind === "script" && !queued.has(r.target) && !running.has(r.target));
+    if (fresh.length === 0) return { queued: 0, plan: null };
+    const cat = await this.catalog();
+    const goal = typeof goalId === "string" ? this.goals.get(goalId)?.title : undefined;
+    const plan: PlanRun = {
+      id: newId("plan"),
+      title: goal ? `Fix what is failing in ${goal}` : "Fix what is failing",
+      work: "fix",
+      scope: goalId ? { kind: "failing", goalId } : { kind: "failing" },
+      options: planOptionsFor("person"),
+      state: "queued",
+      items: fresh.map((ref) => ({ check: ref, name: ref.title ?? cat.checks.get(checkId(ref))?.name ?? leafName(ref.target), state: "queued" as const })),
+      trigger: "person",
+      createdAt: new Date(this.now()).toISOString(),
+    };
+    this.changed(["attention"]);
+    return { queued: fresh.length, plan: this.queue.enqueue(plan) };
   }
 
-  /** Start the next fix loop when no loop and no plan run holds the editor. */
-  private async pumpAssign(): Promise<void> {
-    if (this.assigning || this.assignQueue.length === 0) return;
-    if (!this.o.enabled() || !this.connected() || this.loopRunning() || this.queue.holding()) return;
-    this.assigning = true;
-    try {
-      while (this.assignQueue.length) {
-        const script = this.assignQueue.shift()!;
-        const card = await this.cardFor(script, "assign-failing", "Assign failing");
-        if ("error" in card) {
-          this.note(`the fix loop for ${leafName(script)} did not start: ${card.error}`);
-          continue;
-        }
-        const r = await this.o.broker.assign(card.runId, {});
-        if ("error" in r) {
-          this.note(`the fix loop for ${leafName(script)} did not start: ${r.error}`);
-          continue;
-        }
-        return;
-      }
-    } catch (e) {
-      // Called with void from events and timers: a throw here must not become an unhandled rejection.
-      this.note(`a fix loop did not start: ${e instanceof Error ? e.message : String(e)}`);
-    } finally {
-      this.assigning = false;
-      // The queue waited while the loop was starting.
-      void this.queue.pump();
-    }
+  /**
+   * Start one fix item: the script's card in a chat session (the session that
+   * already holds its card, else one named for the fix), and the loop on it.
+   * The item follows the loop until it passes, stops for the person, or ends.
+   */
+  private async startFix(item: PlanItem, plan: PlanRun): Promise<ItemStart> {
+    if (item.check.kind !== "script") return { skipped: `${KIND_NAMES[item.check.kind]} checks cannot be fixed by an agent yet` };
+    const card = item.sessionId && this.o.store.get(item.sessionId)
+      ? this.o.broker.all().find((r) => r.sessionId === item.sessionId && qaScriptKey(r.script) === item.check.target && !r.deleted) ?? await this.cardFor(item.check.target, `${plan.id}:${item.check.target}`, `Fix ${item.name}`)
+      : await this.cardFor(item.check.target, `${plan.id}:${item.check.target}`, `Fix ${item.name}`);
+    if ("error" in card) return card;
+    if (!card.sessionId) return { error: "the playtest's card has no chat session" };
+    const r = await this.o.broker.assign(card.runId, {});
+    if ("error" in r) return { error: r.error };
+    return { runId: r.run.runId, sessionId: card.sessionId };
+  }
+
+  /** Stop a fix item's loop: its running attempt stops, and is checkpointed so it can be reverted. */
+  private stopFix(item: PlanItem): void {
+    const holder = this.o.broker.all().find((r) => r.assignment?.state === "running" && r.assignment.sessionId === item.sessionId && qaScriptKey(r.script) === item.check.target);
+    if (!holder) return;
+    const r = this.o.broker.cancel(holder.runId);
+    if ("error" in r) this.note(`the fix loop for ${item.name} could not be stopped: ${r.error}`);
   }
 }
 

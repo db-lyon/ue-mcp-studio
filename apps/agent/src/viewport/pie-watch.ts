@@ -87,6 +87,7 @@ export interface PieWatchOptions {
 export class PieWatch {
   private running = false;
   private asking: Promise<void> | null = null;
+  private readonly listeners = new Set<(running: boolean) => void>();
 
   constructor(private readonly o: PieWatchOptions) {}
 
@@ -94,10 +95,17 @@ export class PieWatch {
     return this.running;
   }
 
+  /** Hear each start and stop, beside `changed`. Returns the unsubscribe. */
+  listen(listener: (running: boolean) => void): () => void {
+    this.listeners.add(listener);
+    return () => void this.listeners.delete(listener);
+  }
+
   set(v: boolean): void {
     if (v === this.running) return;
     this.running = v;
     this.o.changed();
+    for (const l of this.listeners) l(v);
   }
 
   /** Ask the editor once (calls that land together share it). An editor that does not answer leaves what was known. */

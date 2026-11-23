@@ -35,7 +35,7 @@ import { RefusalPending, RefusedScreen, useRefusal } from "./views/Refused";
 import { ErrorBoundary } from "./views/ErrorBoundary";
 import { onRemotePage } from "./connection";
 import { HUB_COPY, playingRuns, projectListUrl, viewportAllowed } from "@ue-mcp-studio/client-core";
-import { HeldBar, useHeld } from "./held";
+import { HeldBar, LeaseBar, useHeld, useLease } from "./held";
 import { HeldContext } from "./held-context";
 import { BarProjectSwitch } from "./views/ProjectSwitch";
 import { Slot } from "./extensions/Slot";
@@ -154,6 +154,8 @@ function Studio({ daemon }: { daemon: DaemonState }) {
     : (playtests.index?.playtests ?? []).filter((e) => playtestMatches(e, "needs-you")).length;
   // Runs holding at a manual step for a verdict, PIE paused: the bar under the header, and the cards' Resume and watch.
   const held = useHeld(daemon);
+  // While the Playtest Hub holds the editor: the bar that says so, with Release the editor.
+  const lease = useLease(daemon);
   const openPlaytest = (sessionId: string, runId?: string) => {
     openChat(sessionId);
     if (runId) focusRun(runId);
@@ -247,6 +249,7 @@ function Studio({ daemon }: { daemon: DaemonState }) {
           </div>
         )}
         <DialogBanner daemon={daemon} />
+        <LeaseBar lease={lease} />
         <HeldBar value={held} onOpenCard={(h) => h.sessionId && openPlaytest(h.sessionId, h.runId)} />
         <VersionNotice daemon={daemon} />
         <RemoteApprovalBanner onOpenAsk={(o) => { if (o.tab === "Settings") setSection(o.section ?? "general"); setTab(o.tab); }} />

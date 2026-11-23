@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { DEFAULT_ACCEPTANCE, type CheckState, type Goal, type GoalState, type AttentionItem, type QueueState, type PlanRun } from "@ue-mcp-studio/shared";
+import { DEFAULT_ACCEPTANCE, type CheckState, type EvidenceScope, type Goal, type GoalState, type AttentionItem, type QueueState, type PlanRun } from "@ue-mcp-studio/shared";
 import {
   CHECK_HEALTH_LOOK,
   GOAL_STATUS_LOOK,
@@ -10,6 +10,7 @@ import {
   goalFormErrors,
   goalFormOf,
   goalSummary,
+  signOffText,
   hubApi,
   hubHash,
   hubKeymap,
@@ -28,6 +29,10 @@ import {
   planProgress,
   proposeGoals,
   regressions,
+  evidenceLabel,
+  provenanceParts,
+  revisionText,
+  runMarks,
   runTimeline,
   scheduleErrors,
   scheduleText,
@@ -55,7 +60,7 @@ import {
 import type { RunRecord, ViewportStatus } from "@ue-mcp-studio/shared";
 
 const goal = (id: string, over: Partial<Goal> = {}): Goal => ({
-  schema: 1, id, kind: "goal", title: id, acceptance: DEFAULT_ACCEPTANCE, checks: [], createdAt: "", updatedAt: "", ...over,
+  schema: 1, id, kind: "goal", title: id, acceptance: DEFAULT_ACCEPTANCE, checks: [], ...over,
 });
 const gs = (id: string, status: GoalState["status"], over: Partial<Goal> = {}, parents: string[] = []): GoalState => ({
   goal: goal(id, over), status, checks: [], progress: { met: 0, total: 0 }, parents,
@@ -86,6 +91,16 @@ describe("hub routes", () => {
     expect(parseHubPath("goals")).toEqual({ screen: "overview" });
     expect(parseHubPath("checks/%E0%A4%A")).toEqual({ screen: "library" });
     expect(parseHubPath(null)).toEqual({ screen: "overview" });
+  });
+});
+
+describe("sign-off", () => {
+  const record = { goalId: "g", by: "octocat", at: "2026-11-23T10:00:00Z", revision: "abc", runIds: [], requirements: "" };
+  it("names who signed and from which paired device, or why it lapsed", () => {
+    expect(signOffText({ record, lapsed: null })).toEqual({ title: "Signed off by octocat" });
+    expect(signOffText({ record: { ...record, via: "Ama's phone" }, lapsed: null }).title).toBe("Signed off by octocat from Ama's phone");
+    expect(signOffText({ record, lapsed: "revision" })).toMatchObject({ title: "Signed off on an earlier revision" });
+    expect(signOffText({ record, lapsed: "failed" }).detail).toBe("A required check failed after it.");
   });
 });
 
@@ -163,9 +178,34 @@ describe("overview models", () => {
     expect(goalSummary([])).toBe("No goals");
   });
 
-  it("finds checks that just broke and counts flips", () => {
-    expect(regressions([check("a", "failing", { recent: ["failed", "passed"] }), check("b", "failing", { recent: ["failed", "failed"] })]).map((c) => c.name)).toEqual(["a"]);
+  it("finds checks that just broke, a fail after a pass on something else, and counts flips", () => {
+    const broke = { kind: "regressed" as const, runId: "r", at: "2026-11-22T10:00:00Z" };
+    expect(regressions([
+      check("a", "failing", { recent: ["failed", "passed"], change: broke }),
+      check("b", "failing", { recent: ["failed", "passed"] }),
+      check("c", "passing", { change: { ...broke, kind: "fixed" } }),
+    ]).map((c) => c.name)).toEqual(["a"]);
     expect(flips(["passed", "failed", "passed", "passed", "stopped", "failed"])).toBe(3);
+  });
+
+  it("says whose view the statuses are, at which revision", () => {
+    const at = (current: EvidenceScope["current"]): string => evidenceLabel({ store: "local", current });
+    expect(at({ vcs: "git", revision: "a1b2c3d4e5f6", dirty: 0 })).toBe("On this computer at a1b2c3d");
+    expect(at({ vcs: "perforce", revision: "1234", dirty: 3 })).toBe("On this computer at changelist 1234 with 3 changed files");
+    expect(at({ vcs: "git", revision: null, dirty: null })).toBe("On this computer, revision unknown");
+    expect(at({ vcs: "none", revision: null, dirty: null })).toBe("On this computer");
+  });
+
+  it("marks runs that do not count, and says what a run tested", () => {
+    const p = { vcs: "git" as const, revision: "a1b2c3d4e5", dirty: 0, scriptHash: "sha256:3f2a9c1d00", engine: "5.5", players: { count: 2, netMode: "listen" as const } };
+    expect(runMarks({ provenance: p })).toEqual([]);
+    expect(runMarks({ trigger: "loop", provenance: p }).map((m) => m.label)).toEqual(["Fix loop attempt"]);
+    expect(runMarks({ replayOf: "x", provenance: { ...p, dirty: 2 } }).map((m) => m.label)).toEqual(["Replay", "Uncommitted changes"]);
+    expect(runMarks({}).map((m) => m.label)).toEqual(["Revision unknown"]);
+    expect(provenanceParts(p)).toEqual(["At a1b2c3d", "Script 3f2a9c1", "UE 5.5", "2 players, listen server"]);
+    expect(provenanceParts({ ...p, revision: null, dirty: 1, scriptHash: null, players: null })).toEqual(["Revision unknown", "1 changed file", "UE 5.5"]);
+    expect(provenanceParts(undefined)).toEqual(["Revision unknown"]);
+    expect(revisionText("svn", "88")).toBe("revision 88");
   });
 
   it("draws the win/loss line oldest first, with shape for each outcome", () => {

@@ -3,13 +3,12 @@
  * not depend on a game playing now, worked out from what the hub already
  * knows, never stored. Blocked loops come from the playtest runs;
  * regressions and missing checks from the checks' history; sign-offs from
- * the goals; failed plans from the queue. Ids stay the same while the thing
+ * the goals' status; failed plans from the queue. Ids stay the same while the thing
  * waits, so a client can keep its place. The agent serves it, and the hub
  * demo answers with the same rule.
  */
 import {
   ATTENTION_ORDER,
-  RESULT_OUTCOMES,
   checkId,
   needsSignOff,
   type AttentionItem,
@@ -60,32 +59,34 @@ export function buildAttention(i: AttentionInput): AttentionItem[] {
 
   for (const g of i.goals) {
     const goal = g.goal;
-    if (goal.archived || !needsSignOff(goal) || goal.signOff || g.status !== "needs_you") continue;
+    if (goal.archived || !needsSignOff(goal) || g.status !== "needs_you") continue;
     // Needs you only for the sign-off: no check of it waits for a verdict.
     if (g.checks.some((c) => c.health === "needs_you")) continue;
-    out.push({ id: `sign_off:${goal.id}`, kind: "sign_off", at: goal.updatedAt, title: goal.title, detail: "Every check passes: the goal waits for its sign-off", goalIds: [goal.id] });
+    // Waiting since its newest result came in.
+    const at = g.checks.map((c) => c.last?.endedAt ?? c.last?.startedAt ?? "").sort().pop() || g.signOff?.record.at || new Date(i.now).toISOString();
+    const detail = g.signOff ? "Signed off on an earlier revision: every check passes, so it can be signed off again" : "Every check passes: the goal waits for its sign-off";
+    out.push({ id: `sign_off:${goal.id}`, kind: "sign_off", at, title: goal.title, detail, goalIds: [goal.id] });
   }
 
   for (const c of i.checks) {
-    const done = c.recent;
-    if (c.last && RESULT_OUTCOMES.includes(c.last.outcome) && done[0] === "failed" && done.slice(1).find((o) => o === "passed" || o === "failed") === "passed") {
+    // A regression is a fail after a pass on something else; on the same provenance it is the check's flakiness, shown as Failing.
+    if (c.change?.kind === "regressed" && c.last?.runId === c.change.runId) {
       out.push({
-        id: `regression:${c.id}:${c.last.runId}`,
+        id: `regression:${c.id}:${c.change.runId}`,
         kind: "regression",
-        at: c.last.endedAt ?? c.last.startedAt,
+        at: c.change.at,
         title: c.name,
         detail: "Failed after passing",
         goalIds: c.goalIds,
-        runId: c.last.runId,
+        runId: c.change.runId,
         checkId: c.id,
       });
     }
     if (c.missing && c.goalIds.length > 0) {
-      const named = i.goals.filter((g) => c.goalIds.includes(g.goal.id)).map((g) => g.goal.updatedAt).sort()[0];
       out.push({
         id: `missing_check:${c.id}`,
         kind: "missing_check",
-        at: c.last?.endedAt ?? c.last?.startedAt ?? named ?? new Date(i.now).toISOString(),
+        at: c.last?.endedAt ?? c.last?.startedAt ?? new Date(i.now).toISOString(),
         title: c.name,
         detail: `${c.check.target} no longer exists in the project`,
         goalIds: c.goalIds,

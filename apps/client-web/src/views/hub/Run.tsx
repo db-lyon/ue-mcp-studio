@@ -16,7 +16,9 @@ import {
   expectLine,
   judgeLabel,
   playingStep,
+  provenanceParts,
   runLength,
+  runMarks,
   runPlaying,
   runTimeline,
   seriesPath,
@@ -113,6 +115,7 @@ export function RunScreen({ runId }: { runId: string }) {
           {record.durationMs ? <span className="dim small">{runLength(record.durationMs)}</span> : null}
           <span className="dim small">{RUN_SOURCE_LABEL[record.source]}</span>
           {record.map && <span className="mono small dim">{record.map.split("/").pop()}</span>}
+          {runMarks(record).map((m) => <span key={m.label} className="pill" title={m.title}>{m.label}</span>)}
         </>}
         actions={<>
           {checkId && <button className="primary" onClick={() => void hub.runCheck(checkId, record.name)} title="Run again (r)"><HubIcon name="play" size={12} /> Run again</button>}
@@ -120,6 +123,7 @@ export function RunScreen({ runId }: { runId: string }) {
           {record.sessionId && <button className="ghost" onClick={() => hub.openChat(record.sessionId!, runId)} title="The playtest's card in its session"><HubIcon name="external" size={12} /> Open in chat</button>}
         </>}
       />
+      <div className="hub-provenance small dim" aria-label="What this run tested">{provenanceParts(record.provenance).join(" · ")}</div>
       {d.lastPass && (
         <div className="hub-compare small">
           <span>{changed.size ? `${changed.size} ${changed.size === 1 ? "step differs" : "steps differ"} from` : "Same results as"} the last pass,</span>

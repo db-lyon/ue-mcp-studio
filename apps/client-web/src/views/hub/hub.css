@@ -78,6 +78,8 @@ nav.hub-seg { flex: 1; min-width: 0; height: auto; gap: 2px; padding: 2px; borde
 .hub-root.narrow .hub-title { font-size: 19px; }
 .hub-title-count { margin-left: 10px; font: 600 14px/1 var(--mono); color: var(--warn); vertical-align: 3px; }
 .hub-sub { display: flex; align-items: center; gap: 6px 10px; flex-wrap: wrap; margin-top: 5px; color: var(--muted); font-size: 12.5px; }
+.hub-evidence-scope { color: var(--muted); cursor: help; }
+.hub-provenance { margin: -4px 0 4px; }
 .hub-eyebrow { font: var(--label-font); text-transform: var(--label-case); letter-spacing: var(--label-spacing); color: var(--label-color); margin-bottom: 2px; }
 .hub-back { display: inline-flex; align-items: center; gap: 4px; margin-bottom: 6px; color: var(--muted); }
 .hub-back:hover { color: var(--text); }

@@ -141,7 +141,8 @@ describe("a run started elsewhere", () => {
 describe("after a restart", () => {
   it("reads every unfinished run again from its last seq, with the session's form", async () => {
     const first = setup();
-    first.setAnswer(async () => ok(runAnswer()));
+    // The run started PIE, so holding it pauses PIE.
+    first.setAnswer(async () => ok({ ...runAnswer(), pie_started: true }));
     await first.broker.wrap(first.host, first.s.id).callAction("pie", "script_run", {});
     first.emit("script.step_passed", { runId: RUN, script: "x", atMs: 50, seq: 4, step: { index: 0, status: "passed" } });
     first.broker.dispose();
@@ -181,7 +182,7 @@ describe("after a restart", () => {
 describe("the user's verdict", () => {
   it("goes to pie(verdict) with the note, and the card takes the answer", async () => {
     const t = setup();
-    t.setAnswer(async () => ok(runAnswer()));
+    t.setAnswer(async () => ok({ ...runAnswer(), pie_started: true }));
     await t.broker.wrap(t.host, t.s.id).callAction("pie", "script_run", {});
     t.emit("script.verdict_requested", { runId: RUN, script: "x", atMs: 60, seq: 7, awaiting: [{ index: 2, instruction: "x" }] });
     t.setAnswer(async () => ok({ success: true, run_id: RUN, step: 2, status: "failed", verdict: "fail", verdict_source: "action", note: "pops", state: "finished", awaiting: [] }));
@@ -198,7 +199,7 @@ describe("the user's verdict", () => {
     playtests.setVerdictWait(30);
     playtests.setRuns("automatic");
     const t = setup({ playtests });
-    t.setAnswer(async () => ok(runAnswer()));
+    t.setAnswer(async () => ok({ ...runAnswer(), pie_started: true }));
     await t.broker.wrap(t.host, t.s.id).callAction("pie", "script_run", {});
     t.emit("script.verdict_requested", { runId: RUN, script: "x", atMs: 60, seq: 7, awaiting: [{ index: 2, instruction: "x" }] });
     const [h] = t.broker.hold.held();

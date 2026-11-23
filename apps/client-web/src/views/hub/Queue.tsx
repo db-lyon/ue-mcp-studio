@@ -1,7 +1,9 @@
 /**
- * The queue: the plan running on the editor now with each check's state,
- * the plans waiting behind it (reorder, cancel), pause, the plans that
- * finished, and schedules that queue plans on given days.
+ * The queue: the plan running on the editor now with each check's state
+ * (a fix plan's items link to their chat sessions), the plans waiting behind
+ * it (reorder, cancel), pause and why the queue is paused or waiting, the
+ * plans that finished, and schedules that queue plans on given days. Release
+ * the editor is the app's bar (held.tsx LeaseBar), on every tab.
  */
 import { useState } from "react";
 import type { PlanRun, PlanScope, Schedule, ScheduleDraft } from "@ue-mcp-studio/shared";
@@ -13,6 +15,7 @@ import {
   blankSchedule,
   moveQueued,
   planProgress,
+  queuePausedText,
   scheduleErrors,
   scheduleText,
   scopeText,
@@ -73,7 +76,8 @@ export function QueueScreen() {
         </button>}
       />
       {!q.editor.connected && <div className="banner warn small">{HUB_COPY.editorDown}</div>}
-      {q.paused && <div className="banner warn small">{HUB_COPY.paused}</div>}
+      {q.paused && <div className="banner warn small">{queuePausedText(q)}</div>}
+      {q.waiting && <div className="banner small">{HUB_COPY.waiting(q.waiting)}</div>}
 
       <section className="hub-section">
         <div className="hub-section-head"><h2>Now</h2></div>
@@ -144,7 +148,7 @@ export function QueueScreen() {
 
 /** A plan: its title and scope, progress, and each check's state; open by default while it runs. */
 function PlanCard({ plan, onCancel, live = false }: { plan: PlanRun; onCancel?: () => void; live?: boolean }) {
-  const { o, go } = useHub();
+  const { o, go, openChat } = useHub();
   const p = planProgress(plan);
   const [open, setOpen] = useState(live);
   return (
@@ -170,8 +174,9 @@ function PlanCard({ plan, onCancel, live = false }: { plan: PlanRun; onCancel?: 
             return (
               <li key={i} className={`hub-plan-item ${it.state}`}>
                 <StatusMark look={look} label={look.label} />
-                {it.runId ? <HubLink href={`#/playtests/runs/${encodeURIComponent(it.runId)}`} onGo={() => go({ screen: "run", runId: it.runId! })}>{it.name}</HubLink> : <span>{it.name}</span>}
+                {it.runId && plan.work !== "fix" ? <HubLink href={`#/playtests/runs/${encodeURIComponent(it.runId)}`} onGo={() => go({ screen: "run", runId: it.runId! })}>{it.name}</HubLink> : <span>{it.name}</span>}
                 <span className="small dim">{look.label}{it.reason ? `: ${it.reason}` : ""}</span>
+                {it.sessionId && <button className="ghost small-button" onClick={() => openChat(it.sessionId!)}>{HUB_COPY.fixChat}</button>}
               </li>
             );
           })}

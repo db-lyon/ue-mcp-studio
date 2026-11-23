@@ -60,7 +60,7 @@ import {
   type QaVerdict,
   type RestoreOutcome,
 } from "@ue-mcp-studio/shared";
-import { NO_CHECKPOINTS, PlaytestLoop, attentionText, carryOf, type LoopCheckpoints } from "./playtest-loop.js";
+import { NO_CHECKPOINTS, PlaytestLoop, attentionText, carryOf, type LoopCheckpoints, type LoopWrites } from "./playtest-loop.js";
 import { type ElicitParams, type ElicitResult, type FormBroker } from "./forms.js";
 import type { SessionStore } from "./sessions.js";
 import type { AgentHost, TurnCallOptions } from "./tools.js";
@@ -107,6 +107,8 @@ export interface QaLoopSupport {
   blocked?: (sessionId: string) => string | null;
   /** A loop needs the user: the Windows notification and anything else beside the card. */
   notify?: (sessionId: string, loop: QaLoop, run: QaRun) => void;
+  /** The per-package write lease each attempt takes (hub/write-lease.ts). */
+  writes?: LoopWrites;
   /** The loop's clock. */
   now?: () => number;
 }
@@ -306,14 +308,15 @@ export class QaBroker {
     };
   }
 
-  /** A session's call started a run: its answer is the card's first state. */
-  private started(sessionId: string, action: string, answer: Record<string, unknown>): void {
+  /** A session's call started a run: its answer is the card's first state, with the PIE setup Studio applied first. */
+  private started(sessionId: string, action: string, answer: Record<string, unknown>, pieSetup?: QaRun["pieSetup"]): void {
     const runId = typeof answer.run_id === "string" ? answer.run_id : null;
     if (!runId) return;
     const had = this.runs.get(runId);
     const fresh = qaRunFromAnswer(answer, { ...this.ownerOf(sessionId, action), seenAt: this.now() });
     if (!fresh) return;
     let run: QaRun = had ? { ...qaMergeAnswer(had, answer), ...this.ownerOf(sessionId, action, had) } : fresh;
+    if (pieSetup) run = { ...run, pieSetup };
     // A run a subagent the user assigned starts shows that subagent too: its Cancel and its thread.
     if (!run.assignment) {
       const parent = this.callParent(sessionId, run.toolUseId);
@@ -560,7 +563,7 @@ export class QaBroker {
       const answer = json(r);
       const error = failure(r, answer);
       if (error || !answer) return { error: error ?? "ue-mcp's answer was not JSON", status: 409 };
-      this.started(sessionId, "script_run", answer);
+      this.started(sessionId, "script_run", answer, players > 1 || o.listen ? { players, netMode: o.listen ? "listen" : "standalone" } : undefined);
       const id = typeof answer.run_id === "string" ? answer.run_id : "";
       return { run: this.runs.get(id) ?? run };
     } finally {
@@ -620,6 +623,7 @@ export class QaBroker {
       },
       checkpoints,
       carry: carryOf(run.assignment?.loop),
+      ...(support?.writes ? { writes: support.writes } : {}),
       agents: { assign: (sid, d, p) => assigner.assign(sid, d, p), stop: (sid, c) => assigner.stop(sid, c) },
       events: this.o.host.events,
       projectDir: this.o.host.projectDir,
@@ -707,17 +711,18 @@ export class QaBroker {
   /**
    * Stop on a live card, the bar's Stop now, or a verdict that never came:
    * pie(script_stop) ends the run, its unsettled steps left as they were. A
-   * run holding for a verdict has PIE paused for it, so PIE stops too.
+   * run holding for a verdict in a PIE session it started has PIE paused for
+   * it, so PIE stops too; PIE the run only joined is left as it is.
    */
   async stopRun(runId: string, reason = "Stopped from its card"): Promise<{ run: QaRun } | { error: string; status: number }> {
     const run = this.runs.get(runId);
     if (!run || qaIsDraft(run) || qaEnded(run.state)) return { error: "only a run that is going can be stopped", status: 409 };
     if (run.assignment?.state === "running") return { error: "a subagent is running this playtest: cancel it instead", status: 409 };
-    const held = this.hold.stopping(runId);
+    const endsPie = this.hold.stopping(runId);
     const r = await this.o.host.callAction("pie", "script_stop", { run_id: runId, reason });
     const error = failure(r, json(r));
     if (error) return { error, status: 409 };
-    if (held) {
+    if (endsPie) {
       const pie = await this.o.host.callAction("editor", "play_in_editor", { pieAction: "stop" }).catch((e: Error) => ({ isError: true, content: [{ type: "text", text: e.message }] }) as ActionResult);
       const pieError = failure(pie, json(pie));
       if (pieError && !/alreadyStopped|already/i.test(pieError)) this.o.host.log.warn(`playtest: PIE did not stop with ${run.scriptName}: ${pieError}`);

@@ -23,6 +23,8 @@ const run = (state: string, statuses: string[], extra: Record<string, unknown> =
     script_name: "Door",
     state,
     steps: statuses.map((status, index) => ({ index, instruction: `step ${index}`, judge: index === 0 ? "auto" : "manual", status, ...(index === 2 ? { agent_judgeable: false } : {}) })),
+    // The run started PIE itself, unless a test says otherwise.
+    pie_started: true,
   }, { sessionId: "s1", seenAt: "2026-11-23T10:00:00.000Z" })!,
   ...extra,
 });
@@ -108,5 +110,33 @@ describe("VerdictHold", () => {
     h.observe(run("awaiting_verdict", ["passed", "passed", "awaiting_verdict"], agent));
     expect(h.held()).toMatchObject([{ step: 2 }]);
     h.dispose();
+  });
+
+  it("never touches the developer's PIE: a run that joined it holds for its verdict with PIE playing, and its stop leaves PIE alone", async () => {
+    const h = make();
+    h.observe(run("awaiting_verdict", ["passed", "awaiting_verdict"], { pieStarted: undefined }));
+    await vi.advanceTimersByTimeAsync(0);
+    expect(paused()).toEqual([]);
+    expect(h.held()).toMatchObject([{ runId: "r1", paused: false }]);
+    expect(h.stopping("r1")).toBe(false);
+    h.observe(run("finished", ["passed", "passed"], { pieStarted: undefined }));
+    await vi.advanceTimersByTimeAsync(0);
+    expect(paused()).toEqual([]);
+  });
+
+  it("a run that started PIE is stopped with it", () => {
+    const h = make();
+    h.observe(run("awaiting_verdict", ["passed", "awaiting_verdict"]));
+    expect(h.stopping("r1")).toBe(true);
+    h.dispose();
+  });
+
+  it("holds nothing another MCP client started: no pause, no deadline, no stop", async () => {
+    const h = make();
+    h.observe(run("awaiting_verdict", ["passed", "awaiting_verdict"], { sessionId: null }));
+    await vi.advanceTimersByTimeAsync(11 * 60_000);
+    expect(h.held()).toEqual([]);
+    expect(paused()).toEqual([]);
+    expect(stops).toEqual([]);
   });
 });

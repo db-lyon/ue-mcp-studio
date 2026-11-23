@@ -20,6 +20,7 @@ import {
   hubHash,
   milestoneGroups,
   planProgress,
+  queuePausedText,
   playingRuns,
   progressText,
   proposeGoals,
@@ -30,7 +31,7 @@ import {
 } from "@ue-mcp-studio/client-core";
 import { api } from "../../api";
 import { useCursor, useHub } from "./state";
-import { Empty, HubIcon, HubLink, Progress, ScreenHead, StatusMark, StatusPill } from "./parts";
+import { Empty, EvidenceScope, HubIcon, HubLink, Progress, ScreenHead, StatusMark, StatusPill } from "./parts";
 import { GoalRow } from "./rows";
 
 export function OverviewScreen({ onChat }: { onChat?: () => void }) {
@@ -63,7 +64,7 @@ export function OverviewScreen({ onChat }: { onChat?: () => void }) {
     <div className="hub-screen hub-overview">
       <ScreenHead
         title={HUB_COPY.overview}
-        sub={goalSummary(o.goals)}
+        sub={<><span>{goalSummary(o.goals)}</span><EvidenceScope /></>}
         actions={<>
           {failing > 0 && <button onClick={() => void hub.runPlan({ scope: { kind: "failing" } }, "every failing check")} title="Queue every failing check"><HubIcon name="play" size={12} /> {HUB_COPY.runFailing} <span className="hub-btn-count">{failing}</span></button>}
           <button className="primary" onClick={() => hub.editGoal(null)} title="New goal (c)"><HubIcon name="plus" size={12} /> {HUB_COPY.newGoal}</button>
@@ -215,7 +216,7 @@ function AttentionCard() {
 
 /** What runs now and what is next, one line each. */
 function QueueCard() {
-  const { o, go } = useHub();
+  const { o, go, openChat } = useHub();
   const q = o.queue;
   const cur = q.current;
   const p = cur ? planProgress(cur) : null;
@@ -227,8 +228,9 @@ function QueueCard() {
       <div className="hub-card-head">
         <HubIcon name="queue" />
         <HubLink href={hubHash({ screen: "queue" })} onGo={() => go({ screen: "queue" })}>{HUB_COPY.queue}</HubLink>
-        {q.paused && <span className="pill warn">Paused</span>}
+        {q.paused && <span className="pill warn" title={queuePausedText(q)}>Paused</span>}
       </div>
+      {q.waiting && <div className="dim small">{HUB_COPY.waiting(q.waiting)}</div>}
       {solo && (
         <HubLink className="hub-now-line" href={hubHash({ screen: "run", runId: solo.runId })} onGo={() => go({ screen: "run", runId: solo.runId })}>
           <StatusMark look={RUN_OUTCOME_LOOK.running} />
@@ -241,6 +243,7 @@ function QueueCard() {
             <StatusMark look={PLAN_ITEM_LOOK.running} />
             <span className="hub-row-title">{p.current?.name ?? cur.title}</span>
             <span className="mono small">{p.done}/{p.total}</span>
+            {p.current?.sessionId && <button className="ghost small-button" onClick={() => openChat(p.current!.sessionId!)}>{HUB_COPY.fixChat}</button>}
           </div>
           <div className="dim small">{cur.title}</div>
           <Progress met={p.done} total={p.total} label={`${p.done} of ${p.total} checks done`} />

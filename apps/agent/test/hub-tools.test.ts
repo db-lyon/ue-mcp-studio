@@ -68,21 +68,23 @@ describe("hub tools", () => {
   it("create, update, list and read a goal", async () => {
     const c = await run("hub_create_goal", { title: "Door opens", priority: "p1", checks: [{ kind: "script", target: DOOR }], links: [{ url: ISSUE, rel: "counterpart" }] });
     expect(c.isError).toBe(false);
-    expect(c.text).toContain("Created QA/Goals/door-opens.json");
-    expect(goals.get("door-opens")?.links).toEqual([{ url: ISSUE, rel: "counterpart" }]);
-    expect((await run("hub_update_goal", { id: "door-opens", owner: "Ama" })).isError).toBe(false);
-    expect(goals.get("door-opens")?.owner).toBe("Ama");
+    const id = goals.list()[0].id;
+    expect(id).toMatch(/^door-opens-[0-9a-z]{4}$/);
+    expect(c.text).toContain(`Created QA/Goals/${id}.json`);
+    expect(goals.get(id)?.links).toEqual([{ url: ISSUE, rel: "counterpart" }]);
+    expect((await run("hub_update_goal", { id, owner: "Ama" })).isError).toBe(false);
+    expect(goals.get(id)?.owner).toBe("Ama");
     expect(await run("hub_update_goal", { id: "nope", owner: "x" })).toMatchObject({ isError: true, text: "no goal nope" });
     const list = JSON.parse((await run("hub_list_goals", {})).text);
-    expect(list.goals[0]).toMatchObject({ id: "door-opens", status: "not_started", progress: "0/1", links: [{ url: ISSUE, rel: "counterpart" }] });
-    const read = JSON.parse((await run("hub_read_goal", { id: "door-opens" })).text);
-    expect(read).toMatchObject({ file: "QA/Goals/door-opens.json", goal: { owner: "Ama" }, checks: [{ id: `script:${DOOR}`, health: "never_run" }] });
+    expect(list.goals[0]).toMatchObject({ id, status: "not_started", progress: "0/1", links: [{ url: ISSUE, rel: "counterpart" }] });
+    const read = JSON.parse((await run("hub_read_goal", { id })).text);
+    expect(read).toMatchObject({ file: `QA/Goals/${id}.json`, goal: { owner: "Ama" }, checks: [{ id: `script:${DOOR}`, health: "never_run" }] });
     const check = JSON.parse((await run("hub_read_check", { check_id: `script:${DOOR}` })).text);
     expect(check.runs[0]).toMatchObject({ runId: "run_1", outcome: "failed" });
   });
 
   it("add and remove links on a goal, a check and a run", async () => {
-    goals.create({ title: "A", checks: [{ kind: "script", target: DOOR }] });
+    await goals.create({ title: "A", id: "a", checks: [{ kind: "script", target: DOOR }] });
     expect((await run("hub_add_link", { goal_id: "a", url: ISSUE, title: "Door", rel: "counterpart" })).isError).toBe(false);
     // The same URL again replaces it.
     await run("hub_add_link", { goal_id: "a", url: ISSUE, title: "Door, renamed" });
@@ -91,7 +93,7 @@ describe("hub tools", () => {
     // One goal lists the check: no goal_id needed.
     expect((await run("hub_add_link", { check_id: `script:${DOOR}`, url: "jira://HOL-3" })).isError).toBe(false);
     expect(goals.get("a")?.checks[0].links).toEqual([{ url: "jira://HOL-3" }]);
-    goals.create({ title: "B", checks: [{ kind: "script", target: DOOR }] });
+    await goals.create({ title: "B", id: "b", checks: [{ kind: "script", target: DOOR }] });
     expect((await run("hub_add_link", { check_id: `script:${DOOR}`, url: "https://trello.com/c/x" })).text).toContain("give goal_id");
     expect((await run("hub_add_link", { check_id: `script:${DOOR}`, goal_id: "b", url: "https://trello.com/c/x" })).isError).toBe(false);
     expect((await run("hub_add_link", { check_id: "script:/Game/None", url: "https://trello.com/c/x" })).text).toContain("no goal lists");
@@ -105,9 +107,9 @@ describe("hub tools", () => {
   });
 
   it("require and unrequire a goal, writing only the requiring goal's file, refusing a loop", async () => {
-    goals.create({ title: "Alpha", kind: "milestone" });
-    goals.create({ title: "Beta", kind: "milestone" });
-    goals.create({ title: "Door" });
+    await goals.create({ title: "Alpha", id: "alpha", kind: "milestone" });
+    await goals.create({ title: "Beta", id: "beta", kind: "milestone" });
+    await goals.create({ title: "Door", id: "door" });
     expect(approvalKind("hub_require_goal", { goal_id: "alpha", requires: "door" }, NO_EFFECTS)).toBe("files");
     const p = hubPreview(hub, "hub_require_goal", { goal_id: "alpha", requires: "door" })!;
     expect(p).toMatchObject({ tool: "edit_file", path: path.join(root, "QA", "Goals", "alpha.json") });
@@ -123,8 +125,8 @@ describe("hub tools", () => {
     expect(validateInput("hub_require_goal", { goal_id: "a" })).toContain("needs goal_id and requires");
   });
 
-  it("goal changes ask as file changes, inside the project, with the goal file's diff; a run's links do not ask", () => {
-    goals.create({ title: "A" });
+  it("goal changes ask as file changes, inside the project, with the goal file's diff; a run's links do not ask", async () => {
+    await goals.create({ title: "A", id: "a" });
     const add = { goal_id: "a", url: ISSUE };
     expect(approvalKind("hub_add_link", add, NO_EFFECTS)).toBe("files");
     expect(approvalKind("hub_create_goal", { title: "x" }, NO_EFFECTS)).toBe("files");
@@ -137,7 +139,12 @@ describe("hub tools", () => {
     expect(p.diff!.some((d) => d.op === "+" && d.text.includes(ISSUE))).toBe(true);
     // Nothing was written by the preview.
     expect(goals.get("a")?.links).toBeUndefined();
-    expect(hubPreview(hub, "hub_create_goal", { title: "New one" })).toMatchObject({ tool: "write_file", creates: true, path: path.join(root, "QA", "Goals", "new-one.json") });
+    // The preview names the file the create will write.
+    const create = { title: "New one" };
+    const preview = hubPreview(hub, "hub_create_goal", create)!;
+    expect(preview).toMatchObject({ tool: "write_file", creates: true });
+    expect(path.basename(preview.path!)).toMatch(/^new-one-[0-9a-z]{4}\.json$/);
+    expect((await run("hub_create_goal", create)).text).toContain(path.basename(preview.path!));
     expect(hubPreview(hub, "hub_add_link", { goal_id: "nope", url: ISSUE })).toBeNull();
   });
 

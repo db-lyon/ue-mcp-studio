@@ -103,7 +103,7 @@ The run screen shows:
 ### Orchestration
 
 - **Plan runs:** run a goal, run the selected checks, run what is failing, run what is stale.
-- **The queue** is persisted, survives a daemon restart, and resumes when the editor reconnects. Before a run that needs it, the queue checks for unsaved levels, since ue-mcp refuses to open a map over unsaved changes.
+- **The queue** is persisted and survives a daemon restart. After the editor reconnects, or Studio restarts, with work waiting, it pauses until a person resumes it (decision 14). Before a run that needs it, the queue checks for unsaved levels, since ue-mcp refuses to open a map over unsaved changes.
 - **Schedules:** "nightly at 02:00", or "after every N agent turns that change gameplay assets". A schedule runs only when the editor is up and idle, and is skipped and recorded otherwise.
 - **Manual steps inside a plan** hold the plan, with PIE paused, until the verdict or the wait runs out; an unattended plan skips checks that have them (decision 12).
 - **Agent work:**
@@ -263,3 +263,20 @@ Made 2026-11-23. The user handed the design over in full: decide, build, deliver
     - The two ue-mcp asks that existed only for deferral are withdrawn.
 8. **Status ladder:** checks are ranked needs you, failing, missing, running, flaky, stale, never run, passing. Goals are ranked needs you, failing, at risk, running, not started, met.
 11. **Stopped runs** (2026-11-23; the deferral part superseded by decision 12). A run's outcome follows its steps, not how it ended (`outcomeOf`). A run stopped before its steps were reached is `stopped` and counts for nothing in health, acceptance or pass rate (`RESULT_OUTCOMES`), since stopping a run says nothing about the game; the run before it speaks for the check. `incomplete` (PIE or the observation ended on its own) and `error` still count as failing.
+13. **Provenance and evidence** (2026-11-23, review A and B). Every run records what it tested (`RunProvenance`): the revision and changed files Studio reads from source control when it sees the run start, the script's version, the engine and the players, with ue-mcp's own fields from `results.json` laid over them where present (ask 4). The rules in `packages/shared/src/hub.ts`:
+    - **Results** are plain runs only. Replays and fix loop attempts stay in history, marked, and never count toward health, pass rate or acceptance.
+    - **Flaky** means mixed results on the same revision and script version. Mixed results across them read as Fixed or Regressed.
+    - **Acceptance** counts results on the current revision and the script's newest version only.
+    - **Runs over uncommitted changes** are the newest word for health, so a person changing the game sees what their last run said. They never show flakiness and never count toward acceptance, since the changes may differ from run to run.
+    - **Runs of unknown revision** (backfilled, or kept before provenance) are history only and never count toward acceptance.
+    - **Stale** means a dependency changed since the last pass, where the pass and the workspace both have fingerprints (asks 4 and 9), else the age rule.
+    - **Evidence** goes through one `EvidenceStore` interface in the agent. The local run index is its only implementation, so every screen that shows status says "On this computer at a1b2c3d".
+14. **The editor lease** (2026-11-23, review C1 to C5). The editor is the developer's workspace, so the hub acts only on what it started:
+    - **Occupancy.** An item starts only while nothing else holds the editor (`hub/lease.ts` occupancyOf): the editor not connected, an editor operation, a modal dialog, Play In Editor the hub did not start, a playtest the hub did not start (Studio's or another client's), a chat or fix loop with editor calls in flight, another MCP client's calls, and, for unattended plans only, someone using this computer in the last 5 minutes. Otherwise the queue waits and says why. Schedules skip with the same reason.
+    - **The lease.** The queue takes the workspace editor's lease before an item starts and releases it when the item settles, ending Play In Editor only when the item's run started it (`pie_started`). Holds pause, resume and stop PIE only for a run that started it, and never hold another client's run. While held, both clients show "Studio is running a playtest" with **Release the editor** (`POST /hub/release`), and the editor gets one notification per plan. A runner editor would hold a lease of its own.
+    - **Release the editor** pauses the queue, stops the item's run (through the card, so a verdict hold ends with it) or its fix loop at the next checkpoint, ends the PIE that item started, and puts the item back at the front.
+    - **Reconnects.** After the editor reconnects, or Studio restarts, with work waiting, the queue pauses (`pausedBy: "reconnect"`) and only a person resumes it, as after a release. Waiting for occupancy alone would hand an editor someone just restarted, often to answer its restore dialog, straight back to the queue.
+    - **Crashes.** An editor crash during a run item is that item's outcome, `crashed`, counted as failing and never retried. Any other disconnect puts the item back.
+    - **Fix plans.** Fix failing with an agent queues a plan whose items are fix loops (`work: "fix"`), one at a time under the same lease, each in a chat session of its own (the session that holds the script's card, else "Fix <name>"), linked from the queue.
+    - **Write lease.** Before each attempt a fix loop reads the dirty packages, which are the person's, and its session's saves of any of them are refused, so the loop stops for the person (`hub/write-lease.ts`, ask 12).
+    - **Tainted runs.** A run that saw files under Content, Config, Source or Plugins, or the .uproject, change while it played is `tainted`.

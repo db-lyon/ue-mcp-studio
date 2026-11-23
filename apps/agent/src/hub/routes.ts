@@ -5,11 +5,23 @@
  * Every change publishes studio.hub.changed (hub.ts).
  */
 import type { DaemonExtensionApi } from "ue-mcp/daemon";
+import { PAIRED_DEVICE_HEADER } from "@ue-mcp-studio/remote";
 import { Hub, type HubOptions } from "./hub.js";
 import { HubError } from "./util.js";
 
-type Req = { params: Record<string, string>; query?: unknown; body?: unknown };
+type Req = { params: Record<string, string>; query?: unknown; body?: unknown; headers?: Record<string, string | string[] | undefined> };
 type Res = { status?: number; body?: unknown };
+
+/** The paired browser a request came through remote control from, by the name it paired with; undefined at this computer. */
+function pairedDevice(req: Req): string | undefined {
+  const v = req.headers?.[PAIRED_DEVICE_HEADER];
+  if (typeof v !== "string" || !v) return undefined;
+  try {
+    return decodeURIComponent(v).slice(0, 120);
+  } catch {
+    return undefined;
+  }
+}
 
 /** A route's answer from its work: thrown HubErrors become their status, anything else a 500. */
 async function answer(api: DaemonExtensionApi, work: () => unknown): Promise<Res> {
@@ -32,19 +44,22 @@ export function registerHub(api: DaemonExtensionApi, o: Omit<HubOptions, "host">
   route("GET", "/hub", async () => ({ body: await hub.overview() }));
 
   route("GET", "/hub/goals/:id", async (req) => ({ body: await hub.goal(req.params.id) }));
-  route("POST", "/hub/goals", (req) => ({ body: { goal: hub.goals.create(req.body) } }));
-  route("PUT", "/hub/goals/:id", (req) => ({ body: { goal: hub.goals.update(req.params.id, req.body) } }));
-  route("DELETE", "/hub/goals/:id", (req) => void hub.goals.delete(req.params.id));
-  route("POST", "/hub/goals/:id/checks", (req) => ({ body: { goal: hub.goals.addChecks(req.params.id, (req.body as { checks?: unknown } | undefined)?.checks) } }));
+  route("POST", "/hub/goals", async (req) => ({ body: { goal: await hub.goals.create(req.body) } }));
+  route("PUT", "/hub/goals/:id", async (req) => ({ body: { goal: await hub.goals.update(req.params.id, req.body) } }));
+  route("DELETE", "/hub/goals/:id", async (req) => {
+    await hub.goals.delete(req.params.id);
+    hub.signOffs.clear(req.params.id);
+  });
+  route("POST", "/hub/goals/:id/checks", async (req) => ({ body: { goal: await hub.goals.addChecks(req.params.id, (req.body as { checks?: unknown } | undefined)?.checks) } }));
   // Before /checks/:checkId: a check id always has a colon, so "order" is never one.
-  route("PUT", "/hub/goals/:id/checks/order", (req) => ({ body: { goal: hub.goals.orderChecks(req.params.id, req.body) } }));
-  route("DELETE", "/hub/goals/:id/checks/:checkId", (req) => ({ body: { goal: hub.goals.removeCheck(req.params.id, req.params.checkId) } }));
-  route("PUT", "/hub/goals/:id/checks/:checkId", (req) => ({ body: { goal: hub.goals.updateCheck(req.params.id, req.params.checkId, req.body) } }));
-  route("POST", "/hub/goals/:id/requires", (req) => ({ body: { goal: hub.goals.addRequire(req.params.id, req.body) } }));
-  route("PUT", "/hub/goals/:id/requires", (req) => ({ body: { goal: hub.goals.orderRequires(req.params.id, req.body) } }));
-  route("DELETE", "/hub/goals/:id/requires/:goalId", (req) => ({ body: { goal: hub.goals.removeRequire(req.params.id, req.params.goalId) } }));
-  route("POST", "/hub/goals/:id/sign-off", (req) => ({ body: { goal: hub.signOff(req.params.id, req.body) } }));
-  route("DELETE", "/hub/goals/:id/sign-off", (req) => ({ body: { goal: hub.goals.clearSignOff(req.params.id) } }));
+  route("PUT", "/hub/goals/:id/checks/order", async (req) => ({ body: { goal: await hub.goals.orderChecks(req.params.id, req.body) } }));
+  route("DELETE", "/hub/goals/:id/checks/:checkId", async (req) => ({ body: { goal: await hub.goals.removeCheck(req.params.id, req.params.checkId) } }));
+  route("PUT", "/hub/goals/:id/checks/:checkId", async (req) => ({ body: { goal: await hub.goals.updateCheck(req.params.id, req.params.checkId, req.body) } }));
+  route("POST", "/hub/goals/:id/requires", async (req) => ({ body: { goal: await hub.goals.addRequire(req.params.id, req.body) } }));
+  route("PUT", "/hub/goals/:id/requires", async (req) => ({ body: { goal: await hub.goals.orderRequires(req.params.id, req.body) } }));
+  route("DELETE", "/hub/goals/:id/requires/:goalId", async (req) => ({ body: { goal: await hub.goals.removeRequire(req.params.id, req.params.goalId) } }));
+  route("POST", "/hub/goals/:id/sign-off", async (req) => ({ body: { signOff: await hub.signOff(req.params.id, req.body, pairedDevice(req)) } }));
+  route("DELETE", "/hub/goals/:id/sign-off", (req) => hub.clearSignOff(req.params.id));
   route("POST", "/hub/goals/:id/write-playtests", (req) => ({ status: 202, body: hub.writePlaytests(req.params.id, req.body) }));
 
   route("GET", "/hub/checks/:checkId", async (req) => ({ body: await hub.check(req.params.checkId, q(req)) }));
@@ -56,6 +71,8 @@ export function registerHub(api: DaemonExtensionApi, o: Omit<HubOptions, "host">
 
   route("GET", "/hub/queue", () => ({ body: hub.queueView() }));
   route("PUT", "/hub/queue/paused", (req) => ({ body: hub.setPaused(req.body) }));
+  route("GET", "/hub/lease", () => ({ body: hub.leaseView() }));
+  route("POST", "/hub/release", async () => ({ body: await hub.release() }));
   route("POST", "/hub/plans", async (req) => ({ body: { plan: await hub.plan(req.body, "person") } }));
   route("POST", "/hub/plans/:id/cancel", async (req) => ({ body: { plan: await hub.cancelPlan(req.params.id) } }));
   route("POST", "/hub/plans/:id/move", (req) => ({ body: hub.movePlan(req.params.id, req.body) }));

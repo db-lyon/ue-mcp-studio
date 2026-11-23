@@ -64,7 +64,7 @@ function loadState(): DemoState {
   if (kept) {
     try {
       const s = JSON.parse(kept) as DemoState;
-      if (s.version === 2 && s.seed === seed) return s;
+      if (s.version === 3 && s.seed === seed) return s;
     } catch {
       // Unreadable: start the project over.
     }

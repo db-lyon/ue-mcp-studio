@@ -14,6 +14,7 @@ import {
   DEFAULT_ACCEPTANCE,
   GOAL_ID,
   HUB_CHANGED,
+  HUB_LEASE,
   HUB_GOALS_DIR,
   HUB_SCHEMA,
   NEEDS_PERSON,
@@ -22,10 +23,12 @@ import {
   checkStateOf,
   goalChecksDeep,
   goalSlug,
+  isResult,
   leafName,
   loopIfRequired,
   needsPerson,
   planOptionsFor,
+  requirementsKey,
   requiresOf,
   rollUpGoals,
   outcomeOf,
@@ -56,11 +59,13 @@ import {
   type QaScriptStep,
   type QaStep,
   type QueueState,
+  type EditorLease,
   type RunDetail,
   type RunRecord,
   type RunSource,
   type Schedule,
   type ScheduleDraft,
+  type SignOff,
   type TrackerLink,
 } from "@ue-mcp-studio/shared";
 import { obj } from "@ue-mcp-studio/client-core";
@@ -71,6 +76,7 @@ import {
   demoEvidence,
   demoHash,
   demoNextRun,
+  demoProvenance,
   demoQaRun,
   demoRandom,
   demoResultsPath,
@@ -230,6 +236,8 @@ export class HubDemo {
     if ((p = m("POST", "/hub/plans/*/cancel"))) return this.cancelPlan(p[0]);
     if ((p = m("POST", "/hub/plans/*/move"))) return this.movePlan(p[0], Number(b.to));
     if (m("PUT", "/hub/queue/paused")) return this.pause(b.paused === true);
+    if (m("GET", "/hub/lease")) return ok({ lease: this.lease() });
+    if (m("POST", "/hub/release")) return this.release();
     if (m("POST", "/hub/schedules")) return this.createSchedule(b as unknown as ScheduleDraft);
     if ((p = m("PUT", "/hub/schedules/*"))) return this.updateSchedule(p[0], b as Partial<ScheduleDraft>);
     if ((p = m("DELETE", "/hub/schedules/*"))) {
@@ -314,6 +322,7 @@ export class HubDemo {
       runs,
       missing: c.kind === "script" && (!sc || !!sc.missing),
       acceptance,
+      current: this.state.workspace,
       now: this.now(),
       goalIds: this.goalIdsOf(checkId(c)),
       name: sc?.name,
@@ -325,7 +334,7 @@ export class HubDemo {
 
   /** Every goal's state, rolled up through required goals with the shared rules, as the agent does. */
   private goalStates(): GoalState[] {
-    return rollUpGoals(this.liveGoals(), (g) => g.checks.map((c) => this.checkState(c, g.acceptance)));
+    return rollUpGoals(this.liveGoals(), (g) => g.checks.map((c) => this.checkState(c, g.acceptance)), this.state.workspace, new Map(Object.entries(this.state.signOffs ?? {})));
   }
 
   private goalState(g: Goal): GoalState {
@@ -353,6 +362,7 @@ export class HubDemo {
       attention: this.attention(goals, checks),
       queue: this.queueState(),
       recent: this.state.runs.slice(0, 30),
+      evidence: { store: "local", current: this.state.workspace },
       editor: { connected: this.state.editor },
       warnings: [],
     };
@@ -360,7 +370,41 @@ export class HubDemo {
 
   queueState(): QueueState {
     const s = this.state;
-    return { paused: s.paused, current: s.current, queued: s.queued, recent: s.recent.slice(0, 20), schedules: s.schedules, editor: { connected: s.editor } };
+    return { paused: s.paused, pausedBy: s.paused ? s.pausedBy ?? "person" : null, current: s.current, queued: s.queued, recent: s.recent.slice(0, 20), schedules: s.schedules, editor: { connected: s.editor }, lease: this.lease() };
+  }
+
+  /** The hub's hold on the editor, as the agent's lease.ts keeps it: held while a plan's run is live. */
+  private lease(): EditorLease | null {
+    const s = this.state;
+    const live = s.live;
+    const cur = s.current;
+    if (!live?.planId || !cur || cur.id !== live.planId) return null;
+    const at = cur.items.findIndex((i) => i.runId === live.runId);
+    if (at < 0) return null;
+    const run = s.qa[live.runId];
+    return { editor: "workspace", purpose: `${cur.title}: ${cur.items[at].name}`, planRunId: cur.id, item: at, work: "run", runId: live.runId, pie: true, since: run?.seenAt ?? iso(this.now()) };
+  }
+
+  private leaseChanged(): void {
+    this.emit(HUB_LEASE, { lease: this.lease() });
+  }
+
+  /** Release the editor: the queue pauses, the plan's live run stops, and its item goes back to wait for a resume. */
+  private release(): DemoAnswer {
+    const s = this.state;
+    s.paused = true;
+    s.pausedBy = "release";
+    const live = s.live;
+    if (live?.planId && s.current?.id === live.planId) {
+      const runId = live.runId;
+      this.endLive("stopped");
+      const it = s.current?.items.find((i) => i.runId === runId);
+      if (it) Object.assign(it, { state: "queued", runId: null, startedAt: null, endedAt: null, reason: "The editor was released" });
+      if (s.current) s.current.state = "paused";
+    }
+    this.leaseChanged();
+    this.hubChanged(["queue"]);
+    return ok(this.queueState());
   }
 
   /** The agent's own Needs attention rule, over the demo's runs. */
@@ -536,9 +580,11 @@ export class HubDemo {
     if ("error" in requires) return refuse(400, requires.error);
     const links = d.links === undefined ? { links: [] } : this.links(d.links);
     if ("error" in links) return refuse(400, links.error);
-    let id = d.id && GOAL_ID.test(d.id) ? d.id : goalSlug(title);
-    for (let n = 2; this.state.goals.some((g) => g.id === id); n++) id = `${goalSlug(title).slice(0, 60)}-${n}`;
-    const now = iso(this.now());
+    // As the agent does: the title's slug and a short random ending, unless the draft names a free id.
+    if (d.id && !GOAL_ID.test(d.id)) return refuse(400, "id must be lowercase letters, digits and dashes, at most 64 characters");
+    if (d.id && this.goal(d.id)) return refuse(409, `a goal ${d.id} already exists`);
+    let id = d.id ?? "";
+    while (!id || this.state.goals.some((g) => g.id === id)) id = `${goalSlug(title, 59)}-${Math.floor(this.random() * 36 ** 4).toString(36).padStart(4, "0")}`;
     const goal: Goal = {
       schema: HUB_SCHEMA,
       id,
@@ -553,9 +599,6 @@ export class HubDemo {
       acceptance: { ...DEFAULT_ACCEPTANCE, ...d.acceptance },
       ...(requires.list.length ? { requires: requires.list } : {}),
       checks: (d.checks ?? []).map((c) => ({ ...c, target: c.kind === "script" ? qaScriptKey(c.target) : c.target })),
-      signOff: null,
-      createdAt: now,
-      updatedAt: now,
     };
     const loop = this.loopOf([goal, ...this.parentFiles(id, parents)]);
     if (loop) return loop;
@@ -594,7 +637,6 @@ export class HubDemo {
       const g = this.goal(next.id)!;
       if (next.requires?.length) g.requires = next.requires;
       else delete g.requires;
-      g.updatedAt = iso(this.now());
     }
   }
 
@@ -669,7 +711,6 @@ export class HubDemo {
   }
 
   private touch(g: Goal, what: HubChangedWhat[] = ["goals"]): DemoAnswer {
-    g.updatedAt = iso(this.now());
     this.hubChanged(what, { goalId: g.id });
     return ok({ goal: g });
   }
@@ -784,11 +825,24 @@ export class HubDemo {
     return ok({ record: rec });
   }
 
+  /** A sign-off as the agent records it: the account, the revision, each required check's latest results and the goal's requirements. */
   private signOff(id: string, note: string | undefined, clear = false): DemoAnswer {
     const g = this.goal(id);
     if (!g) return refuse(404, "No such goal");
-    g.signOff = clear ? null : { by: DEMO_USER, at: iso(this.now()), ...(note ? { note } : {}) };
-    return this.touch(g, ["goals", "attention"]);
+    const all = (this.state.signOffs ??= {});
+    if (clear) {
+      delete all[id];
+      this.hubChanged(["goals", "attention"], { goalId: id });
+      return ok(undefined, 204);
+    }
+    const need = Math.max(1, g.acceptance.stableRuns);
+    const runIds = g.checks
+      .filter((c) => c.required !== false && c.kind !== "manual")
+      .flatMap((c) => this.state.runs.filter((r) => checkId(r) === checkId(c) && isResult(r)).slice(0, need).map((r) => r.runId));
+    const s: SignOff = { goalId: id, by: DEMO_USER, at: iso(this.now()), ...(note ? { note } : {}), revision: this.state.workspace.revision, runIds, requirements: requirementsKey(g) };
+    all[id] = s;
+    this.hubChanged(["goals", "attention"], { goalId: id });
+    return ok({ signOff: s });
   }
 
   private writePlaytests(id: string): DemoAnswer {
@@ -815,7 +869,6 @@ export class HubDemo {
       this.state.scripts.push({ path, name, map, steps: d.steps, author: "Studio agent", tags: g.tags ?? [], profile: { fixable: true, flakyStep: this.random() < 0.3 ? 0 : null, flakyRate: 0.25 } });
       g.checks.push({ kind: "script", target: path });
     }
-    g.updatedAt = iso(this.now());
     this.hubChanged(["checks", "goals"], { goalId });
   }
 
@@ -952,6 +1005,7 @@ export class HubDemo {
   private pause(paused: boolean): DemoAnswer {
     const s = this.state;
     s.paused = paused;
+    s.pausedBy = paused ? "person" : null;
     if (!paused && s.current?.state === "paused") s.current.state = "running";
     if (paused && s.current && !s.live) s.current.state = "paused";
     this.hubChanged(["queue"]);
@@ -1085,14 +1139,21 @@ export class HubDemo {
       ...(st.judge === "manual" && st.agent_judgeable === false ? { agentJudgeable: false } : {}),
     }));
     const run: QaRun = { runId, script: sc.path, scriptName: sc.name, map: sc.map, state: "armed", steps, awaiting: [], lastSeq: 0, summary: qaSummaryOf(steps), resultsPath: demoResultsPath(runId), sessionId: null, toolUseId: null, seenAt: iso(now) };
-    const rec: RunRecord = { runId, kind: "script", target: sc.path, name: sc.name, outcome: "running", startedAt: iso(now), endedAt: null, durationMs: null, summary: run.summary, failedSteps: [], source, sessionId: null, planRunId: plan?.id ?? null, replayOf: null, recordingId: null, map: sc.map };
+    const rec: RunRecord = { runId, kind: "script", target: sc.path, name: sc.name, outcome: "running", startedAt: iso(now), endedAt: null, durationMs: null, summary: run.summary, failedSteps: [], source, trigger: "run", sessionId: null, planRunId: plan?.id ?? null, replayOf: null, recordingId: null, map: sc.map, provenance: this.provenance(sc) };
     s.runs.unshift(rec);
     s.qa[runId] = run;
     s.live = { runId, nextAt: now + this.ms(900), planId: plan?.id ?? null, blocked: false };
     this.scriptEvent(run, "run_started", { resultsPath: run.resultsPath });
     this.qaChanged(run);
+    if (plan) this.leaseChanged();
     this.hubChanged(["runs", "checks", "goals", "queue"], { runId, ...(plan ? { planRunId: plan.id } : {}) });
     return rec;
+  }
+
+  /** What a run starting now tests: the workspace as it is, and the script as it is. */
+  private provenance(sc: DemoScript): RunRecord["provenance"] {
+    const w = this.state.workspace;
+    return demoProvenance(sc, w.revision, w.dirty ?? 0);
   }
 
   /** Whether an auto step passes this time, by the script's profile. */
@@ -1174,6 +1235,7 @@ export class HubDemo {
       }
     }
     this.qaChanged(run);
+    if (live.planId) this.leaseChanged();
     this.hubChanged(["runs", "checks", "goals", "attention", "queue"], { runId: run.runId, ...(live.planId ? { planRunId: live.planId } : {}) });
   }
 
@@ -1309,6 +1371,8 @@ export class HubDemo {
     attempt.endedAt = iso(now);
     if (sc && sc.profile.fixable !== false) {
       sc.profile = { ...sc.profile, failStep: null, flakyStep: null };
+      // The attempt's change is in the workspace now, uncommitted, as a loop's changes are.
+      s.workspace = { ...s.workspace, dirty: (s.workspace.dirty ?? 0) + attempt.changes.length };
       const rec = this.passingRun(sc, now - 20_000);
       attempt.runId = rec.runId;
       attempt.failing = [];
@@ -1329,11 +1393,11 @@ export class HubDemo {
     this.hubChanged(["runs", "checks", "goals", "attention"], { runId });
   }
 
-  /** The run a successful fix loop made: every step passed. */
+  /** The run a successful fix loop made: every step passed. A loop's attempt, so it never counts toward health. */
   private passingRun(sc: DemoScript, at: number): RunRecord {
     const runId = demoRunId(sc.name, at, this.state.counter++);
     const total = sc.steps.length;
-    const rec: RunRecord = { runId, kind: "script", target: sc.path, name: sc.name, outcome: "passed", startedAt: iso(at), endedAt: iso(at + 15_000), durationMs: 15_000, summary: { total, passed: total, failed: 0, skipped: 0, pending: 0, awaiting: 0 }, failedSteps: [], source: "agent", sessionId: "hub-demo", planRunId: null, replayOf: null, recordingId: null, map: sc.map };
+    const rec: RunRecord = { runId, kind: "script", target: sc.path, name: sc.name, outcome: "passed", startedAt: iso(at), endedAt: iso(at + 15_000), durationMs: 15_000, summary: { total, passed: total, failed: 0, skipped: 0, pending: 0, awaiting: 0 }, failedSteps: [], source: "agent", trigger: "loop", sessionId: "hub-demo", planRunId: null, replayOf: null, recordingId: null, map: sc.map, provenance: this.provenance(sc) };
     this.state.runs.unshift(rec);
     this.state.runs.sort((a, b) => (a.startedAt < b.startedAt ? 1 : a.startedAt > b.startedAt ? -1 : 0));
     this.state.qa[runId] = { ...demoQaRun(sc, rec), sessionId: "hub-demo" };
@@ -1368,7 +1432,8 @@ export class HubDemo {
       if (this.state.qa[c.last.runId]?.assignment?.state === "running") continue;
       if (this.assign(c.last.runId).status === 200) queued++;
     }
-    return ok({ queued });
+    // The demo runs its fix loops on the cards, not as a fix plan in the queue.
+    return ok({ queued, plan: null });
   }
 
   // ---------- Events ----------
