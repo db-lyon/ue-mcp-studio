@@ -36,6 +36,7 @@ import { HttpError, readJson, requestJson, type Transport } from "./transport.js
 import { agentSettingsOf, catalogOf, contextOf, healthOf, installOf, nativeOf, settingsOf } from "./normalize.js";
 import type { CatalogPlugin, InstalledPlugin } from "./plugins.js";
 import { notificationsOf } from "./notifications.js";
+import type { EditorOpBody } from "./editor-consent.js";
 import type { StudioVersionNotice } from "./studio-api.js";
 
 const S = "/v1/ext/studio";
@@ -83,7 +84,9 @@ export function settingsApi(t: Transport) {
     /** Run the update steps waiting for a turn now; the computer refuses it to a paired client. */
     updateNow: () => send<{ ok?: boolean }>("POST", `${S}/updates/deferred/now`),
     remoteAvailable: (refresh = false) => get<RemoteAvailability>(`${S}/remote/available${refresh ? "?refresh=1" : ""}`),
-    editor: (op: "start" | "stop" | "restart" | "rebuild") => send<Record<string, unknown>>("POST", `/v1/editor/${op}`),
+    editor: (op: "start" | "stop" | "restart" | "rebuild", body?: EditorOpBody) => send<Record<string, unknown>>("POST", `/v1/editor/${op}`, body),
+    /** A person cancels a held editor operation (feature "editor.consent"). */
+    denyDisruption: (id: string, by: string) => send<unknown>("POST", `/v1/disruptions/${encodeURIComponent(id)}/deny`, { by }),
     plugins: () => get<{ plugins: InstalledPlugin[] }>("/v1/plugins"),
     pluginCatalog: () => get<{ plugins: CatalogPlugin[] }>("/v1/plugins/catalog"),
     feedbackEnvironment: () => get<{ body: string }>(`${S}/feedback/environment`),

@@ -7,6 +7,7 @@ import type { AssetOpenResponse, AssetRef, AssetResolveResponse, BusyState, Flow
 import { requestJson, type Transport } from "./transport.js";
 import { playtestsQuery } from "./qa.js";
 import type { EditorOp } from "./editor.js";
+import type { EditorOpBody } from "./editor-consent.js";
 import type { RunOptions } from "./qa.js";
 
 const enc = encodeURIComponent;
@@ -24,7 +25,9 @@ export function projectApi(t: Transport) {
     daemonHealth: () => get<Record<string, unknown>>("/v1/health"),
     busy: () => get<BusyState>(`${S}/busy`),
     stopBusy: () => send<{ stopped: string[] }>("POST", `${S}/busy/stop`),
-    editor: (op: EditorOp) => send<Record<string, unknown>>("POST", `/v1/editor/${op}`),
+    editor: (op: EditorOp, body?: EditorOpBody) => send<Record<string, unknown>>("POST", `/v1/editor/${op}`, body),
+    /** A person cancels a held editor operation: the sessions it was put to stop waiting on it (feature "editor.consent"). */
+    denyDisruption: (id: string, by: string) => send<unknown>("POST", `/v1/disruptions/${enc(id)}/deny`, { by }),
     flows: () => get<{ flows: FlowListing[] }>("/v1/flows"),
     planFlow: (name: string) => get<unknown>(`/v1/flows/${enc(name)}/plan`),
     flow: (sessionId: string, request: FlowRunRequest) => send<{ sessionId: string }>("POST", `${S}/sessions/${enc(sessionId)}/flow`, request),
