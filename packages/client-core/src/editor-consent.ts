@@ -110,9 +110,9 @@ export function consentHolders(r: EditorDisruptionRequest): ConsentHolder[] {
 }
 
 const LEAD: Record<ConsentOp, string> = {
-  stop: "Stopping the editor now ends their work in it, including anything unsaved.",
-  restart: "Restarting the editor now ends their work in it, including anything unsaved.",
-  rebuild: "Rebuilding now closes the editor and ends their work in it, including anything unsaved.",
+  stop: "Stopping the editor now interrupts those sessions' work in it.",
+  restart: "Restarting the editor now interrupts those sessions' work in it.",
+  rebuild: "Rebuilding now closes the editor and interrupts those sessions' work in it.",
 };
 
 const VERB: Record<ConsentOp, string> = { stop: "Stop", restart: "Restart", rebuild: "Rebuild" };

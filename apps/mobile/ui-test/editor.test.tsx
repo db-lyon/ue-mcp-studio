@@ -177,7 +177,7 @@ describe("EditorStatus", () => {
     fireEvent.click(screen.getByText("Restart"));
     await settle();
     expect(screen.getByText("Other sessions are using the editor")).toBeTruthy();
-    expect(screen.getByText("Restarting the editor now ends their work in it, including anything unsaved.")).toBeTruthy();
+    expect(screen.getByText("Restarting the editor now interrupts those sessions' work in it.")).toBeTruthy();
     expect(screen.getByTestId("editor-consent").textContent).toContain("Claude Code: Waiting, it started a PIE session that is still running");
     fireEvent.click(screen.getByText("Restart anyway"));
     await settle();

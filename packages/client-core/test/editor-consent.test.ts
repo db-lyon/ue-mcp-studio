@@ -62,12 +62,12 @@ describe("consentCopy", () => {
   it("names the operation on its override and says what it ends", () => {
     expect(consentCopy("rebuild")).toEqual({
       title: "Other sessions are using the editor",
-      lead: "Rebuilding now closes the editor and ends their work in it, including anything unsaved.",
+      lead: "Rebuilding now closes the editor and interrupts those sessions' work in it.",
       approve: "Rebuild anyway",
       cancel: "Cancel",
     });
     expect(consentCopy("stop").approve).toBe("Stop anyway");
-    expect(consentCopy("restart").lead).toBe("Restarting the editor now ends their work in it, including anything unsaved.");
+    expect(consentCopy("restart").lead).toBe("Restarting the editor now interrupts those sessions' work in it.");
   });
 
   it("holds only stop, restart and rebuild; start takes nothing from anyone", () => {

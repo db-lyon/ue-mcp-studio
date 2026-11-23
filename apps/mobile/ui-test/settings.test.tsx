@@ -277,7 +277,7 @@ describe("Settings > Project", () => {
     fireEvent.click(screen.getByLabelText("Close the editor and rebuild"));
     await settled();
     expect(screen.getByText("Other sessions are using the editor")).toBeTruthy();
-    expect(screen.getByText("Rebuilding now closes the editor and ends their work in it, including anything unsaved.")).toBeTruthy();
+    expect(screen.getByText("Rebuilding now closes the editor and interrupts those sessions' work in it.")).toBeTruthy();
     const ask = screen.getByTestId("editor-consent").textContent ?? "";
     expect(ask).toContain("Studio: Dress the courtyard: Blocked, a playtest is recording");
     expect(ask).toContain("Claude Code: Waiting, busy (blueprint.add_variable, level.place_actor)");
