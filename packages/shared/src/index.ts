@@ -184,6 +184,14 @@ export interface StudioSettings {
    * an agent from before email sign-in and for a `ue-mcp login` account.
    */
   account: { login: string; via: "studio" | "ue-mcp-login"; email?: string | null; github?: string | null } | null;
+  /** Experimental features switched on in Settings > General. Absent from an older agent: all off. */
+  experiments?: StudioExperiments;
+}
+
+/** Experimental features, each off unless switched on. */
+export interface StudioExperiments {
+  /** The Playtest Hub: goals, checks, run history and the queue, on the Playtests tab. */
+  playtestHub: boolean;
 }
 
 /** Whether anything on this machine can run a model: a sign-in, a key or a custom endpoint. */
@@ -208,6 +216,8 @@ export interface StudioSettingsUpdate {
   usage?: Partial<UsageSettings>;
   keys?: Partial<Record<KeyProviderId, string>>;
   signOut?: SignInId;
+  /** The fields given change; the rest stay. */
+  experiments?: Partial<StudioExperiments>;
 }
 
 /** How a model runs: a sign-in, the vendor key, or the custom endpoint that serves it. */
@@ -1031,6 +1041,7 @@ export interface StudioPluginUpdate {
 }
 export * from "./qa.js";
 export * from "./playtests.js";
+export * from "./hub.js";
 export * from "./agents.js";
 export * from "./review.js";
 export * from "./diff-tree.js";
