@@ -263,16 +263,27 @@ export class DurableTurns {
     return true;
   }
 
-  /** The user's message to a main agent that waits only on its subagents: they go on in the background, and it reads the message next. */
-  async tell(s: StoredSession, content: unknown[]): Promise<boolean> {
+  /** Whether the running harness stops a model answer for a steer (`interrupt` on submit). */
+  interrupts(): boolean {
+    return !!this.client.harness?.features.includes("interrupt");
+  }
+
+  /**
+   * The user's message to a main agent that waits only on its subagents: they go on in the background, and it reads the message next.
+   * `interject`: the main agent is replying; the message is steered into its run, and an answer in progress stops so
+   * the model replies to it now, while a tool call in progress finishes first. False when it is not replying.
+   */
+  async tell(s: StoredSession, content: unknown[], interject = false): Promise<boolean> {
     if (!s.durable) return false;
     try {
-      if (this.h.replying.has(s.id)) await this.client.call("background", { sessionId: keyOf(s) });
+      if (interject) {
+        if (!this.h.replying.has(s.id) || !this.interrupts()) return false;
+      } else if (this.h.replying.has(s.id)) await this.client.call("background", { sessionId: keyOf(s) });
       else {
         this.h.replying.add(s.id);
         this.h.active.set(s.id, new AbortController());
       }
-      await this.client.call("submit", { sessionId: keyOf(s), requestId: crypto.randomUUID(), content: userContent(content), agent: this.h.mainSpec(), whenBusy: "steer" });
+      await this.client.call("submit", { sessionId: keyOf(s), requestId: crypto.randomUUID(), content: userContent(content), agent: this.h.mainSpec(), whenBusy: "steer", ...(interject ? { interrupt: true } : {}) });
       return true;
     } catch (e) {
       this.h.host.log.warn(`session ${s.id}: the durable runtime did not take the message`, e);

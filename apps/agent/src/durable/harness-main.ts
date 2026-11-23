@@ -110,7 +110,7 @@ export async function runHarness(launch: HarnessLaunch): Promise<{ close(): Prom
   const handle = (sock: net.Socket, msg: ClientMessage): void => {
     switch (msg.t) {
       case "submit":
-        return ret(sock, msg.id, () => engine.submit(msg.sessionId, msg.requestId, msg.content, msg.agent, msg.whenBusy));
+        return ret(sock, msg.id, () => engine.submit(msg.sessionId, msg.requestId, msg.content, msg.agent, msg.whenBusy, msg.interrupt === true));
       case "seed":
         return ret(sock, msg.id, () => engine.seed(msg.sessionId, msg.messages));
       case "abort":
@@ -169,7 +169,7 @@ export async function runHarness(launch: HarnessLaunch): Promise<{ close(): Prom
         }
         authed = true;
         clients.add(sock);
-        sendLine(sock, { t: "hello", protocol: DURABLE_PROTOCOL, version: launch.version, pid: process.pid, extension: extensionVersion, features: ["usage", "abortSettles", "traces", "history"] } satisfies HarnessMessage);
+        sendLine(sock, { t: "hello", protocol: DURABLE_PROTOCOL, version: launch.version, pid: process.pid, extension: extensionVersion, features: ["usage", "abortSettles", "traces", "history", "interrupt"] } satisfies HarnessMessage);
         if (msg.role === "daemon") {
           daemon = sock;
           lastDaemonAt = Date.now();

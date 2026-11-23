@@ -19,7 +19,7 @@ import { anthropicMessagesApi } from "@earendil-works/pi-ai/api/anthropic-messag
 import { openAIResponsesApi } from "@earendil-works/pi-ai/api/openai-responses.lazy";
 import { openAICompletionsApi } from "@earendil-works/pi-ai/api/openai-completions.lazy";
 import { googleGenerativeAIApi } from "@earendil-works/pi-ai/api/google-generative-ai.lazy";
-import { createRegistry, defineDoc, defineExtension, defineTask, defineTool, GenerationTask, Harness, hook, LiveDoc, ToolTask } from "@earendil-works/pi-durable";
+import { ConversationBusy, createRegistry, defineDoc, defineExtension, defineTask, defineTool, GenerationTask, Harness, hook, LiveDoc, ToolTask } from "@earendil-works/pi-durable";
 import { openNodeSqliteStorage } from "@earendil-works/pi-durable/storage/sqlite/node";
 import { createCodemodeExtension } from "@earendil-works/pi-durable/codemode";
 import { CodemodeSandbox, loadQuickJSWasm } from "@earendil-works/pi-codemode";
@@ -376,6 +376,16 @@ class RouteModels {
       ?? spec.model;
     return { provider: "claude-code", modelId: id };
   }
+}
+
+/**
+ * The run's task while the model is answering, from a conversation's pi.live: a request, a retry's wait or a
+ * deferred poll, with no tool round and no after-run work. Null otherwise, so stopping it never stops a tool call.
+ */
+export function answeringTask<T>(live: { run?: { taskId?: T; afterRun?: unknown }; generation?: unknown; tools?: unknown[] } | undefined): T | null {
+  if (!live?.run || live.run.taskId === undefined || live.run.afterRun !== undefined) return null;
+  if (live.generation === undefined || (live.tools?.length ?? 0) > 0) return null;
+  return live.run.taskId;
 }
 
 /** A pi-ai message as the daemon sees it. */
@@ -803,11 +813,50 @@ export class DurableEngine {
     } as never, CTX);
   }
 
-  /** Run the main agent on the user's message: a new run when idle, else steered into the running one or queued after it. */
-  async submit(sessionId: string, requestId: string, content: UserContent, agent: AgentSpec, whenBusy: "steer" | "followUp"): Promise<void> {
+  /**
+   * Run the main agent on the user's message: a new run when idle, else steered into the running one or queued after it.
+   * `interrupt`, with a steer: when the model is answering, that answer stops and the run goes on with the message.
+   */
+  async submit(sessionId: string, requestId: string, content: UserContent, agent: AgentSpec, whenBusy: "steer" | "followUp", interrupt = false): Promise<void> {
     const conv = await this.mainConversation(sessionId);
     await this.configure(conv, agent, "main");
     await conv.submit({ type: "input", content, requestId, whenBusy } as never, CTX);
+    if (interrupt && whenBusy === "steer") await this.interrupt(conv);
+  }
+
+  /** Conversations whose answer is being stopped for a steer: the run's end in between is not sent. */
+  private readonly interrupting = new Set<string>();
+
+  /**
+   * The steer just queued is answered now: a model answer in progress is stopped, which keeps what it wrote as an
+   * aborted entry and every finished tool call before it, and a continue starts the next run, which places the steer
+   * first. A steer waits only for a tool round, which places it at its end as before. One code path for every provider.
+   */
+  private async interrupt(conv: AnyConversation): Promise<void> {
+    const convId = (conv as unknown as { id: unknown }).id;
+    const id = String(convId);
+    if (this.interrupting.has(id)) return;
+    const live = (await this.harness.snapshot(LiveDoc as never, convId as never, CTX)) as Parameters<typeof answeringTask<unknown>>[0];
+    const task = answeringTask(live);
+    if (task === null) return;
+    this.interrupting.add(id);
+    try {
+      // Stopping a run's task leaves its queued inputs queued (only Conversation.abort withdraws them).
+      await this.harness.abortTask(task as never, CTX);
+      await this.harness.waitForTask(task as never, CTX);
+      try {
+        await conv.submit({ type: "continue" } as never, CTX);
+      } catch (e) {
+        // Another input started a run meanwhile: it places the steer itself.
+        if (!(e instanceof ConversationBusy)) throw e;
+      }
+    } catch (e) {
+      this.host.log(`interrupting ${id}: ${e instanceof Error ? e.message : String(e)}`);
+    } finally {
+      this.interrupting.delete(id);
+      // The run's end, when no run went on after all.
+      await this.settle(id);
+    }
   }
 
   /** A migrated session's earlier conversation, before its first run. */
@@ -859,7 +908,8 @@ export class DurableEngine {
     if (!w || !where) return;
     await this.pump(conv, true);
     if (!w.running) return;
-    const live = (await this.harness.snapshot(LiveDoc as never, conv as never, CTX)) as { run?: unknown; runFailure?: { reason?: string; detail?: string } } | undefined;
+    // Document addresses take the conversation's numeric ID; Studio keys conversations by its string.
+    const live = (await this.harness.snapshot(LiveDoc as never, Number(conv) as never, CTX)) as { run?: unknown; runFailure?: { reason?: string; detail?: string } } | undefined;
     if (live?.run) return;
     w.running = false;
     const failure = live?.runFailure;
@@ -1034,7 +1084,8 @@ export class DurableEngine {
       const where = this.byConv.get(conv);
       if (!where) return;
       const live = (call.value?.docs?.[(LiveDoc as unknown as { definition: { kind: string } }).definition.kind] ?? call.value?.docs?.["pi.live"]) as Record<string, unknown> | undefined;
-      const running = !!live?.run;
+      // An answer stopped for a steer: the turn goes on in the next run, so the end in between is not the turn's end.
+      const running = !!live?.run || (w.running && this.interrupting.has(conv));
       // A run's end goes out after its last entry.
       if (running !== w.running) await this.pump(conv);
       else void this.pump(conv);
