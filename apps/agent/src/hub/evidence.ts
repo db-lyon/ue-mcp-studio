@@ -108,14 +108,20 @@ export function readSeries(projectDir: string, runId: string): Record<string, Ar
   }
 }
 
-/** The run as its results.json records it, for a run Studio holds no QaRun of. */
-export function readResults(projectDir: string, runId: string): QaRun | null {
+/** The run's results.json as written, or null when there is none to read. */
+export function readResultsFile(projectDir: string, runId: string): Record<string, unknown> | null {
   const dir = runDir(projectDir, runId);
   if (!dir) return null;
   try {
-    const raw = JSON.parse(fs.readFileSync(path.join(dir, "results.json"), "utf-8")) as Record<string, unknown>;
-    return qaRunFromAnswer(raw, { seenAt: typeof raw.started_at === "string" ? raw.started_at : new Date(0).toISOString() });
+    const raw = JSON.parse(fs.readFileSync(path.join(dir, "results.json"), "utf-8")) as unknown;
+    return raw && typeof raw === "object" && !Array.isArray(raw) ? (raw as Record<string, unknown>) : null;
   } catch {
     return null;
   }
+}
+
+/** The run as its results.json records it, for a run Studio holds no QaRun of. */
+export function readResults(projectDir: string, runId: string): QaRun | null {
+  const raw = readResultsFile(projectDir, runId);
+  return raw ? qaRunFromAnswer(raw, { seenAt: typeof raw.started_at === "string" ? raw.started_at : new Date(0).toISOString() }) : null;
 }

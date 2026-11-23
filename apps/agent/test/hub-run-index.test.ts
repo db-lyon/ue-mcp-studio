@@ -123,5 +123,44 @@ describe("RunIndex", () => {
     expect(idx.get("old")).toMatchObject({ source: "outside", startedAt: "2026-11-01T00:00:00.000Z", durationMs: 30_000 });
     idx.backfill(run("old", "finished", ["failed"]), {});
     expect(idx.get("old")?.outcome).toBe("passed");
+    // Nobody read the workspace when it started: its revision is unknown.
+    expect(idx.get("old")?.provenance).toBeUndefined();
+  });
+
+  it("is the local evidence store", () => {
+    expect(new RunIndex({ dataDir: root }).scope).toBe("local");
+  });
+});
+
+describe("provenance and triggers", () => {
+  const tested = { vcs: "git" as const, revision: "abc123", dirty: 0, scriptHash: "sha256:1", engine: "5.5", players: null };
+
+  it("names a replay and a fix loop's attempt, and keeps a run handed to a loop later a plain run", () => {
+    expect(recordOf(run("r", "running", ["running"], { replayOf: "src" }), { now: "t" })?.trigger).toBe("replay");
+    const attempt = run("l", "running", ["running"], { sessionId: "s", assignment: { callId: "c", sessionId: "s", state: "running", at: "t" } });
+    expect(recordOf(attempt, { now: "t" })?.trigger).toBe("loop");
+    const first = recordOf(run("p", "finished", ["failed"], { sessionId: "s" }), { now: "t" })!;
+    expect(first.trigger).toBe("run");
+    expect(recordOf({ ...run("p", "finished", ["failed"], { sessionId: "s" }), assignment: attempt.assignment }, { prev: first, now: "t" })?.trigger).toBe("run");
+  });
+
+  it("keeps a run's provenance as it changes and across a restart", () => {
+    const idx = new RunIndex({ dataDir: root, now: () => "t" });
+    idx.record(run("a", "running", ["running"], { sessionId: "s" }));
+    expect(idx.setProvenance("a", tested)?.provenance).toEqual(tested);
+    expect(idx.setProvenance("nope", tested)).toBeUndefined();
+    idx.record(run("a", "finished", ["passed"], { sessionId: "s" }));
+    expect(idx.get("a")).toMatchObject({ outcome: "passed", trigger: "run", provenance: tested });
+    expect(new RunIndex({ dataDir: root }).get("a")?.provenance).toEqual(tested);
+  });
+
+  it("reads a record kept before triggers and provenance were, and drops a field that does not read", () => {
+    fs.mkdirSync(path.dirname(file()), { recursive: true });
+    const old = { runId: "o", kind: "script", target: "/Game/Tests/Door", name: "Door", outcome: "passed", startedAt: "2026-11-01T00:00:00.000Z", source: "person" };
+    fs.writeFileSync(file(), `${JSON.stringify(old)}\n${JSON.stringify({ ...old, runId: "b", trigger: "nonsense", provenance: "x" })}\n`);
+    const idx = new RunIndex({ dataDir: root });
+    expect(idx.get("o")).toEqual(old);
+    expect(idx.get("b")?.trigger).toBeUndefined();
+    expect(idx.get("b")?.provenance).toBeUndefined();
   });
 });

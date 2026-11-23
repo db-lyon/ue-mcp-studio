@@ -2,11 +2,12 @@
  * The hub's run history, per machine: <dataDir>/hub/runs.jsonl, one RunRecord
  * per line, appended as runs change and finish. The newest line for a run
  * wins. On start the file is compacted to one line per run, the newest
- * MAX_RUNS of them, so it never grows without end.
+ * MAX_RUNS of them, so it never grows without end. The local EvidenceStore.
  *
  * Studio's own runs are recorded as the QaBroker saves them. Runs ue-mcp has a
  * record of (pie(script_runs), or results.json without it) are backfilled, so
- * runs started outside Studio, or before this daemon, are history too.
+ * runs started outside Studio, or before this daemon, are history too; they
+ * carry no provenance, since nobody read the workspace when they started.
  */
 import * as fs from "node:fs";
 import * as path from "node:path";
@@ -19,18 +20,24 @@ import {
   type CheckKind,
   type QaRun,
   type RunOutcome,
+  type RunProvenance,
   type RunRecord,
   type RunSource,
+  type RunTrigger,
   type TrackerLink,
 } from "@ue-mcp-studio/shared";
 import { writeFileAtomic } from "../atomic-write.js";
+import type { EvidenceStore, RunTag } from "./evidence-store.js";
 import { readLinks } from "./util.js";
+
+export type { RunTag } from "./evidence-store.js";
 
 /** The most runs kept. */
 export const MAX_RUNS = 5000;
 const OUTCOMES: readonly RunOutcome[] = ["passed", "failed", "needs_you", "running", "incomplete", "unjudged", "stopped", "error"];
 const SOURCES: readonly RunSource[] = ["person", "agent", "plan", "schedule", "outside"];
 const KINDS: readonly CheckKind[] = ["script", "uat", "repro", "automation", "manual"];
+const TRIGGERS: readonly RunTrigger[] = ["run", "replay", "loop"];
 
 /** What started a run, as far as its QaRun tells: no session is outside Studio; a subagent or tool call is an agent; a card's button is a person. */
 export function sourceOf(run: QaRun): RunSource {
@@ -39,17 +46,23 @@ export function sourceOf(run: QaRun): RunSource {
   return "person";
 }
 
-/** Who started a run when the hub did it: a plan's run, or a schedule's. */
-export interface RunTag {
-  source: RunSource;
-  planRunId: string;
+/**
+ * Why a run happened. A replay says so by replayOf. A fix loop's attempt
+ * carries the loop's assignment when it is first seen; a run that is
+ * assigned to a loop later (the failure handed to it) stays a plain run.
+ */
+function triggerOf(run: QaRun, prev: RunRecord | undefined): RunTrigger {
+  if (run.replayOf) return "replay";
+  if (prev) return prev.trigger ?? "run";
+  return run.assignment ? "loop" : "run";
 }
 
 /**
  * A run's record from its QaRun, keeping what the earlier record already
- * settled (when it started, when it ended, who started it). Null for what is
- * no run of a check: a draft, inline steps, a manual run (it judges the
- * manual steps alone, the full run holds the evidence), an idle answer.
+ * settled (when it started, when it ended, who started it, why, and what it
+ * tested). Null for what is no run of a check: a draft, inline steps, a
+ * manual run (it judges the manual steps alone, the full run holds the
+ * evidence), an idle answer.
  */
 export function recordOf(run: QaRun, o: { prev?: RunRecord; times?: { startedAt?: string; endedAt?: string }; tag?: RunTag; now: string }): RunRecord | null {
   if (qaIsDraft(run) || run.script === "inline" || run.manual || run.state === "idle") return null;
@@ -74,26 +87,33 @@ export function recordOf(run: QaRun, o: { prev?: RunRecord; times?: { startedAt?
     summary: run.summary,
     ...(failedSteps.length ? { failedSteps } : {}),
     source,
+    trigger: triggerOf(run, prev),
     sessionId: run.sessionId,
     planRunId: o.tag?.planRunId ?? prev?.planRunId ?? null,
     replayOf: run.replayOf ?? null,
     recordingId: run.recordingId ?? null,
     map: run.map ?? null,
-    // Links are the hub's, never the QaRun's: a run changing keeps them.
+    // Provenance and links are the hub's, never the QaRun's: a run changing keeps them.
+    ...(prev?.provenance ? { provenance: prev.provenance } : {}),
+    ...(prev?.tainted ? { tainted: true } : {}),
     ...(prev?.links?.length ? { links: prev.links } : {}),
   };
 }
 
-/** A record read from the file, or null when the line is not one. */
+/** A record read from the file, or null when the line is not one. A field that does not read is dropped, never guessed. */
 function recordFrom(v: unknown): RunRecord | null {
   if (!v || typeof v !== "object") return null;
   const r = v as Partial<RunRecord>;
   if (typeof r.runId !== "string" || !r.runId || typeof r.target !== "string" || typeof r.name !== "string" || typeof r.startedAt !== "string") return null;
   if (!KINDS.includes(r.kind as CheckKind) || !OUTCOMES.includes(r.outcome as RunOutcome) || !SOURCES.includes(r.source as RunSource)) return null;
-  if (r.links === undefined) return r as RunRecord;
-  const { links } = readLinks(r.links);
-  const { links: _had, ...rest } = r as RunRecord;
-  return links.length ? { ...rest, links } : rest;
+  const { links: rawLinks, trigger, provenance, ...rest } = r as RunRecord;
+  const links = rawLinks === undefined ? [] : readLinks(rawLinks).links;
+  return {
+    ...rest,
+    ...(TRIGGERS.includes(trigger as RunTrigger) ? { trigger } : {}),
+    ...(provenance && typeof provenance === "object" && !Array.isArray(provenance) ? { provenance } : {}),
+    ...(links.length ? { links } : {}),
+  };
 }
 
 /** Newest first: by start, then by id, which carries the start time too. */
@@ -108,7 +128,8 @@ export interface RunIndexOptions {
   log?: { warn(message: string, detail?: unknown): void };
 }
 
-export class RunIndex {
+export class RunIndex implements EvidenceStore {
+  readonly scope = "local" as const;
   private readonly runs = new Map<string, RunRecord>();
   /** Runs by check id, newest first; rebuilt when a record changes. */
   private byCheckCache: Map<string, RunRecord[]> | null = null;
@@ -190,6 +211,22 @@ export class RunIndex {
     if (this.runs.size > this.max + this.beyond || this.appended > this.max) this.compact();
     this.o.changed?.(r.runId);
     return true;
+  }
+
+  /** What a run tested. Returns the record, or undefined for a run not held. */
+  setProvenance(runId: string, provenance: RunProvenance): RunRecord | undefined {
+    const had = this.runs.get(runId);
+    if (!had) return undefined;
+    this.put({ ...had, provenance });
+    return this.runs.get(runId);
+  }
+
+  /** Project files changed while the run played. Returns the record, or undefined for a run not held. */
+  setTainted(runId: string): RunRecord | undefined {
+    const had = this.runs.get(runId);
+    if (!had) return undefined;
+    if (!had.tainted) this.put({ ...had, tainted: true });
+    return this.runs.get(runId);
   }
 
   /** A run's links replaced; an empty list removes them. Returns the record, or undefined for a run not held. */
