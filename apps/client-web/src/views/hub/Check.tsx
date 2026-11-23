@@ -4,12 +4,17 @@
  * it. A test script's steps are edited in the playtest card's own editor.
  */
 import { useEffect, useMemo, useRef, useState } from "react";
-import type { CheckDetail, QaRun, RunRecord } from "@ue-mcp-studio/shared";
+import type { CheckDetail, QaRun, RunRecord, TrackerLink } from "@ue-mcp-studio/shared";
+import { HubLinks } from "./links";
 import {
   CHECK_HEALTH_LOOK,
   CHECK_KIND_LABEL,
   GOAL_STATUS_LOOK,
   HUB_COPY,
+  HUB_LINK_COPY,
+  checkLinks,
+  withLink,
+  withoutLink,
   RUN_OUTCOME_LOOK,
   RUN_SOURCE_LABEL,
   flips,
@@ -89,6 +94,18 @@ export function CheckScreen({ checkId }: { checkId: string }) {
   const median = durations.length ? durations[Math.floor(durations.length / 2)] : null;
   const flipCount = flips(state.recent);
   const script: QaRun | null = detail?.script ?? null;
+  // A check's links live in the goals that list it: shown together, added to each, removed from each that has it.
+  const links = checkLinks(checkId, goals);
+  const saveCheckLinks = async (goalIds: string[], change: (had: TrackerLink[] | undefined) => TrackerLink[]) => {
+    try {
+      for (const id of goalIds) {
+        const ref = o.goals.find((g) => g.goal.id === id)?.goal.checks.find((c) => `${c.kind}:${c.target}` === checkId);
+        if (ref) await api.hub.updateCheck(id, checkId, { links: change(ref.links) });
+      }
+    } finally {
+      data.reload();
+    }
+  };
 
   return (
     <div className="hub-screen hub-check">
@@ -121,6 +138,12 @@ export function CheckScreen({ checkId }: { checkId: string }) {
           </HubLink>
         ))}
       </div>
+      <HubLinks
+        links={links.map((l) => l.link)}
+        onAdd={goals.length ? (l) => saveCheckLinks(goals.map((g) => g.goal.id), (had) => withLink(had, l)) : undefined}
+        onRemove={goals.length ? (url) => void saveCheckLinks(links.find((x) => x.link.url === url)?.goalIds ?? [], (had) => withoutLink(had, url)).catch((e: Error) => hub.notify(e.message, "bad")) : undefined}
+        note={HUB_LINK_COPY.checkNeedsGoal}
+      />
 
       {editing && script ? (
         <QaContext.Provider value={live}>

@@ -27,6 +27,7 @@ import { FailNote } from "../../chat/Qa";
 import { useHub } from "./state";
 import { Empty, HubIcon, HubLink, Placeholder, ScreenHead, StatusMark, StatusPill } from "./parts";
 import { HubViewer, useHubViewer } from "./live";
+import { HubLinks } from "./links";
 
 export function RunScreen({ runId }: { runId: string }) {
   const hub = useHub();
@@ -125,6 +126,8 @@ export function RunScreen({ runId }: { runId: string }) {
           <HubLink href={`#/playtests/runs/${encodeURIComponent(d.lastPass.runId)}`} onGo={() => go({ screen: "run", runId: d.lastPass!.runId })}>{shortAgo(d.lastPass.startedAt)} ago</HubLink>
         </div>
       )}
+      <HubLinks links={record.links} onAdd={async (l) => { await api.hub.addRunLink(runId, l); void read(); }}
+        onRemove={(url) => void api.hub.removeRunLink(runId, url).then(() => read(), (e: Error) => hub.notify(e.message, "bad"))} />
       {record.replayOf && (
         <div className="hub-compare small">Replay of <HubLink href={`#/playtests/runs/${encodeURIComponent(record.replayOf)}`} onGo={() => go({ screen: "run", runId: record.replayOf! })}>an earlier run</HubLink>{d.run?.summary.regressions ? `, ${d.run.summary.regressions} regressed` : ""}</div>
       )}

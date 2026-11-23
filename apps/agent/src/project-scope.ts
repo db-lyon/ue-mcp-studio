@@ -8,6 +8,7 @@
  */
 import * as path from "node:path";
 import { resolvePath } from "./local-tools.js";
+import { isHubTool } from "./hub-tools.js";
 
 const caseless = process.platform === "win32";
 
@@ -56,5 +57,7 @@ export function commandInsideProject(projectDir: string, command: string): boole
 export function callInsideProject(projectDir: string, name: string, input: Record<string, unknown>): boolean {
   if (name === "shell") return typeof input.command === "string" && commandInsideProject(projectDir, input.command);
   if (name === "write_file" || name === "edit_file") return typeof input.path === "string" && insideProject(projectDir, resolvePath(projectDir, input.path));
+  // The hub's tools write only goal files, in the project's goals folder.
+  if (isHubTool(name)) return true;
   return false;
 }

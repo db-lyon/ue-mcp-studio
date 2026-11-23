@@ -244,3 +244,46 @@ describe("the library", () => {
     expect(screen.getByText("Menu")).toBeTruthy();
   });
 });
+
+describe("tracker links", () => {
+  const issue = "https://git.example.com/ember/hollow/issues/42";
+  const withLinks = (): HubOverview => {
+    const o = hubFixture();
+    const g = o.goals[1];
+    g.goal.links = [{ url: issue, title: "Movement", rel: "counterpart" }];
+    g.goal.checks = [{ ...g.goal.checks[0], links: [{ url: "jira://HOL-7" }] }, g.goal.checks[1]];
+    g.checks = [{ ...g.checks[0], check: g.goal.checks[0] }, g.checks[1]];
+    return o;
+  };
+
+  it("shows a goal's links and its checks' links as chips that open outside Studio", () => {
+    const open = vi.spyOn(window, "open").mockReturnValue(null);
+    window.location.hash = "#/playtests/goals/movement";
+    render(<Harness start={withLinks()} />);
+    const links = screen.getByRole("group", { name: "Links" });
+    const chip = within(links).getByText("Movement").closest("a")!;
+    expect(chip.getAttribute("href")).toBe(issue);
+    expect(within(chip).getByText("git.example.com")).toBeTruthy();
+    fireEvent.click(chip);
+    expect(open).toHaveBeenCalledWith(issue, "_blank", "noopener");
+    expect(screen.getByText("HOL-7")).toBeTruthy();
+    open.mockRestore();
+  });
+
+  it("adds a link inline, refuses one that cannot open safely, and removes one", async () => {
+    m.hub.updateGoal.mockResolvedValue({ goal: {} });
+    window.location.hash = "#/playtests/goals/movement";
+    render(<Harness start={withLinks()} />);
+    fireEvent.click(screen.getByRole("button", { name: /Add link/ }));
+    fireEvent.change(screen.getByLabelText("Link URL"), { target: { value: "javascript:alert(1)" } });
+    fireEvent.click(screen.getByRole("button", { name: "Add" }));
+    expect(screen.getByRole("alert").textContent).toContain("cannot be opened safely");
+    expect(m.hub.updateGoal).not.toHaveBeenCalled();
+    fireEvent.change(screen.getByLabelText("Link URL"), { target: { value: "trello.com/c/abc" } });
+    fireEvent.change(screen.getByLabelText("Link title"), { target: { value: "Card" } });
+    fireEvent.click(screen.getByRole("button", { name: "Add" }));
+    await waitFor(() => expect(m.hub.updateGoal).toHaveBeenCalledWith("movement", { links: [{ url: issue, title: "Movement", rel: "counterpart" }, { url: "https://trello.com/c/abc", title: "Card" }] }));
+    fireEvent.click(screen.getByRole("button", { name: "Remove link Movement" }));
+    await waitFor(() => expect(m.hub.updateGoal).toHaveBeenLastCalledWith("movement", { links: [{ url: "https://trello.com/c/abc", title: "Card" }] }));
+  });
+});

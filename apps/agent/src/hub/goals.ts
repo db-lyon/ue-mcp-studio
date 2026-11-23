@@ -7,6 +7,12 @@
  * A file that does not parse, or is not a goal, is left alone and reported as
  * a warning; it never stops the others loading. The folder is watched, so a
  * goal changed by source control or a text editor shows at once.
+ *
+ * Beside the goals the store keeps goal.schema.json and README.md
+ * (goal-docs.ts), written once the folder exists and rewritten only when
+ * their text would change, so source control sees no churn. Each goal file
+ * names the schema in "$schema"; a different "$schema" a file already has is
+ * kept as written.
  */
 import * as fs from "node:fs";
 import * as path from "node:path";
@@ -14,19 +20,24 @@ import {
   DEFAULT_ACCEPTANCE,
   GOAL_ID,
   HUB_GOALS_DIR,
+  HUB_GOALS_README,
+  HUB_GOAL_SCHEMA_FILE,
   HUB_SCHEMA,
   checkId,
   goalSlug,
   type AcceptanceRule,
   type CheckRef,
+  type CheckUpdate,
   type Goal,
   type GoalDraft,
   type GoalPriority,
   type GoalUpdate,
   type SignOff,
+  type TrackerLink,
 } from "@ue-mcp-studio/shared";
 import { writeFileAtomic } from "../atomic-write.js";
-import { bad, checkRefOf, conflict, isObject, notFound } from "./util.js";
+import { EXAMPLE_GOAL, GOAL_SCHEMA_REF, GOAL_SCHEMA_TEXT, goalsReadme } from "./goal-docs.js";
+import { bad, checkRefOf, conflict, isObject, linksOf, notFound, readLinks } from "./util.js";
 
 const PRIORITIES: readonly GoalPriority[] = ["p0", "p1", "p2", "p3"];
 const DATE = /^\d{4}-\d{2}-\d{2}$/;
@@ -37,7 +48,9 @@ const MAX_TITLE = 200;
 const MAX_TEXT = 20_000;
 
 /** Top-level keys in the order a goal file is written. Unknown keys a newer Studio wrote follow, sorted. */
-const ORDER = ["schema", "id", "kind", "title", "description", "parent", "owner", "priority", "tags", "due", "acceptance", "checks", "signOff", "archived", "createdAt", "updatedAt"] as const;
+export const ORDER = ["schema", "id", "kind", "title", "description", "parent", "owner", "priority", "tags", "due", "links", "acceptance", "checks", "signOff", "archived", "createdAt", "updatedAt"] as const;
+/** Keys a goal file holds that are not the goal's own fields, kept apart from unknown ones: "$schema" is always written first. */
+const SCHEMA_KEY = "$schema";
 
 export interface GoalStoreOptions {
   projectDir: string;
@@ -57,9 +70,12 @@ interface Entry {
   extra: Record<string, unknown>;
 }
 
-/** A goal file's text: fixed key order, two-space indent, trailing newline. */
+/** Links in their written form: url, title, rel. */
+const linksText = (links: TrackerLink[]): TrackerLink[] => links.map((l) => ({ url: l.url, ...(l.title !== undefined ? { title: l.title } : {}), ...(l.rel !== undefined ? { rel: l.rel } : {}) }));
+
+/** A goal file's text: "$schema" first, then a fixed key order, two-space indent, trailing newline. */
 export function goalText(goal: Goal, extra: Record<string, unknown> = {}): string {
-  const out: Record<string, unknown> = {};
+  const out: Record<string, unknown> = { [SCHEMA_KEY]: extra[SCHEMA_KEY] !== undefined ? extra[SCHEMA_KEY] : GOAL_SCHEMA_REF };
   const g = goal as unknown as Record<string, unknown>;
   for (const k of ORDER) {
     const v = g[k];
@@ -67,8 +83,16 @@ export function goalText(goal: Goal, extra: Record<string, unknown> = {}): strin
     if (k === "acceptance") {
       const a = v as AcceptanceRule;
       out[k] = { stableRuns: a.stableRuns, staleAfterDays: a.staleAfterDays, signOff: a.signOff };
+    } else if (k === "links") {
+      if ((v as TrackerLink[]).length) out[k] = linksText(v as TrackerLink[]);
     } else if (k === "checks") {
-      out[k] = (v as CheckRef[]).map((c) => ({ kind: c.kind, target: c.target, ...(c.title !== undefined ? { title: c.title } : {}), ...(c.required !== undefined ? { required: c.required } : {}) }));
+      out[k] = (v as CheckRef[]).map((c) => ({
+        kind: c.kind,
+        target: c.target,
+        ...(c.title !== undefined ? { title: c.title } : {}),
+        ...(c.required !== undefined ? { required: c.required } : {}),
+        ...(c.links?.length ? { links: linksText(c.links) } : {}),
+      }));
     } else if (k === "signOff" && v) {
       const s = v as SignOff;
       out[k] = { by: s.by, at: s.at, ...(s.note !== undefined ? { note: s.note } : {}) };
@@ -76,7 +100,7 @@ export function goalText(goal: Goal, extra: Record<string, unknown> = {}): strin
       out[k] = v;
     }
   }
-  for (const k of Object.keys(extra).sort()) if (!(ORDER as readonly string[]).includes(k)) out[k] = extra[k];
+  for (const k of Object.keys(extra).sort()) if (k !== SCHEMA_KEY && !(ORDER as readonly string[]).includes(k)) out[k] = extra[k];
   return `${JSON.stringify(out, null, 2)}\n`;
 }
 
@@ -119,9 +143,15 @@ export function parseGoal(raw: unknown, fileId: string, fallbackTime: string): {
   if (raw.checks !== undefined && !Array.isArray(raw.checks)) problems.push("checks is not a list");
   for (const [i, c] of (Array.isArray(raw.checks) ? raw.checks : []).entries()) {
     const ref = checkRefOf(c);
-    if (ref) checks.push(ref);
-    else problems.push(`check ${i + 1} is not a check`);
+    if (!ref) {
+      problems.push(`check ${i + 1} is not a check`);
+      continue;
+    }
+    checks.push(ref);
+    for (const p of readLinks((c as Record<string, unknown>).links).problems) problems.push(`check ${i + 1} ${p}`);
   }
+  const goalLinks = readLinks(raw.links);
+  problems.push(...goalLinks.problems);
   const kind = raw.kind === "milestone" ? "milestone" : "goal";
   const signOff = isObject(raw.signOff) && typeof raw.signOff.by === "string" && typeof raw.signOff.at === "string"
     ? { by: raw.signOff.by, at: raw.signOff.at, ...(typeof raw.signOff.note === "string" ? { note: raw.signOff.note } : {}) }
@@ -137,6 +167,7 @@ export function parseGoal(raw: unknown, fileId: string, fallbackTime: string): {
     ...(PRIORITIES.includes(raw.priority as GoalPriority) ? { priority: raw.priority as GoalPriority } : {}),
     ...(Array.isArray(raw.tags) ? { tags: [...new Set(raw.tags.filter((t): t is string => typeof t === "string" && !!t.trim()).map((t) => t.trim()))] } : {}),
     ...(typeof raw.due === "string" && DATE.test(raw.due) ? { due: raw.due } : {}),
+    ...(goalLinks.links.length ? { links: goalLinks.links } : {}),
     acceptance: acceptanceOf(raw.acceptance),
     checks: uniqueChecks(checks),
     ...(signOff ? { signOff } : {}),
@@ -162,6 +193,34 @@ export class GoalStore {
     this.relDir = (o.dir ?? HUB_GOALS_DIR).replace(/\\/g, "/");
     this.dir = path.resolve(o.projectDir, this.relDir);
     this.read();
+    if (fs.existsSync(this.dir)) this.writeDocs();
+  }
+
+  /**
+   * goal.schema.json and README.md, each written only when its text differs
+   * from what the file holds. A failure is logged: the goals still work.
+   */
+  writeDocs(): void {
+    const docs: Array<[string, string]> = [
+      [HUB_GOAL_SCHEMA_FILE, GOAL_SCHEMA_TEXT],
+      [HUB_GOALS_README, goalsReadme(goalText(EXAMPLE_GOAL))],
+    ];
+    for (const [name, text] of docs) {
+      const file = path.join(this.dir, name);
+      try {
+        let had: string | null = null;
+        try {
+          had = fs.readFileSync(file, "utf-8");
+        } catch {
+          // Not there yet.
+        }
+        // A checkout may turn the newlines into CRLF: that is the same text.
+        if (had !== null && had.replace(/\r\n/g, "\n") === text) continue;
+        writeFileAtomic(file, text);
+      } catch (e) {
+        this.o.log?.warn(`hub: ${this.relDir}/${name} could not be written`, e);
+      }
+    }
   }
 
   /** Start following the folder; a missing folder is followed from the first goal written into it. */
@@ -217,7 +276,7 @@ export class GoalStore {
     this.problems = [];
     let names: string[];
     try {
-      names = fs.readdirSync(this.dir).filter((n) => n.toLowerCase().endsWith(".json"));
+      names = fs.readdirSync(this.dir).filter((n) => n.toLowerCase().endsWith(".json") && n.toLowerCase() !== HUB_GOAL_SCHEMA_FILE);
     } catch {
       return;
     }
@@ -272,10 +331,27 @@ export class GoalStore {
     return [...this.problems];
   }
 
+  /** The goal file's path. */
+  fileOf(id: string): string {
+    return path.join(this.dir, `${id}.json`);
+  }
+
+  /** The goal file's text as last read or written, or null for a goal not held. */
+  textOf(id: string): string | null {
+    return this.goals.get(id)?.text ?? null;
+  }
+
+  /** The text a goal would be written as, keeping the file's unknown keys. */
+  textFor(goal: Goal): string {
+    return goalText(goal, this.goals.get(goal.id)?.extra ?? {});
+  }
+
   private write(goal: Goal, extra: Record<string, unknown> = this.goals.get(goal.id)?.extra ?? {}): Goal {
     const text = goalText(goal, extra);
+    const fresh = !fs.existsSync(this.dir);
     fs.mkdirSync(this.dir, { recursive: true });
-    writeFileAtomic(path.join(this.dir, `${goal.id}.json`), text);
+    if (fresh || this.goals.size === 0) this.writeDocs();
+    writeFileAtomic(this.fileOf(goal.id), text);
     this.goals.set(goal.id, { goal, text, extra });
     this.watch();
     this.o.changed?.(goal.id);
@@ -342,6 +418,7 @@ export class GoalStore {
       out.acceptance = acceptanceOf(a, id ? this.get(id)?.acceptance : DEFAULT_ACCEPTANCE);
     }
     if (u.checks !== undefined) out.checks = this.checksOf(u.checks);
+    if (u.links !== undefined) out.links = u.links === null ? [] : linksOf(u.links);
     if (u.archived !== undefined) {
       if (typeof u.archived !== "boolean") throw bad("archived must be a boolean");
       out.archived = u.archived;
@@ -366,11 +443,19 @@ export class GoalStore {
     return uniqueChecks(v.map((c, i) => {
       const ref = checkRefOf(c);
       if (!ref) throw bad(`check ${i + 1} must be { kind: script | uat | repro | automation | manual, target }, a script's target an asset path`);
+      // checkRefOf keeps the valid links; a request is refused for any that is not.
+      const raw = (c as Record<string, unknown>).links;
+      if (raw !== undefined && raw !== null) linksOf(raw, `check ${i + 1} links`);
       return ref;
     }));
   }
 
   create(draft: unknown): Goal {
+    return this.write(this.planCreate(draft), {});
+  }
+
+  /** The goal create() would write, without writing it. */
+  planCreate(draft: unknown): Goal {
     if (!isObject(draft)) throw bad("body must be a goal: { title, ... }");
     const d = draft as Partial<GoalDraft> & Record<string, unknown>;
     if (!str(d.title, MAX_TITLE)) throw bad("title must be a non-empty string");
@@ -390,16 +475,22 @@ export class GoalStore {
       ...(f.priority ? { priority: f.priority } : {}),
       ...(f.tags?.length ? { tags: f.tags } : {}),
       ...(f.due ? { due: f.due } : {}),
+      ...(f.links?.length ? { links: f.links } : {}),
       acceptance: f.acceptance ?? { ...DEFAULT_ACCEPTANCE },
       checks: f.checks ?? [],
       ...(f.archived ? { archived: true } : {}),
       createdAt: at,
       updatedAt: at,
     };
-    return this.write(goal, {});
+    return goal;
   }
 
   update(id: string, u: unknown): Goal {
+    return this.write(this.planUpdate(id, u));
+  }
+
+  /** The goal update() would write, without writing it. */
+  planUpdate(id: string, u: unknown): Goal {
     const had = this.require(id);
     if (!isObject(u)) throw bad("body must be the fields to change");
     const upd = u as GoalUpdate & Record<string, unknown>;
@@ -410,7 +501,40 @@ export class GoalStore {
     const f = this.fields(upd, id, kind);
     if (kind === "milestone" && (f.parent !== undefined ? f.parent : had.parent)) throw bad("a goal in a milestone cannot become a milestone: clear its parent too");
     const next: Goal = { ...had, ...f, kind, schema: HUB_SCHEMA, id, createdAt: had.createdAt, updatedAt: this.now() };
-    return this.write(clean(next));
+    return clean(next);
+  }
+
+  updateCheck(id: string, check: string, u: unknown): Goal {
+    return this.write(this.planUpdateCheck(id, check, u));
+  }
+
+  /** One check of a goal with its title, required or links changed (CheckUpdate), without writing it. */
+  planUpdateCheck(id: string, check: string, u: unknown): Goal {
+    const had = this.require(id);
+    const at = had.checks.findIndex((c) => checkId(c) === check);
+    if (at < 0) throw notFound(`goal ${id} has no check ${check}`);
+    if (!isObject(u)) throw bad("body must be { title?, required?, links? }");
+    const upd = u as CheckUpdate & Record<string, unknown>;
+    const next: CheckRef = { ...had.checks[at] };
+    if (upd.title !== undefined) {
+      if (upd.title !== null && typeof upd.title !== "string") throw bad("title must be a string, or null to clear it");
+      const t = str(upd.title, MAX_TITLE);
+      if (t) next.title = t;
+      else delete next.title;
+    }
+    if (upd.required !== undefined) {
+      if (typeof upd.required !== "boolean") throw bad("required must be a boolean");
+      if (upd.required) delete next.required;
+      else next.required = false;
+    }
+    if (upd.links !== undefined) {
+      const links = upd.links === null ? [] : linksOf(upd.links);
+      if (links.length) next.links = links;
+      else delete next.links;
+    }
+    const checks = had.checks.slice();
+    checks[at] = next;
+    return { ...had, checks, updatedAt: this.now() };
   }
 
   /** The goals in a milestone. */
@@ -466,6 +590,7 @@ function clean(g: Goal): Goal {
   const out = { ...g } as Record<string, unknown>;
   for (const k of ["description", "parent", "owner", "due", "signOff"]) if (out[k] === null || out[k] === undefined || out[k] === "") delete out[k];
   if (Array.isArray(out.tags) && out.tags.length === 0) delete out.tags;
+  if (Array.isArray(out.links) && out.links.length === 0) delete out.links;
   if (out.archived === false) delete out.archived;
   return out as unknown as Goal;
 }

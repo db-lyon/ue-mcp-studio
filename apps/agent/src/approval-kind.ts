@@ -6,6 +6,7 @@
  */
 import type { ApprovalKind } from "@ue-mcp-studio/shared";
 import type { ApprovalPreview } from "./local-tools.js";
+import { hubChangesFiles, isHubTool } from "./hub-tools.js";
 
 /** ue-mcp's answer for one action: does it delete or overwrite? null when it cannot say. */
 export interface ActionEffects {
@@ -36,6 +37,8 @@ export const SESSION_KEY: Record<ApprovalKind, string> = { shell: "shell", files
 export function approvalKind(name: string, input: Record<string, unknown>, effects: ActionEffects): ApprovalKind | null {
   if (name === "shell") return "shell";
   if (name === "write_file" || name === "edit_file") return "files";
+  // The hub's goal changes write a goal file in the project.
+  if (isHubTool(name)) return hubChangesFiles(name, input) ? "files" : null;
   if (name === "editor_restart") return "editorRestart";
   if (name === "ue_mcp" && input.action === "call" && typeof input.category === "string" && typeof input.method === "string") {
     if (input.category === "editor" && EDITOR_LIFECYCLE.has(input.method)) return "editorRestart";

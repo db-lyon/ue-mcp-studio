@@ -398,6 +398,34 @@ describe("run screen", () => {
     expect(detail.state).toMatchObject({ health: "failing", recent: ["failed", "passed"] });
   });
 
+  it("links: a run's are kept in the history and survive the run changing; a check's show on the check across goals", async () => {
+    const obs = path.join(root, "project", "Saved", "MCPObservations", "script_DoorOpens_1");
+    fs.mkdirSync(obs, { recursive: true });
+    fs.writeFileSync(path.join(obs, "results.json"), JSON.stringify({ run_id: "script_DoorOpens_1", script: DOOR, script_name: "DoorOpens", state: "finished", started_at: "2026-11-22T00:00:00.000Z", ended_at: "2026-11-22T00:00:00.000Z", steps: steps(["failed", "passed"]) }));
+    connected = false;
+    setup();
+    const url = "https://git.example.com/ember/hollow/issues/42";
+    // A run only results.json knows is recorded on its first link.
+    const added = await call("POST", "/hub/runs/script_DoorOpens_1/links", { link: { url, rel: "filed-from-run" } });
+    expect(added.status).toBe(200);
+    expect(added.body.record.links).toEqual([{ url, rel: "filed-from-run" }]);
+    expect((await call("POST", "/hub/runs/script_DoorOpens_1/links", { link: { url: "javascript:x" } })).status).toBe(400);
+    expect((await call("POST", "/hub/runs/nope/links", { link: { url } })).status).toBe(404);
+    await hub.backfill(true);
+    expect((await call("GET", "/hub/runs/script_DoorOpens_1")).body.record.links).toEqual([{ url, rel: "filed-from-run" }]);
+    expect((await call("DELETE", `/hub/runs/script_DoorOpens_1/links?url=${enc("https://other")}`)).status).toBe(404);
+    expect((await call("DELETE", `/hub/runs/script_DoorOpens_1/links?url=${enc(url)}`)).body.record.links).toBeUndefined();
+
+    const a = (await call("POST", "/hub/goals", { title: "A", checks: [{ kind: "script", target: DOOR, links: [{ url: "https://trello.com/c/1" }] }] })).body.goal;
+    const b = (await call("POST", "/hub/goals", { title: "B", checks: [{ kind: "script", target: DOOR }] })).body.goal;
+    const put = await call("PUT", `/hub/goals/${b.id}/checks/${enc(`script:${DOOR}`)}`, { links: [{ url: "jira://HOL-9" }] });
+    expect(put.body.goal.checks[0].links).toEqual([{ url: "jira://HOL-9" }]);
+    expect((await call("PUT", `/hub/goals/${a.id}/checks/${enc("script:/Game/None")}`, { title: "x" })).status).toBe(404);
+    const detail = (await call("GET", `/hub/checks/${enc(`script:${DOOR}`)}`)).body;
+    expect(detail.state.check.links).toEqual([{ url: "https://trello.com/c/1" }, { url: "jira://HOL-9" }]);
+    expect((await call("GET", `/hub/goals/${b.id}`)).body.checks[0].check.links).toEqual([{ url: "jira://HOL-9" }]);
+  });
+
   it("samples a series down to the cap and keeps its end", () => {
     const pts = Array.from({ length: 1001 }, (_, i) => [i, i] as [number, number]);
     const s = sample(pts, 300);

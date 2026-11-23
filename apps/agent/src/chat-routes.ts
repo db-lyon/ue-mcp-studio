@@ -84,6 +84,7 @@ import { registerDialogs } from "./dialog-routes.js";
 import { registerForms } from "./forms.js";
 import { registerQa } from "./qa.js";
 import { registerHub } from "./hub/routes.js";
+import type { Hub } from "./hub/hub.js";
 import { PlaytestIndex, registerPlaytestIndex, type PlaytestIndexHost } from "./playtest-index.js";
 import { registerReview } from "./review.js";
 import { PlaytestStore } from "./playtest-store.js";
@@ -313,9 +314,12 @@ export function registerChat(api: DaemonExtensionApi, agentVersion = "0.0.0", pa
     const e = endpoints.get(id);
     return e ? { baseUrl: e.baseUrl, key: endpoints.key(id) } : null;
   };
+  // The Playtest Hub, registered below over the runner's cards; the agent's hub tools reach it only while its experiment is on.
+  let hubForAgent: Hub | null = null;
   const runner = new AgentRunner({
     // callAction takes the turn's signal on a daemon with "callAction.signal"; the pinned ue-mcp's types do not say so yet.
     host: api as unknown as AgentHost,
+    hub: () => (settings.experiments().playtestHub ? hubForAgent : null),
     replyImages: (text) => replyImages(text, { projectDir: api.projectDir, home: userHome() }, path.join(api.dataDir, "posters")),
     review,
     busy,
@@ -425,6 +429,7 @@ export function registerChat(api: DaemonExtensionApi, agentVersion = "0.0.0", pa
     signer: () => (settings.accountToken() ? settings.accountLogin() : null) ?? account.registryLogin()?.login ?? "you",
     enabled: () => settings.experiments().playtestHub,
   });
+  hubForAgent = hub;
 
   const bad = (error: string) => ({ status: 400, body: { error } });
   const missing = (id: string) => ({ status: 404, body: { error: `no session ${id}` } });

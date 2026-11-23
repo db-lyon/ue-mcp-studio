@@ -102,6 +102,21 @@ describe("RunIndex", () => {
     expect(idx.get("b")).toMatchObject({ source: "plan", planRunId: "q" });
   });
 
+  it("keeps a run's links as it changes, across a restart, and past the cap", () => {
+    const link = { url: "https://git.example.com/ember/hollow/issues/42", rel: "filed-from-run" };
+    const idx = new RunIndex({ dataDir: root, max: 2, now: () => "t" });
+    idx.record(run("a", "running", ["running"], { sessionId: "s" }, "2026-11-20T00:00:00.000Z"));
+    expect(idx.setLinks("a", [link])?.links).toEqual([link]);
+    expect(idx.setLinks("nope", [link])).toBeUndefined();
+    idx.record(run("a", "finished", ["passed"], { sessionId: "s" }, "2026-11-20T00:00:00.000Z"));
+    expect(idx.get("a")).toMatchObject({ outcome: "passed", links: [link] });
+    for (let i = 1; i <= 3; i++) idx.record(run(`r${i}`, "finished", ["passed"], { sessionId: "s" }, `2026-11-2${i}T00:00:00.000Z`));
+    const again = new RunIndex({ dataDir: root, max: 2 });
+    expect(again.get("a")?.links).toEqual([link]);
+    expect(again.has("r1")).toBe(false);
+    expect(again.setLinks("a", [])?.links).toBeUndefined();
+  });
+
   it("backfill leaves a finished record alone and takes ue-mcp's times", () => {
     const idx = new RunIndex({ dataDir: root, now: () => "2026-11-23T12:00:00.000Z" });
     idx.backfill(run("old", "finished", ["passed"]), { startedAt: "2026-11-01T00:00:00.000Z", endedAt: "2026-11-01T00:00:30.000Z" });

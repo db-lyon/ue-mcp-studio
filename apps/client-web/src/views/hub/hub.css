@@ -111,6 +111,26 @@ a.hub-row:hover, div.hub-row:hover { background: var(--panel-2); }
 .hub-goal-chip { display: inline-flex; align-items: center; gap: 4px; max-width: 220px; padding: 0 8px; border: 1px solid var(--line); border-radius: 999px; font-size: 11.5px; line-height: 1.7; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 a.hub-goal-chip:hover { color: var(--text); border-color: var(--line-strong); }
 .hub-tag { color: var(--muted); font-size: 12px; margin-right: 6px; }
+
+/* Tracker links */
+.hub-links { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; min-width: 0; }
+.hub-link-chip { display: inline-flex; align-items: center; max-width: 380px; min-width: 0; border: 1px solid var(--line); border-radius: 999px; font-size: 11.5px; line-height: 1.7; color: var(--muted); }
+.hub-link-chip:hover { border-color: var(--line-strong); }
+.hub-link-chip a { display: inline-flex; align-items: center; gap: 4px; min-width: 0; padding: 0 8px; color: inherit; text-decoration: none; }
+.hub-link-chip a:hover { color: var(--text); }
+.hub-link-chip a:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; border-radius: 999px; }
+.hub-link-host { flex-shrink: 0; color: var(--dim); }
+.hub-link-label { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text); }
+.hub-link-remove { display: inline-flex; align-items: center; justify-content: center; width: 18px; height: 18px; margin-right: 3px; padding: 0; border: 0; border-radius: 50%; background: transparent; color: var(--dim); }
+.hub-link-remove:hover { background: var(--panel-3); color: var(--text); }
+.hub-link-form { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; flex: 1 1 360px; min-width: 0; }
+.hub-link-form .hub-link-url { flex: 2 1 220px; min-width: 0; }
+.hub-link-form .hub-link-title { flex: 1 1 140px; min-width: 0; }
+.hub-link-form .hub-error { flex-basis: 100%; }
+.hub-row-links { display: inline-flex; flex-shrink: 1; min-width: 0; max-width: 220px; }
+.hub-link-rows { display: flex; flex-direction: column; gap: 6px; align-items: stretch; }
+.hub-link-row { display: grid; grid-template-columns: minmax(0, 2fr) minmax(0, 1.2fr) minmax(0, 1fr) auto; gap: 6px; align-items: center; }
+.hub-link-rows > .hub-link-add { align-self: flex-start; }
 .hub-prio { display: inline-block; flex-shrink: 0; padding: 2px 5px; border: 1px solid var(--line-strong); border-radius: 3px; font: 700 10px/1.2 var(--mono); color: var(--muted); }
 .hub-prio.p0 { color: var(--bad); border-color: var(--bad); }
 .hub-prio.p1 { color: var(--warn); border-color: var(--warn); }
@@ -394,7 +414,9 @@ a.hub-group-head:hover .hub-group-title { color: var(--accent-hi); }
 
 /* Narrow: the same screens, stacked; numbers that need width step aside. */
 @media (max-width: 760px) {
-  .hub-row-spark, .hub-row-num, .hub-kind, .hub-check-row .hub-row-when { display: none; }
+  .hub-row-spark, .hub-row-num, .hub-kind, .hub-check-row .hub-row-when, .hub-row-links { display: none; }
+  .hub-link-row { grid-template-columns: minmax(0, 1fr) auto; }
+  .hub-link-row input:not(:first-child) { grid-column: 1; }
   .hub-row { padding: 6px 8px; gap: 8px; }
   .hub-goal-row .hub-progress-track { width: 40px; }
   .hub-head-actions { width: 100%; }
@@ -407,6 +429,9 @@ a.hub-group-head:hover .hub-group-title { color: var(--accent-hi); }
 }
 @media (pointer: coarse) {
   .hub-row { min-height: 48px; }
+  /* The remove target stays 44px tall without making the chip that tall. */
+  .hub-link-chip { line-height: 2.2; }
+  .hub-link-remove { width: 32px; margin-block: -10px; }
   .hub-seg-item { min-height: 40px; }
 }
 @media (prefers-reduced-motion: reduce) {

@@ -18,8 +18,11 @@ import {
   shortAgo,
   sortChecks,
   sortGoals,
+  withLink,
+  withoutLink,
 } from "@ue-mcp-studio/client-core";
-import { needsSignOff } from "@ue-mcp-studio/shared";
+import { needsSignOff, type TrackerLink } from "@ue-mcp-studio/shared";
+import { HubLinks } from "./links";
 import { api } from "../../api";
 import { useCursor, useHub } from "./state";
 import { Empty, HubIcon, HubLink, Progress, ScreenHead, StatusPill } from "./parts";
@@ -79,6 +82,15 @@ export function GoalScreen({ goalId }: { goalId: string }) {
   const parent = goal.parent ? o.goals.find((x) => x.goal.id === goal.parent) : null;
   const due = dueText(goal.due);
 
+  /** The goal's links replaced, shown at once and saved; a refusal throws for the form to show. */
+  const saveLinks = async (links: TrackerLink[]) => {
+    hub.data.patch((ov) => ({ ...ov, goals: ov.goals.map((x) => (x.goal.id === goal.id ? { ...x, goal: { ...x.goal, links } } : x)) }));
+    try {
+      await api.hub.updateGoal(goal.id, { links });
+    } finally {
+      hub.data.reload();
+    }
+  };
   const removeCheck = async (checkId: string) => {
     hub.data.patch((ov) => ({
       ...ov,
@@ -160,6 +172,7 @@ export function GoalScreen({ goalId }: { goalId: string }) {
         <div><dt>Due</dt><dd>{due ? <span className={due.overdue ? "hub-overdue" : ""} title={goal.due ?? ""}>{due.text}</span> : <span className="dim">No date</span>}</dd></div>
         {(goal.tags ?? []).length > 0 && <div><dt>Tags</dt><dd>{goal.tags!.map((t) => <span key={t} className="hub-tag">#{t}</span>)}</dd></div>}
       </dl>
+      <HubLinks links={goal.links} onAdd={(l) => saveLinks(withLink(goal.links, l))} onRemove={(url) => void saveLinks(withoutLink(goal.links, url)).catch((e: Error) => hub.notify(e.message, "bad"))} />
       {goal.description && <p className="hub-description">{goal.description}</p>}
       <section className="hub-card hub-acceptance">
         <div className="hub-card-head"><span>Done when</span></div>

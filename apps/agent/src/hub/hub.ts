@@ -20,6 +20,7 @@ import {
   DEFAULT_ACCEPTANCE,
   DEFAULT_PLAN_OPTIONS,
   RUNNABLE_KINDS,
+  TRACKER_LINKS_MAX,
   checkId,
   checkStateOf,
   goalStatus,
@@ -27,6 +28,7 @@ import {
   qaEnded,
   qaIsDraft,
   qaScriptKey,
+  uniqueLinks,
   type AcceptanceRule,
   type CheckDetail,
   type CheckRef,
@@ -58,7 +60,7 @@ import { buildInbox } from "./inbox.js";
 import { readResults, readSeries } from "./evidence.js";
 import { scheduleDraftOf, scheduleTurn, scheduleUpdated, withNext } from "./schedules.js";
 import { planOptionsOf, scopeOf } from "./scope.js";
-import { answerOf, bad, checkOfId, conflict, failureOf, isObject, notFound } from "./util.js";
+import { answerOf, bad, checkOfId, conflict, failureOf, isObject, linkOf, notFound } from "./util.js";
 
 /** How often the queue, the schedules and the goals folder are looked at. */
 export const TICK_MS = 30_000;
@@ -337,6 +339,8 @@ export class Hub {
         const had = checks.get(id);
         if (had) {
           if (!goal.archived) had.goalIds.push(goal.id);
+          // A check outside any one goal shows every goal's links to it.
+          if (ref.links?.length) had.ref = { ...had.ref, links: uniqueLinks([...(had.ref.links ?? []), ...ref.links]) };
         } else {
           checks.set(id, { ref, goalIds: goal.archived ? [] : [goal.id] });
         }
@@ -481,6 +485,35 @@ export class Hub {
       ...(changedSteps ? { changedSteps } : {}),
       resultsUrl: `/v1/ext/studio/qa/runs/${encodeURIComponent(runId)}/results`,
     };
+  }
+
+  /** A run's record: from the history, else from its results.json, kept from then on. */
+  private recordFor(runId: string): RunRecord {
+    const had = this.runs.get(runId);
+    if (had) return had;
+    const live = this.o.broker.get(runId);
+    const run = live && !qaIsDraft(live) ? live : readResults(this.o.host.projectDir, runId);
+    const record = run ? this.runs.record(run) : null;
+    if (!record) throw notFound(`no run ${runId}`);
+    return record;
+  }
+
+  /** Link a run to a tracker item. A link to a URL the run already has replaces it. */
+  addRunLink(runId: string, body: unknown): RunRecord {
+    const link = linkOf(isObject(body) && body.link !== undefined ? body.link : body);
+    const had = this.recordFor(runId);
+    const rest = (had.links ?? []).filter((l) => l.url !== link.url);
+    if (rest.length >= TRACKER_LINKS_MAX) throw bad(`a run holds at most ${TRACKER_LINKS_MAX} links`);
+    return this.runs.setLinks(runId, [...rest, link])!;
+  }
+
+  /** Remove a run's link to this URL. */
+  removeRunLink(runId: string, url: unknown): RunRecord {
+    if (typeof url !== "string" || !url) throw bad("url is the link to remove");
+    const had = this.recordFor(runId);
+    const links = had.links ?? [];
+    if (!links.some((l) => l.url === url)) throw notFound(`run ${runId} has no link to ${url}`);
+    return this.runs.setLinks(runId, links.filter((l) => l.url !== url))!;
   }
 
   // ── Goals ─────────────────────────────────────────────────────────

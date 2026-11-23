@@ -30,6 +30,8 @@ import {
   qaEnded,
   qaScriptKey,
   qaSummaryOf,
+  trackerLinkOf,
+  uniqueLinks,
   type AcceptanceRule,
   type CheckDetail,
   type CheckRef,
@@ -55,6 +57,7 @@ import {
   type RunSource,
   type Schedule,
   type ScheduleDraft,
+  type TrackerLink,
 } from "@ue-mcp-studio/shared";
 import { obj } from "@ue-mcp-studio/client-core";
 import {
@@ -199,6 +202,7 @@ export class HubDemo {
     if ((p = m("DELETE", "/hub/goals/*"))) return this.deleteGoal(p[0]);
     if ((p = m("POST", "/hub/goals/*/checks"))) return this.addChecks(p[0], Array.isArray(b.checks) ? (b.checks as CheckRef[]) : []);
     if ((p = m("DELETE", "/hub/goals/*/checks/*"))) return this.removeCheck(p[0], p[1]);
+    if ((p = m("PUT", "/hub/goals/*/checks/*"))) return this.updateCheck(p[0], p[1], b);
     if ((p = m("POST", "/hub/goals/*/sign-off"))) return this.signOff(p[0], typeof b.note === "string" ? b.note : undefined);
     if ((p = m("DELETE", "/hub/goals/*/sign-off"))) return this.signOff(p[0], undefined, true);
     if ((p = m("POST", "/hub/goals/*/write-playtests"))) return this.writePlaytests(p[0]);
@@ -213,6 +217,8 @@ export class HubDemo {
       const d = this.runDetail(p[0]);
       return d ? ok(d) : refuse(404, "No such run");
     }
+    if ((p = m("POST", "/hub/runs/*/links"))) return this.runLink(p[0], b.link, null);
+    if ((p = m("DELETE", "/hub/runs/*/links"))) return this.runLink(p[0], null, q.get("url"));
     if (m("POST", "/hub/plans")) return this.plan(b as unknown as PlanRequest, "person");
     if ((p = m("POST", "/hub/plans/*/cancel"))) return this.cancelPlan(p[0]);
     if ((p = m("POST", "/hub/plans/*/move"))) return this.movePlan(p[0], Number(b.to));
@@ -560,6 +566,8 @@ export class HubDemo {
     const title = typeof d.title === "string" ? d.title.trim() : "";
     if (!title) return refuse(400, "A goal needs a title");
     if (d.parent && this.goal(d.parent)?.kind !== "milestone") return refuse(400, "A goal can only belong to a milestone");
+    const links = d.links === undefined ? { links: [] } : this.links(d.links);
+    if ("error" in links) return refuse(400, links.error);
     let id = d.id && GOAL_ID.test(d.id) ? d.id : goalSlug(title);
     for (let n = 2; this.state.goals.some((g) => g.id === id); n++) id = `${goalSlug(title).slice(0, 60)}-${n}`;
     const now = iso(this.now());
@@ -574,6 +582,7 @@ export class HubDemo {
       priority: d.priority ?? "p2",
       tags: d.tags ?? [],
       due: d.due ?? null,
+      ...(links.links.length ? { links: links.links } : {}),
       acceptance: { ...DEFAULT_ACCEPTANCE, ...d.acceptance },
       checks: (d.checks ?? []).map((c) => ({ ...c, target: c.kind === "script" ? qaScriptKey(c.target) : c.target })),
       signOff: null,
@@ -591,12 +600,31 @@ export class HubDemo {
     return ok({ goal: g });
   }
 
+  /** Links from a body, as the agent checks them: every one valid, or why not. */
+  private links(v: unknown): { links: TrackerLink[] } | { error: string } {
+    if (v === null) return { links: [] };
+    if (!Array.isArray(v)) return { error: "links must be a list of { url, title?, rel? }" };
+    const out: TrackerLink[] = [];
+    for (const [i, l] of v.entries()) {
+      const r = trackerLinkOf(l);
+      if ("problem" in r) return { error: `links ${i + 1}: ${r.problem}` };
+      out.push(r.link);
+    }
+    return { links: uniqueLinks(out) };
+  }
+
   private updateGoal(id: string, u: GoalUpdate): DemoAnswer {
     const g = this.goal(id);
     if (!g) return refuse(404, "No such goal");
     if (u.parent && (this.goal(u.parent)?.kind !== "milestone" || u.parent === id)) return refuse(400, "A goal can only belong to a milestone");
     if (u.title !== undefined && !String(u.title).trim()) return refuse(400, "A goal needs a title");
-    const { acceptance, checks, ...rest } = u;
+    const { acceptance, checks, links, ...rest } = u;
+    if (links !== undefined) {
+      const l = this.links(links);
+      if ("error" in l) return refuse(400, l.error);
+      if (l.links.length) g.links = l.links;
+      else delete g.links;
+    }
     Object.assign(g, rest);
     if (acceptance) g.acceptance = { ...g.acceptance, ...acceptance };
     if (checks) g.checks = checks.map((c) => ({ ...c, target: c.kind === "script" ? qaScriptKey(c.target) : c.target }));
@@ -628,6 +656,42 @@ export class HubDemo {
     if (!g) return refuse(404, "No such goal");
     g.checks = g.checks.filter((c) => checkId(c) !== cid);
     return this.touch(g, ["goals", "checks", "inbox"]);
+  }
+
+  /** PUT /hub/goals/:id/checks/:checkId: one check's title, required or links. */
+  private updateCheck(id: string, cid: string, u: Record<string, unknown>): DemoAnswer {
+    const g = this.goal(id);
+    if (!g) return refuse(404, "No such goal");
+    const c = g.checks.find((x) => checkId(x) === cid);
+    if (!c) return refuse(404, `goal ${id} has no check ${cid}`);
+    if (u.links !== undefined) {
+      const l = this.links(u.links);
+      if ("error" in l) return refuse(400, l.error);
+      if (l.links.length) c.links = l.links;
+      else delete c.links;
+    }
+    if (typeof u.title === "string" && u.title.trim()) c.title = u.title.trim();
+    else if (u.title === null) delete c.title;
+    if (u.required === false) c.required = false;
+    else if (u.required === true) delete c.required;
+    return this.touch(g, ["goals", "checks"]);
+  }
+
+  /** POST and DELETE /hub/runs/:runId/links. */
+  private runLink(runId: string, add: unknown, removeUrl: string | null): DemoAnswer {
+    const rec = this.state.runs.find((r) => r.runId === runId);
+    if (!rec) return refuse(404, `no run ${runId}`);
+    if (add !== null) {
+      const r = trackerLinkOf(add);
+      if ("problem" in r) return refuse(400, r.problem);
+      rec.links = uniqueLinks([...(rec.links ?? []).filter((l) => l.url !== r.link.url), r.link]);
+    } else {
+      if (!removeUrl || !(rec.links ?? []).some((l) => l.url === removeUrl)) return refuse(404, `run ${runId} has no link to ${removeUrl ?? ""}`);
+      rec.links = rec.links!.filter((l) => l.url !== removeUrl);
+      if (!rec.links.length) delete rec.links;
+    }
+    this.hubChanged(["runs"], { runId });
+    return ok({ record: rec });
   }
 
   private signOff(id: string, note: string | undefined, clear = false): DemoAnswer {

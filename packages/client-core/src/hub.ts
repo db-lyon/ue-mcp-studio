@@ -12,8 +12,14 @@ import {
   GOAL_STATUS_ORDER,
   HUB_CHANGED,
   INBOX_ORDER,
+  TRACKER_LINKS_MAX,
+  TRACKER_LINK_RELS,
   leafName,
+  linkHost,
+  trackerLinkOf,
   type CheckDetail,
+  type CheckUpdate,
+  type TrackerLink,
   type CheckHealth,
   type CheckKind,
   type CheckRef,
@@ -77,6 +83,7 @@ export function hubApi(request: HubRequest) {
     deleteGoal: (id: string) => request<void>("DELETE", goal(id)),
     addChecks: (id: string, checks: CheckRef[]) => request<{ goal: Goal }>("POST", `${goal(id)}/checks`, { checks }),
     removeCheck: (id: string, checkId: string) => request<{ goal: Goal }>("DELETE", `${goal(id)}/checks/${enc(checkId)}`),
+    updateCheck: (id: string, checkId: string, u: CheckUpdate) => request<{ goal: Goal }>("PUT", `${goal(id)}/checks/${enc(checkId)}`, u),
     signOff: (id: string, note?: string) => request<{ goal: Goal }>("POST", `${goal(id)}/sign-off`, note ? { note } : {}),
     clearSignOff: (id: string) => request<{ goal: Goal }>("DELETE", `${goal(id)}/sign-off`),
     writePlaytests: (id: string, text?: string) => request<{ sessionId: string }>("POST", `${goal(id)}/write-playtests`, text ? { text } : {}),
@@ -84,6 +91,8 @@ export function hubApi(request: HubRequest) {
       request<CheckDetail>("GET", `${HUB_BASE}/checks/${enc(checkId)}${pageQuery(page)}`),
     runs: (q: { check?: string; limit?: number; before?: string } = {}) => request<{ runs: RunRecord[]; more: boolean }>("GET", `${HUB_BASE}/runs${pageQuery(q)}`),
     run: (runId: string) => request<RunDetail>("GET", `${HUB_BASE}/runs/${enc(runId)}`),
+    addRunLink: (runId: string, link: TrackerLink) => request<{ record: RunRecord }>("POST", `${HUB_BASE}/runs/${enc(runId)}/links`, { link }),
+    removeRunLink: (runId: string, url: string) => request<{ record: RunRecord }>("DELETE", `${HUB_BASE}/runs/${enc(runId)}/links${pageQuery({ url })}`),
     queue: () => request<QueueState>("GET", `${HUB_BASE}/queue`),
     plan: (req: PlanRequest) => request<{ plan: PlanRun }>("POST", `${HUB_BASE}/plans`, req),
     cancelPlan: (id: string) => request<{ plan: PlanRun }>("POST", `${HUB_BASE}/plans/${enc(id)}/cancel`, {}),
@@ -717,6 +726,8 @@ export interface GoalForm {
   /** Empty: never stale. */
   staleAfterDays: string;
   signOff: boolean;
+  /** The goal's links as typed, one row each; a row with no URL is left out. */
+  links: LinkRow[];
 }
 
 export type GoalFormErrors = Partial<Record<keyof GoalForm, string>>;
@@ -739,6 +750,7 @@ export function goalFormOf(g?: Partial<Goal> | null): GoalForm {
     stableRuns: String(a.stableRuns),
     staleAfterDays: a.staleAfterDays === null ? "" : String(a.staleAfterDays),
     signOff: a.signOff,
+    links: (g?.links ?? []).map(linkRowOf),
   };
 }
 
@@ -779,6 +791,10 @@ export function goalFormErrors(f: GoalForm, ctx: { selfId?: string; goals?: read
     else if (f.parent === ctx.selfId) e.parent = "A goal cannot be its own milestone.";
     else if (ctx.goals && !ctx.goals.some((g) => g.goal.id === f.parent && g.goal.kind === "milestone")) e.parent = "Pick a milestone.";
   }
+  const rows = f.links.filter((r) => r.url.trim());
+  const badLink = rows.map(linkFromRow).find((r): r is { error: string } => "error" in r);
+  if (badLink) e.links = badLink.error;
+  else if (rows.length > TRACKER_LINKS_MAX) e.links = `Keep it to ${TRACKER_LINKS_MAX} links.`;
   return e;
 }
 
@@ -798,6 +814,7 @@ export function goalDraftOf(f: GoalForm): GoalDraft {
       staleAfterDays: f.staleAfterDays.trim() ? Number(f.staleAfterDays) : null,
       signOff: f.signOff,
     },
+    links: f.links.filter((r) => r.url.trim()).map(linkFromRow).flatMap((r) => ("link" in r ? [r.link] : [])),
   };
 }
 
@@ -806,6 +823,99 @@ export function goalUpdateOf(f: GoalForm): GoalUpdate {
   const d = goalDraftOf(f);
   return { ...d, description: d.description ?? "", priority: d.priority };
 }
+
+// ---------- Tracker links ----------
+
+/** A link as a form holds it: strings, as typed. */
+export interface LinkRow {
+  url: string;
+  title: string;
+  rel: string;
+}
+
+export const linkRowOf = (l?: Partial<TrackerLink> | null): LinkRow => ({ url: l?.url ?? "", title: l?.title ?? "", rel: l?.rel ?? "" });
+
+/** The relationships a link form suggests, with their labels. Any other text is as valid. */
+export const LINK_REL_LABEL: Record<(typeof TRACKER_LINK_RELS)[number], string> = {
+  counterpart: "Counterpart",
+  related: "Related",
+  "filed-from-run": "Filed from a run",
+  blocks: "Blocks",
+};
+export const LINK_RELS: ReadonlyArray<{ id: string; label: string }> = TRACKER_LINK_RELS.map((id) => ({ id, label: LINK_REL_LABEL[id] }));
+
+/** What a typed URL most likely means: a bare host and path ("git.example.com/x/issues/4") is taken as https. */
+export function typedUrl(text: string): string {
+  const t = text.trim();
+  if (!t || /^[a-z][a-z0-9+.-]*:/i.test(t)) return t;
+  return /^[\w-]+(\.[\w-]+)+(:\d+)?(\/|$)/.test(t) ? `https://${t}` : t;
+}
+
+/** A link from a form row, or what is wrong with it in words a person reads. */
+export function linkFromRow(r: { url: string; title?: string; rel?: string }): { link: TrackerLink } | { error: string } {
+  const out = trackerLinkOf({ url: typedUrl(r.url), title: r.title ?? "", rel: r.rel ?? "" });
+  if ("link" in out) return out;
+  if (!r.url.trim()) return { error: "Paste the link's URL." };
+  if (/not allowed/.test(out.problem)) return { error: "That kind of link cannot be opened safely. Use a web address or an app's own link." };
+  return { error: "Use a full URL, such as https://tracker.example.com/issue/42." };
+}
+
+/** Links with one added, replacing a link to the same URL, at most TRACKER_LINKS_MAX. */
+export function withLink(links: readonly TrackerLink[] | undefined, link: TrackerLink): TrackerLink[] {
+  return [...(links ?? []).filter((l) => l.url !== link.url), link].slice(-TRACKER_LINKS_MAX);
+}
+
+export const withoutLink = (links: readonly TrackerLink[] | undefined, url: string): TrackerLink[] => (links ?? []).filter((l) => l.url !== url);
+
+/**
+ * A link as a chip shows it: the host (or the address, or the app's scheme)
+ * and its title; without a title, the last part of the address, such as
+ * "issues/42" or "HOL-118".
+ */
+export function linkChip(l: TrackerLink): { host: string; label: string; tip: string } {
+  const host = linkHost(l.url);
+  let label = l.title?.trim() ?? "";
+  if (!label) {
+    const rest = l.url.replace(/^[a-z][a-z0-9+.-]*:(\/\/)?/i, "").replace(/[?#].*$/, "");
+    const parts = rest.split("/").filter(Boolean);
+    const path = /^https?:/i.test(l.url) ? parts.slice(1) : parts;
+    label = path.slice(-2).join("/");
+    if (label === host) label = "";
+  }
+  const rel = l.rel ? (LINK_REL_LABEL as Record<string, string>)[l.rel] ?? l.rel : "";
+  return { host, label, tip: [rel, l.title?.trim(), l.url].filter(Boolean).join("\n") };
+}
+
+/** Every link the goals that list a check give it, each URL once, with the goals that have it. */
+export function checkLinks(checkId: string, goals: readonly GoalState[]): Array<{ link: TrackerLink; goalIds: string[] }> {
+  const out = new Map<string, { link: TrackerLink; goalIds: string[] }>();
+  for (const g of goals) {
+    const ref = g.goal.checks.find((c) => `${c.kind}:${c.target}` === checkId);
+    for (const l of ref?.links ?? []) {
+      const had = out.get(l.url);
+      if (had) had.goalIds.push(g.goal.id);
+      else out.set(l.url, { link: l, goalIds: [g.goal.id] });
+    }
+  }
+  return [...out.values()];
+}
+
+export const HUB_LINK_COPY = {
+  links: "Links",
+  addLink: "Add link",
+  add: "Add",
+  cancel: "Cancel",
+  urlLabel: "Link URL",
+  urlPlaceholder: "https://tracker.example.com/issue/42",
+  titleLabel: "Link title",
+  titlePlaceholder: "Title (optional)",
+  relLabel: "Relationship",
+  relPlaceholder: "Relationship (optional)",
+  remove: (label: string) => `Remove link ${label}`,
+  opens: "Opens in your browser",
+  /** A check's links live in the goals that list it. */
+  checkNeedsGoal: "Add this check to a goal to link it.",
+} as const;
 
 // ---------- Inbox ----------
 

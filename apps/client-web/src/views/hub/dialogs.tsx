@@ -24,6 +24,7 @@ import {
 import { api } from "../../api";
 import { useHub } from "./state";
 import { HubField, StatusMark } from "./parts";
+import { HubLinkRows } from "./links";
 
 function Dialog({ label, onClose, className = "", children }: { label: string; onClose: () => void; className?: string; children: ReactNode }) {
   useEffect(() => {
@@ -148,6 +149,7 @@ export function GoalDialog({ goalId, preset, onClose }: { goalId: string | null;
           </div>
           <label className="hub-check-label"><input type="checkbox" checked={f.signOff} onChange={(e) => set("signOff", e.target.checked)} /> A person signs it off</label>
         </fieldset>
+        <HubLinkRows rows={f.links} onChange={(rows) => set("links", rows)} error={shown.links} />
         {error && <div className="banner bad small" role="alert">{error}</div>}
         <div className="hub-form-actions">
           <span className="small dim">{existing ? `${hub.o.goalsDir}/${existing.id}.json` : `Saved to ${hub.o.goalsDir}`}</span>

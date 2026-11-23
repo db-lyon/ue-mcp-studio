@@ -21,8 +21,10 @@ import {
   type RunOutcome,
   type RunRecord,
   type RunSource,
+  type TrackerLink,
 } from "@ue-mcp-studio/shared";
 import { writeFileAtomic } from "../atomic-write.js";
+import { readLinks } from "./util.js";
 
 /** The most runs kept. */
 export const MAX_RUNS = 5000;
@@ -77,6 +79,8 @@ export function recordOf(run: QaRun, o: { prev?: RunRecord; times?: { startedAt?
     replayOf: run.replayOf ?? null,
     recordingId: run.recordingId ?? null,
     map: run.map ?? null,
+    // Links are the hub's, never the QaRun's: a run changing keeps them.
+    ...(prev?.links?.length ? { links: prev.links } : {}),
   };
 }
 
@@ -86,7 +90,10 @@ function recordFrom(v: unknown): RunRecord | null {
   const r = v as Partial<RunRecord>;
   if (typeof r.runId !== "string" || !r.runId || typeof r.target !== "string" || typeof r.name !== "string" || typeof r.startedAt !== "string") return null;
   if (!KINDS.includes(r.kind as CheckKind) || !OUTCOMES.includes(r.outcome as RunOutcome) || !SOURCES.includes(r.source as RunSource)) return null;
-  return r as RunRecord;
+  if (r.links === undefined) return r as RunRecord;
+  const { links } = readLinks(r.links);
+  const { links: _had, ...rest } = r as RunRecord;
+  return links.length ? { ...rest, links } : rest;
 }
 
 /** Newest first: by start, then by id, which carries the start time too. */
@@ -113,6 +120,8 @@ export class RunIndex {
   private readonly now: () => string;
   /** Lines appended since the file was last compacted. */
   private appended = 0;
+  /** Linked runs the last compaction kept past the cap. */
+  private beyond = 0;
 
   constructor(private readonly o: RunIndexOptions) {
     this.file = path.join(o.dataDir, "hub", "runs.jsonl");
@@ -142,11 +151,13 @@ export class RunIndex {
 
   /** The file rewritten with one line per run, the newest `max` of them. */
   private compact(): void {
-    const keep = [...this.runs.values()].sort(newest).slice(0, this.max);
+    // A run someone linked to a tracker item stays past the cap.
+    const keep = [...this.runs.values()].sort(newest).filter((r, i) => i < this.max || !!r.links?.length);
     if (keep.length < this.runs.size) {
       this.runs.clear();
       for (const r of keep) this.runs.set(r.runId, r);
     }
+    this.beyond = Math.max(0, keep.length - this.max);
     this.dirty();
     try {
       fs.mkdirSync(path.dirname(this.file), { recursive: true });
@@ -176,9 +187,18 @@ export class RunIndex {
     } catch (e) {
       this.o.log?.warn("hub: a run could not be added to the history", e);
     }
-    if (this.runs.size > this.max || this.appended > this.max) this.compact();
+    if (this.runs.size > this.max + this.beyond || this.appended > this.max) this.compact();
     this.o.changed?.(r.runId);
     return true;
+  }
+
+  /** A run's links replaced; an empty list removes them. Returns the record, or undefined for a run not held. */
+  setLinks(runId: string, links: TrackerLink[]): RunRecord | undefined {
+    const had = this.runs.get(runId);
+    if (!had) return undefined;
+    const { links: _old, ...rest } = had;
+    this.put(links.length ? { ...rest, links } : rest);
+    return this.runs.get(runId);
   }
 
   /** Mark a run the hub started as a plan's or a schedule's, now or when its record is first made. */

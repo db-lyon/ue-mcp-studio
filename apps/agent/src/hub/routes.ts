@@ -37,6 +37,7 @@ export function registerHub(api: DaemonExtensionApi, o: Omit<HubOptions, "host">
   route("DELETE", "/hub/goals/:id", (req) => void hub.goals.delete(req.params.id));
   route("POST", "/hub/goals/:id/checks", (req) => ({ body: { goal: hub.goals.addChecks(req.params.id, (req.body as { checks?: unknown } | undefined)?.checks) } }));
   route("DELETE", "/hub/goals/:id/checks/:checkId", (req) => ({ body: { goal: hub.goals.removeCheck(req.params.id, req.params.checkId) } }));
+  route("PUT", "/hub/goals/:id/checks/:checkId", (req) => ({ body: { goal: hub.goals.updateCheck(req.params.id, req.params.checkId, req.body) } }));
   route("POST", "/hub/goals/:id/sign-off", (req) => ({ body: { goal: hub.signOff(req.params.id, req.body) } }));
   route("DELETE", "/hub/goals/:id/sign-off", (req) => ({ body: { goal: hub.goals.clearSignOff(req.params.id) } }));
   route("POST", "/hub/goals/:id/write-playtests", (req) => ({ status: 202, body: hub.writePlaytests(req.params.id, req.body) }));
@@ -45,6 +46,8 @@ export function registerHub(api: DaemonExtensionApi, o: Omit<HubOptions, "host">
   route("POST", "/hub/checks/:checkId/run", async (req) => ({ body: { plan: await hub.runCheck(req.params.checkId, req.body) } }));
   route("GET", "/hub/runs", (req) => ({ body: hub.runsPage(q(req)) }));
   route("GET", "/hub/runs/:runId", (req) => ({ body: hub.run(req.params.runId) }));
+  route("POST", "/hub/runs/:runId/links", (req) => ({ body: { record: hub.addRunLink(req.params.runId, req.body) } }));
+  route("DELETE", "/hub/runs/:runId/links", (req) => ({ body: { record: hub.removeRunLink(req.params.runId, q(req).url) } }));
 
   route("GET", "/hub/queue", () => ({ body: hub.queueView() }));
   route("PUT", "/hub/queue/paused", (req) => ({ body: hub.setPaused(req.body) }));

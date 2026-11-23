@@ -18,6 +18,7 @@ import {
 } from "@ue-mcp-studio/client-core";
 import { useHub } from "./state";
 import { HubLink, Progress, StatusMark, WinLoss } from "./parts";
+import { HubLinkChips } from "./links";
 
 export function GoalRow({ g, on, onPoint }: { g: GoalState; on?: boolean; onPoint?: () => void }) {
   const { go } = useHub();
@@ -66,6 +67,7 @@ export function CheckRow({ c, on, lead, actions, showGoals = true, onPoint }: { 
           {goals.length > 2 && <span>+{goals.length - 2}</span>}
         </span>
       </HubLink>
+      {c.check.links?.length ? <span className="hub-row-links"><HubLinkChips links={c.check.links} max={1} compact /></span> : null}
       <span className="hub-row-spark"><WinLoss recent={c.recent} max={12} /></span>
       <span className="hub-row-num mono" title="Pass rate over recent runs">{passRateText(c.passRate)}</span>
       <span className="hub-row-when" title={c.last ? `${RUN_OUTCOME_LOOK[c.last.outcome].label} ${new Date(c.last.startedAt).toLocaleString()}` : "Never run"}>{c.last ? shortAgo(c.last.startedAt) : ""}</span>

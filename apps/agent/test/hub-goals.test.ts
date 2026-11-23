@@ -39,7 +39,8 @@ describe("GoalStore", () => {
     expect(g.id).toBe("a-new-player-finishes-the-tutorial");
     const text = fs.readFileSync(path.join(dir(), `${g.id}.json`), "utf-8");
     expect(text.endsWith("}\n")).toBe(true);
-    expect(Object.keys(JSON.parse(text))).toEqual(["schema", "id", "kind", "title", "priority", "acceptance", "checks", "createdAt", "updatedAt"]);
+    expect(Object.keys(JSON.parse(text))).toEqual(["$schema", "schema", "id", "kind", "title", "priority", "acceptance", "checks", "createdAt", "updatedAt"]);
+    expect(JSON.parse(text).$schema).toBe("./goal.schema.json");
     expect(text).toContain('\n  "title": "A new player finishes the tutorial",\n');
     // The object name is dropped from a script's path.
     expect(g.checks).toEqual([{ kind: "script", target: "/Game/Tests/Tutorial" }]);
@@ -153,5 +154,102 @@ describe("GoalStore", () => {
 
   it("parseGoal refuses an id that is not its file's", () => {
     expect(parseGoal({ id: "a", title: "x" }, "b", "t")).toEqual({ problem: 'its id "a" is not its file name' });
+  });
+});
+
+describe("links", () => {
+  const issue = { url: "https://git.example.com/ember/hollow/issues/42", title: "Tutorial glade", rel: "counterpart" };
+
+  it("keeps a goal's links, written after due and before acceptance, and validates them", () => {
+    const s = store();
+    const g = s.create({ title: "Door", due: "2026-12-01", links: [issue, { url: "jira://HOL-1" }, { url: issue.url, title: "Twice" }] });
+    expect(g.links).toEqual([issue, { url: "jira://HOL-1" }]);
+    const back = JSON.parse(fs.readFileSync(path.join(dir(), `${g.id}.json`), "utf-8"));
+    const keys = Object.keys(back);
+    expect(keys.indexOf("links")).toBe(keys.indexOf("due") + 1);
+    expect(back.links[0]).toEqual(issue);
+    expect(status(() => s.update(g.id, { links: [{ url: "javascript:alert(1)" }] }))).toBe(400);
+    expect(status(() => s.update(g.id, { links: [{ url: "data:text/html,x" }] }))).toBe(400);
+    expect(status(() => s.update(g.id, { links: [{ url: "no scheme" }] }))).toBe(400);
+    expect(status(() => s.update(g.id, { links: "https://x.y" as unknown as [] }))).toBe(400);
+    expect(s.update(g.id, { links: [{ url: "mailto:qa@example.com" }] }).links).toEqual([{ url: "mailto:qa@example.com" }]);
+    // An empty list clears them, and the file drops the key.
+    expect(s.update(g.id, { links: [] }).links).toBeUndefined();
+    expect(JSON.parse(fs.readFileSync(path.join(dir(), `${g.id}.json`), "utf-8"))).not.toHaveProperty("links");
+  });
+
+  it("changes one check's title, required and links in place", () => {
+    const s = store();
+    const g = s.create({ title: "Door", checks: [{ kind: "script", target: "/Game/T/A" }, { kind: "manual", target: "Looks right" }] });
+    const u = s.updateCheck(g.id, "script:/Game/T/A", { title: "Opens", required: false, links: [issue] });
+    expect(u.checks[0]).toEqual({ kind: "script", target: "/Game/T/A", title: "Opens", required: false, links: [issue] });
+    expect(u.checks[1]).toEqual({ kind: "manual", target: "Looks right" });
+    const cleared = s.updateCheck(g.id, "script:/Game/T/A", { title: null, required: true, links: [] });
+    expect(cleared.checks[0]).toEqual({ kind: "script", target: "/Game/T/A" });
+    expect(status(() => s.updateCheck(g.id, "script:/Game/T/Nope", { title: "x" }))).toBe(404);
+    expect(status(() => s.updateCheck(g.id, "script:/Game/T/A", { links: [{ url: "javascript:x" }] }))).toBe(400);
+    expect(status(() => s.update(g.id, { checks: [{ kind: "script", target: "/Game/T/A", links: [{ url: "file:///c:/x" }] }] }))).toBe(400);
+  });
+
+  it("reads links from a file, dropping and reporting the bad ones", () => {
+    fs.mkdirSync(dir(), { recursive: true });
+    fs.writeFileSync(path.join(dir(), "door.json"), JSON.stringify({ title: "Door", links: [issue, { url: "javascript:x" }], checks: [{ kind: "script", target: "/Game/A", links: [{ title: "no url" }, { url: "https://trello.com/c/abc" }] }] }));
+    const s = store();
+    expect(s.get("door")?.links).toEqual([issue]);
+    expect(s.get("door")?.checks[0].links).toEqual([{ url: "https://trello.com/c/abc" }]);
+    const w = s.warnings().join("\n");
+    expect(w).toContain("link 2: javascript: links are not allowed");
+    expect(w).toContain("check 1 link 1");
+  });
+
+  it("keeps a $schema the file already names, and adds ours to a file without one when it is next written", () => {
+    fs.mkdirSync(dir(), { recursive: true });
+    fs.writeFileSync(path.join(dir(), "a.json"), JSON.stringify({ $schema: "https://example.com/goal.json", title: "A" }));
+    fs.writeFileSync(path.join(dir(), "b.json"), JSON.stringify({ title: "B" }));
+    const s = store();
+    expect(s.warnings()).toEqual([]);
+    s.update("a", { title: "A2" });
+    s.update("b", { title: "B2" });
+    const a = JSON.parse(fs.readFileSync(path.join(dir(), "a.json"), "utf-8"));
+    const b = JSON.parse(fs.readFileSync(path.join(dir(), "b.json"), "utf-8"));
+    expect(Object.keys(a)[0]).toBe("$schema");
+    expect(a.$schema).toBe("https://example.com/goal.json");
+    expect(b.$schema).toBe("./goal.schema.json");
+  });
+});
+
+describe("README.md and goal.schema.json", () => {
+  const readme = () => path.join(dir(), "README.md");
+  const schema = () => path.join(dir(), "goal.schema.json");
+
+  it("are not written into a project without a goals folder until the first goal", () => {
+    const s = store();
+    expect(fs.existsSync(dir())).toBe(false);
+    s.create({ title: "Door" });
+    expect(fs.existsSync(readme())).toBe(true);
+    expect(fs.existsSync(schema())).toBe(true);
+    // The schema is not read as a goal.
+    expect(store().warnings()).toEqual([]);
+    expect(store().list().map((g) => g.id)).toEqual(["door"]);
+  });
+
+  it("are written when the folder exists, and rewritten only when their text would change", () => {
+    fs.mkdirSync(dir(), { recursive: true });
+    store();
+    const text = fs.readFileSync(readme(), "utf-8");
+    expect(text).toContain("# Goals");
+    expect(text).not.toContain("\u2014");
+    const old = new Date(Date.UTC(2020, 0, 1));
+    fs.utimesSync(readme(), old, old);
+    fs.utimesSync(schema(), old, old);
+    // A checkout with Windows newlines is the same text.
+    fs.writeFileSync(schema(), fs.readFileSync(schema(), "utf-8").replace(/\n/g, "\r\n"));
+    fs.utimesSync(schema(), old, old);
+    store().create({ title: "Door" });
+    expect(fs.statSync(readme()).mtime.getTime()).toBe(old.getTime());
+    expect(fs.statSync(schema()).mtime.getTime()).toBe(old.getTime());
+    fs.writeFileSync(readme(), "edited");
+    store();
+    expect(fs.readFileSync(readme(), "utf-8")).toBe(text);
   });
 });

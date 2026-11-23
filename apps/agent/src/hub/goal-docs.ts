@@ -1,0 +1,192 @@
+/**
+ * The two files Studio keeps beside the goal files, so any agent or person
+ * can read and write goals correctly without Studio: goal.schema.json (JSON
+ * Schema 2020-12 for one goal file, named by each file's "$schema") and
+ * README.md (what a goal is, its fields, checks and links, and an example).
+ *
+ * The schema is built here from the same constants the reader checks
+ * against (goals.ts parseGoal, util.ts checkRefOf, shared trackerLinkOf);
+ * hub-goal-docs.test.ts checks that it accepts every goal the store writes
+ * and that its properties are the fields the store writes.
+ */
+import {
+  GOAL_ID,
+  HUB_GOAL_SCHEMA_FILE,
+  TRACKER_BLOCKED_SCHEMES,
+  TRACKER_LINKS_MAX,
+  TRACKER_LINK_RELS,
+  TRACKER_REL_MAX,
+  TRACKER_TITLE_MAX,
+  TRACKER_URL_MAX,
+  type Goal,
+} from "@ue-mcp-studio/shared";
+
+/** What each goal file names in "$schema": the schema beside it. */
+export const GOAL_SCHEMA_REF = `./${HUB_GOAL_SCHEMA_FILE}`;
+
+const KINDS = ["script", "uat", "repro", "automation", "manual"];
+const PRIORITIES = ["p0", "p1", "p2", "p3"];
+
+/** A regular expression source matching `word` in any case, for JSON Schema patterns, which take no flags. */
+const anyCase = (word: string): string => [...word].map((c) => (/[a-z]/i.test(c) ? `[${c.toLowerCase()}${c.toUpperCase()}]` : c)).join("");
+
+/** A URL with a scheme, never one of the blocked schemes, with no spaces: the shape trackerUrlProblem allows. */
+const URL_PATTERN = `^(?!(?:${TRACKER_BLOCKED_SCHEMES.map(anyCase).join("|")}):)[A-Za-z][A-Za-z0-9+.-]*:\\S+$`;
+
+const link = {
+  type: "object",
+  description: "An item in a tracker or anywhere else that this refers to. Studio keeps the URL and never contacts it.",
+  properties: {
+    url: { type: "string", minLength: 1, maxLength: TRACKER_URL_MAX, pattern: URL_PATTERN, description: `http, https, mailto, or an app's own scheme such as jira://. Refused: ${TRACKER_BLOCKED_SCHEMES.map((s) => `${s}:`).join(", ")}.` },
+    title: { type: "string", maxLength: TRACKER_TITLE_MAX, description: "What the link is shown as. Without one, the host." },
+    rel: { type: "string", maxLength: TRACKER_REL_MAX, description: "How the item relates, free text.", examples: [...TRACKER_LINK_RELS] },
+  },
+  required: ["url"],
+  additionalProperties: false,
+};
+
+const links = { type: "array", items: { $ref: "#/$defs/link" }, maxItems: TRACKER_LINKS_MAX };
+
+const check = {
+  type: "object",
+  description: "A test that proves the goal. Its identity is kind and target.",
+  properties: {
+    kind: { enum: KINDS, description: "script: a ue-mcp PIE test script. uat and repro: a scenario or reproduction test file. automation: an Unreal automation test filter. manual: a checklist item a person signs off." },
+    target: { type: "string", minLength: 1, description: "script: the asset path without the object name, such as /Game/Tests/PT_Jump. uat and repro: the file. automation: the filter. manual: the item's text." },
+    title: { type: "string", description: "A display name; the script's own name otherwise." },
+    required: { type: "boolean", description: "False: the goal is met without this check passing. True when absent." },
+    links,
+  },
+  required: ["kind", "target"],
+  additionalProperties: false,
+  if: { properties: { kind: { const: "script" } } },
+  then: { properties: { target: { type: "string", pattern: "^/" } } },
+};
+
+/** goal.schema.json. */
+export const GOAL_SCHEMA = {
+  $schema: "https://json-schema.org/draft/2020-12/schema",
+  $id: HUB_GOAL_SCHEMA_FILE,
+  title: "Playtest Hub goal",
+  description: "One goal file in UE-MCP Studio's Playtest Hub. The file name is the goal's id. Only title is required; Studio fills in the rest when it saves the goal.",
+  type: "object",
+  properties: {
+    $schema: { type: "string", description: `Where editors find this schema: ${GOAL_SCHEMA_REF}.` },
+    schema: { const: 1, description: "The file format's version." },
+    id: { type: "string", pattern: GOAL_ID.source, description: "The file name without .json." },
+    kind: { enum: ["goal", "milestone"], description: "goal, or milestone for a group of goals. goal when absent." },
+    title: { type: "string", minLength: 1, maxLength: 200, description: "What the game must do, in a sentence." },
+    description: { type: "string", description: "What done means, in Markdown." },
+    parent: { type: ["string", "null"], pattern: GOAL_ID.source, description: "The id of the milestone this goal belongs to. A milestone has none." },
+    owner: { type: ["string", "null"] },
+    priority: { enum: PRIORITIES },
+    tags: { type: "array", items: { type: "string" } },
+    due: { type: ["string", "null"], pattern: "^\\d{4}-\\d{2}-\\d{2}$", description: "YYYY-MM-DD." },
+    links: { ...links, description: "Issues, tickets and documents this goal refers to." },
+    acceptance: {
+      type: "object",
+      description: "When the goal counts as met.",
+      properties: {
+        stableRuns: { type: "integer", minimum: 1, maximum: 10, description: "How many latest runs of each required check must all pass." },
+        staleAfterDays: { type: ["number", "null"], exclusiveMinimum: 0, description: "A passing check not run for this many days puts the goal at risk. null: never." },
+        signOff: { type: "boolean", description: "A person signs the goal off before it is met." },
+      },
+      additionalProperties: false,
+    },
+    checks: { type: "array", items: { $ref: "#/$defs/check" } },
+    signOff: {
+      type: ["object", "null"],
+      description: "Who signed the goal off. Set from the hub.",
+      properties: { by: { type: "string" }, at: { type: "string" }, note: { type: "string" } },
+      required: ["by", "at"],
+      additionalProperties: false,
+    },
+    archived: { type: "boolean", description: "Hidden from the overview." },
+    createdAt: { type: "string", description: "ISO time. Kept by Studio." },
+    updatedAt: { type: "string", description: "ISO time. Kept by Studio." },
+  },
+  required: ["title"],
+  $defs: { check, link },
+} as const;
+
+export const GOAL_SCHEMA_TEXT = `${JSON.stringify(GOAL_SCHEMA, null, 2)}\n`;
+
+/** The README's example: a goal with checks and links, as the store would write it. */
+export const EXAMPLE_GOAL: Goal = {
+  schema: 1,
+  id: "tutorial-glade",
+  kind: "goal",
+  title: "A new player finishes the tutorial glade",
+  description: "Walk, jump, light the lantern and leave the glade without help.",
+  parent: "vertical-slice",
+  owner: "Ama",
+  priority: "p0",
+  tags: ["onboarding"],
+  due: "2026-12-05",
+  links: [{ url: "https://git.example.com/ember/hollow/issues/42", title: "Tutorial glade", rel: "counterpart" }],
+  acceptance: { stableRuns: 2, staleAfterDays: 14, signOff: false },
+  checks: [
+    { kind: "script", target: "/Game/Tests/Tutorial/PT_Tutorial_Jump" },
+    { kind: "script", target: "/Game/Tests/Tutorial/PT_Tutorial_Exit", links: [{ url: "https://example.atlassian.net/browse/HOL-118", rel: "related" }] },
+    { kind: "manual", target: "The lantern prompt is readable on a TV from the couch", required: false },
+  ],
+  createdAt: "2026-11-02T10:00:00.000Z",
+  updatedAt: "2026-11-20T16:30:00.000Z",
+};
+
+/** "a, b and c". */
+const listed = (items: string[]): string => (items.length < 2 ? items.join("") : `${items.slice(0, -1).join(", ")} and ${items[items.length - 1]}`);
+
+/** README.md, with the example in the store's own format. */
+export function goalsReadme(exampleText: string): string {
+  return `# Goals
+
+Each JSON file in this folder is one goal in UE-MCP Studio's Playtest Hub. The file name is the goal's id, in lowercase letters, digits and dashes, such as \`tutorial-glade.json\`. A goal's status is never stored here: Studio works it out from the runs of the goal's checks.
+
+People and agents may edit these files directly. Studio picks up a change as soon as the file is saved, and a file it cannot read shows as a warning in the hub without stopping the others from loading. Each goal file names \`${HUB_GOAL_SCHEMA_FILE}\` in its \`"$schema"\` line, so editors that support JSON Schema check each file as it is typed. Studio keeps this README and the schema up to date and replaces any edits made to them.
+
+## Fields
+
+Only \`title\` is required. When it saves the goal, Studio fills in \`schema\`, \`id\`, \`kind\`, \`acceptance\`, \`checks\`, \`createdAt\` and \`updatedAt\`.
+
+| Field | Meaning |
+|---|---|
+| \`id\` | The file name without \`.json\`. |
+| \`kind\` | \`goal\`, or \`milestone\` for a group of goals. |
+| \`title\` | What the game must do, in a sentence. |
+| \`description\` | What done means, in Markdown. |
+| \`parent\` | The id of the milestone the goal belongs to. Milestones have none. |
+| \`owner\`, \`priority\`, \`tags\`, \`due\` | For planning: \`priority\` is \`p0\` to \`p3\`, \`due\` is \`YYYY-MM-DD\`. |
+| \`links\` | Issues, tickets and documents the goal refers to. |
+| \`acceptance\` | When the goal is met: the latest \`stableRuns\` runs (1 to 10) of every required check pass, and a person signs it off if \`acceptance.signOff\` is true. A passing check not run for \`staleAfterDays\` days puts the goal at risk; \`null\` turns that off. |
+| \`checks\` | The tests that prove the goal. |
+| \`signOff\` | Who signed the goal off, and when. Set from the hub. |
+| \`archived\` | \`true\` hides the goal from the overview. |
+| \`schema\`, \`createdAt\`, \`updatedAt\` | Kept by Studio. |
+
+## Checks
+
+A check is a \`kind\` and a \`target\`:
+
+| Kind | Target |
+|---|---|
+| \`script\` | A ue-mcp PIE test script, by asset path without the object name, such as \`/Game/Tests/PT_Jump\`. |
+| \`uat\`, \`repro\` | The scenario or reproduction test file. |
+| \`automation\` | An Unreal automation test filter. |
+| \`manual\` | A checklist item a person signs off. The target is its text. |
+
+Only \`script\` checks run today; checks of the other kinds can be listed but do not run yet. A check counts toward the goal unless it has \`"required": false\`. A check's \`title\` replaces its default name in the hub, and a check can have \`links\` of its own.
+
+## Links
+
+A link is a \`url\` with an optional \`title\` and \`rel\`. Studio stores the URL and never contacts it, so any tracker works. \`rel\` is free text saying how the item relates; the usual values are ${listed(TRACKER_LINK_RELS.map((r) => `\`${r}\``))}. A URL can be http, https, mailto or an app's own scheme such as \`jira://\`. ${listed(TRACKER_BLOCKED_SCHEMES.map((s) => `\`${s}:\``))} URLs are refused.
+
+Runs are kept on each computer rather than here, so link a run from its screen in the hub.
+
+## Example
+
+\`\`\`json
+${exampleText.trimEnd()}
+\`\`\`
+`;
+}

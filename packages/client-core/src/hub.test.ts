@@ -39,6 +39,12 @@ import {
   runPlaying,
   type HubLiveInput,
   type HubRoute,
+  checkLinks,
+  linkChip,
+  linkFromRow,
+  typedUrl,
+  withLink,
+  withoutLink,
 } from "./hub.js";
 import type { RunRecord, ViewportStatus } from "@ue-mcp-studio/shared";
 
@@ -335,5 +341,62 @@ describe("the live viewport in the hub", () => {
     expect(playingStep([{ status: "passed" }, { status: "awaiting_verdict" }, { status: "pending" }])).toEqual({ status: "awaiting_verdict" });
     expect(playingStep([{ status: "passed" }, { status: "pending", n: 1 }, { status: "pending", n: 2 }])).toEqual({ status: "pending", n: 1 });
     expect(playingStep([{ status: "passed" }, { status: "failed" }])).toBeNull();
+  });
+});
+
+describe("tracker links", () => {
+  const issue = { url: "https://git.example.com/ember/hollow/issues/42" };
+
+  it("shows a link as its host and title, or the end of its address", () => {
+    expect(linkChip({ ...issue, title: "Tutorial glade" })).toMatchObject({ host: "git.example.com", label: "Tutorial glade" });
+    expect(linkChip(issue)).toMatchObject({ host: "git.example.com", label: "issues/42" });
+    expect(linkChip({ url: "jira://HOL-118" })).toMatchObject({ host: "jira", label: "HOL-118" });
+    expect(linkChip({ url: "https://www.trello.com/c/a1b2" })).toMatchObject({ host: "trello.com", label: "c/a1b2" });
+    expect(linkChip({ url: "mailto:qa@example.com" })).toMatchObject({ host: "qa@example.com", label: "" });
+    expect(linkChip({ ...issue, rel: "filed-from-run" }).tip).toBe(`Filed from a run\n${issue.url}`);
+  });
+
+  it("reads what was typed: a bare host is https, an unsafe scheme is refused", () => {
+    expect(typedUrl("git.example.com/x/issues/4")).toBe("https://git.example.com/x/issues/4");
+    expect(typedUrl("jira://HOL-1")).toBe("jira://HOL-1");
+    expect(linkFromRow({ url: " git.example.com/x ", title: " T " })).toEqual({ link: { url: "https://git.example.com/x", title: "T" } });
+    expect(linkFromRow({ url: "javascript:alert(1)" })).toHaveProperty("error");
+    expect(linkFromRow({ url: "not a url" })).toHaveProperty("error");
+    expect(linkFromRow({ url: "" })).toEqual({ error: "Paste the link's URL." });
+  });
+
+  it("adds a link once per URL and removes one by URL", () => {
+    const a = withLink([issue], { ...issue, title: "Again" });
+    expect(a).toEqual([{ ...issue, title: "Again" }]);
+    expect(withoutLink(a, issue.url)).toEqual([]);
+  });
+
+  it("gathers a check's links across the goals that list it", () => {
+    const ref = (links?: Array<{ url: string }>) => ({ kind: "script" as const, target: "/Game/T/A", ...(links ? { links } : {}) });
+    const goals = [gs("a", "met", { checks: [ref([issue])] }), gs("b", "met", { checks: [ref([issue, { url: "jira://X-1" }])] }), gs("c", "met", { checks: [ref()] })];
+    expect(checkLinks("script:/Game/T/A", goals)).toEqual([{ link: issue, goalIds: ["a", "b"] }, { link: { url: "jira://X-1" }, goalIds: ["b"] }]);
+  });
+
+  it("the goal form carries links, and says what is wrong with one", () => {
+    const f = { ...goalFormOf({ links: [issue] }), title: "x" };
+    expect(f.links).toEqual([{ url: issue.url, title: "", rel: "" }]);
+    expect(goalDraftOf({ ...f, links: [...f.links, { url: "", title: "", rel: "" }] }).links).toEqual([issue]);
+    expect(goalFormErrors({ ...f, links: [{ url: "data:x", title: "", rel: "" }] }).links).toBeTruthy();
+  });
+
+  it("calls the link routes", async () => {
+    const calls: Array<[string, string, unknown]> = [];
+    const api = hubApi(async <T,>(m: string, p: string, b?: unknown) => {
+      calls.push([m, p, b]);
+      return {} as T;
+    });
+    await api.updateCheck("tut", "script:/Game/A", { links: [issue] });
+    await api.addRunLink("r 1", issue);
+    await api.removeRunLink("r 1", issue.url);
+    expect(calls).toEqual([
+      ["PUT", "/v1/ext/studio/hub/goals/tut/checks/script%3A%2FGame%2FA", { links: [issue] }],
+      ["POST", "/v1/ext/studio/hub/runs/r%201/links", { link: issue }],
+      ["DELETE", `/v1/ext/studio/hub/runs/r%201/links?url=${encodeURIComponent(issue.url)}`, undefined],
+    ]);
   });
 });

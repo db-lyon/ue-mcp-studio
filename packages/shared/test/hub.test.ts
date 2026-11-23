@@ -12,6 +12,10 @@ import {
   outcomeOf,
   parseCheckId,
   GOAL_ID,
+  linkHost,
+  trackerLinkOf,
+  trackerUrlProblem,
+  uniqueLinks,
   type AcceptanceRule,
   type CheckRef,
   type Goal,
@@ -19,6 +23,27 @@ import {
   type RunOutcome,
   type RunRecord,
 } from "../src/index.js";
+
+describe("tracker links", () => {
+  it("takes web, mail and app links, and refuses schemes that run code or read local data", () => {
+    for (const ok of ["https://git.example.com/ember/hollow/issues/42", "http://localhost:3000/x", "mailto:qa@example.com", "jira://HOL-1", "trello:card/abc"]) expect(trackerUrlProblem(ok), ok).toBeNull();
+    for (const bad of ["javascript:alert(1)", "JavaScript:x", "data:text/html,x", "vbscript:x", "file:///C:/x", "https://", "no-scheme.example.com", "https://a b", "", "jira:"]) expect(trackerUrlProblem(bad), bad).not.toBeNull();
+  });
+
+  it("normalizes a link and keeps one per URL", () => {
+    expect(trackerLinkOf({ url: " https://x.y/1 ", title: "  T ", rel: "" })).toEqual({ link: { url: "https://x.y/1", title: "T" } });
+    expect(trackerLinkOf({ url: "https://x.y", title: 3 })).toHaveProperty("problem");
+    expect(uniqueLinks([{ url: "a:1" }, { url: "a:1", title: "b" }, { url: "a:2" }])).toEqual([{ url: "a:1" }, { url: "a:2" }]);
+  });
+
+  it("names a link by its host, its address, or its app", () => {
+    expect(linkHost("https://www.Example.com:8080/a?b")).toBe("example.com");
+    expect(linkHost("https://user@git.example.com/x")).toBe("git.example.com");
+    expect(linkHost("mailto:qa%40x@example.com?subject=1")).toBe("qa@x@example.com");
+    expect(linkHost("jira://HOL-1")).toBe("jira");
+    expect(linkHost("nonsense")).toBe("");
+  });
+});
 
 const NOW = Date.parse("2026-11-23T12:00:00Z");
 const DAY = 86_400_000;

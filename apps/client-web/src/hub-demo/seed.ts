@@ -545,16 +545,25 @@ function goal(g: Omit<Goal, "schema" | "acceptance" | "createdAt" | "updatedAt">
   };
 }
 
+/** Tracker items the demo's goals, checks and a run point at: a self-hosted Gitea, a Jira and a Trello board. */
+export const DEMO_LINKS = {
+  tutorialIssue: "https://git.example.com/ember/hollow/issues/42",
+  exitIssue: "https://git.example.com/ember/hollow/issues/57",
+  combatEpic: "https://emberhollow.atlassian.net/browse/HOL-118",
+  staggerBug: "https://emberhollow.atlassian.net/browse/HOL-131",
+  reviveCard: "https://trello.com/c/Xr4dP2qL/57-revive-a-downed-ally",
+} as const;
+
 function goals(now: number): Goal[] {
   return [
     goal({ id: "vertical-slice", kind: "milestone", title: "Vertical Slice", description: "The tutorial glade into Ashwood, played start to finish with lantern combat and a working pause menu. What we show at the December review.", parent: null, owner: "Priya Raman", priority: "p0", tags: ["milestone"], due: "2026-12-18", checks: [] }, now, 40),
-    goal({ id: "tutorial-glade", kind: "goal", title: "A new player finishes the tutorial glade", description: "Walk, jump, light the lantern and leave the glade without help.", parent: "vertical-slice", owner: "Ama Mensah", priority: "p0", tags: ["onboarding"], due: "2026-12-05", checks: [ref("Tutorial", "PT_Tutorial_Movement"), ref("Tutorial", "PT_Tutorial_Jump"), ref("Tutorial", "PT_Tutorial_LanternLight"), ref("Tutorial", "PT_Tutorial_Exit")] }, now, 38),
+    goal({ id: "tutorial-glade", kind: "goal", title: "A new player finishes the tutorial glade", description: "Walk, jump, light the lantern and leave the glade without help.", parent: "vertical-slice", owner: "Ama Mensah", priority: "p0", tags: ["onboarding"], due: "2026-12-05", links: [{ url: DEMO_LINKS.tutorialIssue, title: "Tutorial glade: first-time player flow", rel: "counterpart" }], checks: [ref("Tutorial", "PT_Tutorial_Movement"), ref("Tutorial", "PT_Tutorial_Jump"), ref("Tutorial", "PT_Tutorial_LanternLight"), { ...ref("Tutorial", "PT_Tutorial_Exit"), links: [{ url: DEMO_LINKS.exitIssue, title: "Exit gate opens before the lantern is lit", rel: "related" }] }] }, now, 38),
     goal({ id: "traversal-feel", kind: "goal", title: "Traversal feels responsive", description: "Jump, dodge, ledge grab and sprint respond within a frame and hold up over repeated runs.", parent: "vertical-slice", owner: "Jun Park", priority: "p1", tags: ["traversal", "feel"], due: "2026-12-12", acceptance: { stableRuns: 2 }, checks: [ref("Traversal", "PT_Jump_Height"), ref("Traversal", "PT_DodgeRoll"), ref("Traversal", "PT_LedgeGrab"), ref("Traversal", "PT_Sprint_Stamina")] }, now, 36),
-    goal({ id: "lantern-combat", kind: "goal", title: "Lantern combat lands hits and staggers enemies", parent: "vertical-slice", owner: "Mateo Silva", priority: "p0", tags: ["combat"], due: "2026-12-10", checks: [ref("Combat", "PT_Lantern_Strike"), ref("Combat", "PT_Stagger_Wisp"), ref("Combat", "PT_Player_Damage")] }, now, 35),
+    goal({ id: "lantern-combat", kind: "goal", title: "Lantern combat lands hits and staggers enemies", parent: "vertical-slice", owner: "Mateo Silva", priority: "p0", tags: ["combat"], due: "2026-12-10", links: [{ url: DEMO_LINKS.combatEpic, title: "Lantern combat", rel: "counterpart" }], checks: [ref("Combat", "PT_Lantern_Strike"), { ...ref("Combat", "PT_Stagger_Wisp"), links: [{ url: DEMO_LINKS.staggerBug, title: "Elite wisps ignore stagger", rel: "blocks" }] }, ref("Combat", "PT_Player_Damage")] }, now, 35),
     goal({ id: "pause-settings", kind: "goal", title: "Pause and settings work mid-combat", parent: "vertical-slice", owner: "Ama Mensah", priority: "p2", tags: ["ui"], due: "2026-12-15", checks: [ref("UI", "PT_PauseMenu_Open"), ref("UI", "PT_Settings_Apply"), ref("UI", "PT_Pause_Resume")] }, now, 30),
     goal({ id: "coop-beta", kind: "milestone", title: "Co-op Beta", description: "Four friends can join, fight the Cinder Warden together, revive each other and split the loot.", parent: null, owner: "Mateo Silva", priority: "p1", tags: ["milestone", "coop"], due: "2027-02-26", checks: [] }, now, 28),
     goal({ id: "coop-join", kind: "goal", title: "Four players join a listen server", parent: "coop-beta", owner: "Priya Raman", priority: "p1", tags: ["network"], due: "2027-01-15", checks: [ref("Coop", "PT_Coop_Join_Listen"), ref("Coop", "PT_Coop_Join_Late"), ref("Coop", "PT_Coop_Lobby_Ready")] }, now, 27),
-    goal({ id: "coop-revive", kind: "goal", title: "A downed player can be revived", parent: "coop-beta", owner: "Jun Park", priority: "p1", tags: ["combat", "network"], due: "2027-01-29", checks: [ref("Coop", "PT_Revive_Ally"), ref("Coop", "PT_Revive_Timer"), ref("Coop", "PT_Revive_Downed_Old")] }, now, 26),
+    goal({ id: "coop-revive", kind: "goal", title: "A downed player can be revived", parent: "coop-beta", owner: "Jun Park", priority: "p1", tags: ["combat", "network"], due: "2027-01-29", links: [{ url: DEMO_LINKS.reviveCard, title: "Revive a downed ally", rel: "counterpart" }], checks: [ref("Coop", "PT_Revive_Ally"), ref("Coop", "PT_Revive_Timer"), ref("Coop", "PT_Revive_Downed_Old")] }, now, 26),
     goal({ id: "shared-loot", kind: "goal", title: "Loot is shared fairly", parent: "coop-beta", owner: DEMO_USER, priority: "p2", tags: ["loot"], due: "2027-02-12", checks: [ref("Loot", "PT_Loot_Split"), ref("Loot", "PT_Loot_Pickup_Sync")] }, now, 9),
     goal({ id: "warden-fight", kind: "goal", title: "Two players can beat the Cinder Warden", parent: "coop-beta", owner: "Mateo Silva", priority: "p0", tags: ["boss"], due: "2027-01-30", checks: [ref("Boss", "PT_Boss_Phase1"), ref("Boss", "PT_Boss_Phase2")] }, now, 21),
     goal({ id: "ashwood-perf", kind: "goal", title: "Ashwood holds 60 fps on the min-spec machine", description: "Measured on the GTX 1060 laptop. A person signs off after watching the flythrough.", parent: null, owner: "Jun Park", priority: "p1", tags: ["perf"], due: "2026-12-18", acceptance: { signOff: true, staleAfterDays: 7 }, checks: [ref("Perf", "PT_Perf_Ashwood_Flythrough")] }, now, 18),
@@ -623,6 +632,9 @@ export function demoState(seed: DemoSeed, now = Date.now(), randomSeed = 7): Dem
     { id: "sched-nightly", title: "Nightly: Vertical Slice", scope: { kind: "goal", goalId: "vertical-slice" }, options: { ...DEFAULT_PLAN_OPTIONS }, at: "02:00", days: [0, 1, 2, 3, 4, 5, 6], enabled: true, lastRunAt: null, lastSkipped: null, nextRunAt: null },
     { id: "sched-coop", title: "Co-op smoke test", scope: { kind: "goal", goalId: "coop-join" }, options: { ...DEFAULT_PLAN_OPTIONS, stopOnFailure: true }, at: "13:00", days: [1, 2, 3, 4, 5], enabled: true, lastRunAt: null, lastSkipped: "The editor was not connected", nextRunAt: null },
   ];
+  // The stagger bug was filed from the newest failing run of its check.
+  const filed = runs.filter((r) => r.target.endsWith("/PT_Stagger_Wisp") && r.outcome === "failed").sort((a, b) => (a.startedAt < b.startedAt ? 1 : -1))[0];
+  if (filed) filed.links = [{ url: DEMO_LINKS.staggerBug, title: "Elite wisps ignore stagger", rel: "filed-from-run" }];
   const lastNight = [...nights.keys()].sort((a, b) => a - b)[0];
   if (lastNight !== undefined) schedules[0].lastRunAt = nights.get(lastNight)![0]?.startedAt ?? null;
   for (const s of schedules) s.nextRunAt = demoNextRun(s, now);

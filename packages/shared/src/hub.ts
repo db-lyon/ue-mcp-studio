@@ -14,6 +14,9 @@ import type { QaRun, QaStepStatus, QaSummary } from "./qa.js";
 export const HUB_SCHEMA = 1 as const;
 /** Where goal files live in the project unless the project sets another folder. */
 export const HUB_GOALS_DIR = "QA/Goals";
+/** Beside the goal files: the JSON Schema each goal file names in "$schema", and a short guide for people and agents. */
+export const HUB_GOAL_SCHEMA_FILE = "goal.schema.json";
+export const HUB_GOALS_README = "README.md";
 
 // ---------- Goals and checks (checked in) ----------
 
@@ -27,6 +30,92 @@ export const HUB_GOALS_DIR = "QA/Goals";
 export type CheckKind = "script" | "uat" | "repro" | "automation" | "manual";
 export const RUNNABLE_KINDS: readonly CheckKind[] = ["script"];
 
+// ---------- Tracker links ----------
+
+/**
+ * A link from a goal, a check or a run to an item elsewhere: an issue, a
+ * ticket, a card, a document. Any tracker: Studio keeps the URL and never
+ * contacts it, so there is no provider list.
+ */
+export interface TrackerLink {
+  url: string;
+  title?: string;
+  /** How the item relates, free text. TRACKER_LINK_RELS are the usual ones, offered by clients and never enforced. */
+  rel?: string;
+}
+
+/** Relationships clients suggest for a link. Any other text is as valid. */
+export const TRACKER_LINK_RELS = ["counterpart", "related", "filed-from-run", "blocks"] as const;
+/** The most links one goal, check or run keeps. */
+export const TRACKER_LINKS_MAX = 20;
+export const TRACKER_URL_MAX = 2048;
+export const TRACKER_TITLE_MAX = 200;
+export const TRACKER_REL_MAX = 40;
+/** Schemes a link may never use: they run code or read local data where it opens. */
+export const TRACKER_BLOCKED_SCHEMES: readonly string[] = ["javascript", "data", "vbscript", "file", "blob", "about"];
+const URL_SCHEME = /^([a-z][a-z0-9+.-]*):/i;
+
+/** Why a URL cannot be a link, or null when it can: http, https, mailto, or an app's own scheme such as jira://. */
+export function trackerUrlProblem(url: unknown): string | null {
+  if (typeof url !== "string" || !url.trim()) return "a link needs a url";
+  const u = url.trim();
+  if (u.length > TRACKER_URL_MAX) return `a link's url is at most ${TRACKER_URL_MAX} characters`;
+  if (/\s/.test(u)) return "a link's url has no spaces";
+  const scheme = URL_SCHEME.exec(u)?.[1]?.toLowerCase();
+  if (!scheme) return "a link's url starts with its scheme, such as https://";
+  if (TRACKER_BLOCKED_SCHEMES.includes(scheme)) return `${scheme}: links are not allowed`;
+  if ((scheme === "http" || scheme === "https") && !/^https?:\/\/[^/?#\s]+/i.test(u)) return "a web link needs a host, such as https://example.com/issue/1";
+  if (u.length <= scheme.length + 1) return "a link's url has nothing after its scheme";
+  return null;
+}
+
+/** A link from a body or a file, normalized; or why it is not one. */
+export function trackerLinkOf(v: unknown): { link: TrackerLink } | { problem: string } {
+  if (!v || typeof v !== "object" || Array.isArray(v)) return { problem: "a link is { url, title?, rel? }" };
+  const o = v as Record<string, unknown>;
+  const problem = trackerUrlProblem(o.url);
+  if (problem) return { problem };
+  if (o.title !== undefined && o.title !== null && typeof o.title !== "string") return { problem: "a link's title is text" };
+  if (o.rel !== undefined && o.rel !== null && typeof o.rel !== "string") return { problem: "a link's rel is text" };
+  const title = typeof o.title === "string" ? o.title.trim().slice(0, TRACKER_TITLE_MAX) : "";
+  const rel = typeof o.rel === "string" ? o.rel.trim().slice(0, TRACKER_REL_MAX) : "";
+  return { link: { url: (o.url as string).trim(), ...(title ? { title } : {}), ...(rel ? { rel } : {}) } };
+}
+
+/** Links without a second one to the same URL, the first kept, at most TRACKER_LINKS_MAX. */
+export function uniqueLinks(links: readonly TrackerLink[]): TrackerLink[] {
+  const seen = new Set<string>();
+  return links.filter((l) => {
+    if (seen.has(l.url)) return false;
+    seen.add(l.url);
+    return true;
+  }).slice(0, TRACKER_LINKS_MAX);
+}
+
+/**
+ * What a link is shown as when it has no title: the host of a web link
+ * (without www.), the address of a mail link, the scheme of an app link
+ * ("jira"). Empty when the URL does not parse.
+ */
+export function linkHost(url: string): string {
+  const u = url.trim();
+  const scheme = URL_SCHEME.exec(u)?.[1]?.toLowerCase();
+  if (!scheme) return "";
+  if (scheme === "mailto") {
+    const to = u.slice("mailto:".length).split("?")[0] ?? "";
+    try {
+      return decodeURIComponent(to);
+    } catch {
+      return to;
+    }
+  }
+  if (scheme === "http" || scheme === "https") {
+    const m = /^https?:\/\/(?:[^@/?#]*@)?(\[[^\]]+\]|[^:/?#]+)/i.exec(u);
+    return m ? m[1].toLowerCase().replace(/^www\./, "") : "";
+  }
+  return scheme;
+}
+
 export interface CheckRef {
   kind: CheckKind;
   /** script: asset path without object name; uat/repro: file path; automation: test filter; manual: the item's text. */
@@ -35,6 +124,15 @@ export interface CheckRef {
   title?: string;
   /** A goal is met only when its required checks pass. Default true. */
   required?: boolean;
+  /** Tracker items this check refers to, kept in the goal that lists it. */
+  links?: TrackerLink[];
+}
+
+/** PUT /hub/goals/:id/checks/:checkId. Given fields change; null clears title, an empty list clears links. */
+export interface CheckUpdate {
+  title?: string | null;
+  required?: boolean;
+  links?: TrackerLink[];
 }
 
 /** A check's identity across goals and runs: "<kind>:<target>". */
@@ -82,6 +180,8 @@ export interface Goal {
   tags?: string[];
   /** ISO date (YYYY-MM-DD). */
   due?: string | null;
+  /** Tracker items this goal refers to: its issue, a design document. */
+  links?: TrackerLink[];
   acceptance: AcceptanceRule;
   checks: CheckRef[];
   signOff?: SignOff | null;
@@ -132,6 +232,8 @@ export interface RunRecord {
   replayOf?: string | null;
   recordingId?: string | null;
   map?: string | null;
+  /** Tracker items this run refers to, such as the issue filed from it. Per machine, as the run is. */
+  links?: TrackerLink[];
 }
 
 /** A run's outcome from its QaRun. */
@@ -458,12 +560,15 @@ export const HUB_ROUTES = {
   deleteGoal: "DELETE /hub/goals/:id -> 204",
   addChecks: "POST /hub/goals/:id/checks { checks: CheckRef[] } -> { goal }",
   removeCheck: "DELETE /hub/goals/:id/checks/:checkId -> { goal }",
+  updateCheck: "PUT /hub/goals/:id/checks/:checkId CheckUpdate -> { goal }",
   signOff: "POST /hub/goals/:id/sign-off { note? } -> { goal }",
   clearSignOff: "DELETE /hub/goals/:id/sign-off -> { goal }",
   writePlaytests: "POST /hub/goals/:id/write-playtests { text? } -> 202 { sessionId }",
   check: "GET /hub/checks/:checkId?limit=&before= -> CheckDetail",
   runs: "GET /hub/runs?check=&limit=&before= -> { runs: RunRecord[], more: boolean }",
   run: "GET /hub/runs/:runId -> RunDetail",
+  addRunLink: "POST /hub/runs/:runId/links { link: TrackerLink } -> { record: RunRecord }",
+  removeRunLink: "DELETE /hub/runs/:runId/links?url= -> { record: RunRecord }",
   queue: "GET /hub/queue -> QueueState",
   plan: "POST /hub/plans PlanRequest -> { plan: PlanRun }",
   cancelPlan: "POST /hub/plans/:id/cancel -> { plan }",

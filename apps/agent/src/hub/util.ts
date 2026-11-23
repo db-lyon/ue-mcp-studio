@@ -3,7 +3,7 @@
  * into its status, and reading ue-mcp's answers.
  */
 import type { ActionResult } from "ue-mcp/daemon";
-import { parseCheckId, type CheckKind, type CheckRef } from "@ue-mcp-studio/shared";
+import { TRACKER_LINKS_MAX, parseCheckId, trackerLinkOf, uniqueLinks, type CheckKind, type CheckRef, type TrackerLink } from "@ue-mcp-studio/shared";
 
 /** A refusal with the HTTP status its route answers: 400 a bad body, 404 nothing by that id, 409 not now. */
 export class HubError extends Error {
@@ -57,12 +57,46 @@ export function checkRefOf(v: unknown): CheckRef | null {
     const dot = target.lastIndexOf(".");
     if (dot > target.lastIndexOf("/")) target = target.slice(0, dot);
   }
+  const { links } = readLinks(o.links);
   return {
     kind,
     target,
     ...(typeof o.title === "string" && o.title.trim() ? { title: o.title.trim() } : {}),
     ...(o.required === false ? { required: false } : {}),
+    ...(links.length ? { links } : {}),
   };
+}
+
+/** Links from a request body: every one valid, or a 400 naming the first that is not. */
+export function linksOf(v: unknown, where = "links"): TrackerLink[] {
+  if (!Array.isArray(v)) throw bad(`${where} must be a list of { url, title?, rel? }`);
+  if (v.length > TRACKER_LINKS_MAX) throw bad(`${where} holds at most ${TRACKER_LINKS_MAX} links`);
+  return uniqueLinks(v.map((l, i) => {
+    const r = trackerLinkOf(l);
+    if ("problem" in r) throw bad(`${where} ${i + 1}: ${r.problem}`);
+    return r.link;
+  }));
+}
+
+/** One link from a request body, or a 400. */
+export function linkOf(v: unknown): TrackerLink {
+  const r = trackerLinkOf(v);
+  if ("problem" in r) throw bad(r.problem);
+  return r.link;
+}
+
+/** Links from a file: the valid ones, and what was wrong with the rest. Absent is none. */
+export function readLinks(v: unknown): { links: TrackerLink[]; problems: string[] } {
+  if (v === undefined || v === null) return { links: [], problems: [] };
+  if (!Array.isArray(v)) return { links: [], problems: ["links is not a list"] };
+  const links: TrackerLink[] = [];
+  const problems: string[] = [];
+  for (const [i, l] of v.entries()) {
+    const r = trackerLinkOf(l);
+    if ("problem" in r) problems.push(`link ${i + 1}: ${r.problem}`);
+    else links.push(r.link);
+  }
+  return { links: uniqueLinks(links), problems };
 }
 
 /** A check id from a path parameter, already decoded by the daemon; null when it names no check. */

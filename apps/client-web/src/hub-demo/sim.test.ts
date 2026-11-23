@@ -157,6 +157,26 @@ describe("the hub demo's simulation", () => {
     expect(call<HubOverview>("GET", "/hub").goals.some((g) => g.goal.id === goal.id)).toBe(false);
   });
 
+  it("seeds tracker links and answers the link routes as the agent does", () => {
+    const { call } = demo();
+    const o = call<HubOverview>("GET", "/hub");
+    const tutorial = goalOf(o, "tutorial-glade").goal;
+    expect(tutorial.links?.[0].url).toBe("https://git.example.com/ember/hollow/issues/42");
+    expect(goalOf(o, "lantern-combat").goal.checks.find((c) => c.target.endsWith("PT_Stagger_Wisp"))?.links?.[0].rel).toBe("blocks");
+    const filed = o.recent.concat(call<{ runs: RunDetail["record"][] }>("GET", `/hub/runs?limit=200`).runs).find((r) => r.links?.length);
+    expect(filed?.links?.[0].rel).toBe("filed-from-run");
+
+    const url = "https://trello.com/c/abc/1-card";
+    expect(call<{ goal: { links: unknown[] } }>("PUT", "/hub/goals/tutorial-glade", { links: [...tutorial.links!, { url }] }).goal.links).toHaveLength(2);
+    expect(() => call("PUT", "/hub/goals/tutorial-glade", { links: [{ url: "javascript:x" }] })).toThrow(/400|not allowed/);
+    const cid = checkId(tutorial.checks[0]);
+    const put = call<{ goal: { checks: Array<{ links?: unknown[] }> } }>("PUT", `/hub/goals/tutorial-glade/checks/${encodeURIComponent(cid)}`, { links: [{ url: "jira://HOL-1" }] });
+    expect(put.goal.checks[0].links).toEqual([{ url: "jira://HOL-1" }]);
+    const runId = o.recent[0].runId;
+    expect(call<{ record: { links: unknown[] } }>("POST", `/hub/runs/${runId}/links`, { link: { url } }).record.links).toEqual([{ url }]);
+    expect(call<{ record: { links?: unknown[] } }>("DELETE", `/hub/runs/${runId}/links?url=${encodeURIComponent(url)}`).record.links).toBeUndefined();
+  });
+
   it("ends the live run when the editor goes away, and waits for it to come back", () => {
     const { d, call, run } = demo();
     run(3000);

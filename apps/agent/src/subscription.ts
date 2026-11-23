@@ -22,6 +22,7 @@ import { LOCAL_TOOL_NAMES, localToolDefinitions } from "./local-tools.js";
 import { REPLY_DESCRIPTION, REPLY_TOOL_NAME, messagesIn } from "./subagent-inbox.js";
 import { SUBAGENT_TOOLS, SUBAGENT_TOOL_NAMES } from "./subagent-tools.js";
 import { USER_TOOLS, USER_TOOL_NAMES } from "./user-tools.js";
+import { HUB_TOOLS, HUB_TOOL_NAMES } from "./hub-tools.js";
 
 const SERVER = "studio";
 const PREFIX = `mcp__${SERVER}__`;
@@ -81,7 +82,7 @@ export const studioName = (name: string): string =>
  * neither it nor a project's .claude/agents file starts a subagent Studio does
  * not run.
  */
-export function toolOptions(o: { agent: boolean; user?: boolean; reply?: boolean; allowed?: string[]; editor?: string[]; skills: boolean }) {
+export function toolOptions(o: { agent: boolean; user?: boolean; hub?: boolean; reply?: boolean; allowed?: string[]; editor?: string[]; skills: boolean }) {
   const may = (name: string) => !o.allowed || o.allowed.includes(name);
   const studio = withEditor(STUDIO_TOOLS, may("ue_mcp") ? o.editor : undefined).filter((n) => {
     const base = n.slice(PREFIX.length);
@@ -94,9 +95,11 @@ export function toolOptions(o: { agent: boolean; user?: boolean; reply?: boolean
   const agent = o.agent ? [AGENT_TOOL_NAME, ...SUBAGENT_TOOL_NAMES].map((n) => `${PREFIX}${n}`) : [];
   // ask_user and notify_user: the main agent's, whether or not it may start subagents.
   const user = o.user ? USER_TOOL_NAMES.map((n) => `${PREFIX}${n}`) : [];
+  // The Playtest Hub's tools: the main agent's, while the hub is on.
+  const hub = o.hub ? HUB_TOOL_NAMES.map((n) => `${PREFIX}${n}`) : [];
   // A helper's file never takes away the subagent's answer to the user.
   const reply = o.reply ? [`${PREFIX}${REPLY_TOOL_NAME}`] : [];
-  return { tools: [...search, ...skill], allowedTools: [...studio, ...agent, ...user, ...reply, ...search, ...skill], disallowedTools: [...RUNTIME_AGENT] };
+  return { tools: [...search, ...skill], allowedTools: [...studio, ...agent, ...user, ...hub, ...reply, ...search, ...skill], disallowedTools: [...RUNTIME_AGENT] };
 }
 
 /** A built-in's arguments in the shape Studio's tool takes: file_path as path, -i as ignore_case. */
@@ -142,6 +145,8 @@ export interface SubscriptionTurn {
   agentTool?: { description: string; inputSchema: Record<string, unknown> };
   /** The main agent's conversation: it has ask_user and notify_user, whose calls go to runTool. */
   userTools?: boolean;
+  /** The main agent's Playtest Hub tools (hub-tools.ts), while the hub is on. */
+  hubTools?: boolean;
   /**
    * A subagent's conversation: it has Studio's reply tool, whose calls go to
    * runTool, and onHeard is told when it takes in the user's messages.
@@ -395,6 +400,7 @@ export async function runSubscriptionTurn(t: SubscriptionTurn): Promise<string |
       ...(t.agentTool ? [tool(AGENT_TOOL_NAME, t.agentTool.description, zodShape(t.agentTool.inputSchema), handler(AGENT_TOOL_NAME), { annotations: { readOnlyHint: true } })] : []),
       ...(t.agentTool ? SUBAGENT_TOOLS.map((d) => tool(d.name, d.description, zodShape(d.input_schema as Record<string, unknown>), handler(d.name))) : []),
       ...(t.userTools ? USER_TOOLS.map((d) => tool(d.name, d.description, zodShape(d.input_schema as Record<string, unknown>), handler(d.name))) : []),
+      ...(t.hubTools ? HUB_TOOLS.map((d) => tool(d.name, d.description, zodShape(d.input_schema as Record<string, unknown>), handler(d.name))) : []),
       ...(t.reply ? [tool(REPLY_TOOL_NAME, REPLY_DESCRIPTION, { text: z.string() }, handler(REPLY_TOOL_NAME), { annotations: { readOnlyHint: true } })] : []),
     ],
   });
@@ -405,7 +411,7 @@ export async function runSubscriptionTurn(t: SubscriptionTurn): Promise<string |
   // no MCP call timeout cuts either off.
   const env = claudeEnv({ MCP_TOOL_TIMEOUT: day });
 
-  const tools = toolOptions({ agent: !!t.agentTool, user: !!t.userTools, reply: t.reply, allowed: t.allowed, editor: t.editor?.tools.map((p) => p.name), skills: !!t.native?.skills });
+  const tools = toolOptions({ agent: !!t.agentTool, user: !!t.userTools, hub: !!t.hubTools, reply: t.reply, allowed: t.allowed, editor: t.editor?.tools.map((p) => p.name), skills: !!t.native?.skills });
   // The summary a compaction of the conversation wrote, which only this hook hands over.
   const compacted: HookCallback = async (input) => {
     if (input.hook_event_name === "PostCompact" && !input.agent_id) t.onCompaction?.({ summary: input.compact_summary });
