@@ -81,16 +81,34 @@ inline bool validKey(const std::string& key) {
   return true;
 }
 
+/** An editor consent request's id as ue-mcp makes them: "r-" and up to 16 lowercase hex digits. */
+inline bool validRequestId(const std::string& id) {
+  if (id.size() < 3 || id.size() > 18 || id.compare(0, 2, "r-") != 0) return false;
+  for (size_t i = 2; i < id.size(); i++) {
+    char c = id[i];
+    if (!std::isdigit(static_cast<unsigned char>(c)) && (c < 'a' || c > 'f')) return false;
+  }
+  return true;
+}
+
 /**
  * The daemon calls the app may make for its page, and nothing else: the
- * health and update checks, Studio's window, and the daemon's editor launch.
+ * health and update checks, Studio's window, the daemon's editor launch and
+ * rebuild, and denying the consent request a held rebuild opened.
  */
 inline bool allowed(const std::string& method, const std::string& path) {
   if (method == "GET") {
     return path == "/v1/health" || path == "/v1/update" || path == "/v1/update?channel=latest" || path == "/v1/update?channel=beta" ||
            path == "/v1/ext/studio/updates";
   }
-  if (method == "POST") return path == "/v1/ext/studio/window" || path == "/v1/editor/start" || path == "/v1/editor/rebuild";
+  if (method == "POST") {
+    if (path == "/v1/ext/studio/window" || path == "/v1/editor/start" || path == "/v1/editor/rebuild") return true;
+    const std::string prefix = "/v1/disruptions/", suffix = "/deny";
+    if (path.size() > prefix.size() + suffix.size() && path.compare(0, prefix.size(), prefix) == 0 &&
+        path.compare(path.size() - suffix.size(), suffix.size(), suffix) == 0) {
+      return validRequestId(path.substr(prefix.size(), path.size() - prefix.size() - suffix.size()));
+    }
+  }
   return false;
 }
 

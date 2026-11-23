@@ -133,6 +133,59 @@ describe("a bridge built for a different engine build", () => {
     expect(within(rows[0]).queryByRole("button", { name: "Launch anyway" })).toBeNull();
   });
 
+  /** The daemon's 409 while other sessions use the editor (ue-mcp feature "editor.consent"), as the host passes it on. */
+  const held = {
+    ok: false,
+    status: 409,
+    error: "Not run yet.",
+    body: JSON.stringify({
+      error: "Not run yet.",
+      request: {
+        id: "r-5e6f70",
+        op: "rebuild",
+        action: "POST /v1/editor/rebuild",
+        requester: { id: "http:the user in the UE-MCP Launcher", label: "the user in the UE-MCP Launcher" },
+        state: "pending",
+        createdAt: "2026-11-23T10:00:00Z",
+        expiresAt: "2026-11-23T10:15:00Z",
+        answers: [{ session: "mcp-1", label: "Claude Code", answer: "wait_until_released", reason: "busy (blueprint.add_variable)", auto: true }],
+        self: { attestationRequired: false, attested: null, inflight: [] },
+      },
+    }),
+  };
+
+  it("shows who holds a rebuild and why, and Rebuild anyway overrides it", async () => {
+    const h = fakeHost();
+    const { rebuild } = withStatus(h, ["bridge_engine_mismatch"]);
+    const ok = await rebuild();
+    rebuild.mockReset();
+    rebuild.mockResolvedValueOnce(held as never).mockResolvedValueOnce(ok);
+    render(<App />);
+    const rows = await projectRows();
+    fireEvent.click(await within(rows[0]).findByRole("button", { name: "Rebuild" }));
+    await within(rows[0]).findByText("Other sessions are using the editor");
+    expect(within(rows[0]).getByTestId("editor-consent").textContent).toContain("Claude Code: Waiting, busy (blueprint.add_variable)");
+    fireEvent.click(within(rows[0]).getByRole("button", { name: "Rebuild anyway" }));
+    await waitFor(() => expect(rebuild).toHaveBeenLastCalledWith({ key: withStudio.key, uproject: withStudio.uproject, force: "yes" }));
+    await waitFor(() => expect(within(rows[0]).queryByTestId("editor-consent")).toBeNull());
+  });
+
+  it("Cancel on a held rebuild denies its request", async () => {
+    const h = fakeHost();
+    const { rebuild } = withStatus(h, ["bridge_engine_mismatch"]);
+    rebuild.mockResolvedValue(held as never);
+    const denyconsent = vi.fn(async () => ({ ok: true }));
+    Object.assign(h, { denyconsent });
+    render(<App />);
+    const rows = await projectRows();
+    fireEvent.click(await within(rows[0]).findByRole("button", { name: "Rebuild" }));
+    await within(rows[0]).findByText("Other sessions are using the editor");
+    fireEvent.click(within(rows[0]).getByRole("button", { name: "Cancel" }));
+    expect(denyconsent).toHaveBeenCalledWith({ key: withStudio.key, id: "r-5e6f70" });
+    await waitFor(() => expect(within(rows[0]).queryByTestId("editor-consent")).toBeNull());
+    expect(rebuild).toHaveBeenCalledTimes(1);
+  });
+
   it("says why a rebuild failed, with Try again", async () => {
     const h = fakeHost();
     const { rebuild } = withStatus(h, ["bridge_engine_mismatch"]);
