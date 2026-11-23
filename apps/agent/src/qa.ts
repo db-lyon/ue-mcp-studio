@@ -128,7 +128,16 @@ export interface QaRunOptions {
   /** Listen server with more than one player. */
   listen?: boolean;
   record?: boolean;
+  /**
+   * Nobody is at the editor (a hub plan that defers manual steps): manual
+   * steps start and the run moves on (block_on_manual false), and no verdict
+   * form is put to the session.
+   */
+  unattended?: boolean;
 }
+
+/** ue-mcp's refusal of a verdict for a run it no longer holds: another run started since. */
+const NOT_HELD = /not the active run|no run|other run|not held/i;
 
 /** A step from a call or a card: its player taken out, ue-mcp's fields left. */
 function splitPlayers(steps: unknown): { steps: unknown[]; players: Record<number, string> } | null {
@@ -181,6 +190,17 @@ export class QaBroker {
   private readonly dismissed = new Set<string>();
   /** Playtest loops running in this daemon, by loop id. */
   private readonly loops = new Map<string, PlaytestLoop>();
+  /** Who hears of every saved run: the Playtest Hub's run index and queue. */
+  private readonly listeners = new Set<(run: QaRun, replaces?: string) => void>();
+  /**
+   * Manual runs that take the late verdicts of an ended run ue-mcp no longer
+   * holds, by that run's id. They are no card of their own: their events are
+   * not followed, and the verdicts land on the ended run's card.
+   */
+  private readonly lateRuns = new Map<string, string>();
+  private readonly lateIds = new Set<string>();
+  /** A late run is being started: the unknown run whose events arrive now is it. */
+  private lateStarting = 0;
   private readonly now: () => string;
   private readonly unsubscribe: () => void;
 
@@ -204,6 +224,13 @@ export class QaBroker {
 
   dispose(): void {
     this.unsubscribe();
+    this.listeners.clear();
+  }
+
+  /** Hear of every run saved, after it is kept; replaces names a card's run it took over. Returns the unsubscribe. */
+  onSaved(listener: (run: QaRun, replaces?: string) => void): () => void {
+    this.listeners.add(listener);
+    return () => void this.listeners.delete(listener);
   }
 
   /** Read every unfinished run again from its last seq, so a restart misses nothing and ue-mcp follows it again. */
@@ -374,14 +401,79 @@ export class QaBroker {
       had = started.run;
       runId = had.runId;
     }
+    const late = this.lateRuns.get(runId);
+    if (had && late) return this.lateVerdict(had, b.step as number, b.verdict as QaVerdict, note);
     const r = await this.o.host.callAction("pie", "verdict", { run_id: runId, step: b.step, verdict: b.verdict, ...(note ? { note } : {}) });
     const answer = json(r);
     const error = failure(r, answer);
+    // An ended run whose manual steps were left for later (a hub plan deferred them) while another run started since.
+    if (error && had && NOT_HELD.test(error) && this.lateEligible(had, b.step as number)) return this.lateVerdict(had, b.step as number, b.verdict as QaVerdict, note);
     if (error) return { error, status: 409 };
     if (!had) return { error: `Studio has no run ${runId}`, status: 404 };
     const run = qaApplyVerdictAnswer(had, answer);
     this.save(run);
     return { run };
+  }
+
+  /** A full run that ended with this manual step still waiting: one whose verdict can come late. */
+  private lateEligible(run: QaRun, step: number): boolean {
+    return !qaIsDraft(run) && qaEnded(run.state) && run.script !== "inline" && !run.manual && !run.deleted
+      && run.steps.some((s) => s.index === step && s.judge === "manual" && s.status === "awaiting_verdict");
+  }
+
+  /**
+   * A verdict for an ended run ue-mcp no longer holds, which it refuses: the
+   * step is judged in a manual run of the same script (no PIE, every manual
+   * step awaiting), and the verdict lands on the ended run's card. The manual
+   * run is reused for the run's other waiting steps, and stopped once none
+   * waits, so it does not hold the editor.
+   */
+  private async lateVerdict(had: QaRun, step: number, verdict: QaVerdict, note: string): Promise<{ run: QaRun } | { error: string; status: number }> {
+    if (!this.lateEligible(had, step)) return { error: "only a manual step still waiting can be judged after its run ended", status: 409 };
+    const ask = (id: string) => this.o.host.callAction("pie", "verdict", { run_id: id, step, verdict, ...(note ? { note } : {}) });
+    let late = this.lateRuns.get(had.runId);
+    let r = late ? await ask(late) : null;
+    if (!r || failure(r, json(r))) {
+      // None yet, or ue-mcp moved on from it: a fresh manual run.
+      if (late) this.lateRuns.delete(had.runId);
+      this.lateStarting++;
+      let started: ActionResult;
+      try {
+        started = await this.o.host.callAction("pie", "script_run", { script: had.script, mode: "manual", start_pie: false, record: false });
+      } finally {
+        this.lateStarting--;
+      }
+      const body = json(started);
+      const error = failure(started, body);
+      if (error || typeof body?.run_id !== "string") return { error: `the verdict could not be given after the run ended: ${error ?? "ue-mcp started no manual run"}`, status: 409 };
+      late = body.run_id;
+      this.lateRuns.set(had.runId, late);
+      this.lateIds.add(late);
+      r = await ask(late);
+    }
+    const answer = json(r);
+    const error = failure(r, answer);
+    if (error || !answer) return { error: error ?? "ue-mcp's answer was not JSON", status: 409 };
+    const current = this.runs.get(had.runId) ?? had;
+    let run = qaApplyVerdictAnswer(current, { ...answer, run_id: current.runId, state: current.state, awaiting: current.awaiting.filter((i) => i !== step) });
+    const done = !run.steps.some((s) => s.status === "awaiting_verdict");
+    // Stopped only to leave its manual steps for later: with every verdict in, it finished, as it would have with a person there.
+    if (done && run.state === "stopped" && run.steps.every((s) => s.status === "passed" || s.status === "failed" || s.status === "skipped")) run = { ...run, state: "finished" };
+    this.save(run);
+    if (done) await this.stopLate(had.runId);
+    return { run };
+  }
+
+  private async stopLate(runId: string): Promise<void> {
+    const late = this.lateRuns.get(runId);
+    if (!late) return;
+    this.lateRuns.delete(runId);
+    await this.o.host.callAction("pie", "script_stop", { run_id: late, reason: "Every late verdict is in" }).catch(() => null);
+  }
+
+  /** End every manual run still taking late verdicts, before another run needs the editor. Their next verdict starts one again. */
+  async stopLateRuns(): Promise<void> {
+    for (const runId of [...this.lateRuns.keys()]) await this.stopLate(runId);
   }
 
   /** A script the agent saved: the call without its players, then its draft card in the session. */
@@ -519,11 +611,11 @@ export class QaBroker {
     }
     const watched = run.steps.find((s) => s.judge === "auto" && s.player)?.player;
     const instance = players > 1 ? qaPieInstance(watched) : undefined;
-    const args: Record<string, unknown> = { script: run.script, start_pie: o.startPie !== false, record: o.record !== false, ...(instance !== undefined ? { pie_instance: instance } : {}) };
+    const args: Record<string, unknown> = { script: run.script, start_pie: o.startPie !== false, record: o.record !== false, ...(instance !== undefined ? { pie_instance: instance } : {}), ...(o.unattended ? { block_on_manual: false } : {}) };
     const call: Inflight = { sessionId, action: "script_run" };
     this.inflight.push(call);
     try {
-      const r = await this.o.host.callAction("pie", "script_run", args, this.callOptions(sessionId));
+      const r = await this.o.host.callAction("pie", "script_run", args, o.unattended ? {} : this.callOptions(sessionId));
       const answer = json(r);
       const error = failure(r, answer);
       if (error || !answer) return { error: error ?? "ue-mcp's answer was not JSON", status: 409 };
@@ -761,6 +853,8 @@ export class QaBroker {
     if (!e.type.startsWith("script.")) return;
     const runId = typeof e.data.runId === "string" ? e.data.runId : null;
     if (!runId) return;
+    // A manual run taking late verdicts is no card; one run at a time, so an unknown run while one starts is it.
+    if (this.lateIds.has(runId) || (this.lateStarting > 0 && !this.runs.has(runId))) return;
     const waiting = this.reading.get(runId);
     if (waiting) {
       waiting.push(e);
@@ -853,6 +947,13 @@ export class QaBroker {
     }
     // No sessionId: the open chat would load its whole transcript again on each step. The card takes the run from here.
     this.o.host.events.publish("qa.changed", { runId: run.runId, run: run as unknown as Record<string, unknown>, ...(replaces ? { replaces } : {}) });
+    for (const listener of this.listeners) {
+      try {
+        listener(run, replaces);
+      } catch (e) {
+        this.o.host.log.warn("a qa listener failed", e);
+      }
+    }
   }
 
   /** Each step's player, from what Studio keeps for the run's script. */

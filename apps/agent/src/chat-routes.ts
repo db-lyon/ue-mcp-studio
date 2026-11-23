@@ -31,7 +31,7 @@
  *   POST /updates/deferred/now      Restart now: end the turns in progress and run the waiting steps
  *
  * Per-turn review (/review, /sessions/:id/review, /sessions/:id/reviews, /sessions/:id/timeline) is in review.ts.
- * Editor dialogs (/dialogs) are in dialog-routes.ts, playtests, PIE test script runs (/qa), in qa.ts. Studio's window and the editor's busy state are in window-routes.ts; resolving
+ * Editor dialogs (/dialogs) are in dialog-routes.ts, playtests, PIE test script runs (/qa), in qa.ts; the Playtest Hub (/hub) in hub/routes.ts. Studio's window and the editor's busy state are in window-routes.ts; resolving
  * and opening the assets the chat names (/assets/resolve, /assets/open) in asset-links.ts; the composer's @-mention search
  * (/mentions/search) in mentions.ts.
  *
@@ -83,6 +83,7 @@ import { BusyTracker } from "./busy.js";
 import { registerDialogs } from "./dialog-routes.js";
 import { registerForms } from "./forms.js";
 import { registerQa } from "./qa.js";
+import { registerHub } from "./hub/routes.js";
 import { PlaytestIndex, registerPlaytestIndex, type PlaytestIndexHost } from "./playtest-index.js";
 import { registerReview } from "./review.js";
 import { PlaytestStore } from "./playtest-store.js";
@@ -261,7 +262,8 @@ export function registerChat(api: DaemonExtensionApi, agentVersion = "0.0.0", pa
   const forms = registerForms(api);
   const dialogs = registerDialogs(api, store, settings, forms);
   const qa = registerQa(api, store, forms, playtests);
-  registerPlaytestIndex(api, new PlaytestIndex({ host: api as unknown as PlaytestIndexHost, broker: qa, store }));
+  const playtestIndex = new PlaytestIndex({ host: api as unknown as PlaytestIndexHost, broker: qa, store });
+  registerPlaytestIndex(api, playtestIndex);
   const review = registerReview(api, store, () => settings.reviewTurns());
   /** The daemon's own address, for the flow routes. */
   const endpoint = () => {
@@ -410,6 +412,18 @@ export function registerChat(api: DaemonExtensionApi, agentVersion = "0.0.0", pa
       const s = store.get(sid);
       return s && !review.on(s) ? "Review is off in this session, so no checkpoints would let you undo its changes. Turn it on in the session's Checkpoints panel." : null;
     },
+  });
+  // The Playtest Hub (/hub, hub/routes.ts): goals, run history, the plan queue and schedules, over the cards above.
+  const hub = registerHub(api, {
+    broker: qa,
+    index: playtestIndex,
+    store,
+    playtestRuns: () => playtests.runs(),
+    // A replay a plan starts goes through the card's session, as an assigned subagent's would, so the run takes the card.
+    replay: (sid, args) => qa.wrap(api as unknown as AgentHost, sid, { assigned: true }).callAction("pie", "script_replay", args),
+    writePlaytests: (sid, text) => runner.playtest(sid, { text }),
+    signer: () => (settings.accountToken() ? settings.accountLogin() : null) ?? account.registryLogin()?.login ?? "you",
+    enabled: () => settings.experiments().playtestHub,
   });
 
   const bad = (error: string) => ({ status: 400, body: { error } });
@@ -1071,6 +1085,7 @@ export function registerChat(api: DaemonExtensionApi, agentVersion = "0.0.0", pa
       unregisterModel();
       unregisterSteps();
       dialogs.dispose();
+      hub.dispose();
       qa.dispose();
       watch.dispose();
       runner.dispose();

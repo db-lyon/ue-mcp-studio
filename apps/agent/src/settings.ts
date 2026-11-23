@@ -22,6 +22,7 @@ import {
   STUDIO_THEMES,
   type Effort,
   type KeyProviderId,
+  type StudioExperiments,
   type StudioSettingsUpdate,
   type StudioTheme,
   type UsageSettings,
@@ -82,6 +83,17 @@ interface StoredSettings {
    * follows what is connected. A file from before this field counts as picked.
    */
   modelChosen: boolean;
+  /** Experimental features, each off until switched on in Settings > General. */
+  experiments: StudioExperiments;
+}
+
+/** Every experiment off: a new install, and a file from before the field. */
+export const DEFAULT_EXPERIMENTS: StudioExperiments = { playtestHub: false };
+
+/** The stored experiments, each true only when stored as true. */
+export function experimentsOf(raw: unknown): StudioExperiments {
+  const o = raw && typeof raw === "object" ? (raw as Record<string, unknown>) : {};
+  return { playtestHub: o.playtestHub === true };
 }
 
 /** A model to run in place of an unpicked one: its vendor and id. */
@@ -205,10 +217,11 @@ export class SettingsStore {
         approvals: approvalsOf(raw),
         // Written before the field: the provider and model in it were the user's.
         modelChosen: raw.modelChosen !== false,
+        experiments: experimentsOf(raw.experiments),
       };
     } catch {
       // No settings yet: a new install, which asks before every kind of change and has picked no model.
-      return { provider: "anthropic", model: DEFAULT_MODEL, routeOrder: DEFAULT_ROUTE_ORDER, effort: DEFAULT_EFFORT, gatewayUrl: DEFAULT_GATEWAY_URL, theme: "ue-mcp", askBeforeChanges: true, reviewTurns: true, composerHeight: null, dialogPolicy: DEFAULT_DIALOG_POLICY, usage: { ...DEFAULT_USAGE }, approvals: { ...DEFAULT_APPROVALS }, modelChosen: false };
+      return { provider: "anthropic", model: DEFAULT_MODEL, routeOrder: DEFAULT_ROUTE_ORDER, effort: DEFAULT_EFFORT, gatewayUrl: DEFAULT_GATEWAY_URL, theme: "ue-mcp", askBeforeChanges: true, reviewTurns: true, composerHeight: null, dialogPolicy: DEFAULT_DIALOG_POLICY, usage: { ...DEFAULT_USAGE }, approvals: { ...DEFAULT_APPROVALS }, modelChosen: false, experiments: { ...DEFAULT_EXPERIMENTS } };
     }
   }
 
@@ -326,6 +339,14 @@ export class SettingsStore {
       s.dialogPolicy = policy;
     }
     if (u.usage !== undefined) s.usage = applyUsage(s.usage, u.usage);
+    if (u.experiments !== undefined) {
+      if (!u.experiments || typeof u.experiments !== "object") throw new Error("experiments must be an object");
+      for (const [k, v] of Object.entries(u.experiments)) {
+        if (!(k in DEFAULT_EXPERIMENTS)) throw new Error(`no experiment ${k}; one of ${Object.keys(DEFAULT_EXPERIMENTS).join(", ")}`);
+        if (typeof v !== "boolean") throw new Error(`experiments.${k} must be a boolean`);
+      }
+      s.experiments = { ...s.experiments, ...u.experiments };
+    }
     for (const [p, v] of Object.entries(u.keys ?? {})) {
       if (!KEY_PROVIDER_IDS.includes(p as KeyProviderId)) throw new Error(`no key provider ${p}`);
       if (typeof v !== "string") throw new Error(`the ${p} key must be a string`);
@@ -455,5 +476,10 @@ export class SettingsStore {
   /** Review each turn's changes, for sessions that have not set their own. On unless turned off. */
   reviewTurns(): boolean {
     return this.stored().reviewTurns;
+  }
+
+  /** Experimental features switched on in Settings > General. */
+  experiments(): StudioExperiments {
+    return this.stored().experiments;
   }
 }

@@ -122,6 +122,11 @@ const ALWAYS_ROUTES: RegExp[] = [
   /^\/qa\/runs\/[^/]+\/(run|loop\/revert)$/,
   /^\/qa\/playtests\/script$/,
   /^\/qa\/runs\/[^/]+\/script$/,
+  // The Playtest Hub's ways to run playtests, as the card's Run is: a plan, one check, a schedule that starts plans, and the /playtest flow for a goal.
+  /^\/hub\/plans$/,
+  /^\/hub\/checks\/[^/]+\/run$/,
+  /^\/hub\/schedules(\/[^/]+)?$/,
+  /^\/hub\/goals\/[^/]+\/write-playtests$/,
   /^\/settings$/,
   /^\/agent-settings$/,
   /^\/config$/,
