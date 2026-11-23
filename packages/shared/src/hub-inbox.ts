@@ -34,9 +34,15 @@ export function buildInbox(i: InboxInput): InboxItem[] {
   const scriptGoals = (script: string) => goalsOf.get(checkId({ kind: "script", target: qaScriptKey(script) })) ?? [];
   const out: InboxItem[] = [];
 
+  // A check's newest run supersedes its older ones: their unjudged steps are history, not work for a person.
+  const newest = new Map<string, QaRun>();
   for (const run of i.runs) {
     if (qaIsDraft(run) || run.deleted || run.script === "inline") continue;
     const cid = checkId({ kind: "script", target: qaScriptKey(run.script) });
+    const had = newest.get(cid);
+    if (!had || run.seenAt > had.seenAt) newest.set(cid, run);
+  }
+  for (const [cid, run] of newest) {
     for (const step of run.steps) {
       if (step.status !== "awaiting_verdict") continue;
       out.push({
