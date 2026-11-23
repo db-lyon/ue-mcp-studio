@@ -51,6 +51,16 @@ describe("the navigation drawer", () => {
     expect(screen.getByText("Docs")).toBeTruthy();
   });
 
+  it("lists Viewport by default and leaves it out when told to, as Studio on the computer does", () => {
+    setup();
+    expect(screen.getByText("Viewport")).toBeTruthy();
+    cleanup();
+    m.sessions.mockResolvedValue({ sessions: [] });
+    render(<NavDrawer open tab="Chat" session={null} updates={0} viewport={false} onClose={vi.fn()} onTab={vi.fn()} onSession={vi.fn()} onNewSession={vi.fn()} />);
+    expect(screen.queryByText("Viewport")).toBeNull();
+    expect(screen.getByText("Plugins")).toBeTruthy();
+  });
+
   it("hides the Playtests page for now, even while playtests need the user", () => {
     setup(true, "Chat", 0, 2);
     expect(screen.queryByText("Playtests")).toBeNull();

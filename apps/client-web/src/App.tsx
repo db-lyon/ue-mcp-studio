@@ -45,6 +45,19 @@ const TABS = ["Chat", "Viewport", "Playtests", "Plugins", "Settings"] as const;
 const SHOWN: readonly (typeof TABS)[number][] = TABS.filter((t) => t !== "Playtests");
 type Tab = (typeof TABS)[number];
 
+/**
+ * The tabs the bar lists. The live viewport is for a paired device: Studio on
+ * the computer sits beside the editor, which already shows the viewport.
+ */
+export function shownTabs(remote: boolean): readonly Tab[] {
+  return remote ? SHOWN : SHOWN.filter((t) => t !== "Viewport");
+}
+
+/** The tab a location lands on: the viewport, on the computer, falls back to the chat. */
+export function landingTab(tab: Tab, remote: boolean): Tab {
+  return !remote && tab === "Viewport" ? "Chat" : tab;
+}
+
 /** Studio, or the one screen that says it needs a newer ue-mcp. */
 export function App() {
   const daemon = useDaemon();
@@ -78,7 +91,11 @@ export function App() {
 
 function Studio({ daemon }: { daemon: DaemonState }) {
   // Where the panel was, from the URL's hash: a reload, or ue-mcp back on a new port, lands there.
-  const [tab, setTab] = useState<Tab>(() => readLocation().tab);
+  // A paired browser names the open project in the drawer and switches to the relay's list of every project.
+  // It alone shows the live viewport: Studio on the computer sits beside the editor.
+  const remote = onRemotePage();
+  const tabs = shownTabs(remote);
+  const [tab, setTab] = useState<Tab>(() => landingTab(readLocation().tab, remote));
   // null: the section list, which only a narrow panel shows on its own.
   const [section, setSection] = useState<SettingsSection | null>(() => sectionOf(readLocation().section));
   // The live viewport over the chat, from the PIE indicator or a Play In Editor card; closing it returns to the chat as it was.
@@ -93,7 +110,7 @@ function Studio({ daemon }: { daemon: DaemonState }) {
   useEffect(() => {
     const follow = () => {
       const at = readLocation();
-      setTab(at.tab);
+      setTab(landingTab(at.tab, remote));
       if (at.tab === "Settings") setSection(sectionOf(at.section));
     };
     window.addEventListener("hashchange", follow);
@@ -112,8 +129,6 @@ function Studio({ daemon }: { daemon: DaemonState }) {
   const [feedback, setFeedback] = useState(false);
   const narrow = useMedia(NARROW);
   const [drawer, setDrawer] = useState(false);
-  // A paired browser names the open project in the drawer and switches to the relay's list of every project.
-  const remote = onRemotePage();
   const [projectName, setProjectName] = useState<string | null>(null);
   useEffect(() => {
     if (remote) api.about().then((a) => setProjectName(a.name ?? null), () => undefined);
@@ -192,7 +207,7 @@ function Studio({ daemon }: { daemon: DaemonState }) {
                 <span className="product">Studio</span>
               </span>
               <nav>
-                {SHOWN.map((t) => (
+                {tabs.map((t) => (
                   <button key={t} className={t === tab ? "tab active" : "tab"} onClick={() => setTab(t)}>
                     {t}
                     {t === "Settings" && updates > 0 && <span className="tab-dot" title={`${updates} ${updates === 1 ? "update" : "updates"} available`} />}
@@ -218,6 +233,7 @@ function Studio({ daemon }: { daemon: DaemonState }) {
             onTab={setTab}
             onSession={openChat}
             onNewSession={newSession}
+            viewport={remote}
             project={remote ? { name: projectName, onSwitch: switchProject } : undefined}
           >
             {tools}
@@ -238,7 +254,7 @@ function Studio({ daemon }: { daemon: DaemonState }) {
           {chatShown.current && (
             <main className={tab === "Chat" ? "view-chat" : "view-chat parked"} aria-hidden={tab !== "Chat" || undefined}>
               <ErrorBoundary what="Chat">
-                <ChatView daemon={daemon} nav={chatNav} active={tab === "Chat"} onSettings={settingsFromChat} onWatchLive={watchLive} />
+                <ChatView daemon={daemon} nav={chatNav} active={tab === "Chat"} onSettings={settingsFromChat} onWatchLive={remote ? watchLive : undefined} />
               </ErrorBoundary>
             </main>
           )}
