@@ -1,19 +1,21 @@
 /**
- * The editor's Play In Editor viewport in the Playtest Hub: a Viewport card
- * that is always on the Goal (and Milestone), Check and Run screens and the
- * Inbox. It never connects on its own. Collapsed, it says in one line what the
- * editor and Play In Editor are doing, or that one of the screen's checks is
- * running now. Expanded, it joins the viewer and draws the picture in place,
- * or the viewer's notice with its ways forward; a second control opens the
- * full viewer.
+ * The editor's Play In Editor viewport in the Playtest Hub, on a remote
+ * client only (client-core's viewportAllowed): the Viewport card on the Run
+ * screen while that run plays. Elsewhere the bar's Live button (App.tsx) is
+ * the way in. The card never connects on its own.
+ * Collapsed, it says in one line that the run is running now.
+ * Expanded, it joins the viewer and draws the picture in place, or the
+ * viewer's notice with its ways forward; a second control opens the full
+ * viewer.
  *
  * The hub holds one viewer for every card (HubLiveProvider), and whether the
  * cards are expanded is the hub's, not each screen's: a card that is expanded
  * and on screen holds the viewer, which joins on the first hold and leaves
  * HUB_LIVE_LINGER_MS after the last one lets go, so moving between screens
  * keeps the same connection. Every card draws the same MediaStream, and the
- * full viewer draws it too (ViewportDialog's `viewer`), so the hub never asks
- * the editor for a second stream.
+ * full viewer draws it too (ViewportDialog's `viewer`), including when the
+ * bar's Live button opens it (LiveHostContext), so the hub never asks the
+ * editor for a second stream.
  *
  * What a card says and draws is client-core's hubViewerLine and hubLiveView.
  */
@@ -24,18 +26,13 @@ import {
   HUB_LIVE_ENDED_MS,
   HUB_LIVE_LINGER_MS,
   HUB_VIEWER_COPY,
-  VIEWPORT_BUTTON,
-  VIEWPORT_BUTTON_HINT,
   ViewportSession,
-  asksViewportAgain,
   hubHash,
   hubLiveView,
   hubViewerLine,
-  pieFromEvent,
-  showsViewportButton,
   viewerNotice,
+  viewportAllowed,
   viewportGate,
-  withPie,
   type HubLiveView,
   type HubViewerLine,
   type PeerFactory,
@@ -46,7 +43,7 @@ import {
 } from "@ue-mcp-studio/client-core";
 import { api } from "../../api";
 import { onRemotePage } from "../../connection";
-import { ViewportDialog } from "../../chat/PieLive";
+import { LiveHostContext, ViewportDialog, usePieStatus } from "../../chat/PieLive";
 import { browserPeer, runViewportAction } from "../Viewport";
 import type { DaemonState } from "../../state";
 import type { SettingsSection } from "../settings/sections";
@@ -83,41 +80,43 @@ export const HubLiveContext = createContext<HubLiveValue | null>(null);
 
 const NO_EVENTS: Pick<DaemonState, "events"> = { events: [] };
 
-/** The hub's one viewer, whether its cards are expanded, and the full viewer over the hub when one is open. */
-export function HubLiveProvider({ daemon = NO_EVENTS, onSettings = () => undefined, peer = browserPeer, children }: {
+interface HubLiveProps {
   daemon?: Pick<DaemonState, "events">;
   onSettings?: (s: SettingsSection) => void;
   peer?: PeerFactory;
   children: ReactNode;
-}) {
-  const remote = onRemotePage();
+}
+
+/**
+ * The hub's one viewer, whether its cards are expanded, and the full viewer
+ * over the hub when one is open. Only on a remote client (viewportAllowed):
+ * on the computer there is no context, so the Run screen draws no viewer.
+ */
+export function HubLiveProvider(props: HubLiveProps) {
+  return viewportAllowed(onRemotePage()) ? <HubLive {...props} /> : <>{props.children}</>;
+}
+
+function HubLive({ daemon = NO_EVENTS, onSettings = () => undefined, peer = browserPeer, children }: HubLiveProps) {
+  const remote = true;
   const [holds, setHolds] = useState(0);
   const [dialog, setDialog] = useState(false);
   const [expanded, setExpanded] = useState(false);
   const wanted = holds > 0 || dialog;
 
-  // GET /viewport on mount, when something comes to want the viewer, and after an event that may change it;
-  // a pie.* event applies at once. Nothing polls. The cards' line reads whether PIE runs from it.
-  const [status, setStatus] = useState<ViewportStatus | null>(null);
-  const check = (fresh = false): Promise<ViewportStatus | null> =>
-    Promise.resolve()
-      .then(() => api.viewport(fresh))
-      .then((s) => {
-        setStatus(s);
-        return s;
-      }, () => null);
-  const asks = daemon.events.filter((e) => asksViewportAgain(e.type)).length;
+  // The app's one GET /viewport (PieStatusContext), asked again when something comes to want the viewer.
+  const { status, check, setStatus } = usePieStatus(daemon);
   useEffect(() => {
-    void check();
-  }, [asks, wanted]);
-  // A loop, not findLast: the UI still targets Chrome 90.
-  let lastPie: (typeof daemon.events)[number] | undefined;
-  for (let i = daemon.events.length - 1; i >= 0 && !lastPie; i--) if (pieFromEvent(daemon.events[i].type) !== null) lastPie = daemon.events[i];
-  useEffect(() => {
-    const pie = lastPie ? pieFromEvent(lastPie.type) : null;
-    if (pie !== null) setStatus((s) => withPie(s, pie));
-  }, [lastPie?.id]);
+    if (wanted) void check();
+  }, [wanted]);
   const gate = status ? viewportGate(status, { remote }) : null;
+
+  // The bar's Live button opens the full viewer here while the hub is mounted, on this viewer.
+  const host = useContext(LiveHostContext);
+  useEffect(() => {
+    if (!host) return;
+    host(() => setDialog(true));
+    return () => host(null);
+  }, [host]);
 
   // Joined on the first hold, left a while after the last.
   const [keep, setKeep] = useState(false);
@@ -214,21 +213,6 @@ export function HubLiveProvider({ daemon = NO_EVENTS, onSettings = () => undefin
       {children}
       {dialog && <ViewportDialog daemon={daemon} viewer={{ phase, retry }} onClose={() => setDialog(false)} onSettings={onSettings} />}
     </HubLiveContext.Provider>
-  );
-}
-
-/**
- * A row's way into the full viewer: shown while the row's run plays, or while
- * Play In Editor runs at all. Hidden otherwise, since there is nothing to watch.
- */
-export function ViewportButton({ relevant, compact = false, className = "" }: { relevant: boolean; compact?: boolean; className?: string }) {
-  const ctx = useContext(HubLiveContext);
-  if (!ctx || !showsViewportButton({ relevant, status: ctx.status })) return null;
-  return (
-    <button className={`hub-viewport-button ${compact ? "ghost small-button" : ""} ${className}`} onClick={ctx.expand} title={VIEWPORT_BUTTON_HINT}>
-      <span className="pie-dot live" aria-hidden="true" />
-      {VIEWPORT_BUTTON}
-    </button>
   );
 }
 

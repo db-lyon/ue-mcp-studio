@@ -101,6 +101,12 @@ export function useHubOverview(daemon: Pick<DaemonState, "events" | "streaming">
   return { overview, error, version, reload, patch: (f) => setOverview((o) => (o ? f(o) : o)) };
 }
 
+/** What a new goal starts with: the goals it is part of, and its kind. */
+export interface GoalPreset {
+  parents?: string[];
+  kind?: "goal" | "milestone";
+}
+
 export interface HubContextValue {
   o: HubOverview;
   data: HubData;
@@ -113,8 +119,10 @@ export interface HubContextValue {
   runPlan: (req: PlanRequest, what?: string) => Promise<void>;
   runCheck: (checkId: string, name?: string) => Promise<void>;
   openChat: (sessionId: string, runId?: string) => void;
-  editGoal: (goalId: string | null, preset?: { parent?: string; kind?: "goal" | "milestone" }) => void;
+  editGoal: (goalId: string | null, preset?: GoalPreset) => void;
   addChecks: (goalId: string) => void;
+  /** Pick an existing goal for this goal to require. */
+  requireGoal: (goalId: string) => void;
   /** Ask which goal to add these checks to. */
   addToGoal: (checkIds: string[]) => void;
   /** The screen on show takes the keys the hub does not handle itself, set on each render; return true when one was used. */

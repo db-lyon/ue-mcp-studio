@@ -74,10 +74,9 @@ export const GOAL_SCHEMA = {
     $schema: { type: "string", description: `Where editors find this schema: ${GOAL_SCHEMA_REF}.` },
     schema: { const: 1, description: "The file format's version." },
     id: { type: "string", pattern: GOAL_ID.source, description: "The file name without .json." },
-    kind: { enum: ["goal", "milestone"], description: "goal, or milestone for a group of goals. goal when absent." },
+    kind: { enum: ["goal", "milestone"], description: "goal, or milestone: a label for a goal that groups others through requires. goal when absent." },
     title: { type: "string", minLength: 1, maxLength: 200, description: "What the game must do, in a sentence." },
     description: { type: "string", description: "What done means, in Markdown." },
-    parent: { type: ["string", "null"], pattern: GOAL_ID.source, description: "The id of the milestone this goal belongs to. A milestone has none." },
     owner: { type: ["string", "null"] },
     priority: { enum: PRIORITIES },
     tags: { type: "array", items: { type: "string" } },
@@ -92,6 +91,19 @@ export const GOAL_SCHEMA = {
         signOff: { type: "boolean", description: "A person signs the goal off before it is met." },
       },
       additionalProperties: false,
+    },
+    requires: {
+      type: "array",
+      description: "Other goals this goal is met only with, in order. A goal can be required by any number of goals and milestones.",
+      items: {
+        type: "object",
+        properties: {
+          goal: { type: "string", pattern: GOAL_ID.source, description: "The required goal's id: its file name without .json." },
+          required: { type: "boolean", description: "False: this goal is met without that one. True when absent." },
+        },
+        required: ["goal"],
+        additionalProperties: false,
+      },
     },
     checks: { type: "array", items: { $ref: "#/$defs/check" } },
     signOff: {
@@ -118,13 +130,13 @@ export const EXAMPLE_GOAL: Goal = {
   kind: "goal",
   title: "A new player finishes the tutorial glade",
   description: "Walk, jump, light the lantern and leave the glade without help.",
-  parent: "vertical-slice",
   owner: "Ama",
   priority: "p0",
   tags: ["onboarding"],
   due: "2026-12-05",
   links: [{ url: "https://git.example.com/ember/hollow/issues/42", title: "Tutorial glade", rel: "counterpart" }],
   acceptance: { stableRuns: 2, staleAfterDays: 14, signOff: false },
+  requires: [{ goal: "lantern-controls" }, { goal: "tutorial-subtitles", required: false }],
   checks: [
     { kind: "script", target: "/Game/Tests/Tutorial/PT_Tutorial_Jump" },
     { kind: "script", target: "/Game/Tests/Tutorial/PT_Tutorial_Exit", links: [{ url: "https://example.atlassian.net/browse/HOL-118", rel: "related" }] },
@@ -152,13 +164,13 @@ Only \`title\` is required. When it saves the goal, Studio fills in \`schema\`, 
 | Field | Meaning |
 |---|---|
 | \`id\` | The file name without \`.json\`. |
-| \`kind\` | \`goal\`, or \`milestone\` for a group of goals. |
+| \`kind\` | \`goal\`, or \`milestone\`. A milestone is a goal shown as a heading in the hub, usually one that requires other goals. |
 | \`title\` | What the game must do, in a sentence. |
 | \`description\` | What done means, in Markdown. |
-| \`parent\` | The id of the milestone the goal belongs to. Milestones have none. |
 | \`owner\`, \`priority\`, \`tags\`, \`due\` | For planning: \`priority\` is \`p0\` to \`p3\`, \`due\` is \`YYYY-MM-DD\`. |
 | \`links\` | Issues, tickets and documents the goal refers to. |
 | \`acceptance\` | When the goal is met: the latest \`stableRuns\` runs (1 to 10) of every required check pass, and a person signs it off if \`acceptance.signOff\` is true. A passing check not run for \`staleAfterDays\` days puts the goal at risk; \`null\` turns that off. |
+| \`requires\` | Other goals this goal needs, in order. See below. |
 | \`checks\` | The tests that prove the goal. |
 | \`signOff\` | Who signed the goal off, and when. Set from the hub. |
 | \`archived\` | \`true\` hides the goal from the overview. |
@@ -176,6 +188,22 @@ A check is a \`kind\` and a \`target\`:
 | \`manual\` | A checklist item a person signs off. The target is its text. |
 
 Only \`script\` checks run today; checks of the other kinds can be listed but do not run yet. A check counts toward the goal unless it has \`"required": false\`. A check's \`title\` replaces its default name in the hub, and a check can have \`links\` of its own.
+
+The same check can be listed in any number of goals, at a different place in each. It has one run history and one health wherever it is listed, so list it again rather than copying the script.
+
+## Required goals
+
+\`requires\` lists other goals by id, each as \`{ "goal": "<id>" }\`, in the order they are run. A goal is met only when every goal it requires is met; one with \`"required": false\` is listed and run but does not hold the goal back. Running a goal runs the checks of every goal it requires, at any depth, and then its own, each check once.
+
+The requirement is written only in the file of the goal that requires. A goal can be required by any number of goals and milestones, so the same goal can sit under two milestones without a copy: list it in the \`requires\` of each. A milestone is grouped this way too:
+
+\`\`\`json
+{ "title": "Vertical Slice", "kind": "milestone", "requires": [{ "goal": "tutorial-glade" }, { "goal": "lantern-combat" }] }
+\`\`\`
+
+Goals cannot require each other in a loop: Studio refuses the change, and reports a loop written by hand as a warning. A goal that is not a milestone and that nothing requires shows in the hub as not part of any milestone, and a check no goal lists as not part of any goal, so neither goes stale unnoticed.
+
+Files written by an older Studio may name a milestone in \`"parent"\`. Studio reads that as the milestone requiring the goal, and moves it into the milestone's \`requires\` the next time it saves either file.
 
 ## Links
 

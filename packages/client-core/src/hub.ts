@@ -14,7 +14,10 @@ import {
   INBOX_ORDER,
   TRACKER_LINKS_MAX,
   TRACKER_LINK_RELS,
+  checkId as checkIdOf,
+  goalChecksDeep,
   leafName,
+  loopIfRequired,
   linkHost,
   trackerLinkOf,
   type CheckDetail,
@@ -84,6 +87,11 @@ export function hubApi(request: HubRequest) {
     addChecks: (id: string, checks: CheckRef[]) => request<{ goal: Goal }>("POST", `${goal(id)}/checks`, { checks }),
     removeCheck: (id: string, checkId: string) => request<{ goal: Goal }>("DELETE", `${goal(id)}/checks/${enc(checkId)}`),
     updateCheck: (id: string, checkId: string, u: CheckUpdate) => request<{ goal: Goal }>("PUT", `${goal(id)}/checks/${enc(checkId)}`, u),
+    orderChecks: (id: string, order: string[]) => request<{ goal: Goal }>("PUT", `${goal(id)}/checks/order`, { order }),
+    /** Make a goal require another, or change whether it is required. */
+    addRequire: (id: string, goalId: string, required?: boolean) => request<{ goal: Goal }>("POST", `${goal(id)}/requires`, required === undefined ? { goal: goalId } : { goal: goalId, required }),
+    removeRequire: (id: string, goalId: string) => request<{ goal: Goal }>("DELETE", `${goal(id)}/requires/${enc(goalId)}`),
+    orderRequires: (id: string, order: string[]) => request<{ goal: Goal }>("PUT", `${goal(id)}/requires`, { order }),
     signOff: (id: string, note?: string) => request<{ goal: Goal }>("POST", `${goal(id)}/sign-off`, note ? { note } : {}),
     clearSignOff: (id: string) => request<{ goal: Goal }>("DELETE", `${goal(id)}/sign-off`),
     writePlaytests: (id: string, text?: string) => request<{ sessionId: string }>("POST", `${goal(id)}/write-playtests`, text ? { text } : {}),
@@ -310,7 +318,17 @@ export const HUB_COPY = {
   writePlaytests: "Write playtests for this goal",
   signOff: "Sign off",
   clearSignOff: "Clear sign-off",
-  noMilestone: "No milestone",
+  otherGoals: "Other goals",
+  partOf: "Part of",
+  requiredGoals: "Required goals",
+  addGoal: "Add goal",
+  newGoalHere: "New goal here",
+  optional: "optional",
+  notInMilestone: "Not part of any milestone",
+  notInGoal: "Not part of any goal",
+  noRequiredGoals: "A goal can require other goals. It is met only when they are.",
+  noGoalsInMilestone: "No goals in this milestone yet.",
+  unusedChecks: (n: number) => `${n} ${n === 1 ? "check is" : "checks are"} not part of any goal`,
   inboxEmpty: "Nothing needs you.",
   inboxEmptyDetail: "Verdicts, stopped fix loops and regressions land here.",
   noGoalsTitle: "No goals yet",
@@ -399,28 +417,79 @@ export function sortInbox(items: readonly InboxItem[]): InboxItem[] {
 }
 
 export interface MilestoneGroup {
-  /** null: goals in no milestone. */
+  /** null: goals nothing requires (Other goals). */
   milestone: GoalState | null;
   goals: GoalState[];
 }
 
 /**
  * Goals under their milestones, for the overview: milestones by due date then
- * worst status, each with its goals worst first; goals in no milestone last.
- * Archived goals are left out. A goal whose parent is not a known milestone
- * counts as in none.
+ * worst status, each with the goals it requires in its own order. A goal two
+ * milestones require is in both groups, as the same GoalState. Goals that
+ * nothing requires come last; a goal required only by other goals shows on
+ * their screens. Archived goals are left out.
  */
 export function milestoneGroups(all: readonly GoalState[]): MilestoneGroup[] {
   const live = all.filter((g) => !g.goal.archived);
+  const byId = new Map(live.map((g) => [g.goal.id, g]));
   const milestones = live.filter((g) => g.goal.kind === "milestone");
-  const ids = new Set(milestones.map((m) => m.goal.id));
-  const goals = live.filter((g) => g.goal.kind !== "milestone");
   const groups: MilestoneGroup[] = [...milestones]
     .sort((a, b) => byText(dueKey(a.goal), dueKey(b.goal)) || goalStatusRank(a.status) - goalStatusRank(b.status) || byText(a.goal.title, b.goal.title))
-    .map((m) => ({ milestone: m, goals: sortGoals(goals.filter((g) => g.goal.parent === m.goal.id)) }));
-  const loose = goals.filter((g) => !g.goal.parent || !ids.has(g.goal.parent));
+    .map((m) => ({ milestone: m, goals: requiredGoals(m, byId) }));
+  const loose = live.filter((g) => g.goal.kind !== "milestone" && g.parents.length === 0);
   if (loose.length) groups.push({ milestone: null, goals: sortGoals(loose) });
   return groups;
+}
+
+/** The goals a goal requires, in its order, as states; goals not in the list are left out. */
+function requiredGoals(g: GoalState, byId: ReadonlyMap<string, GoalState>): GoalState[] {
+  return (g.requires ?? []).map((r) => byId.get(r.goal)).filter((x): x is GoalState => !!x);
+}
+
+/** A goal's required goals for its screen: each with whether it is required, in the goal's order. Unknown goals are left out. */
+export function requiredRows(g: GoalState, all: readonly GoalState[]): Array<{ state: GoalState; required: boolean }> {
+  const byId = new Map(all.map((x) => [x.goal.id, x]));
+  return (g.requires ?? []).flatMap((r) => {
+    const state = byId.get(r.goal);
+    return state && !state.goal.archived ? [{ state, required: r.required }] : [];
+  });
+}
+
+/** The goals that require this one, as states: milestones first, then goals, each by title. */
+export function parentGoals(g: GoalState, all: readonly GoalState[]): GoalState[] {
+  const ps = all.filter((x) => (g.parents ?? []).includes(x.goal.id));
+  return ps.sort((a, b) => (a.goal.kind === b.goal.kind ? byText(a.goal.title, b.goal.title) : a.goal.kind === "milestone" ? -1 : 1));
+}
+
+/** Every check id running this goal runs: its required goals' at any depth, then its own. */
+export function goalCheckIds(goalId: string, all: readonly GoalState[]): string[] {
+  return goalChecksDeep(all.map((g) => g.goal), goalId).map(checkIdOf);
+}
+
+/** The goals this goal can be made to require: live, not itself, not required already, and none that would make a loop. */
+export function requireCandidates(goalId: string, all: readonly GoalState[]): GoalState[] {
+  const goals = all.map((g) => g.goal);
+  const self = all.find((g) => g.goal.id === goalId);
+  const have = new Set((self?.goal.requires ?? []).map((r) => r.goal));
+  return sortGoals(all.filter((g) => !g.goal.archived && g.goal.id !== goalId && !have.has(g.goal.id) && !loopIfRequired(goals, goalId, g.goal.id)));
+}
+
+/** The goals a goal can be part of: live, not itself, and none it already requires at any depth (that would make a loop). Milestones first. */
+export function parentCandidates(goalId: string | null, all: readonly GoalState[]): GoalState[] {
+  const goals = all.map((g) => g.goal);
+  const ok = all.filter((g) => !g.goal.archived && g.goal.id !== goalId && (!goalId || !loopIfRequired(goals, g.goal.id, goalId)));
+  return ok.sort((a, b) => (a.goal.kind === b.goal.kind ? byText(a.goal.title, b.goal.title) : a.goal.kind === "milestone" ? -1 : 1));
+}
+
+/** Ids with one moved by `by` places (up is -1), kept inside the list; the same list when it cannot move. */
+export function moveId(ids: readonly string[], id: string, by: number): string[] {
+  const from = ids.indexOf(id);
+  const to = Math.max(0, Math.min(ids.length - 1, from + by));
+  if (from < 0 || to === from) return [...ids];
+  const next = ids.slice();
+  next.splice(from, 1);
+  next.splice(to, 0, id);
+  return next;
 }
 
 /** How many goals (not milestones) are in each status. */
@@ -562,7 +631,7 @@ export const HEALTH_FILTERS: ReadonlyArray<{ id: HealthFilter; label: string }> 
   { id: "at_risk", label: "Flaky or stale" },
   { id: "never_run", label: "Never run" },
   { id: "passing", label: "Passing" },
-  { id: "unlinked", label: "In no goal" },
+  { id: "unlinked", label: "Not part of any goal" },
 ];
 
 export function matchesHealth(c: CheckState, f: HealthFilter): boolean {
@@ -717,7 +786,8 @@ export interface GoalForm {
   title: string;
   description: string;
   kind: Goal["kind"];
-  parent: string;
+  /** The goals and milestones this goal is part of: saving writes their files. */
+  parents: string[];
   owner: string;
   priority: GoalPriority | "";
   due: string;
@@ -736,13 +806,14 @@ const DATE = /^\d{4}-\d{2}-\d{2}$/;
 const TAG = /^[\p{Letter}\p{Number}][\p{Letter}\p{Number}._-]{0,31}$/u;
 export const GOAL_TITLE_MAX = 120;
 
-export function goalFormOf(g?: Partial<Goal> | null): GoalForm {
+/** The form for a goal, or a blank one; `parents` from its GoalState, since the goal's own file does not hold them. */
+export function goalFormOf(g?: Partial<Goal> | null, parents: readonly string[] = []): GoalForm {
   const a = g?.acceptance ?? DEFAULT_ACCEPTANCE;
   return {
     title: g?.title ?? "",
     description: g?.description ?? "",
     kind: g?.kind ?? "goal",
-    parent: g?.parent ?? "",
+    parents: [...parents],
     owner: g?.owner ?? "",
     priority: g?.priority ?? "",
     due: g?.due ?? "",
@@ -786,10 +857,14 @@ export function goalFormErrors(f: GoalForm, ctx: { selfId?: string; goals?: read
   }
   const bad = parseTags(f.tags).find((t) => !TAG.test(t));
   if (bad) e.tags = `"${bad}" is not a tag: letters, numbers, dots, dashes and underscores, up to 32.`;
-  if (f.parent) {
-    if (f.kind === "milestone") e.parent = "A milestone cannot sit in another milestone.";
-    else if (f.parent === ctx.selfId) e.parent = "A goal cannot be its own milestone.";
-    else if (ctx.goals && !ctx.goals.some((g) => g.goal.id === f.parent && g.goal.kind === "milestone")) e.parent = "Pick a milestone.";
+  if (f.parents.length) {
+    const goals = ctx.goals?.map((g) => g.goal);
+    const self = f.parents.find((p) => p === ctx.selfId);
+    const unknown = goals && f.parents.find((p) => !goals.some((g) => g.id === p));
+    const loop = goals && ctx.selfId && f.parents.find((p) => loopIfRequired(goals, p, ctx.selfId!));
+    if (self) e.parents = "A goal cannot be part of itself.";
+    else if (unknown) e.parents = "Pick goals from the list.";
+    else if (loop) e.parents = `This goal already requires ${goals!.find((g) => g.id === loop)?.title ?? loop}, so it cannot also be part of it.`;
   }
   const rows = f.links.filter((r) => r.url.trim());
   const badLink = rows.map(linkFromRow).find((r): r is { error: string } => "error" in r);
@@ -804,7 +879,7 @@ export function goalDraftOf(f: GoalForm): GoalDraft {
     title: f.title.trim(),
     kind: f.kind,
     ...(f.description.trim() ? { description: f.description.trim() } : {}),
-    parent: f.kind === "milestone" ? null : f.parent || null,
+    parents: [...f.parents],
     owner: f.owner.trim() || null,
     ...(f.priority ? { priority: f.priority } : {}),
     due: f.due || null,

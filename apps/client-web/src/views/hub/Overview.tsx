@@ -32,7 +32,6 @@ import { api } from "../../api";
 import { useCursor, useHub } from "./state";
 import { Empty, HubIcon, HubLink, Progress, ScreenHead, StatusMark, StatusPill } from "./parts";
 import { GoalRow } from "./rows";
-import { ViewportButton } from "./live";
 
 export function OverviewScreen({ onChat }: { onChat?: () => void }) {
   const hub = useHub();
@@ -47,6 +46,7 @@ export function OverviewScreen({ onChat }: { onChat?: () => void }) {
   const list = useRef<HTMLDivElement>(null);
   const [at, setAt, move] = useCursor(flat.length, list);
   const failing = o.checks.filter((c) => c.health === "failing").length;
+  const unusedChecks = o.checks.filter((c) => c.unused && !c.missing).length;
 
   hub.onKeys((a) => {
     if (a.type === "next") move(1);
@@ -83,8 +83,10 @@ export function OverviewScreen({ onChat }: { onChat?: () => void }) {
               ))}
             </div>
             <div className="hub-groups" ref={list}>
-              {shownGroups.map((gr) => {
+              {shownGroups.map((gr, gi) => {
                 const m = gr.milestone;
+                // A goal under two milestones is a row in each: the cursor counts rows, not goals.
+                const first = shownGroups.slice(0, gi).reduce((n, x) => n + x.goals.length, 0);
                 return (
                   <section key={m?.goal.id ?? "none"} className="hub-group">
                     {m ? (
@@ -97,12 +99,12 @@ export function OverviewScreen({ onChat }: { onChat?: () => void }) {
                         <Progress met={m.progress.met} total={m.progress.total} label={progressText(m.progress)} />
                       </HubLink>
                     ) : (
-                      shownGroups.length > 1 && <div className="hub-group-head plain"><span className="hub-group-title">{HUB_COPY.noMilestone}</span></div>
+                      shownGroups.length > 1 && <div className="hub-group-head plain"><span className="hub-group-title">{HUB_COPY.otherGoals}</span></div>
                     )}
                     <div className="hub-list">
-                      {gr.goals.length === 0 && <p className="dim small hub-list-note">No goals in this milestone yet.</p>}
-                      {gr.goals.map((g) => {
-                        const i = flat.indexOf(g);
+                      {gr.goals.length === 0 && <p className="dim small hub-list-note">{HUB_COPY.noGoalsInMilestone}</p>}
+                      {gr.goals.map((g, j) => {
+                        const i = first + j;
                         return <GoalRow key={g.goal.id} g={g} on={i === at} onPoint={() => setAt(i)} />;
                       })}
                     </div>
@@ -110,6 +112,9 @@ export function OverviewScreen({ onChat }: { onChat?: () => void }) {
                 );
               })}
             </div>
+            {unusedChecks > 0 && (
+              <HubLink className="small dim hub-unused-line" href={hubHash({ screen: "library" })} onGo={() => go({ screen: "library" })}>{HUB_COPY.unusedChecks(unusedChecks)}</HubLink>
+            )}
           </>}
         </section>
         <aside className="hub-side">
@@ -208,7 +213,7 @@ function InboxCard() {
   );
 }
 
-/** What runs now and what is next, one line each, and the Viewport button while something plays. */
+/** What runs now and what is next, one line each. */
 function QueueCard() {
   const { o, go } = useHub();
   const q = o.queue;
@@ -223,8 +228,6 @@ function QueueCard() {
         <HubIcon name="queue" />
         <HubLink href={hubHash({ screen: "queue" })} onGo={() => go({ screen: "queue" })}>{HUB_COPY.queue}</HubLink>
         {q.paused && <span className="pill warn">Paused</span>}
-        <span className="spacer" />
-        <ViewportButton relevant={playing !== null} compact />
       </div>
       {solo && (
         <HubLink className="hub-now-line" href={hubHash({ screen: "run", runId: solo.runId })} onGo={() => go({ screen: "run", runId: solo.runId })}>

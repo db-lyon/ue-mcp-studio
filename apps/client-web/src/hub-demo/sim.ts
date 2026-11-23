@@ -20,9 +20,12 @@ import {
   INBOX_ORDER,
   checkId,
   checkStateOf,
+  goalChecksDeep,
   goalSlug,
-  goalStatus,
   leafName,
+  loopIfRequired,
+  requiresOf,
+  rollUpGoals,
   needsSignOff,
   outcomeOf,
   parseCheckId,
@@ -38,8 +41,8 @@ import {
   type CheckState,
   type Goal,
   type GoalDraft,
+  type GoalRequirement,
   type GoalState,
-  type GoalStatus,
   type GoalUpdate,
   type HubChangedWhat,
   type HubOverview,
@@ -201,6 +204,10 @@ export class HubDemo {
     if ((p = m("PUT", "/hub/goals/*"))) return this.updateGoal(p[0], b as GoalUpdate);
     if ((p = m("DELETE", "/hub/goals/*"))) return this.deleteGoal(p[0]);
     if ((p = m("POST", "/hub/goals/*/checks"))) return this.addChecks(p[0], Array.isArray(b.checks) ? (b.checks as CheckRef[]) : []);
+    if ((p = m("PUT", "/hub/goals/*/checks/order"))) return this.orderChecks(p[0], b.order);
+    if ((p = m("POST", "/hub/goals/*/requires"))) return this.addRequire(p[0], b);
+    if ((p = m("PUT", "/hub/goals/*/requires"))) return this.orderRequires(p[0], b.order);
+    if ((p = m("DELETE", "/hub/goals/*/requires/*"))) return this.removeRequire(p[0], p[1]);
     if ((p = m("DELETE", "/hub/goals/*/checks/*"))) return this.removeCheck(p[0], p[1]);
     if ((p = m("PUT", "/hub/goals/*/checks/*"))) return this.updateCheck(p[0], p[1], b);
     if ((p = m("POST", "/hub/goals/*/sign-off"))) return this.signOff(p[0], typeof b.note === "string" ? b.note : undefined);
@@ -316,12 +323,13 @@ export class HubDemo {
     return { state, runs };
   }
 
-  private goalState(g: Goal, depth = 0): GoalState {
-    const checks = g.checks.map((c) => this.checkState(c, g.acceptance));
-    const children = g.kind === "milestone" && depth === 0 ? this.liveGoals().filter((x) => x.parent === g.id) : [];
-    const childStatuses: GoalStatus[] = children.map((x) => this.goalState(x, 1).status);
-    const { status, progress } = goalStatus(g, checks, childStatuses);
-    return { goal: g, status, checks: checks.map((c) => c.state), progress, children: children.map((x) => x.id) };
+  /** Every goal's state, rolled up through required goals with the shared rules, as the agent does. */
+  private goalStates(): GoalState[] {
+    return rollUpGoals(this.liveGoals(), (g) => g.checks.map((c) => this.checkState(c, g.acceptance)));
+  }
+
+  private goalState(g: Goal): GoalState {
+    return this.goalStates().find((s) => s.goal.id === g.id)!;
   }
 
   /** Every known check: the ones goals name, then the project's scripts no goal names. */
@@ -336,7 +344,7 @@ export class HubDemo {
   }
 
   overview(): HubOverview {
-    const goals = this.liveGoals().map((g) => this.goalState(g));
+    const goals = this.goalStates();
     const checks = this.allChecks();
     return {
       goalsDir: HUB_GOALS_DIR,
@@ -565,7 +573,10 @@ export class HubDemo {
   private createGoal(d: GoalDraft): DemoAnswer {
     const title = typeof d.title === "string" ? d.title.trim() : "";
     if (!title) return refuse(400, "A goal needs a title");
-    if (d.parent && this.goal(d.parent)?.kind !== "milestone") return refuse(400, "A goal can only belong to a milestone");
+    const parents = Array.isArray(d.parents) ? d.parents : [];
+    if (parents.some((p) => !this.goal(p))) return refuse(400, "parents must name goals here");
+    const requires = this.requiresList(d.requires);
+    if ("error" in requires) return refuse(400, requires.error);
     const links = d.links === undefined ? { links: [] } : this.links(d.links);
     if ("error" in links) return refuse(400, links.error);
     let id = d.id && GOAL_ID.test(d.id) ? d.id : goalSlug(title);
@@ -577,21 +588,127 @@ export class HubDemo {
       kind: d.kind === "milestone" ? "milestone" : "goal",
       title,
       ...(d.description ? { description: d.description } : {}),
-      parent: d.kind === "milestone" ? null : d.parent ?? null,
       owner: d.owner ?? DEMO_USER,
       priority: d.priority ?? "p2",
       tags: d.tags ?? [],
       due: d.due ?? null,
       ...(links.links.length ? { links: links.links } : {}),
       acceptance: { ...DEFAULT_ACCEPTANCE, ...d.acceptance },
+      ...(requires.list.length ? { requires: requires.list } : {}),
       checks: (d.checks ?? []).map((c) => ({ ...c, target: c.kind === "script" ? qaScriptKey(c.target) : c.target })),
       signOff: null,
       createdAt: now,
       updatedAt: now,
     };
+    const loop = this.loopOf([goal, ...this.parentFiles(id, parents)]);
+    if (loop) return loop;
     this.state.goals.push(goal);
+    this.setParents(id, parents);
     this.hubChanged(["goals"], { goalId: id });
     return ok({ goal });
+  }
+
+  // ---------- Required goals ----------
+
+  /** A requires list from a body, as the agent checks it. */
+  private requiresList(v: unknown): { list: GoalRequirement[] } | { error: string } {
+    if (v === undefined || v === null) return { list: [] };
+    if (!Array.isArray(v)) return { error: "requires must be a list of { goal, required? }" };
+    const list: GoalRequirement[] = [];
+    for (const r of v as Array<Partial<GoalRequirement>>) {
+      if (!r || typeof r.goal !== "string" || !this.goal(r.goal)) return { error: `no goal ${String(r?.goal)}` };
+      if (!list.some((x) => x.goal === r.goal)) list.push({ goal: r.goal, ...(r.required === false ? { required: false } : {}) });
+    }
+    return { list };
+  }
+
+  /** The goals as they would be with `id` required by exactly `parents`, only those that change. */
+  private parentFiles(id: string, parents: string[]): Goal[] {
+    return this.liveGoals().flatMap((g) => {
+      const reqs = requiresOf(g);
+      const has = reqs.some((r) => r.goal === id);
+      const wants = parents.includes(g.id);
+      return has === wants ? [] : [{ ...g, requires: wants ? [...reqs, { goal: id }] : reqs.filter((r) => r.goal !== id) }];
+    });
+  }
+
+  private setParents(id: string, parents: string[]): void {
+    for (const next of this.parentFiles(id, parents)) {
+      const g = this.goal(next.id)!;
+      if (next.requires?.length) g.requires = next.requires;
+      else delete g.requires;
+      g.updatedAt = iso(this.now());
+    }
+  }
+
+  /** A 400 naming the loop these goals, as they would be, would make; null when they make none. */
+  private loopOf(next: Goal[]): DemoAnswer | null {
+    const graph = new Map(this.liveGoals().map((g) => [g.id, g]));
+    for (const g of next) graph.set(g.id, g);
+    for (const g of next) {
+      const had = new Set(requiresOf(this.goal(g.id) ?? { requires: [] }).map((r) => r.goal));
+      for (const r of requiresOf(g)) {
+        if (had.has(r.goal)) continue;
+        const loop = loopIfRequired([...graph.values()], g.id, r.goal);
+        if (loop) return refuse(400, `that would make goals require each other in a loop: ${loop.join(" > ")}`);
+      }
+    }
+    return null;
+  }
+
+  private addRequire(id: string, b: Record<string, unknown>): DemoAnswer {
+    const g = this.goal(id);
+    if (!g) return refuse(404, "No such goal");
+    const child = typeof b.goal === "string" ? b.goal : "";
+    if (!this.goal(child) || child === id) return refuse(400, `no goal ${child} this goal can require`);
+    const reqs = requiresOf(g);
+    const r: GoalRequirement = { goal: child, ...(b.required === false ? { required: false } : {}) };
+    const at = reqs.findIndex((x) => x.goal === child);
+    if (at >= 0) {
+      if (b.required === undefined) return ok({ goal: g });
+      g.requires = reqs.map((x, i) => (i === at ? r : x));
+      return this.touch(g);
+    }
+    const loop = this.loopOf([{ ...g, requires: [...reqs, r] }]);
+    if (loop) return loop;
+    g.requires = [...reqs, r];
+    return this.touch(g);
+  }
+
+  private removeRequire(id: string, child: string): DemoAnswer {
+    const g = this.goal(id);
+    if (!g) return refuse(404, "No such goal");
+    const reqs = requiresOf(g);
+    if (!reqs.some((r) => r.goal === child)) return refuse(404, `goal ${id} does not require ${child}`);
+    const rest = reqs.filter((r) => r.goal !== child);
+    if (rest.length) g.requires = rest;
+    else delete g.requires;
+    return this.touch(g);
+  }
+
+  /** An order from a body: every id in `have` once. */
+  private orderOf(v: unknown, have: string[]): string[] | null {
+    if (!Array.isArray(v) || v.length !== have.length || new Set(v).size !== v.length || v.some((x) => !have.includes(x as string))) return null;
+    return v as string[];
+  }
+
+  private orderRequires(id: string, order: unknown): DemoAnswer {
+    const g = this.goal(id);
+    if (!g) return refuse(404, "No such goal");
+    const reqs = requiresOf(g);
+    const ids = this.orderOf(order, reqs.map((r) => r.goal));
+    if (!ids) return refuse(400, "order must name each required goal once");
+    g.requires = ids.map((x) => reqs.find((r) => r.goal === x)!);
+    return this.touch(g);
+  }
+
+  private orderChecks(id: string, order: unknown): DemoAnswer {
+    const g = this.goal(id);
+    if (!g) return refuse(404, "No such goal");
+    const ids = this.orderOf(order, g.checks.map(checkId));
+    if (!ids) return refuse(400, "order must name each check once");
+    g.checks = ids.map((x) => g.checks.find((c) => checkId(c) === x)!);
+    return this.touch(g, ["goals", "checks"]);
   }
 
   private touch(g: Goal, what: HubChangedWhat[] = ["goals"]): DemoAnswer {
@@ -616,9 +733,19 @@ export class HubDemo {
   private updateGoal(id: string, u: GoalUpdate): DemoAnswer {
     const g = this.goal(id);
     if (!g) return refuse(404, "No such goal");
-    if (u.parent && (this.goal(u.parent)?.kind !== "milestone" || u.parent === id)) return refuse(400, "A goal can only belong to a milestone");
     if (u.title !== undefined && !String(u.title).trim()) return refuse(400, "A goal needs a title");
-    const { acceptance, checks, links, ...rest } = u;
+    const { acceptance, checks, links, parents, requires, ...rest } = u;
+    if (parents !== undefined && (!Array.isArray(parents) || parents.some((p) => p === id || !this.goal(p)))) return refuse(400, "parents must name other goals here");
+    const reqs = requires === undefined ? null : this.requiresList(requires);
+    if (reqs && "error" in reqs) return refuse(400, reqs.error);
+    if (reqs?.list.some((r) => r.goal === id)) return refuse(400, "a goal cannot require itself");
+    const loop = this.loopOf([...(reqs ? [{ ...g, requires: reqs.list }] : []), ...(parents ? this.parentFiles(id, parents) : [])]);
+    if (loop) return loop;
+    if (reqs) {
+      if (reqs.list.length) g.requires = reqs.list;
+      else delete g.requires;
+    }
+    if (parents) this.setParents(id, parents);
     if (links !== undefined) {
       const l = this.links(links);
       if ("error" in l) return refuse(400, l.error);
@@ -635,7 +762,13 @@ export class HubDemo {
     const g = this.goal(id);
     if (!g) return refuse(404, "No such goal");
     this.state.goals = this.state.goals.filter((x) => x.id !== id);
-    for (const x of this.state.goals) if (x.parent === id) x.parent = null;
+    // Goals that required it stop requiring it; the goals it required stay.
+    for (const x of this.state.goals) {
+      if (!requiresOf(x).some((r) => r.goal === id)) continue;
+      const rest = requiresOf(x).filter((r) => r.goal !== id);
+      if (rest.length) x.requires = rest;
+      else delete x.requires;
+    }
     this.hubChanged(["goals", "checks", "inbox"], { goalId: id });
     return ok(undefined, 204);
   }
@@ -761,20 +894,21 @@ export class HubDemo {
   // ---------- Plans and the queue ----------
 
   private scopeChecks(scope: PlanRequest["scope"]): CheckRef[] {
-    const subtree = (goalId?: string): Goal[] => (goalId ? this.liveGoals().filter((g) => g.id === goalId || g.parent === goalId) : this.liveGoals());
+    // A goal stands for its required goals' checks at any depth, then its own, each once.
+    const deep = (goalId: string): CheckRef[] => (this.goal(goalId) ? goalChecksDeep(this.liveGoals(), goalId) : []);
     const unique = (refs: CheckRef[]) => {
       const seen = new Set<string>();
       return refs.filter((c) => !seen.has(checkId(c)) && !!seen.add(checkId(c)));
     };
     switch (scope?.kind) {
       case "goal":
-        return unique(subtree(scope.goalId).flatMap((g) => g.checks));
+        return deep(scope.goalId);
       case "checks":
         return unique(Array.isArray(scope.checks) ? scope.checks : []);
       case "failing":
       case "stale": {
         const want = scope.kind === "failing" ? "failing" : "stale";
-        const pool = scope.goalId ? new Set(subtree(scope.goalId).flatMap((g) => g.checks.map(checkId))) : null;
+        const pool = scope.goalId ? new Set(deep(scope.goalId).map(checkId)) : null;
         return this.allChecks().filter((c) => c.health === want && (!pool || pool.has(c.id))).map((c) => c.check);
       }
       case "all":
@@ -1264,7 +1398,7 @@ export class HubDemo {
 
   private assignFailing(goalId?: string): DemoAnswer {
     if (goalId && !this.goal(goalId)) return refuse(404, "No such goal");
-    const pool = goalId ? new Set(this.liveGoals().filter((g) => g.id === goalId || g.parent === goalId).flatMap((g) => g.checks.map(checkId))) : null;
+    const pool = goalId ? new Set(goalChecksDeep(this.liveGoals(), goalId).map(checkId)) : null;
     let queued = 0;
     for (const c of this.allChecks()) {
       if (c.health !== "failing" || !c.last || (pool && !pool.has(c.id))) continue;

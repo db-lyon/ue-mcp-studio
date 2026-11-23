@@ -36,8 +36,13 @@ export function registerHub(api: DaemonExtensionApi, o: Omit<HubOptions, "host">
   route("PUT", "/hub/goals/:id", (req) => ({ body: { goal: hub.goals.update(req.params.id, req.body) } }));
   route("DELETE", "/hub/goals/:id", (req) => void hub.goals.delete(req.params.id));
   route("POST", "/hub/goals/:id/checks", (req) => ({ body: { goal: hub.goals.addChecks(req.params.id, (req.body as { checks?: unknown } | undefined)?.checks) } }));
+  // Before /checks/:checkId: a check id always has a colon, so "order" is never one.
+  route("PUT", "/hub/goals/:id/checks/order", (req) => ({ body: { goal: hub.goals.orderChecks(req.params.id, req.body) } }));
   route("DELETE", "/hub/goals/:id/checks/:checkId", (req) => ({ body: { goal: hub.goals.removeCheck(req.params.id, req.params.checkId) } }));
   route("PUT", "/hub/goals/:id/checks/:checkId", (req) => ({ body: { goal: hub.goals.updateCheck(req.params.id, req.params.checkId, req.body) } }));
+  route("POST", "/hub/goals/:id/requires", (req) => ({ body: { goal: hub.goals.addRequire(req.params.id, req.body) } }));
+  route("PUT", "/hub/goals/:id/requires", (req) => ({ body: { goal: hub.goals.orderRequires(req.params.id, req.body) } }));
+  route("DELETE", "/hub/goals/:id/requires/:goalId", (req) => ({ body: { goal: hub.goals.removeRequire(req.params.id, req.params.goalId) } }));
   route("POST", "/hub/goals/:id/sign-off", (req) => ({ body: { goal: hub.signOff(req.params.id, req.body) } }));
   route("DELETE", "/hub/goals/:id/sign-off", (req) => ({ body: { goal: hub.goals.clearSignOff(req.params.id) } }));
   route("POST", "/hub/goals/:id/write-playtests", (req) => ({ status: 202, body: hub.writePlaytests(req.params.id, req.body) }));

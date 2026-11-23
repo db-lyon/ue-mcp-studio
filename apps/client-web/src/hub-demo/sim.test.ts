@@ -43,7 +43,14 @@ describe("the hub demo's seed", () => {
     expect(goalOf(o, "ashwood-perf").status).toBe("needs_you");
     expect(goalOf(o, "save-load").status).toBe("met");
     expect(goalOf(o, "vertical-slice").status).toBe("needs_you");
-    expect(goalOf(o, "vertical-slice").children).toContain("lantern-combat");
+    expect(goalOf(o, "vertical-slice").requires.map((r) => r.goal)).toContain("lantern-combat");
+    // One goal under both milestones, one check in two goals at different places.
+    expect(goalOf(o, "lantern-combat").parents).toEqual(["vertical-slice", "coop-beta"]);
+    const jump = checkId({ kind: "script", target: o.checks.find((c) => c.name === "PT_Tutorial_Jump")!.check.target });
+    expect(goalOf(o, "tutorial-glade").checks.findIndex((c) => c.id === jump)).toBe(1);
+    expect(goalOf(o, "traversal-feel").checks.findIndex((c) => c.id === jump)).toBe(4);
+    expect(o.checks.find((c) => c.id === jump)?.goalIds).toEqual(["tutorial-glade", "traversal-feel"]);
+    expect(goalOf(o, "save-load").unused).toBe(true);
     const health = Object.fromEntries(o.checks.map((c) => [c.name, c.health]));
     expect(health).toMatchObject({ PT_LedgeGrab: "flaky", PT_Coop_Join_Late: "stale", PT_Revive_Downed_Old: "missing", PT_Revive_Timer: "never_run", PT_Settings_Apply: "needs_you", PT_Stagger_Wisp: "failing", PT_Boss_Phase2: "failing" });
     expect(o.inbox.map((i) => i.kind)).toEqual(expect.arrayContaining(["verdict", "loop_blocked", "sign_off", "regression", "missing_check"]));
@@ -58,6 +65,40 @@ describe("the hub demo's seed", () => {
     expect(empty.recent.length).toBeGreaterThan(0);
     const fresh = demo("fresh").call<HubOverview>("GET", "/hub");
     expect(fresh.checks).toEqual([]);
+  });
+});
+
+describe("the hub demo's relationship graph", () => {
+  it("answers the requires and order routes as the agent does, refusing a loop", () => {
+    const { d, call } = demo();
+    const status = (method: string, path: string, body?: unknown) => d.handle(method, `${BASE}${path}`, new URLSearchParams(), body)!.status;
+    call("POST", "/hub/goals/coop-beta/requires", { goal: "save-load" });
+    let o = call<HubOverview>("GET", "/hub");
+    expect(goalOf(o, "save-load").parents).toEqual(["coop-beta"]);
+    expect(goalOf(o, "save-load").unused).toBeUndefined();
+    expect(status("POST", "/hub/goals/save-load/requires", { goal: "coop-beta" })).toBe(400);
+    const order = goalOf(o, "coop-beta").requires.map((r) => r.goal).reverse();
+    expect(call<{ goal: { requires: Array<{ goal: string }> } }>("PUT", "/hub/goals/coop-beta/requires", { order }).goal.requires.map((r) => r.goal)).toEqual(order);
+    expect(status("PUT", "/hub/goals/coop-beta/requires", { order: order.slice(1) })).toBe(400);
+    call("DELETE", "/hub/goals/coop-beta/requires/save-load");
+    expect(status("DELETE", "/hub/goals/coop-beta/requires/save-load")).toBe(404);
+    const checks = goalOf(o, "save-load").checks.map((c) => c.id).reverse();
+    call("PUT", "/hub/goals/save-load/checks/order", { order: checks });
+    o = call<HubOverview>("GET", "/hub");
+    expect(goalOf(o, "save-load").checks.map((c) => c.id)).toEqual(checks);
+    // Parents given in an update are written to the parents.
+    call("PUT", "/hub/goals/save-load", { parents: ["vertical-slice"] });
+    expect(goalOf(call<HubOverview>("GET", "/hub"), "save-load").parents).toEqual(["vertical-slice"]);
+  });
+
+  it("runs a milestone's checks through its goals, each once, in order", () => {
+    const { call } = demo();
+    const o = call<HubOverview>("GET", "/hub");
+    const { plan } = call<{ plan: PlanRun }>("POST", "/hub/plans", { scope: { kind: "goal", goalId: "vertical-slice" } });
+    const ids = plan.items.map((i) => checkId(i.check));
+    expect(new Set(ids).size).toBe(ids.length);
+    const want = ["tutorial-glade", "traversal-feel", "lantern-combat", "pause-settings"].flatMap((g) => goalOf(o, g).checks.map((c) => c.id));
+    expect(ids).toEqual([...new Set(want)]);
   });
 });
 

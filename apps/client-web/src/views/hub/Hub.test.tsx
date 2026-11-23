@@ -8,6 +8,7 @@ const m = vi.hoisted(() => ({
   hub: {
     overview: vi.fn(), verdict: vi.fn(), plan: vi.fn(), runCheck: vi.fn(), createGoal: vi.fn(), updateGoal: vi.fn(), check: vi.fn(), run: vi.fn(),
     runs: vi.fn(), addChecks: vi.fn(), removeCheck: vi.fn(), assign: vi.fn(), assignFailing: vi.fn(), writePlaytests: vi.fn(), resultsUrl: (id: string) => `/r/${id}`,
+    addRequire: vi.fn(), removeRequire: vi.fn(), orderRequires: vi.fn(), orderChecks: vi.fn(),
   },
 }));
 vi.mock("../../api", () => ({ api: { hub: m.hub, qaCaptureUrl: () => "", settings: () => new Promise(() => {}) } }));
@@ -203,9 +204,94 @@ describe("the goal form", () => {
     fireEvent.click(screen.getByRole("button", { name: /Edit/ }));
     const dialog = screen.getByRole("dialog", { name: "Edit goal" });
     expect((within(dialog).getByLabelText("Owner") as HTMLInputElement).value).toBe("dana");
-    expect((within(dialog).getByLabelText("Milestone") as HTMLSelectElement).value).toBe("alpha");
+    const partOf = within(dialog).getByRole("group", { name: "Part of" });
+    expect((within(partOf).getByLabelText("Alpha") as HTMLInputElement).checked).toBe(true);
+    // Tutorial completes can hold it too; a goal it requires could not.
+    fireEvent.click(within(partOf).getByLabelText("Tutorial completes"));
     fireEvent.click(within(dialog).getByRole("button", { name: "Save" }));
-    await waitFor(() => expect(m.hub.updateGoal).toHaveBeenCalledWith("movement", expect.objectContaining({ owner: "dana", parent: "alpha", priority: "p1" })));
+    await waitFor(() => expect(m.hub.updateGoal).toHaveBeenCalledWith("movement", expect.objectContaining({ owner: "dana", parents: ["alpha", "tutorial"], priority: "p1" })));
+  });
+
+  it("leaves out of Part of the goals this goal already requires", () => {
+    window.location.hash = "#/playtests/goals/alpha";
+    render(<Harness start={hubFixture()} />);
+    fireEvent.click(screen.getByRole("button", { name: /Edit/ }));
+    const partOf = within(screen.getByRole("dialog", { name: "Edit goal" })).queryByRole("group", { name: "Part of" });
+    expect(partOf).toBeNull();
+  });
+});
+
+describe("the relationship graph", () => {
+  /** Alpha and Beta both require Movement; Menu's check is in no goal. */
+  const twoMilestones = (): HubOverview => {
+    const o = hubFixture();
+    const beta = { ...o.goals[0], goal: { ...o.goals[0].goal, id: "beta", title: "Beta", due: "2027-01-01", requires: [{ goal: "movement" }] }, requires: [{ goal: "movement", required: true, status: "failing" as const }] };
+    o.goals = [...o.goals, beta];
+    o.goals[1] = { ...o.goals[1], parents: ["alpha", "beta"] };
+    o.checks = o.checks.map((c) => (c.goalIds.length ? c : { ...c, unused: true }));
+    return o;
+  };
+
+  it("puts a goal under every milestone that requires it, and says what is part of nothing", () => {
+    const o = twoMilestones();
+    o.goals.push({ goal: { ...o.goals[2].goal, id: "loose", title: "Loose ends" }, status: "not_started", checks: [], progress: { met: 0, total: 0 }, parents: [], requires: [], unused: true });
+    render(<Harness start={o} />);
+    const rows = Array.from(document.querySelectorAll(".hub-goal-row")).map((r) => r.querySelector(".hub-row-title")?.textContent);
+    expect(rows.filter((t) => t === "Movement feels right")).toHaveLength(2);
+    expect(screen.getByText("Other goals")).toBeTruthy();
+    expect(screen.getByText("Not part of any milestone")).toBeTruthy();
+    expect(screen.getByText("1 check is not part of any goal")).toBeTruthy();
+    // The cursor walks rows, so the second copy is reachable.
+    for (let i = 0; i < 2; i++) fireEvent.keyDown(document.body, { key: "j" });
+    expect(document.querySelectorAll(".hub-goal-row")[2].getAttribute("aria-current")).toBe("true");
+    expect(document.querySelectorAll('.hub-goal-row[aria-current="true"]')).toHaveLength(1);
+  });
+
+  it("lists every parent under the goal's header", () => {
+    window.location.hash = "#/playtests/goals/movement";
+    render(<Harness start={twoMilestones()} />);
+    const partOf = screen.getByRole("group", { name: "Part of" });
+    expect(within(partOf).getByText("Alpha").closest("a")?.getAttribute("href")).toBe("#/playtests/goals/alpha");
+    expect(within(partOf).getByText("Beta")).toBeTruthy();
+  });
+
+  it("lists a milestone's required goals in order, and reorders, re-flags, removes and adds them", async () => {
+    for (const f of [m.hub.orderRequires, m.hub.addRequire, m.hub.removeRequire]) f.mockResolvedValue({ goal: {} });
+    window.location.hash = "#/playtests/goals/alpha";
+    render(<Harness start={hubFixture()} />);
+    const section = screen.getByRole("region", { name: "Required goals" });
+    expect(Array.from(section.querySelectorAll(".hub-row-title")).map((t) => t.textContent)).toEqual(["Movement feels right", "Tutorial completes"]);
+    expect((within(section).getByRole("button", { name: "Move Movement feels right up" }) as HTMLButtonElement).disabled).toBe(true);
+    fireEvent.click(within(section).getByRole("button", { name: "Move Movement feels right down" }));
+    await waitFor(() => expect(m.hub.orderRequires).toHaveBeenCalledWith("alpha", ["tutorial", "movement"]));
+    expect(Array.from(section.querySelectorAll(".hub-row-title")).map((t) => t.textContent)).toEqual(["Tutorial completes", "Movement feels right"]);
+    fireEvent.click(within(section).getAllByRole("button", { name: "Required" })[0]);
+    await waitFor(() => expect(m.hub.addRequire).toHaveBeenCalledWith("alpha", "tutorial", false));
+    fireEvent.click(within(section).getByRole("button", { name: "Remove Tutorial completes from this goal" }));
+    await waitFor(() => expect(m.hub.removeRequire).toHaveBeenCalledWith("alpha", "tutorial"));
+  });
+
+  it("adds an existing goal from the picker, offering none that would make a loop", async () => {
+    m.hub.addRequire.mockResolvedValue({ goal: {} });
+    window.location.hash = "#/playtests/goals/tutorial";
+    render(<Harness start={hubFixture()} />);
+    fireEvent.click(screen.getByRole("button", { name: /Add goal/ }));
+    const picker = screen.getByRole("dialog", { name: "Add goal to Tutorial completes" });
+    const options = within(picker).getAllByRole("option").map((o) => o.querySelector(".hub-row-title")?.textContent);
+    expect(options).toEqual(["Movement feels right"]);
+    fireEvent.click(within(picker).getByRole("option", { name: /Movement/ }));
+    await waitFor(() => expect(m.hub.addRequire).toHaveBeenCalledWith("tutorial", "movement"));
+  });
+
+  it("keeps a goal's checks in its own order, with up and down", async () => {
+    m.hub.orderChecks.mockResolvedValue({ goal: {} });
+    window.location.hash = "#/playtests/goals/movement";
+    render(<Harness start={hubFixture()} />);
+    const names = () => Array.from(document.querySelectorAll(".hub-check-row .hub-row-title")).map((t) => t.textContent);
+    expect(names()).toEqual(["Jump", "Swim"]);
+    fireEvent.click(screen.getByRole("button", { name: "Move Swim up" }));
+    expect(names()).toEqual(["Swim", "Jump"]);
+    await waitFor(() => expect(m.hub.orderChecks).toHaveBeenCalledWith("movement", ["script:/Game/Tests/Swim", "script:/Game/Tests/Jump"]));
   });
 });
 

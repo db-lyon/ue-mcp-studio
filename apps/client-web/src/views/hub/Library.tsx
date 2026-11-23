@@ -74,7 +74,7 @@ export function LibraryScreen() {
         </div>
         <select value={goalId} onChange={(e) => setGoalId(e.target.value)} aria-label="Goal">
           <option value="">Any goal</option>
-          <option value="none">In no goal</option>
+          <option value="none">{HUB_COPY.notInGoal}</option>
           {goals.map((g) => <option key={g.goal.id} value={g.goal.id}>{g.goal.title}</option>)}
         </select>
         {kinds.length > 1 && (

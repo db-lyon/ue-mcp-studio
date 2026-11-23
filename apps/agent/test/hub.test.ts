@@ -173,6 +173,36 @@ describe("routes", () => {
     expect((await call("DELETE", `/hub/goals/${id}`)).status).toBe(404);
   });
 
+  it("required goals: add, reorder, remove, a loop is 400 with its path, and the overview shows parents and unused", async () => {
+    setup();
+    const mk = async (title: string, extra: Record<string, unknown> = {}) => (await call("POST", "/hub/goals", { title, ...extra })).body.goal.id as string;
+    const alpha = await mk("Alpha", { kind: "milestone" });
+    const beta = await mk("Beta", { kind: "milestone" });
+    const door = await mk("Door", { checks: [{ kind: "script", target: DOOR }] });
+    const jump = await mk("Jump", { checks: [{ kind: "script", target: JUMP }, { kind: "script", target: DOOR }] });
+    await mk("Loose");
+    expect((await call("POST", `/hub/goals/${alpha}/requires`, { goal: door })).status).toBe(200);
+    await call("POST", `/hub/goals/${alpha}/requires`, { goal: jump });
+    await call("POST", `/hub/goals/${beta}/requires`, { goal: door });
+    expect((await call("PUT", `/hub/goals/${alpha}/requires`, { order: [jump, door] })).body.goal.requires).toEqual([{ goal: jump }, { goal: door }]);
+    const loop = await call("POST", `/hub/goals/${door}/requires`, { goal: alpha });
+    expect(loop.status).toBe(400);
+    expect(loop.body.error).toContain(`${door} > ${alpha} > ${door}`);
+    expect((await call("PUT", `/hub/goals/${jump}/checks/order`, { order: [`script:${DOOR}`, `script:${JUMP}`] })).body.goal.checks[0].target).toBe(DOOR);
+    const o = (await call("GET", "/hub")).body as HubOverview;
+    const g = (id: string) => o.goals.find((x) => x.goal.id === id)!;
+    expect(g(door).parents).toEqual([alpha, beta]);
+    expect(g(alpha).requires).toEqual([{ goal: jump, required: true, status: "not_started" }, { goal: door, required: true, status: "not_started" }]);
+    expect(g("loose").unused).toBe(true);
+    expect(g(door).unused).toBeUndefined();
+    expect(g(alpha).unused).toBeUndefined();
+    // Running a milestone runs each check reachable through its goals once, in order.
+    const plan = (await call("POST", "/hub/plans", { scope: { kind: "goal", goalId: alpha } })).body.plan as PlanRun;
+    expect(plan.items.map((i) => i.check.target)).toEqual([DOOR, JUMP]);
+    expect((await call("DELETE", `/hub/goals/${alpha}/requires/${jump}`)).body.goal.requires).toEqual([{ goal: door }]);
+    expect((await call("DELETE", `/hub/goals/${alpha}/requires/${jump}`)).status).toBe(404);
+  });
+
   it("bad plan, schedule and query bodies are 400; unknown ids 404", async () => {
     setup();
     expect((await call("POST", "/hub/plans", { scope: { kind: "nope" } })).status).toBe(400);

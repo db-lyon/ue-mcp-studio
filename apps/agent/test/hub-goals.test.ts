@@ -77,20 +77,92 @@ describe("GoalStore", () => {
     expect(s.update(g.id, { description: null as unknown as string }).description).toBeUndefined();
   });
 
-  it("nests one level: a goal's parent is a milestone, a milestone has none", () => {
+  it("a goal sits under any number of milestones, the edge only in each milestone's file", () => {
     const s = store();
-    const m = s.create({ title: "Alpha", kind: "milestone" });
-    const g = s.create({ title: "Door", parent: m.id });
-    expect(g.parent).toBe(m.id);
-    const other = s.create({ title: "Other" });
-    expect(status(() => s.create({ title: "x", parent: other.id }))).toBe(400);
-    expect(status(() => s.create({ title: "x", kind: "milestone", parent: m.id }))).toBe(400);
-    expect(status(() => s.update(m.id, { kind: "goal" }))).toBe(409);
-    expect(status(() => s.update(g.id, { kind: "milestone" }))).toBe(400);
-    // Deleting the milestone leaves its goals on their own.
-    s.delete(m.id);
-    expect(s.get(g.id)?.parent).toBeUndefined();
-    expect(fs.existsSync(path.join(dir(), `${m.id}.json`))).toBe(false);
+    const a = s.create({ title: "Alpha", kind: "milestone" });
+    const b = s.create({ title: "Beta", kind: "milestone" });
+    const door = s.create({ title: "Door", parents: [a.id, b.id] });
+    const doorText = fs.readFileSync(path.join(dir(), "door.json"), "utf-8");
+    expect(JSON.parse(doorText)).not.toHaveProperty("requires");
+    expect(JSON.parse(doorText)).not.toHaveProperty("parent");
+    expect(s.get(a.id)?.requires).toEqual([{ goal: door.id }]);
+    expect(s.get(b.id)?.requires).toEqual([{ goal: door.id }]);
+    const keys = Object.keys(JSON.parse(fs.readFileSync(path.join(dir(), "alpha.json"), "utf-8")));
+    expect(keys.indexOf("requires")).toBe(keys.indexOf("checks") - 1);
+    // Parents given on an update are exactly the parents after it.
+    s.update(door.id, { parents: [b.id] });
+    expect(s.get(a.id)?.requires).toBeUndefined();
+    expect(s.get(b.id)?.requires).toEqual([{ goal: door.id }]);
+    expect(fs.readFileSync(path.join(dir(), "door.json"), "utf-8")).not.toContain("parents");
+    expect(status(() => s.update(door.id, { parents: ["nope"] }))).toBe(400);
+    expect(status(() => s.update(door.id, { parents: [door.id] }))).toBe(400);
+    expect(status(() => s.create({ title: "x", parent: a.id }))).toBe(400);
+    // A milestone can become a goal and back: it is a label.
+    expect(s.update(b.id, { kind: "goal" }).kind).toBe("goal");
+    // Deleting a parent leaves the goal; deleting the goal takes it out of every parent.
+    s.addRequire(a.id, { goal: door.id });
+    s.delete(door.id);
+    expect(s.get(a.id)?.requires).toBeUndefined();
+    expect(s.get(b.id)?.requires).toBeUndefined();
+    expect(fs.existsSync(path.join(dir(), "door.json"))).toBe(false);
+  });
+
+  it("adds, re-flags, reorders and removes required goals, and reorders checks", () => {
+    const s = store();
+    const m = s.create({ title: "M", kind: "milestone" });
+    for (const t of ["A", "B", "C"]) s.create({ title: t });
+    s.addRequire(m.id, { goal: "a" });
+    s.addRequire(m.id, { goal: "b", required: false });
+    s.addRequire(m.id, "c");
+    expect(s.get(m.id)?.requires).toEqual([{ goal: "a" }, { goal: "b", required: false }, { goal: "c" }]);
+    // Again: keeps its place, takes the new flag; the same flag writes nothing.
+    changes = [];
+    s.addRequire(m.id, { goal: "a" });
+    expect(changes).toEqual([]);
+    s.addRequire(m.id, { goal: "b", required: true });
+    expect(s.get(m.id)?.requires?.[1]).toEqual({ goal: "b" });
+    expect(s.orderRequires(m.id, { order: ["c", "a", "b"] }).requires?.map((r) => r.goal)).toEqual(["c", "a", "b"]);
+    expect(status(() => s.orderRequires(m.id, { order: ["c", "a"] }))).toBe(400);
+    expect(status(() => s.orderRequires(m.id, { order: ["c", "a", "a"] }))).toBe(400);
+    expect(s.removeRequire(m.id, "a").requires?.map((r) => r.goal)).toEqual(["c", "b"]);
+    expect(status(() => s.removeRequire(m.id, "a"))).toBe(404);
+    expect(status(() => s.addRequire(m.id, { goal: "nope" }))).toBe(400);
+    expect(status(() => s.addRequire(m.id, { goal: m.id }))).toBe(400);
+    const g = s.create({ title: "Checks", checks: [{ kind: "script", target: "/Game/T/A" }, { kind: "script", target: "/Game/T/B" }] });
+    expect(s.orderChecks(g.id, { order: ["script:/Game/T/B", "script:/Game/T/A"] }).checks.map((c) => c.target)).toEqual(["/Game/T/B", "/Game/T/A"]);
+    expect(status(() => s.orderChecks(g.id, { order: ["script:/Game/T/B"] }))).toBe(400);
+  });
+
+  it("refuses a loop with its path, on every way an edge is made", () => {
+    const s = store();
+    for (const t of ["A", "B", "C"]) s.create({ title: t });
+    s.addRequire("a", { goal: "b" });
+    s.addRequire("b", { goal: "c" });
+    const why = (f: () => unknown): string => {
+      try {
+        f();
+      } catch (e) {
+        return `${(e as HubError).status} ${(e as Error).message}`;
+      }
+      return "ok";
+    };
+    expect(why(() => s.addRequire("c", { goal: "a" }))).toBe("400 that would make goals require each other in a loop: c > a > b > c");
+    expect(why(() => s.update("c", { requires: [{ goal: "a" }] }))).toContain("c > a > b > c");
+    expect(why(() => s.update("a", { parents: ["c"] }))).toContain("c > a > b > c");
+    expect(why(() => s.create({ title: "D", requires: [{ goal: "a" }], parents: ["c"] }))).toContain("loop");
+    expect(s.get("c")?.requires).toBeUndefined();
+    expect(fs.existsSync(path.join(dir(), "d.json"))).toBe(false);
+  });
+
+  it("reports a loop written by hand and a required goal that is not there", () => {
+    fs.mkdirSync(dir(), { recursive: true });
+    fs.writeFileSync(path.join(dir(), "a.json"), JSON.stringify({ title: "A", requires: [{ goal: "b" }, { goal: "gone" }, { goal: "a" }] }));
+    fs.writeFileSync(path.join(dir(), "b.json"), JSON.stringify({ title: "B", requires: [{ goal: "a" }] }));
+    const s = store();
+    const w = s.warnings().join("\n");
+    expect(w).toContain("goals require each other in a loop (a > b > a)");
+    expect(w).toContain('it requires "gone", which is not here');
+    expect(w).toContain("it requires itself");
   });
 
   it("adds checks once each, removes one by id, signs off and clears it", () => {
@@ -124,7 +196,7 @@ describe("GoalStore", () => {
     expect(w).toContain("Bad Name.json");
     expect(w).toContain("newer Studio");
     expect(w).toContain("check 2 is not a check");
-    expect(w).toContain('parent "gone" is not a milestone');
+    expect(w).toContain('parent "gone" is not here');
   });
 
   it("keeps fields a newer Studio wrote", () => {
@@ -154,6 +226,61 @@ describe("GoalStore", () => {
 
   it("parseGoal refuses an id that is not its file's", () => {
     expect(parseGoal({ id: "a", title: "x" }, "b", "t")).toEqual({ problem: 'its id "a" is not its file name' });
+  });
+});
+
+describe("files with an old parent", () => {
+  const read = (id: string) => fs.readFileSync(path.join(dir(), `${id}.json`), "utf-8");
+  const old = () => {
+    fs.mkdirSync(dir(), { recursive: true });
+    fs.writeFileSync(path.join(dir(), "m.json"), JSON.stringify({ schema: 1, id: "m", kind: "milestone", title: "M", requires: [{ goal: "x" }] }, null, 2));
+    fs.writeFileSync(path.join(dir(), "x.json"), JSON.stringify({ schema: 1, id: "x", title: "X" }, null, 2));
+    fs.writeFileSync(path.join(dir(), "b.json"), JSON.stringify({ schema: 1, id: "b", title: "B", parent: "m" }, null, 2));
+    fs.writeFileSync(path.join(dir(), "a.json"), JSON.stringify({ schema: 1, id: "a", title: "A", parent: "m" }, null, 2));
+    return { m: read("m"), a: read("a"), b: read("b") };
+  };
+
+  it("reads parent as an entry at the end of the parent's requires, in file-name order, and writes nothing", () => {
+    const before = old();
+    const s = store();
+    expect(s.get("m")?.requires).toEqual([{ goal: "x" }, { goal: "a" }, { goal: "b" }]);
+    expect(s.get("a")).not.toHaveProperty("parent");
+    expect(s.warnings()).toEqual([]);
+    // Reading again, or a second store, changes nothing on disk.
+    expect(s.refresh()).toBe(false);
+    store();
+    expect({ m: read("m"), a: read("a"), b: read("b") }).toEqual(before);
+  });
+
+  it("writing the child writes the parent with the entry and the child without parent", () => {
+    old();
+    const s = store();
+    s.update("a", { title: "A2" });
+    expect(JSON.parse(read("a"))).not.toHaveProperty("parent");
+    expect(JSON.parse(read("m")).requires).toEqual([{ goal: "x" }, { goal: "a" }, { goal: "b" }]);
+    // b still holds its old parent until it is written, which reads the same.
+    expect(JSON.parse(read("b")).parent).toBe("m");
+    const again = store();
+    expect(again.get("m")?.requires).toEqual([{ goal: "x" }, { goal: "a" }, { goal: "b" }]);
+    expect(again.refresh()).toBe(false);
+  });
+
+  it("writing the parent drops parent from every old child, so removing one sticks", () => {
+    old();
+    const s = store();
+    s.removeRequire("m", "a");
+    expect(JSON.parse(read("a"))).not.toHaveProperty("parent");
+    expect(JSON.parse(read("b"))).not.toHaveProperty("parent");
+    expect(JSON.parse(read("m")).requires).toEqual([{ goal: "x" }, { goal: "b" }]);
+    expect(store().get("m")?.requires).toEqual([{ goal: "x" }, { goal: "b" }]);
+  });
+
+  it("deleting the old parent drops parent from its old children", () => {
+    old();
+    const s = store();
+    s.delete("m");
+    expect(JSON.parse(read("a"))).not.toHaveProperty("parent");
+    expect(store().warnings()).toEqual([]);
   });
 });
 

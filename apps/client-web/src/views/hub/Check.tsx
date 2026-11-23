@@ -21,7 +21,6 @@ import {
   hubHash,
   judgeLabel,
   passRateText,
-  playingFor,
   runLength,
   shortAgo,
 } from "@ue-mcp-studio/client-core";
@@ -29,7 +28,6 @@ import { api } from "../../api";
 import { QaCard, QaContext, savedScriptActions, type QaLive } from "../../chat/Qa";
 import { useCursor, useHub } from "./state";
 import { Empty, HubIcon, HubLink, Placeholder, ScreenHead, StatusMark, StatusPill, WinLoss } from "./parts";
-import { HubViewer, useHubViewer } from "./live";
 
 const PAGE = 30;
 
@@ -77,8 +75,6 @@ export function CheckScreen({ checkId }: { checkId: string }) {
   });
 
   const live: QaLive = useMemo(() => ({ events: [], streaming: true, forms: [], sessionId: null }), []);
-  const nowRun = playingFor(o, [checkId]);
-  const viewer = useHubViewer(nowRun);
 
   if (!state) {
     return (
@@ -142,8 +138,6 @@ export function CheckScreen({ checkId }: { checkId: string }) {
         onRemove={goals.length ? (url) => void saveCheckLinks(links.find((x) => x.link.url === url)?.goalIds ?? [], (had) => withoutLink(had, url)).catch((e: Error) => hub.notify(e.message, "bad")) : undefined}
         note={HUB_LINK_COPY.checkNeedsGoal}
       />
-
-      <HubViewer viewer={viewer} className="hub-viewer-inline" />
 
       {editing && script ? (
         <QaContext.Provider value={live}>

@@ -39,7 +39,8 @@ describe("goal.schema.json", () => {
     const g = s.create({
       title: "A new player finishes the tutorial",
       description: "Walk, jump, leave.",
-      parent: m.id,
+      parents: [m.id],
+      requires: [{ goal: "bare", required: false }],
       owner: "Ama",
       priority: "p0",
       tags: ["onboarding"],

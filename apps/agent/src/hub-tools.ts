@@ -22,8 +22,10 @@ export const HUB_CREATE_GOAL = "hub_create_goal";
 export const HUB_UPDATE_GOAL = "hub_update_goal";
 export const HUB_ADD_LINK = "hub_add_link";
 export const HUB_REMOVE_LINK = "hub_remove_link";
+export const HUB_REQUIRE_GOAL = "hub_require_goal";
+export const HUB_UNREQUIRE_GOAL = "hub_unrequire_goal";
 
-export const HUB_TOOL_NAMES: readonly string[] = [HUB_LIST_GOALS, HUB_READ_GOAL, HUB_READ_CHECK, HUB_CREATE_GOAL, HUB_UPDATE_GOAL, HUB_ADD_LINK, HUB_REMOVE_LINK];
+export const HUB_TOOL_NAMES: readonly string[] = [HUB_LIST_GOALS, HUB_READ_GOAL, HUB_READ_CHECK, HUB_CREATE_GOAL, HUB_UPDATE_GOAL, HUB_ADD_LINK, HUB_REMOVE_LINK, HUB_REQUIRE_GOAL, HUB_UNREQUIRE_GOAL];
 export const isHubTool = (name: string): boolean => HUB_TOOL_NAMES.includes(name);
 
 /** What the tools need of the hub. */
@@ -33,9 +35,8 @@ const S = (description: string) => ({ type: "string", description });
 const RELS = TRACKER_LINK_RELS.join(", ");
 const GOAL_FIELDS = {
   title: S("What the game must do, in a sentence"),
-  kind: { type: "string", enum: ["goal", "milestone"], description: "goal (default), or milestone for a group of goals" },
+  kind: { type: "string", enum: ["goal", "milestone"], description: "goal (default), or milestone: a goal shown as a heading, usually one that requires other goals" },
   description: S("What done means, in Markdown"),
-  parent: { type: ["string", "null"], description: "The id of the milestone this goal belongs to; null for none" },
   owner: { type: ["string", "null"], description: "Who owns the goal" },
   priority: { type: "string", enum: ["p0", "p1", "p2", "p3"] },
   tags: { type: "array", items: { type: "string" } },
@@ -64,6 +65,11 @@ const GOAL_FIELDS = {
       required: ["kind", "target"],
     },
   },
+  requires: {
+    type: "array",
+    description: "The goals this goal requires, in order, each { goal: id, required? }; given, it replaces the list. To put a goal under a milestone, add it to the milestone's requires (hub_require_goal). A goal can be required by any number of goals and milestones.",
+    items: { type: "object", properties: { goal: { type: "string" }, required: { type: "boolean" } }, required: ["goal"] },
+  },
   links: {
     type: "array",
     description: `Tracker items the goal refers to, each { url, title?, rel? }; given, it replaces the list. rel is free text, usually one of ${RELS}.`,
@@ -80,7 +86,7 @@ const TARGET = {
 export const HUB_TOOLS = [
   {
     name: HUB_LIST_GOALS,
-    description: "List the Playtest Hub's goals and milestones with their status (needs_you, failing, at_risk, running, not_started, met), progress, links and the folder their files are in. Status comes from the checks' runs and is never stored.",
+    description: "List the Playtest Hub's goals and milestones with their status (needs_you, failing, at_risk, running, not_started, met), progress, the goals each requires and is part of, links and the folder their files are in. Status comes from the checks' runs, rolled up through required goals, and is never stored. unused: no milestone or goal requires it.",
     input_schema: { type: "object" as const, properties: { include_archived: { type: "boolean", description: "Also list archived goals" } } },
   },
   {
@@ -117,6 +123,20 @@ export const HUB_TOOLS = [
     description: "Remove a link, by its URL, from a goal, one of its checks, or a run. Goal and check links are written to the goal's file, so the user may be asked to allow it first.",
     input_schema: { type: "object" as const, properties: { url: S("The link's URL"), ...TARGET }, required: ["url"] },
   },
+  {
+    name: HUB_REQUIRE_GOAL,
+    description: "Make one goal require another: goal_id (often a milestone) is met only when requires is. Written to goal_id's file only, at the end of its list; a goal it requires already keeps its place and takes the required given. A goal can be required by any number of goals, so the same goal can sit under several milestones. A loop is refused. The user may be asked to allow it first.",
+    input_schema: {
+      type: "object" as const,
+      properties: { goal_id: S("The goal or milestone that requires"), requires: S("The goal it requires"), required: { type: "boolean", description: "False: goal_id is met without it. True by default" } },
+      required: ["goal_id", "requires"],
+    },
+  },
+  {
+    name: HUB_UNREQUIRE_GOAL,
+    description: "Stop one goal requiring another. Only goal_id's file changes; the other goal stays. The user may be asked to allow it first.",
+    input_schema: { type: "object" as const, properties: { goal_id: S("The goal or milestone that requires"), requires: S("The goal it should no longer require") }, required: ["goal_id", "requires"] },
+  },
 ];
 
 const str = (v: unknown): v is string => typeof v === "string" && v.trim() !== "";
@@ -134,6 +154,10 @@ export function validateHub(name: string, i: Record<string, unknown>): string | 
       return i.limit === undefined || Number.isInteger(i.limit) ? null : "limit must be a whole number";
     case HUB_CREATE_GOAL:
       return str(i.title) ? null : "hub_create_goal needs title";
+    case HUB_REQUIRE_GOAL:
+    case HUB_UNREQUIRE_GOAL:
+      if (!str(i.goal_id) || !str(i.requires)) return `${name} needs goal_id and requires`;
+      return i.required === undefined || (name === HUB_REQUIRE_GOAL && typeof i.required === "boolean") ? null : "required must be a boolean, given only to hub_require_goal";
     case HUB_ADD_LINK:
     case HUB_REMOVE_LINK: {
       if (!str(i.url)) return `${name} needs url`;
@@ -148,7 +172,7 @@ export function validateHub(name: string, i: Record<string, unknown>): string | 
 
 /** Whether a call changes a goal file, and so asks as a file change. */
 export const hubChangesFiles = (name: string, i: Record<string, unknown>): boolean =>
-  name === HUB_CREATE_GOAL || name === HUB_UPDATE_GOAL || ((name === HUB_ADD_LINK || name === HUB_REMOVE_LINK) && i.run_id === undefined);
+  name === HUB_CREATE_GOAL || name === HUB_UPDATE_GOAL || name === HUB_REQUIRE_GOAL || name === HUB_UNREQUIRE_GOAL || ((name === HUB_ADD_LINK || name === HUB_REMOVE_LINK) && i.run_id === undefined);
 
 interface GoalChange {
   create: boolean;
@@ -191,6 +215,13 @@ function goalChange(hub: HubToolTarget, name: string, input: Record<string, unkn
   if (name === HUB_UPDATE_GOAL) {
     const { id, ...u } = input;
     return { create: false, plan: () => g.planUpdate(String(id), u), apply: () => g.update(String(id), u) };
+  }
+  if (name === HUB_REQUIRE_GOAL) {
+    const body = { goal: input.requires, ...(input.required !== undefined ? { required: input.required } : {}) };
+    return { create: false, plan: () => g.planRequire(String(input.goal_id), body), apply: () => g.addRequire(String(input.goal_id), body) };
+  }
+  if (name === HUB_UNREQUIRE_GOAL) {
+    return { create: false, plan: () => g.planUnrequire(String(input.goal_id), String(input.requires)), apply: () => g.removeRequire(String(input.goal_id), String(input.requires)) };
   }
   if ((name !== HUB_ADD_LINK && name !== HUB_REMOVE_LINK) || input.run_id !== undefined) return null;
   if (str(input.check_id)) {
@@ -246,7 +277,9 @@ export async function runHubTool(hub: HubToolTarget | null, name: string, input:
           title: g.goal.title,
           status: g.status,
           progress: `${g.progress.met}/${g.progress.total}`,
-          ...(g.goal.parent ? { parent: g.goal.parent } : {}),
+          ...(g.parents.length ? { partOf: g.parents } : {}),
+          ...(g.requires.length ? { requires: g.requires.map((r) => r.goal) } : {}),
+          ...(g.unused ? { unused: true } : {}),
           ...(g.goal.owner ? { owner: g.goal.owner } : {}),
           ...(g.goal.priority ? { priority: g.goal.priority } : {}),
           ...(g.goal.due ? { due: g.goal.due } : {}),
@@ -272,7 +305,9 @@ export async function runHubTool(hub: HubToolTarget | null, name: string, input:
               ...(c.last ? { last: { runId: c.last.runId, outcome: c.last.outcome, startedAt: c.last.startedAt } } : {}),
               ...(c.check.links?.length ? { links: c.check.links } : {}),
             })),
-            ...(s.children.length ? { goals: s.children } : {}),
+            ...(s.requires.length ? { requires: s.requires } : {}),
+            ...(s.parents.length ? { partOf: s.parents } : {}),
+            ...(s.unused ? { unused: "no milestone or goal requires it" } : {}),
           }),
           isError: false,
         };
@@ -301,7 +336,9 @@ export async function runHubTool(hub: HubToolTarget | null, name: string, input:
         }
       // Falls through: a goal's or a check's link is a goal file change.
       case HUB_CREATE_GOAL:
-      case HUB_UPDATE_GOAL: {
+      case HUB_UPDATE_GOAL:
+      case HUB_REQUIRE_GOAL:
+      case HUB_UNREQUIRE_GOAL: {
         const change = goalChange(hub, name, input)!;
         const goal = change.apply();
         return { text: `${change.create ? "Created" : "Saved"} ${rel(goal.id)}:\n${hub.goals.textOf(goal.id) ?? json(goal)}`, isError: false };

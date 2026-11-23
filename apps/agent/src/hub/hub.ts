@@ -23,11 +23,12 @@ import {
   TRACKER_LINKS_MAX,
   checkId,
   checkStateOf,
-  goalStatus,
+  goalChecksDeep,
   leafName,
   qaEnded,
   qaIsDraft,
   qaScriptKey,
+  rollUpGoals,
   uniqueLinks,
   type AcceptanceRule,
   type CheckDetail,
@@ -394,21 +395,9 @@ export class Hub {
     return g?.acceptance ?? DEFAULT_ACCEPTANCE;
   }
 
+  /** Every goal's state, rolled up through the goals each requires (shared rollUpGoals). */
   private goalStates(cat: Catalog): GoalState[] {
-    const goals = this.goals.list();
-    const done = new Map<string, GoalState>();
-    const one = (goal: Goal): GoalState => {
-      const had = done.get(goal.id);
-      if (had) return had;
-      const children = goal.kind === "milestone" ? goals.filter((g) => g.parent === goal.id && g.kind === "goal") : [];
-      const childStates = children.map(one);
-      const checks = goal.checks.map((ref) => this.stateOf(ref, cat, goal.acceptance));
-      const { status, progress } = goalStatus(goal, checks, childStates.filter((c) => !c.goal.archived).map((c) => c.status));
-      const state: GoalState = { goal, status, checks: checks.map((c) => c.state), progress, children: children.map((c) => c.id) };
-      done.set(goal.id, state);
-      return state;
-    };
-    return goals.map(one);
+    return rollUpGoals(this.goals.list(), (goal) => goal.checks.map((ref) => this.stateOf(ref, cat, goal.acceptance)));
   }
 
   async overview(): Promise<HubOverview> {
@@ -557,11 +546,10 @@ export class Hub {
   /** The checks a scope stands for, in order, each once. */
   private async expand(scope: PlanScope): Promise<CheckRef[]> {
     const cat = await this.catalog();
+    // A goal stands for its required goals' checks, at any depth, then its own.
     const goalChecks = (goalId: string): CheckRef[] => {
-      const goal = this.goals.get(goalId);
-      if (!goal) throw notFound(`no goal ${goalId}`);
-      const kids = goal.kind === "milestone" ? this.goals.children(goalId).filter((g) => !g.archived) : [];
-      return [...goal.checks, ...kids.flatMap((k) => k.checks)];
+      if (!this.goals.get(goalId)) throw notFound(`no goal ${goalId}`);
+      return goalChecksDeep(this.goals.list(), goalId);
     };
     let refs: CheckRef[];
     switch (scope.kind) {

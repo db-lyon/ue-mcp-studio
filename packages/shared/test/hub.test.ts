@@ -6,8 +6,14 @@ import {
   checkId,
   checkSatisfied,
   checkStateOf,
+  goalChecksDeep,
+  goalLoops,
+  goalParents,
   goalSlug,
   goalStatus,
+  goalTree,
+  loopIfRequired,
+  rollUpGoals,
   needsSignOff,
   outcomeOf,
   parseCheckId,
@@ -182,6 +188,74 @@ describe("goalStatus", () => {
     expect(goalStatus(m, [], ["met", "failing"]).status).toBe("failing");
     expect(goalStatus(m, [], ["met", "at_risk"]).status).toBe("at_risk");
     expect(goalStatus(m, [], ["not_started"]).status).toBe("not_started");
+  });
+
+  it("an optional goal never blocks, but a verdict or run in it shows", () => {
+    const m = goal({ id: "m", kind: "milestone", checks: [] });
+    expect(goalStatus(m, [], ["met"], ["failing"]).status).toBe("met");
+    expect(goalStatus(m, [], ["met"], ["needs_you"]).status).toBe("needs_you");
+    expect(goalStatus(m, [], ["met"], ["running"]).status).toBe("running");
+  });
+});
+
+describe("the relationship graph", () => {
+  const g = (id: string, requires: Array<string | { goal: string; required?: boolean }> = [], over: Partial<Goal> = {}): Goal =>
+    goal({ id, checks: [], requires: requires.map((r) => (typeof r === "string" ? { goal: r } : r)), ...over });
+  const door: CheckRef = { kind: "script", target: "/Game/Tests/Door" };
+  const jump: CheckRef = { kind: "script", target: "/Game/Tests/Jump" };
+  const swim: CheckRef = { kind: "script", target: "/Game/Tests/Swim" };
+
+  it("rolls status up through a goal shared by two milestones, working each goal out once", () => {
+    const shared = g("shared", [], { checks: [door] });
+    const goals = [g("a", ["shared", "ok"], { kind: "milestone" }), g("b", ["shared"], { kind: "milestone" }), shared, g("ok", [], { checks: [jump] }), g("loose", [], { checks: [jump] })];
+    let asked = 0;
+    const out = rollUpGoals(goals, (x) => {
+      asked++;
+      return x.checks.map((c) => state(c === door ? runs("failed") : runs("passed"), c));
+    });
+    expect(asked).toBe(goals.length);
+    const by = (id: string) => out.find((s) => s.goal.id === id)!;
+    expect(by("shared").status).toBe("failing");
+    expect(by("a").status).toBe("failing");
+    expect(by("b").status).toBe("failing");
+    expect(by("ok").status).toBe("met");
+    expect(by("shared").parents).toEqual(["a", "b"]);
+    expect(by("a").requires).toEqual([{ goal: "shared", required: true, status: "failing" }, { goal: "ok", required: true, status: "met" }]);
+    expect(by("loose").unused).toBe(true);
+    expect(by("shared").unused).toBeUndefined();
+    expect(by("a").unused).toBeUndefined();
+  });
+
+  it("goes three deep, and an optional goal does not hold its parent back", () => {
+    const goals = [g("top", ["mid", { goal: "extra", required: false }], { kind: "milestone" }), g("mid", ["leaf"]), g("leaf", [], { checks: [door] }), g("extra", [], { checks: [jump] })];
+    const out = rollUpGoals(goals, (x) => x.checks.map((c) => state(c === jump ? runs("failed") : runs("passed"), c)));
+    expect(out.map((s) => s.status)).toEqual(["met", "met", "met", "failing"]);
+  });
+
+  it("finds loops the same way every time, and rolls status up without going round", () => {
+    const goals = [g("c", ["a"]), g("a", ["b"]), g("b", ["c"]), g("d", ["missing"])];
+    expect(goalLoops(goals).cycles).toEqual([["a", "b", "c", "a"]]);
+    expect([...goalLoops(goals).edges]).toEqual(["c>a"]);
+    const out = rollUpGoals(goals, () => []);
+    expect(out.map((s) => s.status)).toEqual(["not_started", "not_started", "not_started", "not_started"]);
+    expect(out.find((s) => s.goal.id === "d")!.requires).toEqual([{ goal: "missing", required: true, status: null }]);
+    expect(loopIfRequired(goals, "d", "d")).toEqual(["d", "d"]);
+    expect(loopIfRequired([g("x", ["y"]), g("y")], "y", "x")).toEqual(["y", "x", "y"]);
+    expect(loopIfRequired([g("x", ["y"]), g("y")], "x", "y")).toBeNull();
+  });
+
+  it("a goal's checks are its required goals' at any depth, then its own, each once", () => {
+    const goals = [g("m", ["a", "b"], { checks: [swim] }), g("a", ["b"], { checks: [jump, door] }), g("b", [], { checks: [door] }), g("gone", [], { archived: true, checks: [swim] })];
+    expect(goalTree(goals, "m")).toEqual(["b", "a", "m"]);
+    expect(goalChecksDeep(goals, "m").map((c) => c.target)).toEqual([door.target, jump.target, swim.target]);
+    // Archived goals are left out, and a loop is followed once.
+    expect(goalChecksDeep([g("x", ["gone", "y"]), g("y", ["x"], { checks: [jump] }), goals[3]], "x").map((c) => c.target)).toEqual([jump.target]);
+  });
+
+  it("parents leave out archived goals; a check no goal lists is unused", () => {
+    expect([...goalParents([g("m", ["a"]), g("old", ["a"], { archived: true })])]).toEqual([["a", ["m"]]]);
+    expect(checkStateOf({ check: door, runs: [], goalIds: [] }).unused).toBe(true);
+    expect(checkStateOf({ check: door, runs: [], goalIds: ["g"] }).unused).toBeUndefined();
   });
 });
 

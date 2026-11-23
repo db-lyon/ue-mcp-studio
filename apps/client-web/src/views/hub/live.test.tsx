@@ -15,7 +15,11 @@ const m = vi.hoisted(() => ({
   leaveViewport: vi.fn(),
 }));
 vi.mock("../../api", () => ({ api: m }));
-import { HubLiveProvider, HubViewer, ViewportButton, useHubViewer } from "./live";
+import { HubLiveProvider, HubViewer, useHubViewer } from "./live";
+import { LiveHostContext } from "../../chat/PieLive";
+
+/** The live viewport is a paired browser's: each test says which page it is on. */
+const onRemote = (remote: boolean) => ((window as unknown as { __studioRemotePage?: boolean }).__studioRemotePage = remote);
 
 /** A peer that answers and goes live at once with a stand-in stream. */
 const peer: PeerFactory = () => {
@@ -56,7 +60,6 @@ function Harness({ start = false, two = false }: { start?: boolean; two?: boolea
       <button onClick={() => setShown((s) => !s)}>screen</button>
       {shown && <Card id="a" running={playing ? RUN : null} />}
       {two && <Card id="b" running={playing ? RUN : null} />}
-      <ViewportButton relevant={playing} />
     </HubLiveProvider>
   );
 }
@@ -74,6 +77,7 @@ function streamer(pie = true) {
 }
 
 beforeEach(() => {
+  onRemote(true);
   for (const f of Object.values(m)) f.mockReset();
   m.viewport.mockResolvedValue(status());
   m.joinViewport.mockResolvedValue({ viewer: "v1", iceServers: [], status: status() });
@@ -81,7 +85,10 @@ beforeEach(() => {
   m.sendViewportSignal.mockResolvedValue({});
   m.leaveViewport.mockResolvedValue({});
 });
-afterEach(() => cleanup());
+afterEach(() => {
+  cleanup();
+  onRemote(false);
+});
 
 const watch = (id = "a") => fireEvent.click(within(screen.getByTestId(id)).getByRole("button", { name: "Watch" }));
 
@@ -155,8 +162,9 @@ describe("the hub's Viewport card", () => {
     }
   });
 
-  it("opens the full viewer on the same viewer, from the card or a row's Viewport button", async () => {
-    render(<Harness start />);
+  it("opens the full viewer on the same viewer, from the card or the bar's Live button", async () => {
+    let open: (() => void) | null = null;
+    render(<LiveHostContext.Provider value={(f) => { open = f; }}><Harness start /></LiveHostContext.Provider>);
     watch();
     await waitFor(() => screen.getByLabelText("Play In Editor, live"));
     fireEvent.click(within(screen.getByRole("region", { name: "Viewport" })).getAllByRole("button", { name: "Open Play In Editor" })[0]);
@@ -164,15 +172,20 @@ describe("the hub's Viewport card", () => {
     expect(dialog.querySelector("video")).not.toBeNull();
     expect(m.joinViewport).toHaveBeenCalledTimes(1);
     fireEvent.click(screen.getByText("Close"));
-    fireEvent.click(screen.getByRole("button", { name: /^Viewport$/ }));
+    expect(open).not.toBeNull();
+    act(() => open!());
     await screen.findByRole("dialog", { name: "Play In Editor" });
     expect(m.joinViewport).toHaveBeenCalledTimes(1);
   });
 
-  it("hides a row's Viewport button when nothing plays and PIE is not running", async () => {
-    m.viewport.mockResolvedValue(status({ pie: false }));
-    render(<Harness />);
+  it("draws nothing and never connects in Studio on the computer", async () => {
+    onRemote(false);
+    let open: (() => void) | null = null;
+    render(<LiveHostContext.Provider value={(f) => { open = f; }}><Harness start /></LiveHostContext.Provider>);
     await act(async () => undefined);
-    expect(screen.queryByRole("button", { name: /^Viewport$/ })).toBeNull();
+    expect(screen.queryByRole("region", { name: "Viewport" })).toBeNull();
+    expect(open).toBeNull();
+    expect(m.viewport).not.toHaveBeenCalled();
+    expect(m.joinViewport).not.toHaveBeenCalled();
   });
 });

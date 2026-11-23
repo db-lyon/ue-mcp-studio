@@ -13,6 +13,13 @@
  * their text would change, so source control sees no churn. Each goal file
  * names the schema in "$schema"; a different "$schema" a file already has is
  * kept as written.
+ *
+ * Goals require goals (Goal.requires), held in the requiring goal's file. A
+ * file from before that names its milestone in "parent" is read as an entry
+ * in the parent's requires; nothing is written for it until either file is
+ * written for another reason, and then both are: the parent's with the entry,
+ * the old file without "parent". A change that would make goals require each
+ * other in a loop is refused; a loop already in the files is reported.
  */
 import * as fs from "node:fs";
 import * as path from "node:path";
@@ -24,13 +31,17 @@ import {
   HUB_GOAL_SCHEMA_FILE,
   HUB_SCHEMA,
   checkId,
+  goalLoops,
   goalSlug,
+  loopIfRequired,
+  requiresOf,
   type AcceptanceRule,
   type CheckRef,
   type CheckUpdate,
   type Goal,
   type GoalDraft,
   type GoalPriority,
+  type GoalRequirement,
   type GoalUpdate,
   type SignOff,
   type TrackerLink,
@@ -48,9 +59,13 @@ const MAX_TITLE = 200;
 const MAX_TEXT = 20_000;
 
 /** Top-level keys in the order a goal file is written. Unknown keys a newer Studio wrote follow, sorted. */
-export const ORDER = ["schema", "id", "kind", "title", "description", "parent", "owner", "priority", "tags", "due", "links", "acceptance", "checks", "signOff", "archived", "createdAt", "updatedAt"] as const;
+export const ORDER = ["schema", "id", "kind", "title", "description", "owner", "priority", "tags", "due", "links", "acceptance", "requires", "checks", "signOff", "archived", "createdAt", "updatedAt"] as const;
 /** Keys a goal file holds that are not the goal's own fields, kept apart from unknown ones: "$schema" is always written first. */
 const SCHEMA_KEY = "$schema";
+/** Keys an older Studio wrote that are read and then dropped: "parent" became an entry in the parent's requires. */
+const LEGACY_KEYS: readonly string[] = ["parent"];
+/** A loop in words: "a > b > a". */
+const loopText = (path: string[]): string => path.join(" > ");
 
 export interface GoalStoreOptions {
   projectDir: string;
@@ -68,6 +83,8 @@ interface Entry {
   text: string;
   /** Keys this Studio does not know, kept as written. */
   extra: Record<string, unknown>;
+  /** The "parent" the file still holds from an older Studio, until the file is written again. */
+  legacyParent?: string;
 }
 
 /** Links in their written form: url, title, rel. */
@@ -85,6 +102,8 @@ export function goalText(goal: Goal, extra: Record<string, unknown> = {}): strin
       out[k] = { stableRuns: a.stableRuns, staleAfterDays: a.staleAfterDays, signOff: a.signOff };
     } else if (k === "links") {
       if ((v as TrackerLink[]).length) out[k] = linksText(v as TrackerLink[]);
+    } else if (k === "requires") {
+      if ((v as GoalRequirement[]).length) out[k] = (v as GoalRequirement[]).map((r) => ({ goal: r.goal, ...(r.required === false ? { required: false } : {}) }));
     } else if (k === "checks") {
       out[k] = (v as CheckRef[]).map((c) => ({
         kind: c.kind,
@@ -100,7 +119,7 @@ export function goalText(goal: Goal, extra: Record<string, unknown> = {}): strin
       out[k] = v;
     }
   }
-  for (const k of Object.keys(extra).sort()) if (k !== SCHEMA_KEY && !(ORDER as readonly string[]).includes(k)) out[k] = extra[k];
+  for (const k of Object.keys(extra).sort()) if (k !== SCHEMA_KEY && !(ORDER as readonly string[]).includes(k) && !LEGACY_KEYS.includes(k)) out[k] = extra[k];
   return `${JSON.stringify(out, null, 2)}\n`;
 }
 
@@ -132,7 +151,7 @@ const str = (v: unknown, max = MAX_TEXT): string | undefined => (typeof v === "s
  * A goal from a file's JSON, with what was wrong in it. Null with a problem
  * when it is no goal at all; fields of the wrong type are dropped and named.
  */
-export function parseGoal(raw: unknown, fileId: string, fallbackTime: string): { goal: Goal; extra: Record<string, unknown>; problems: string[] } | { problem: string } {
+export function parseGoal(raw: unknown, fileId: string, fallbackTime: string): { goal: Goal; extra: Record<string, unknown>; problems: string[]; legacyParent?: string } | { problem: string } {
   if (!isObject(raw)) return { problem: "it is not a JSON object" };
   if (typeof raw.schema === "number" && raw.schema > HUB_SCHEMA) return { problem: `it was written by a newer Studio (schema ${raw.schema})` };
   if (raw.id !== undefined && raw.id !== fileId) return { problem: `its id "${String(raw.id)}" is not its file name` };
@@ -152,6 +171,22 @@ export function parseGoal(raw: unknown, fileId: string, fallbackTime: string): {
   }
   const goalLinks = readLinks(raw.links);
   problems.push(...goalLinks.problems);
+  const requires: GoalRequirement[] = [];
+  if (raw.requires !== undefined && !Array.isArray(raw.requires)) problems.push("requires is not a list");
+  for (const [i, r] of (Array.isArray(raw.requires) ? raw.requires : []).entries()) {
+    const id = isObject(r) ? r.goal : undefined;
+    if (typeof id !== "string" || !GOAL_ID.test(id)) {
+      problems.push(`required goal ${i + 1} is not { goal: id }`);
+      continue;
+    }
+    if (id === fileId) {
+      problems.push("it requires itself");
+      continue;
+    }
+    if (requires.some((x) => x.goal === id)) continue;
+    requires.push({ goal: id, ...((r as Record<string, unknown>).required === false ? { required: false } : {}) });
+  }
+  const legacyParent = typeof raw.parent === "string" && GOAL_ID.test(raw.parent) && raw.parent !== fileId ? raw.parent : undefined;
   const kind = raw.kind === "milestone" ? "milestone" : "goal";
   const signOff = isObject(raw.signOff) && typeof raw.signOff.by === "string" && typeof raw.signOff.at === "string"
     ? { by: raw.signOff.by, at: raw.signOff.at, ...(typeof raw.signOff.note === "string" ? { note: raw.signOff.note } : {}) }
@@ -162,21 +197,21 @@ export function parseGoal(raw: unknown, fileId: string, fallbackTime: string): {
     kind,
     title,
     ...(str(raw.description) ? { description: str(raw.description) } : {}),
-    ...(kind === "goal" && typeof raw.parent === "string" && GOAL_ID.test(raw.parent) ? { parent: raw.parent } : {}),
     ...(str(raw.owner, MAX_TITLE) ? { owner: str(raw.owner, MAX_TITLE) } : {}),
     ...(PRIORITIES.includes(raw.priority as GoalPriority) ? { priority: raw.priority as GoalPriority } : {}),
     ...(Array.isArray(raw.tags) ? { tags: [...new Set(raw.tags.filter((t): t is string => typeof t === "string" && !!t.trim()).map((t) => t.trim()))] } : {}),
     ...(typeof raw.due === "string" && DATE.test(raw.due) ? { due: raw.due } : {}),
     ...(goalLinks.links.length ? { links: goalLinks.links } : {}),
     acceptance: acceptanceOf(raw.acceptance),
+    ...(requires.length ? { requires } : {}),
     checks: uniqueChecks(checks),
     ...(signOff ? { signOff } : {}),
     ...(raw.archived === true ? { archived: true } : {}),
     createdAt: typeof raw.createdAt === "string" ? raw.createdAt : fallbackTime,
     updatedAt: typeof raw.updatedAt === "string" ? raw.updatedAt : fallbackTime,
   };
-  const extra = Object.fromEntries(Object.entries(raw).filter(([k]) => !(ORDER as readonly string[]).includes(k)));
-  return { goal, extra, problems };
+  const extra = Object.fromEntries(Object.entries(raw).filter(([k]) => !(ORDER as readonly string[]).includes(k) && !LEGACY_KEYS.includes(k)));
+  return { goal, extra, problems, ...(legacyParent ? { legacyParent } : {}) };
 }
 
 export class GoalStore {
@@ -309,14 +344,24 @@ export class GoalStore {
         continue;
       }
       for (const problem of p.problems) this.problems.push(`${where}: ${problem}, so it was left out`);
-      this.goals.set(id, { goal: p.goal, text, extra: p.extra });
+      this.goals.set(id, { goal: p.goal, text, extra: p.extra, ...(p.legacyParent ? { legacyParent: p.legacyParent } : {}) });
     }
-    // A parent that is gone or is no milestone is reported, and the goal shows on its own.
+    // An older file's "parent" is an entry at the end of the parent's requires, files taken in name order so the same files read the same way.
+    for (const [id, e] of this.goals) {
+      if (!e.legacyParent) continue;
+      const parent = this.goals.get(e.legacyParent);
+      if (!parent) {
+        this.problems.push(`${this.relDir}/${id}.json: its parent "${e.legacyParent}" is not here`);
+        continue;
+      }
+      const reqs = requiresOf(parent.goal);
+      if (!reqs.some((r) => r.goal === id)) parent.goal = { ...parent.goal, requires: [...reqs, { goal: id }] };
+    }
     for (const { goal } of this.goals.values()) {
-      if (!goal.parent) continue;
-      const parent = this.goals.get(goal.parent)?.goal;
-      if (!parent || parent.kind !== "milestone") this.problems.push(`${this.relDir}/${goal.id}.json: its parent "${goal.parent}" is not a milestone here`);
+      for (const r of requiresOf(goal)) if (!this.goals.has(r.goal)) this.problems.push(`${this.relDir}/${goal.id}.json: it requires "${r.goal}", which is not here`);
     }
+    // A loop counts once around for status and is reported here.
+    for (const cycle of goalLoops(this.list()).cycles) this.problems.push(`${this.relDir}: goals require each other in a loop (${loopText(cycle)}), so the last step is left out of their status`);
   }
 
   list(): Goal[] {
@@ -346,19 +391,46 @@ export class GoalStore {
     return goalText(goal, this.goals.get(goal.id)?.extra ?? {});
   }
 
-  private write(goal: Goal, extra: Record<string, unknown> = this.goals.get(goal.id)?.extra ?? {}): Goal {
+  private writeOne(goal: Goal, extra: Record<string, unknown> = this.goals.get(goal.id)?.extra ?? {}): void {
     const text = goalText(goal, extra);
     const fresh = !fs.existsSync(this.dir);
     fs.mkdirSync(this.dir, { recursive: true });
     if (fresh || this.goals.size === 0) this.writeDocs();
     writeFileAtomic(this.fileOf(goal.id), text);
     this.goals.set(goal.id, { goal, text, extra });
-    this.watch();
-    this.o.changed?.(goal.id);
-    return goal;
   }
 
-  private require(id: string): Goal {
+  /**
+   * Write goals, the first with `extra` when given. A file still in the old
+   * shape that an edge here involves is written with them in the new one:
+   * the old parent a file names (its entry is in the parent's requires now)
+   * and every old file naming one of these goals as its parent.
+   */
+  private write(goals: Goal | Goal[], extra?: Record<string, unknown>): Goal {
+    const list = Array.isArray(goals) ? goals : [goals];
+    const legacy: string[] = [];
+    for (const g of list) {
+      const own = this.goals.get(g.id)?.legacyParent;
+      if (own) legacy.push(own);
+      for (const [id, e] of this.goals) if (e.legacyParent === g.id) legacy.push(id);
+    }
+    const written: string[] = [];
+    for (const [i, g] of list.entries()) {
+      this.writeOne(g, i === 0 ? extra : undefined);
+      written.push(g.id);
+    }
+    for (const id of legacy) {
+      const e = this.goals.get(id);
+      if (!e || written.includes(id)) continue;
+      this.writeOne(e.goal, e.extra);
+      written.push(id);
+    }
+    this.watch();
+    for (const id of written) this.o.changed?.(id);
+    return list[0];
+  }
+
+  private must(id: string): Goal {
     const g = this.goals.get(id)?.goal;
     if (!g) throw notFound(`no goal ${id}`);
     return g;
@@ -382,7 +454,7 @@ export class GoalStore {
   }
 
   /** Check the fields a draft or update gives, and return them normalized. Throws a 400 for any that is wrong. */
-  private fields(u: Record<string, unknown>, id: string | null, kind: Goal["kind"]): Partial<Goal> {
+  private fields(u: Record<string, unknown>, id: string | null): Partial<Goal> {
     const out: Partial<Goal> = {};
     if (u.title !== undefined) {
       const t = str(u.title, MAX_TITLE);
@@ -423,17 +495,73 @@ export class GoalStore {
       if (typeof u.archived !== "boolean") throw bad("archived must be a boolean");
       out.archived = u.archived;
     }
-    if (u.parent !== undefined) {
-      if (u.parent !== null && typeof u.parent !== "string") throw bad("parent must be a milestone's id, or null");
-      const parent = (u.parent as string | null) || null;
-      if (parent) {
-        if (kind === "milestone") throw bad("a milestone has no parent: goals nest one level");
-        if (parent === id) throw bad("a goal cannot be its own parent");
-        const p = this.get(parent);
-        if (!p) throw bad(`no milestone ${parent}`);
-        if (p.kind !== "milestone") throw bad(`${parent} is a goal, not a milestone`);
+    if (u.parent !== undefined) throw bad("parent is gone: list the goal in its milestone's requires, or give parents");
+    if (u.requires !== undefined) out.requires = this.requiresList(u.requires, id);
+    return out;
+  }
+
+  /** A requires list from a body: each { goal, required? } naming a goal here, each once. */
+  private requiresList(v: unknown, self: string | null): GoalRequirement[] {
+    if (v === null) return [];
+    if (!Array.isArray(v)) throw bad("requires must be a list of { goal, required? }");
+    const out: GoalRequirement[] = [];
+    for (const [i, r] of v.entries()) {
+      const one = this.requirementOf(r, `required goal ${i + 1}`);
+      if (one.goal === self) throw bad("a goal cannot require itself");
+      if (!out.some((x) => x.goal === one.goal)) out.push(one);
+    }
+    return out;
+  }
+
+  /** One { goal, required? } from a body, naming a goal here. */
+  private requirementOf(r: unknown, what = "body"): GoalRequirement {
+    const o = typeof r === "string" ? { goal: r } : r;
+    if (!isObject(o) || typeof o.goal !== "string" || !o.goal) throw bad(`${what} must be { goal, required? }`);
+    if (o.required !== undefined && typeof o.required !== "boolean") throw bad(`${what}: required must be a boolean`);
+    if (!this.goals.has(o.goal)) throw bad(`no goal ${o.goal}`);
+    return { goal: o.goal, ...(o.required === false ? { required: false } : {}) };
+  }
+
+  /** The parents a body gives: goal ids here, each once, never the goal itself. */
+  private parentsOf(v: unknown, self: string | null): string[] {
+    if (!Array.isArray(v) || v.some((p) => typeof p !== "string")) throw bad("parents must be a list of goal ids");
+    const out = [...new Set(v as string[])];
+    for (const p of out) {
+      if (p === self) throw bad("a goal cannot require itself");
+      if (!this.goals.has(p)) throw bad(`no goal ${p}`);
+    }
+    return out;
+  }
+
+  /** Refuse goals as they would be when one requires another in a loop: 400 naming the loop. */
+  private refuseLoops(next: Goal[]): void {
+    const graph = new Map(this.list().map((g) => [g.id, g]));
+    for (const g of next) graph.set(g.id, g);
+    const all = [...graph.values()];
+    for (const g of next) {
+      const had = new Set(requiresOf(this.goals.get(g.id)?.goal ?? { requires: [] }).map((r) => r.goal));
+      for (const r of requiresOf(g)) {
+        if (had.has(r.goal)) continue;
+        const loop = loopIfRequired(all, g.id, r.goal);
+        if (loop) throw bad(`that would make goals require each other in a loop: ${loopText(loop)}`);
       }
-      out.parent = parent;
+    }
+  }
+
+  /**
+   * The parents' files as they would be with `id` required by exactly
+   * `parents`: a new parent gains the entry at its end, a parent not named
+   * loses it. Only the files that change.
+   */
+  private parentFiles(id: string, parents: string[]): Goal[] {
+    const at = this.now();
+    const out: Goal[] = [];
+    for (const g of this.list()) {
+      const reqs = requiresOf(g);
+      const has = reqs.some((r) => r.goal === id);
+      const wants = parents.includes(g.id);
+      if (has === wants) continue;
+      out.push(clean({ ...g, requires: wants ? [...reqs, { goal: id }] : reqs.filter((r) => r.goal !== id), updatedAt: at }));
     }
     return out;
   }
@@ -450,8 +578,13 @@ export class GoalStore {
     }));
   }
 
+  /** Create a goal; `parents` in the draft each gain it at the end of their requires. */
   create(draft: unknown): Goal {
-    return this.write(this.planCreate(draft), {});
+    const goal = this.planCreate(draft);
+    const parents = isObject(draft) && draft.parents !== undefined ? this.parentsOf(draft.parents, null) : [];
+    const files = this.parentFiles(goal.id, parents);
+    this.refuseLoops([goal, ...files]);
+    return this.write([goal, ...files], {});
   }
 
   /** The goal create() would write, without writing it. */
@@ -461,8 +594,9 @@ export class GoalStore {
     if (!str(d.title, MAX_TITLE)) throw bad("title must be a non-empty string");
     if (d.kind !== undefined && d.kind !== "goal" && d.kind !== "milestone") throw bad("kind must be goal or milestone");
     const kind = d.kind ?? "goal";
-    const f = this.fields(d, null, kind);
+    const f = this.fields(d, null);
     const id = this.freshId(d.id, f.title!);
+    if (f.requires?.some((r) => r.goal === id)) throw bad("a goal cannot require itself");
     const at = this.now();
     const goal: Goal = {
       schema: HUB_SCHEMA,
@@ -470,13 +604,13 @@ export class GoalStore {
       kind,
       title: f.title!,
       ...(f.description ? { description: f.description } : {}),
-      ...(f.parent ? { parent: f.parent } : {}),
       ...(f.owner ? { owner: f.owner } : {}),
       ...(f.priority ? { priority: f.priority } : {}),
       ...(f.tags?.length ? { tags: f.tags } : {}),
       ...(f.due ? { due: f.due } : {}),
       ...(f.links?.length ? { links: f.links } : {}),
       acceptance: f.acceptance ?? { ...DEFAULT_ACCEPTANCE },
+      ...(f.requires?.length ? { requires: f.requires } : {}),
       checks: f.checks ?? [],
       ...(f.archived ? { archived: true } : {}),
       createdAt: at,
@@ -485,23 +619,80 @@ export class GoalStore {
     return goal;
   }
 
+  /** Change a goal; `parents`, when given, makes exactly those goals require it, writing their files. */
   update(id: string, u: unknown): Goal {
-    return this.write(this.planUpdate(id, u));
+    const next = this.planUpdate(id, u);
+    const parents = isObject(u) && u.parents !== undefined ? this.parentsOf(u.parents, id) : null;
+    const files = parents ? this.parentFiles(id, parents) : [];
+    this.refuseLoops([next, ...files]);
+    return this.write([next, ...files]);
   }
 
-  /** The goal update() would write, without writing it. */
+  /** The goal update() would write, without writing it. Parents' files are not part of it. */
   planUpdate(id: string, u: unknown): Goal {
-    const had = this.require(id);
+    const had = this.must(id);
     if (!isObject(u)) throw bad("body must be the fields to change");
     const upd = u as GoalUpdate & Record<string, unknown>;
     if (upd.kind !== undefined && upd.kind !== "goal" && upd.kind !== "milestone") throw bad("kind must be goal or milestone");
     if (upd.signOff !== undefined) throw bad("sign-off is given and cleared with /sign-off");
     const kind = upd.kind ?? had.kind;
-    if (kind === "goal" && had.kind === "milestone" && this.children(id).length > 0) throw conflict("the milestone has goals: move them out first");
-    const f = this.fields(upd, id, kind);
-    if (kind === "milestone" && (f.parent !== undefined ? f.parent : had.parent)) throw bad("a goal in a milestone cannot become a milestone: clear its parent too");
-    const next: Goal = { ...had, ...f, kind, schema: HUB_SCHEMA, id, createdAt: had.createdAt, updatedAt: this.now() };
-    return clean(next);
+    const f = this.fields(upd, id);
+    const next = clean({ ...had, ...f, kind, schema: HUB_SCHEMA, id, createdAt: had.createdAt, updatedAt: this.now() });
+    this.refuseLoops([next]);
+    return next;
+  }
+
+  addRequire(id: string, body: unknown): Goal {
+    const next = this.planRequire(id, body);
+    return next === this.get(id) ? next : this.write(next);
+  }
+
+  /**
+   * A goal requiring one more goal, at the end of its list, without writing
+   * it. A goal it requires already keeps its place and takes the required
+   * given; with nothing to change, the goal as it is.
+   */
+  planRequire(id: string, body: unknown): Goal {
+    const had = this.must(id);
+    const r = this.requirementOf(body);
+    if (r.goal === id) throw bad("a goal cannot require itself");
+    const reqs = requiresOf(had);
+    const at = reqs.findIndex((x) => x.goal === r.goal);
+    const asked = isObject(body) ? body.required : undefined;
+    if (at >= 0) {
+      if (asked === undefined || (reqs[at].required !== false) === asked) return had;
+      return { ...had, requires: reqs.map((x, i) => (i === at ? r : x)), updatedAt: this.now() };
+    }
+    const next = { ...had, requires: [...reqs, r], updatedAt: this.now() };
+    this.refuseLoops([next]);
+    return next;
+  }
+
+  removeRequire(id: string, goal: string): Goal {
+    return this.write(this.planUnrequire(id, goal));
+  }
+
+  /** A goal no longer requiring one goal, without writing it. */
+  planUnrequire(id: string, goal: string): Goal {
+    const had = this.must(id);
+    const reqs = requiresOf(had);
+    if (!reqs.some((r) => r.goal === goal)) throw notFound(`goal ${id} does not require ${goal}`);
+    return clean({ ...had, requires: reqs.filter((r) => r.goal !== goal), updatedAt: this.now() });
+  }
+
+  /** The goals a goal requires in a new order: body { order } names each of them once. */
+  orderRequires(id: string, body: unknown): Goal {
+    const had = this.must(id);
+    const reqs = requiresOf(had);
+    const order = orderOf(body, reqs.map((r) => r.goal), "required goal");
+    return this.write({ ...had, requires: order.map((g) => reqs.find((r) => r.goal === g)!), updatedAt: this.now() });
+  }
+
+  /** A goal's checks in a new order: body { order } names each check id once. */
+  orderChecks(id: string, body: unknown): Goal {
+    const had = this.must(id);
+    const order = orderOf(body, had.checks.map(checkId), "check");
+    return this.write({ ...had, checks: order.map((c) => had.checks.find((x) => checkId(x) === c)!), updatedAt: this.now() });
   }
 
   updateCheck(id: string, check: string, u: unknown): Goal {
@@ -510,7 +701,7 @@ export class GoalStore {
 
   /** One check of a goal with its title, required or links changed (CheckUpdate), without writing it. */
   planUpdateCheck(id: string, check: string, u: unknown): Goal {
-    const had = this.require(id);
+    const had = this.must(id);
     const at = had.checks.findIndex((c) => checkId(c) === check);
     if (at < 0) throw notFound(`goal ${id} has no check ${check}`);
     if (!isObject(u)) throw bad("body must be { title?, required?, links? }");
@@ -537,25 +728,28 @@ export class GoalStore {
     return { ...had, checks, updatedAt: this.now() };
   }
 
-  /** The goals in a milestone. */
-  children(id: string): Goal[] {
-    return this.list().filter((g) => g.parent === id);
+  /** The goals that require this one. */
+  parentsOfGoal(id: string): Goal[] {
+    return this.list().filter((g) => requiresOf(g).some((r) => r.goal === id));
   }
 
+  /** Delete a goal. Goals that required it stop requiring it; the goals it required stay, on their own if nothing else requires them. */
   delete(id: string): void {
-    this.require(id);
-    // Goals in a deleted milestone stay, on their own.
-    for (const child of this.children(id)) this.write(clean({ ...child, parent: null, updatedAt: this.now() }));
+    this.must(id);
+    const files = this.parentFiles(id, []);
+    // An old file naming this goal as its parent loses the name, since the goal is gone.
+    const orphans = [...this.goals.values()].filter((e) => e.legacyParent === id && !files.some((f) => f.id === e.goal.id)).map((e) => e.goal);
     try {
       fs.rmSync(path.join(this.dir, `${id}.json`), { force: true });
     } finally {
       this.goals.delete(id);
       this.o.changed?.(id);
     }
+    if (files.length || orphans.length) this.write([...files, ...orphans]);
   }
 
   addChecks(id: string, checks: unknown): Goal {
-    const had = this.require(id);
+    const had = this.must(id);
     const add = this.checksOf(checks);
     if (add.length === 0) throw bad("body must be { checks: [{ kind, target }] } with at least one check");
     const known = new Set(had.checks.map(checkId));
@@ -565,30 +759,40 @@ export class GoalStore {
   }
 
   removeCheck(id: string, check: string): Goal {
-    const had = this.require(id);
+    const had = this.must(id);
     const checks = had.checks.filter((c) => checkId(c) !== check);
     if (checks.length === had.checks.length) throw notFound(`goal ${id} has no check ${check}`);
     return this.write({ ...had, checks, updatedAt: this.now() });
   }
 
   signOff(id: string, by: string, note?: unknown): Goal {
-    const had = this.require(id);
+    const had = this.must(id);
     if (note !== undefined && typeof note !== "string") throw bad("note must be a string");
     const n = str(note);
     return this.write({ ...had, signOff: { by, at: this.now(), ...(n ? { note: n } : {}) }, updatedAt: this.now() });
   }
 
   clearSignOff(id: string): Goal {
-    const had = this.require(id);
+    const had = this.must(id);
     if (!had.signOff) return had;
     return this.write(clean({ ...had, signOff: null, updatedAt: this.now() }));
   }
 }
 
+/** A new order from body { order }: every id in `have` once, nothing else. */
+function orderOf(body: unknown, have: string[], what: string): string[] {
+  const order = isObject(body) ? body.order : undefined;
+  if (!Array.isArray(order) || order.some((x) => typeof x !== "string")) throw bad(`body must be { order: [${what} ids] }`);
+  const ids = order as string[];
+  if (ids.length !== have.length || new Set(ids).size !== ids.length || ids.some((x) => !have.includes(x))) throw bad(`order must name each ${what} once: ${have.join(", ") || "there are none"}`);
+  return ids;
+}
+
 /** A goal without empty optional fields, so the file stays as short as the goal is. */
 function clean(g: Goal): Goal {
   const out = { ...g } as Record<string, unknown>;
-  for (const k of ["description", "parent", "owner", "due", "signOff"]) if (out[k] === null || out[k] === undefined || out[k] === "") delete out[k];
+  for (const k of ["description", "owner", "due", "signOff"]) if (out[k] === null || out[k] === undefined || out[k] === "") delete out[k];
+  if (Array.isArray(out.requires) && out.requires.length === 0) delete out.requires;
   if (Array.isArray(out.tags) && out.tags.length === 0) delete out.tags;
   if (Array.isArray(out.links) && out.links.length === 0) delete out.links;
   if (out.archived === false) delete out.archived;

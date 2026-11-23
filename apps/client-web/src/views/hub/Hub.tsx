@@ -36,7 +36,8 @@ import { LibraryScreen } from "./Library";
 import { CheckScreen } from "./Check";
 import { RunScreen } from "./Run";
 import { QueueScreen } from "./Queue";
-import { CheckPicker, GoalDialog, GoalPicker } from "./dialogs";
+import { CheckPicker, GoalDialog, GoalPicker, RequirePicker } from "./dialogs";
+import type { GoalPreset } from "./state";
 import { HubLiveProvider } from "./live";
 import type { DaemonState } from "../../state";
 import type { SettingsSection } from "../settings/sections";
@@ -45,8 +46,9 @@ import "./hub.css";
 type Overlay =
   | { kind: "palette" }
   | { kind: "shortcuts" }
-  | { kind: "goal"; goalId: string | null; preset?: { parent?: string; kind?: "goal" | "milestone" } }
+  | { kind: "goal"; goalId: string | null; preset?: GoalPreset }
   | { kind: "addChecks"; goalId: string }
+  | { kind: "require"; goalId: string }
   | { kind: "addToGoal"; checkIds: string[] };
 
 /** The hub screen the hash names, read again on every hashchange (Back, Forward, a pasted link). */
@@ -162,6 +164,7 @@ export function HubView({ data, narrow, onOpenChat, onChat, daemon, onSettings }
     openChat: onOpenChat,
     editGoal: (goalId, preset) => setOverlay({ kind: "goal", goalId, preset }),
     addChecks: (goalId) => setOverlay({ kind: "addChecks", goalId }),
+    requireGoal: (goalId) => setOverlay({ kind: "require", goalId }),
     addToGoal: (checkIds) => setOverlay({ kind: "addToGoal", checkIds }),
     onKeys: (h) => {
       screenKeys.current = h;
@@ -194,6 +197,7 @@ export function HubView({ data, narrow, onOpenChat, onChat, daemon, onSettings }
         {overlay?.kind === "shortcuts" && <Shortcuts onClose={() => setOverlay(null)} />}
         {overlay?.kind === "goal" && <GoalDialog goalId={overlay.goalId} preset={overlay.preset} onClose={() => setOverlay(null)} />}
         {overlay?.kind === "addChecks" && <CheckPicker goalId={overlay.goalId} onClose={() => setOverlay(null)} />}
+        {overlay?.kind === "require" && <RequirePicker goalId={overlay.goalId} onClose={() => setOverlay(null)} />}
         {overlay?.kind === "addToGoal" && <GoalPicker checkIds={overlay.checkIds} onClose={() => setOverlay(null)} />}
       </div>
       </HubLiveProvider>

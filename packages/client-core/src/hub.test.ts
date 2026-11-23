@@ -15,7 +15,13 @@ import {
   hubKeymap,
   hubPath,
   milestoneGroups,
+  moveId,
   moveQueued,
+  goalCheckIds,
+  parentCandidates,
+  parentGoals,
+  requireCandidates,
+  requiredRows,
   paletteEntries,
   parseHubPath,
   parseTags,
@@ -51,7 +57,13 @@ import type { RunRecord, ViewportStatus } from "@ue-mcp-studio/shared";
 const goal = (id: string, over: Partial<Goal> = {}): Goal => ({
   schema: 1, id, kind: "goal", title: id, acceptance: DEFAULT_ACCEPTANCE, checks: [], createdAt: "", updatedAt: "", ...over,
 });
-const gs = (id: string, status: GoalState["status"], over: Partial<Goal> = {}): GoalState => ({ goal: goal(id, over), status, checks: [], progress: { met: 0, total: 0 }, children: [] });
+const gs = (id: string, status: GoalState["status"], over: Partial<Goal> = {}, parents: string[] = []): GoalState => ({
+  goal: goal(id, over), status, checks: [], progress: { met: 0, total: 0 }, parents,
+  requires: (over.requires ?? []).map((r) => ({ goal: r.goal, required: r.required !== false, status: null })),
+});
+/** Goal states with parents worked out from their requires, as the agent does. */
+const graph = (...states: GoalState[]): GoalState[] =>
+  states.map((s) => ({ ...s, parents: states.filter((p) => !p.goal.archived && (p.goal.requires ?? []).some((r) => r.goal === s.goal.id)).map((p) => p.goal.id) }));
 const check = (name: string, health: CheckState["health"], over: Partial<CheckState> = {}): CheckState => ({
   id: `script:/Game/T/${name}`, check: { kind: "script", target: `/Game/T/${name}` }, name, goalIds: [], health, last: null, recent: [], passRate: null, ...over,
 });
@@ -105,18 +117,45 @@ describe("the status ladder", () => {
 });
 
 describe("overview models", () => {
-  it("groups goals under milestones by due date, loose goals last, archived left out", () => {
-    const groups = milestoneGroups([
-      gs("m2", "met", { kind: "milestone", due: "2026-12-01" }),
-      gs("m1", "failing", { kind: "milestone", due: "2026-11-01" }),
-      gs("g1", "met", { parent: "m1" }),
-      gs("g2", "failing", { parent: "m1" }),
-      gs("g3", "met", { parent: "gone" }),
+  it("groups goals under milestones by due date in each milestone's order, a shared goal under both, other goals last", () => {
+    const all = graph(
+      gs("m2", "met", { kind: "milestone", due: "2026-12-01", requires: [{ goal: "shared" }] }),
+      gs("m1", "failing", { kind: "milestone", due: "2026-11-01", requires: [{ goal: "g1" }, { goal: "shared" }, { goal: "gone" }] }),
+      gs("g1", "met", { requires: [{ goal: "deep" }] }),
+      gs("shared", "failing"),
+      gs("deep", "met"),
+      gs("g3", "met"),
       gs("g4", "met", { archived: true }),
-    ]);
+    );
+    const groups = milestoneGroups(all);
     expect(groups.map((g) => g.milestone?.goal.id ?? null)).toEqual(["m1", "m2", null]);
-    expect(groups[0].goals.map((g) => g.goal.id)).toEqual(["g2", "g1"]);
+    expect(groups[0].goals.map((g) => g.goal.id)).toEqual(["g1", "shared"]);
+    expect(groups[1].goals.map((g) => g.goal.id)).toEqual(["shared"]);
+    // The same row, not a copy.
+    expect(groups[1].goals[0]).toBe(groups[0].goals[1]);
+    // A goal only another goal requires shows on that goal's screen.
     expect(groups[2].goals.map((g) => g.goal.id)).toEqual(["g3"]);
+  });
+
+  it("lists a goal's parents, required goals and deep checks, and what can be added without a loop", () => {
+    const door = { kind: "script" as const, target: "/Game/T/Door" };
+    const jump = { kind: "script" as const, target: "/Game/T/Jump" };
+    const all = graph(
+      gs("m", "met", { kind: "milestone", requires: [{ goal: "a" }, { goal: "b", required: false }] }),
+      gs("n", "met", { kind: "goal", requires: [{ goal: "a" }] }),
+      gs("a", "met", { checks: [jump, door], requires: [{ goal: "b" }] }),
+      gs("b", "met", { checks: [door] }),
+      gs("c", "met"),
+    );
+    const a = all.find((g) => g.goal.id === "a")!;
+    expect(parentGoals(a, all).map((g) => g.goal.id)).toEqual(["m", "n"]);
+    expect(requiredRows(all[0], all).map((r) => [r.state.goal.id, r.required])).toEqual([["a", true], ["b", false]]);
+    expect(goalCheckIds("m", all)).toEqual(["script:/Game/T/Door", "script:/Game/T/Jump"]);
+    expect(requireCandidates("a", all).map((g) => g.goal.id).sort()).toEqual(["c"]);
+    expect(parentCandidates("a", all).map((g) => g.goal.id)).toEqual(["m", "c", "n"]);
+    expect(parentCandidates(null, all)).toHaveLength(5);
+    expect(moveId(["x", "y", "z"], "z", -1)).toEqual(["x", "z", "y"]);
+    expect(moveId(["x", "y"], "x", -1)).toEqual(["x", "y"]);
   });
 
   it("says how many goals are in each status, milestones aside", () => {
@@ -175,11 +214,15 @@ describe("the goal form", () => {
     expect(Object.keys(e).sort()).toEqual(["due", "stableRuns", "staleAfterDays", "tags", "title"]);
   });
 
-  it("refuses a milestone inside a milestone and a parent that is not one", () => {
-    const goals = [gs("m", "met", { kind: "milestone" }), gs("g", "met")];
-    expect(goalFormErrors({ ...goalFormOf(), title: "x", kind: "milestone", parent: "m" }, { goals }).parent).toBeTruthy();
-    expect(goalFormErrors({ ...goalFormOf(), title: "x", parent: "g" }, { goals }).parent).toBe("Pick a milestone.");
-    expect(goalFormErrors({ ...goalFormOf(), title: "x", parent: "m" }, { goals })).toEqual({});
+  it("takes any goals as parents, but not itself, an unknown one, or one it requires", () => {
+    const goals = graph(gs("m", "met", { kind: "milestone" }), gs("g", "met"), gs("self", "met", { requires: [{ goal: "g" }] }));
+    expect(goalFormErrors({ ...goalFormOf(), title: "x", parents: ["m", "g"] }, { goals })).toEqual({});
+    expect(goalFormErrors({ ...goalFormOf(), title: "x", kind: "milestone", parents: ["m"] }, { goals })).toEqual({});
+    expect(goalFormErrors({ ...goalFormOf(), title: "x", parents: ["self"] }, { goals, selfId: "self" }).parents).toBe("A goal cannot be part of itself.");
+    expect(goalFormErrors({ ...goalFormOf(), title: "x", parents: ["gone"] }, { goals }).parents).toBe("Pick goals from the list.");
+    expect(goalFormErrors({ ...goalFormOf(), title: "x", parents: ["g"] }, { goals, selfId: "self" }).parents).toContain("already requires g");
+    expect(goalFormOf(goals[1].goal, ["m"]).parents).toEqual(["m"]);
+    expect(goalDraftOf({ ...goalFormOf(), title: "x", parents: ["m"] }).parents).toEqual(["m"]);
   });
 
   it("makes a draft from what was typed", () => {
@@ -267,7 +310,19 @@ describe("the hub API", () => {
     await api.runs({ check: "script:/Game/A", before: "r1" });
     await api.movePlan("p1", 2);
     await api.verdict("r 1", 3, "fail", "fell through");
-    expect(calls).toEqual([
+    await api.addRequire("m", "a b");
+    await api.addRequire("m", "a", false);
+    await api.removeRequire("m", "a b");
+    await api.orderRequires("m", ["a", "b"]);
+    await api.orderChecks("g", ["script:/Game/B", "script:/Game/A"]);
+    expect(calls.slice(6)).toEqual([
+      ["POST", "/v1/ext/studio/hub/goals/m/requires", { goal: "a b" }],
+      ["POST", "/v1/ext/studio/hub/goals/m/requires", { goal: "a", required: false }],
+      ["DELETE", "/v1/ext/studio/hub/goals/m/requires/a%20b", undefined],
+      ["PUT", "/v1/ext/studio/hub/goals/m/requires", { order: ["a", "b"] }],
+      ["PUT", "/v1/ext/studio/hub/goals/g/checks/order", { order: ["script:/Game/B", "script:/Game/A"] }],
+    ]);
+    expect(calls.slice(0, 6)).toEqual([
       ["GET", "/v1/ext/studio/hub", undefined],
       ["DELETE", "/v1/ext/studio/hub/goals/tut/checks/script%3A%2FGame%2FA", undefined],
       ["GET", "/v1/ext/studio/hub/checks/script%3A%2FGame%2FA?limit=30", undefined],

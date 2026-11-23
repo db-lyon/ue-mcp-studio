@@ -27,7 +27,7 @@ const ISSUE = "https://git.example.com/ember/hollow/issues/42";
 const stateOf = (id: string): GoalState => {
   const goal = goals.get(id);
   if (!goal) throw notFound(`no goal ${id}`);
-  return { goal, status: "not_started", progress: { met: 0, total: goal.checks.length }, children: [], checks: goal.checks.map((c) => ({ id: `${c.kind}:${c.target}`, check: c, name: c.target.split("/").pop()!, goalIds: [id], health: "never_run", last: null, recent: [], passRate: null })) };
+  return { goal, status: "not_started", progress: { met: 0, total: goal.checks.length }, parents: goals.parentsOfGoal(id).map((p) => p.id), requires: (goal.requires ?? []).map((r) => ({ goal: r.goal, required: r.required !== false, status: "not_started" as const })), checks: goal.checks.map((c) => ({ id: `${c.kind}:${c.target}`, check: c, name: c.target.split("/").pop()!, goalIds: [id], health: "never_run", last: null, recent: [], passRate: null })) };
 };
 
 beforeEach(() => {
@@ -102,6 +102,25 @@ describe("hub tools", () => {
     expect(JSON.parse(r.text)).toEqual({ runId: "run_1", links: [{ url: ISSUE, rel: "filed-from-run" }] });
     expect((await run("hub_add_link", { run_id: "run_1", goal_id: "a", url: ISSUE })).isError).toBe(true);
     expect((await run("hub_add_link", { url: ISSUE })).text).toContain("say what to link");
+  });
+
+  it("require and unrequire a goal, writing only the requiring goal's file, refusing a loop", async () => {
+    goals.create({ title: "Alpha", kind: "milestone" });
+    goals.create({ title: "Beta", kind: "milestone" });
+    goals.create({ title: "Door" });
+    expect(approvalKind("hub_require_goal", { goal_id: "alpha", requires: "door" }, NO_EFFECTS)).toBe("files");
+    const p = hubPreview(hub, "hub_require_goal", { goal_id: "alpha", requires: "door" })!;
+    expect(p).toMatchObject({ tool: "edit_file", path: path.join(root, "QA", "Goals", "alpha.json") });
+    expect(goals.get("alpha")?.requires).toBeUndefined();
+    expect((await run("hub_require_goal", { goal_id: "alpha", requires: "door" })).isError).toBe(false);
+    expect((await run("hub_require_goal", { goal_id: "beta", requires: "door", required: false })).isError).toBe(false);
+    expect(goals.get("beta")?.requires).toEqual([{ goal: "door", required: false }]);
+    const read = JSON.parse((await run("hub_read_goal", { id: "door" })).text);
+    expect(read.partOf).toEqual(["alpha", "beta"]);
+    expect((await run("hub_require_goal", { goal_id: "door", requires: "alpha" })).text).toContain("loop: door > alpha > door");
+    expect((await run("hub_unrequire_goal", { goal_id: "alpha", requires: "door" })).isError).toBe(false);
+    expect(goals.get("alpha")?.requires).toBeUndefined();
+    expect(validateInput("hub_require_goal", { goal_id: "a" })).toContain("needs goal_id and requires");
   });
 
   it("goal changes ask as file changes, inside the project, with the goal file's diff; a run's links do not ask", () => {

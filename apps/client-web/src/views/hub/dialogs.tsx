@@ -17,13 +17,15 @@ import {
   goalFormErrors,
   goalFormOf,
   goalUpdateOf,
+  parentCandidates,
+  requireCandidates,
   shortAgo,
   sortGoals,
   type GoalForm,
 } from "@ue-mcp-studio/client-core";
 import { api } from "../../api";
-import { useHub } from "./state";
-import { HubField, StatusMark } from "./parts";
+import { useHub, type GoalPreset } from "./state";
+import { HubField, HubIcon, StatusMark } from "./parts";
 import { HubLinkRows } from "./links";
 
 function Dialog({ label, onClose, className = "", children }: { label: string; onClose: () => void; className?: string; children: ReactNode }) {
@@ -47,17 +49,21 @@ function Dialog({ label, onClose, className = "", children }: { label: string; o
 }
 
 /** New goal, or Edit goal: title first, everything else optional. */
-export function GoalDialog({ goalId, preset, onClose }: { goalId: string | null; preset?: { parent?: string; kind?: "goal" | "milestone" }; onClose: () => void }) {
+export function GoalDialog({ goalId, preset, onClose }: { goalId: string | null; preset?: GoalPreset; onClose: () => void }) {
   const hub = useHub();
-  const existing = goalId ? hub.o.goals.find((g) => g.goal.id === goalId)?.goal ?? null : null;
-  const [f, setF] = useState<GoalForm>(() => ({ ...goalFormOf(existing), ...(existing ? {} : { parent: preset?.parent ?? "", kind: preset?.kind ?? "goal" }) }));
+  const state = goalId ? hub.o.goals.find((g) => g.goal.id === goalId) ?? null : null;
+  const existing = state?.goal ?? null;
+  const [f, setF] = useState<GoalForm>(() => ({ ...goalFormOf(existing, state?.parents ?? []), ...(existing ? {} : { parents: preset?.parents ?? [], kind: preset?.kind ?? "goal" }) }));
   const [tried, setTried] = useState(false);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const errors = goalFormErrors(f, { selfId: goalId ?? undefined, goals: hub.o.goals });
   // Errors show once Save was tried; a title past the limit says so as it is typed.
   const shown: typeof errors = tried ? errors : f.title.trim().length > GOAL_TITLE_MAX ? { title: errors.title } : {};
-  const milestones = useMemo(() => sortGoals(hub.o.goals.filter((g) => g.goal.kind === "milestone" && g.goal.id !== goalId && !g.goal.archived)), [hub.o.goals]);
+  const candidates = useMemo(() => parentCandidates(goalId, hub.o.goals), [hub.o.goals, goalId]);
+  const [partQ, setPartQ] = useState("");
+  const shownParents = partQ.trim() ? candidates.filter((g) => f.parents.includes(g.goal.id) || fuzzyScore(partQ, g.goal.title) !== null) : candidates;
+  const toggleParent = (id: string) => setF((x) => ({ ...x, parents: x.parents.includes(id) ? x.parents.filter((p) => p !== id) : [...x.parents, id] }));
   const set = <K extends keyof GoalForm>(k: K, v: GoalForm[K]) => setF((x) => ({ ...x, [k]: v }));
 
   const save = async () => {
@@ -107,17 +113,23 @@ export function GoalDialog({ goalId, preset, onClose }: { goalId: string | null;
               ))}
             </div>
           </div>
-          {f.kind === "goal" && milestones.length > 0 && (
-            <HubField id="hub-goal-parent" label="Milestone" error={shown.parent}>
-              {(a) => (
-                <select {...a} value={f.parent} onChange={(e) => set("parent", e.target.value)}>
-                  <option value="">None</option>
-                  {milestones.map((m) => <option key={m.goal.id} value={m.goal.id}>{m.goal.title}</option>)}
-                </select>
-              )}
-            </HubField>
-          )}
         </div>
+        {candidates.length > 0 && (
+          <fieldset className="hub-fieldset hub-part-of-field" aria-describedby={shown.parents ? "hub-goal-parents-error" : undefined}>
+            <legend>{HUB_COPY.partOf}</legend>
+            {candidates.length > 6 && <input value={partQ} onChange={(e) => setPartQ(e.target.value)} placeholder="Filter goals" aria-label="Filter goals to be part of" />}
+            <div className="hub-picker-list">
+              {shownParents.map((g) => (
+                <label key={g.goal.id} className="hub-picker-row">
+                  <input type="checkbox" checked={f.parents.includes(g.goal.id)} onChange={() => toggleParent(g.goal.id)} />
+                  {g.goal.kind === "milestone" ? <HubIcon name="milestone" size={12} /> : <StatusMark look={GOAL_STATUS_LOOK[g.status]} />}
+                  <span className="hub-row-title">{g.goal.title}</span>
+                </label>
+              ))}
+            </div>
+            {shown.parents && <span id="hub-goal-parents-error" className="hub-error">{shown.parents}</span>}
+          </fieldset>
+        )}
         <div className="hub-field-row">
           <HubField id="hub-goal-owner" label="Owner">
             {(a) => <input {...a} value={f.owner} onChange={(e) => set("owner", e.target.value)} placeholder="Nobody" />}
@@ -259,6 +271,61 @@ export function GoalPicker({ checkIds, onClose }: { checkIds: string[]; onClose:
       </div>
       <div className="hub-form-actions">
         <button className="ghost" onClick={() => { onClose(); hub.editGoal(null); }}>{HUB_COPY.newGoal}</button>
+        <span className="spacer" />
+        <button className="ghost" onClick={onClose}>Cancel</button>
+      </div>
+    </Dialog>
+  );
+}
+
+/**
+ * Add goal: an existing goal for this one to require, added at the end of
+ * its list. Goals that would make a loop are not offered.
+ */
+export function RequirePicker({ goalId, onClose }: { goalId: string; onClose: () => void }) {
+  const hub = useHub();
+  const g = hub.o.goals.find((x) => x.goal.id === goalId);
+  const [q, setQ] = useState("");
+  const [at, setAt] = useState(0);
+  const options = useMemo(() => requireCandidates(goalId, hub.o.goals), [goalId, hub.o.goals]);
+  const shown = q.trim() ? options.filter((x) => fuzzyScore(q, x.goal.title) !== null) : options;
+  const busy = useRef(false);
+  if (!g) return null;
+  const pick = async (id: string) => {
+    if (busy.current) return;
+    busy.current = true;
+    const title = options.find((x) => x.goal.id === id)?.goal.title ?? id;
+    try {
+      await api.hub.addRequire(goalId, id);
+      hub.notify(`${g.goal.title} now requires ${title}`);
+      hub.data.reload();
+      onClose();
+    } catch (e) {
+      hub.notify((e as Error).message, "bad");
+      busy.current = false;
+    }
+  };
+  return (
+    <Dialog label={`${HUB_COPY.addGoal} to ${g.goal.title}`} onClose={onClose} className="hub-picker">
+      <div className="overlay-head">{HUB_COPY.addGoal}<span className="dim small">to {g.goal.title}</span></div>
+      <input autoFocus value={q} onChange={(e) => { setQ(e.target.value); setAt(0); }} placeholder="Filter goals" aria-label="Filter goals"
+        onKeyDown={(e) => {
+          if (e.key === "ArrowDown") { e.preventDefault(); setAt((i) => Math.min(shown.length - 1, i + 1)); }
+          else if (e.key === "ArrowUp") { e.preventDefault(); setAt((i) => Math.max(0, i - 1)); }
+          else if (e.key === "Enter" && shown[at]) { e.preventDefault(); void pick(shown[at].goal.id); }
+        }} />
+      <div className="hub-picker-list" role="listbox" aria-label={HUB_COPY.goals}>
+        {options.length === 0 && <p className="dim small">No other goal can be added here.</p>}
+        {shown.map((x, i) => (
+          <button key={x.goal.id} role="option" aria-selected={i === at} className={`hub-picker-row ghost ${i === at ? "on" : ""}`} onClick={() => void pick(x.goal.id)}>
+            {x.goal.kind === "milestone" ? <HubIcon name="milestone" size={12} /> : <StatusMark look={GOAL_STATUS_LOOK[x.status]} />}
+            <span className="hub-row-title">{x.goal.title}</span>
+            <span className="small dim">{GOAL_STATUS_LOOK[x.status].label}</span>
+          </button>
+        ))}
+      </div>
+      <div className="hub-form-actions">
+        <button className="ghost" onClick={() => { onClose(); hub.editGoal(null, { parents: [goalId] }); }}>{HUB_COPY.newGoalHere}</button>
         <span className="spacer" />
         <button className="ghost" onClick={onClose}>Cancel</button>
       </div>

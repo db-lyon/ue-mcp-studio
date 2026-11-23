@@ -165,16 +165,27 @@ export interface SignOff {
   note?: string;
 }
 
+/**
+ * One goal another goal requires, in the requiring goal's file. A goal may be
+ * required by any number of goals and milestones; the edge lives only in the
+ * file of the goal that requires, so adding a goal to a milestone edits only
+ * the milestone's file.
+ */
+export interface GoalRequirement {
+  goal: string;
+  /** False: the requiring goal is met without this one. True when absent. */
+  required?: boolean;
+}
+
 /** One goal file. Ids are slugs and name the file: QA/Goals/<id>.json. */
 export interface Goal {
   schema: typeof HUB_SCHEMA;
   id: string;
+  /** A milestone is a goal with a label: any goal may require goals, milestones usually do. */
   kind: GoalKind;
   title: string;
   /** What "done" means, in the team's words. Markdown. */
   description?: string;
-  /** The milestone this goal belongs to; milestones have none. One level only. */
-  parent?: string | null;
   owner?: string | null;
   priority?: GoalPriority;
   tags?: string[];
@@ -183,6 +194,8 @@ export interface Goal {
   /** Tracker items this goal refers to: its issue, a design document. */
   links?: TrackerLink[];
   acceptance: AcceptanceRule;
+  /** The goals this one requires, in its own order. A goal is met only when its required goals are. */
+  requires?: GoalRequirement[];
   checks: CheckRef[];
   signOff?: SignOff | null;
   archived?: boolean;
@@ -190,10 +203,19 @@ export interface Goal {
   updatedAt: string;
 }
 
+/**
+ * The goals that require this one, as a draft or update gives them: each
+ * named goal's file gains the requirement, and on an update each goal that
+ * required it and is not named loses it. Never stored in this goal's file.
+ */
+export interface GoalParents {
+  parents?: string[];
+}
+
 /** POST /hub/goals. The agent fills id (from the title, made unique), schema, timestamps and defaults. */
-export type GoalDraft = Pick<Goal, "title"> & Partial<Omit<Goal, "schema" | "createdAt" | "updatedAt">>;
-/** PUT /hub/goals/:id. Given fields change; checks, when given, replace the list. */
-export type GoalUpdate = Partial<Omit<Goal, "schema" | "id" | "createdAt" | "updatedAt">>;
+export type GoalDraft = Pick<Goal, "title"> & Partial<Omit<Goal, "schema" | "createdAt" | "updatedAt">> & GoalParents;
+/** PUT /hub/goals/:id. Given fields change; checks and requires, when given, replace the list. */
+export type GoalUpdate = Partial<Omit<Goal, "schema" | "id" | "createdAt" | "updatedAt">> & GoalParents;
 
 /** A goal id from a title: lowercase words joined by dashes, at most 64 characters. */
 export function goalSlug(title: string): string {
@@ -302,6 +324,16 @@ export interface CheckState {
   steps?: number | null;
   /** The script no longer resolves in the project. */
   missing?: boolean;
+  /** No goal lists this check, so nothing it proves counts anywhere. */
+  unused?: boolean;
+}
+
+/** One goal a goal requires, with that goal's status. */
+export interface RequiredGoalState {
+  goal: string;
+  required: boolean;
+  /** Null for a goal that is not in the project or is archived: it counts for nothing. */
+  status: GoalStatus | null;
 }
 
 export interface GoalState {
@@ -310,8 +342,12 @@ export interface GoalState {
   checks: CheckState[];
   /** Required checks currently satisfying the acceptance rule, out of all required checks. */
   progress: { met: number; total: number };
-  /** For a milestone: its goals' ids. */
-  children: string[];
+  /** The goals and milestones that require this one, archived ones left out, in file order. */
+  parents: string[];
+  /** The goals this one requires, in its order. */
+  requires: RequiredGoalState[];
+  /** Not a milestone, and nothing requires it: it is part of no milestone and no goal. */
+  unused?: boolean;
 }
 
 const FINISHED: readonly RunOutcome[] = ["passed", "failed", "incomplete", "stopped", "error"];
@@ -366,6 +402,7 @@ export function checkStateOf(input: HealthInput & { goalIds: string[]; name?: st
     map: input.map ?? null,
     steps: input.steps ?? null,
     ...(input.missing ? { missing: true } : {}),
+    ...(input.goalIds.length === 0 ? { unused: true } : {}),
   };
 }
 
@@ -375,9 +412,13 @@ export const needsSignOff = (goal: Pick<Goal, "acceptance" | "checks">): boolean
 
 /**
  * A goal's status from its checks (each worked out with the goal's own
- * acceptance rule) and, for a milestone, its goals' statuses.
+ * acceptance rule) and the statuses of the goals it requires. An optional
+ * goal (required: false) never blocks: only a verdict waiting in it, or a
+ * run in it, shows, as an optional check's would.
  */
-export function goalStatus(goal: Goal, checks: Array<{ state: CheckState; runs: RunRecord[] }>, childStatuses: GoalStatus[] = []): { status: GoalStatus; progress: { met: number; total: number } } {
+export function goalStatus(goal: Goal, checks: Array<{ state: CheckState; runs: RunRecord[] }>, childStatuses: GoalStatus[] = [], optionalStatuses: GoalStatus[] = []): { status: GoalStatus; progress: { met: number; total: number } } {
+  const optNeeds = optionalStatuses.includes("needs_you");
+  const optRunning = optionalStatuses.includes("running");
   const required = checks.filter((c) => c.state.check.required !== false);
   const met = required.filter((c) => c.state.check.kind !== "manual" && checkSatisfied(c.runs, goal.acceptance)).length;
   const manualRequired = required.filter((c) => c.state.check.kind === "manual").length;
@@ -386,9 +427,9 @@ export function goalStatus(goal: Goal, checks: Array<{ state: CheckState; runs: 
   const progress = { met: metAll, total: required.length };
   const hs = checks.map((c) => c.state.health);
   const reqHs = required.map((c) => c.state.health);
-  if (hs.includes("needs_you") || childStatuses.includes("needs_you")) return { status: "needs_you", progress };
+  if (hs.includes("needs_you") || childStatuses.includes("needs_you") || optNeeds) return { status: "needs_you", progress };
   if (reqHs.includes("failing") || reqHs.includes("missing") || childStatuses.includes("failing")) return { status: "failing", progress };
-  if (hs.includes("running") || childStatuses.includes("running")) return { status: "running", progress };
+  if (hs.includes("running") || childStatuses.includes("running") || optRunning) return { status: "running", progress };
   if (required.length === 0 && childStatuses.length === 0) return { status: "not_started", progress };
   const everyChildMet = childStatuses.every((s): boolean => s === "met");
   const allMet = metAll === required.length && everyChildMet && (!goal.acceptance.signOff || !!goal.signOff);
@@ -401,6 +442,158 @@ export function goalStatus(goal: Goal, checks: Array<{ state: CheckState; runs: 
   if (reqHs.every((h) => h === "never_run") && childStatuses.every((s) => s === "not_started")) return { status: "not_started", progress };
   // Some evidence, not all of it passing yet (a check never run, or too few stable runs).
   return { status: "at_risk", progress };
+}
+
+// ---------- The relationship graph ----------
+
+type GraphGoal = Pick<Goal, "id" | "requires">;
+
+/** The goals a goal requires, in its order. */
+export const requiresOf = (g: Pick<Goal, "requires">): GoalRequirement[] => g.requires ?? [];
+
+/** Each goal's parents: the goals that require it, archived ones left out, in the order the goals are given. */
+export function goalParents(goals: readonly Pick<Goal, "id" | "requires" | "archived">[]): Map<string, string[]> {
+  const out = new Map<string, string[]>();
+  for (const g of goals) {
+    if (g.archived) continue;
+    for (const r of requiresOf(g)) {
+      const list = out.get(r.goal) ?? [];
+      if (!list.includes(g.id)) list.push(g.id);
+      out.set(r.goal, list);
+    }
+  }
+  return out;
+}
+
+/**
+ * Loops of goals that require each other, each as a path that starts and
+ * ends on the same goal (["a", "b", "a"]), and the edges ("from>to") that
+ * close them. Found depth first from the goals in id order, so the same goals
+ * always give the same answer; without those edges the goals form no loop.
+ */
+export function goalLoops(goals: readonly GraphGoal[]): { cycles: string[][]; edges: Set<string> } {
+  const byId = new Map(goals.map((g) => [g.id, g]));
+  const state = new Map<string, 1 | 2>();
+  const stack: string[] = [];
+  const cycles: string[][] = [];
+  const edges = new Set<string>();
+  const visit = (id: string): void => {
+    state.set(id, 1);
+    stack.push(id);
+    for (const r of requiresOf(byId.get(id)!)) {
+      if (!byId.has(r.goal)) continue;
+      const s = state.get(r.goal);
+      if (s === 1) {
+        cycles.push([...stack.slice(stack.indexOf(r.goal)), r.goal]);
+        edges.add(`${id}>${r.goal}`);
+      } else if (s === undefined) {
+        visit(r.goal);
+      }
+    }
+    stack.pop();
+    state.set(id, 2);
+  };
+  for (const id of [...byId.keys()].sort()) if (!state.has(id)) visit(id);
+  return { cycles, edges };
+}
+
+/** A path of requirements from one goal to another ([from, ..., to]), or null when there is none. */
+export function requirePath(goals: readonly GraphGoal[], from: string, to: string): string[] | null {
+  const byId = new Map(goals.map((g) => [g.id, g]));
+  const seen = new Set<string>();
+  const walk = (id: string, path: string[]): string[] | null => {
+    if (id === to) return path;
+    if (seen.has(id)) return null;
+    seen.add(id);
+    const g = byId.get(id);
+    for (const r of g ? requiresOf(g) : []) {
+      const found = walk(r.goal, [...path, r.goal]);
+      if (found) return found;
+    }
+    return null;
+  };
+  return walk(from, [from]);
+}
+
+/** The loop `parent` requiring `child` would close ([parent, child, ..., parent]), or null when it closes none. */
+export function loopIfRequired(goals: readonly GraphGoal[], parent: string, child: string): string[] | null {
+  if (parent === child) return [parent, parent];
+  const back = requirePath(goals, child, parent);
+  return back ? [parent, ...back] : null;
+}
+
+/**
+ * The goals a goal stands for, itself last: every goal reachable through
+ * its requirements, depth first in each goal's order, each once. Archived
+ * and unknown goals are left out, and a loop is followed only once.
+ */
+export function goalTree(goals: readonly Pick<Goal, "id" | "requires" | "archived">[], id: string): string[] {
+  const byId = new Map(goals.map((g) => [g.id, g]));
+  const out: string[] = [];
+  const seen = new Set<string>();
+  const visit = (gid: string): void => {
+    const g = byId.get(gid);
+    if (!g || seen.has(gid) || (g.archived && gid !== id)) return;
+    seen.add(gid);
+    for (const r of requiresOf(g)) visit(r.goal);
+    out.push(gid);
+  };
+  visit(id);
+  return out;
+}
+
+/**
+ * The checks running a goal runs: those of every goal it requires, depth
+ * first in order, then its own, each check once, in that order.
+ */
+export function goalChecksDeep(goals: readonly Pick<Goal, "id" | "requires" | "archived" | "checks">[], id: string): CheckRef[] {
+  const byId = new Map(goals.map((g) => [g.id, g]));
+  const seen = new Set<string>();
+  const out: CheckRef[] = [];
+  for (const gid of goalTree(goals, id)) {
+    for (const c of byId.get(gid)!.checks) {
+      const cid = checkId(c);
+      if (seen.has(cid)) continue;
+      seen.add(cid);
+      out.push(c);
+    }
+  }
+  return out;
+}
+
+/**
+ * Every goal's state: its own checks' status rolled up through the goals it
+ * requires, each worked out once. An edge that closes a loop is left out of
+ * the roll-up (goalLoops says which), so status never goes round forever;
+ * archived and unknown goals count for nothing.
+ */
+export function rollUpGoals(goals: readonly Goal[], checksOf: (g: Goal) => Array<{ state: CheckState; runs: RunRecord[] }>): GoalState[] {
+  const byId = new Map(goals.map((g) => [g.id, g]));
+  const { edges } = goalLoops(goals);
+  const parents = goalParents(goals);
+  const done = new Map<string, GoalState>();
+  const one = (g: Goal): GoalState => {
+    const had = done.get(g.id);
+    if (had) return had;
+    const kids = requiresOf(g)
+      .map((r) => ({ r, child: byId.get(r.goal) }))
+      .filter((x): x is { r: GoalRequirement; child: Goal } => !!x.child && !x.child.archived && !edges.has(`${g.id}>${x.r.goal}`))
+      .map((x) => ({ required: x.r.required !== false, status: one(x.child).status }));
+    const checks = checksOf(g);
+    const { status, progress } = goalStatus(g, checks, kids.filter((k) => k.required).map((k) => k.status), kids.filter((k) => !k.required).map((k) => k.status));
+    const ps = parents.get(g.id) ?? [];
+    const state: GoalState = { goal: g, status, checks: checks.map((c) => c.state), progress, parents: ps, requires: [], ...(g.kind !== "milestone" && !g.archived && ps.length === 0 ? { unused: true } : {}) };
+    done.set(g.id, state);
+    return state;
+  };
+  const all = goals.map(one);
+  for (const s of all) {
+    s.requires = requiresOf(s.goal).map((r) => {
+      const c = done.get(r.goal);
+      return { goal: r.goal, required: r.required !== false, status: c && !c.goal.archived ? c.status : null };
+    });
+  }
+  return all;
 }
 
 export const leafName = (path: string): string => {
@@ -561,6 +754,10 @@ export const HUB_ROUTES = {
   addChecks: "POST /hub/goals/:id/checks { checks: CheckRef[] } -> { goal }",
   removeCheck: "DELETE /hub/goals/:id/checks/:checkId -> { goal }",
   updateCheck: "PUT /hub/goals/:id/checks/:checkId CheckUpdate -> { goal }",
+  orderChecks: "PUT /hub/goals/:id/checks/order { order: checkIds } -> { goal }",
+  addRequire: "POST /hub/goals/:id/requires { goal, required? } -> { goal } (an existing entry takes the new required)",
+  removeRequire: "DELETE /hub/goals/:id/requires/:goalId -> { goal }",
+  orderRequires: "PUT /hub/goals/:id/requires { order: goalIds } -> { goal }",
   signOff: "POST /hub/goals/:id/sign-off { note? } -> { goal }",
   clearSignOff: "DELETE /hub/goals/:id/sign-off -> { goal }",
   writePlaytests: "POST /hub/goals/:id/write-playtests { text? } -> 202 { sessionId }",

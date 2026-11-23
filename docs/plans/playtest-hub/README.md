@@ -198,6 +198,11 @@ Made 2026-11-23. The user handed the design over in full: decide, build, deliver
      - While one of the screen's checks runs, the collapsed card says "Running now".
      - Placement: a side column on wide Goal, Check and Inbox screens, above the content when narrow; on the Run screen a line above the steps, large beside them once expanded, with the current step overlaid. Whether the cards are expanded is the hub's, so moving between screens keeps watching on the one connection.
      - The overview's queue thumbnail is gone: the queue card already names what runs, and its Viewport button opens the full viewer. Row Viewport buttons (goal check rows, queue items, the playing verdict) stay; the header buttons on Run and Check, which the card replaces, are gone.
+   - **Final (user, 2026-11-23): "see the viewport when a test is running, without moving away from the current screen".**
+     - A Live button in the top bar, left of Feedback, shown only while Play In Editor runs (any source), on every tab and on the phone. It opens the viewer in a modal over the current screen.
+     - The Run screen keeps its large viewer with the step overlay.
+     - **Remote clients only** (user, same day): a paired browser and the phone. The host Studio shows no viewport anywhere (no Live button, no card button, no Run screen viewer), since the person at the host is looking at the editor itself.
+     - The per-screen inline cards and the hub's row Viewport buttons are removed. Their on-and-off flicker between runs, tied to "this screen's check runs", felt broken.
    - **The Viewport tab and the chat bar's viewport icon are removed** on web and Android, on this branch (the user's call, same day). An explicit **Viewport** button opens the full viewer from the in-chat playtest card, on both clients, and wherever a run is live in the hub. The viewer and the agent's viewport routes stay.
 9. **Issue trackers: PARKED until the viewport work lands; design it deliberately, do not rush.** Corrected by the user: the hub fully owns goals, playtests and everything about them. Trackers are not a boundary of ownership. Goals and playtests (and runs) need **relationships** to their counterparts in remote trackers (Gitea, GitHub, Jira and the like).
    - **The minimum:** they store links to those counterparts.

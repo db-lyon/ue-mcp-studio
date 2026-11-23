@@ -13,7 +13,6 @@ import {
   blankSchedule,
   moveQueued,
   planProgress,
-  playingRuns,
   scheduleErrors,
   scheduleText,
   scopeText,
@@ -24,7 +23,6 @@ import { api } from "../../api";
 import { Switch } from "../settings/controls";
 import { useHub } from "./state";
 import { HubField, HubIcon, HubLink, Progress, ScreenHead, StatusMark } from "./parts";
-import { ViewportButton } from "./live";
 
 export function QueueScreen() {
   const hub = useHub();
@@ -149,7 +147,6 @@ function PlanCard({ plan, onCancel, live = false }: { plan: PlanRun; onCancel?: 
   const { o, go } = useHub();
   const p = planProgress(plan);
   const [open, setOpen] = useState(live);
-  const playing = new Set(playingRuns(o).map((r) => r.runId));
   return (
     <div className={`hub-plan ${live ? "live" : ""}`}>
       <div className="hub-plan-head">
@@ -175,7 +172,6 @@ function PlanCard({ plan, onCancel, live = false }: { plan: PlanRun; onCancel?: 
                 <StatusMark look={look} label={look.label} />
                 {it.runId ? <HubLink href={`#/playtests/runs/${encodeURIComponent(it.runId)}`} onGo={() => go({ screen: "run", runId: it.runId! })}>{it.name}</HubLink> : <span>{it.name}</span>}
                 <span className="small dim">{look.label}{it.reason ? `: ${it.reason}` : ""}</span>
-                {live && it.runId && playing.has(it.runId) && <ViewportButton relevant compact />}
               </li>
             );
           })}

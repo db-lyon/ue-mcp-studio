@@ -8,6 +8,7 @@ import type { CheckState, GoalState } from "@ue-mcp-studio/shared";
 import {
   CHECK_HEALTH_LOOK,
   GOAL_STATUS_LOOK,
+  HUB_COPY,
   PRIORITY_SHORT,
   RUN_OUTCOME_LOOK,
   dueText,
@@ -35,6 +36,7 @@ export function GoalRow({ g, on, onPoint }: { g: GoalState; on?: boolean; onPoin
             {g.goal.owner && <span>{g.goal.owner}</span>}
             {due && <span className={due.overdue ? "hub-overdue" : ""}>{due.text}</span>}
             {(g.goal.tags ?? []).slice(0, 3).map((t) => <span key={t} className="hub-tag">#{t}</span>)}
+            {g.unused && <span className="hub-unused">{HUB_COPY.notInMilestone}</span>}
           </span>
         </span>
         {g.goal.priority && <span className={`hub-prio ${g.goal.priority}`} title={`Priority ${PRIORITY_SHORT[g.goal.priority]}`}>{PRIORITY_SHORT[g.goal.priority]}</span>}
@@ -65,6 +67,7 @@ export function CheckRow({ c, on, lead, actions, showGoals = true, onPoint }: { 
           {c.steps ? <span>{c.steps} steps</span> : null}
           {goals.slice(0, 2).map((g) => <span key={g.goal.id} className="hub-goal-chip"><StatusMark look={GOAL_STATUS_LOOK[g.status]} size={10} />{g.goal.title}</span>)}
           {goals.length > 2 && <span>+{goals.length - 2}</span>}
+          {showGoals && c.unused && <span className="hub-unused">{HUB_COPY.notInGoal}</span>}
         </span>
       </HubLink>
       {c.check.links?.length ? <span className="hub-row-links"><HubLinkChips links={c.check.links} max={1} compact /></span> : null}

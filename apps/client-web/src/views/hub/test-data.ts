@@ -22,18 +22,20 @@ export const menuCheck: CheckState = {
   last: null, recent: [], passRate: null, steps: 2,
 };
 
-const goalState = (goal: Goal, status: GoalState["status"], checks: CheckState[], progress = { met: 0, total: checks.length }): GoalState => ({ goal, status, checks, progress, children: [] });
+const goalState = (goal: Goal, status: GoalState["status"], checks: CheckState[], progress = { met: 0, total: checks.length }, parents: string[] = []): GoalState => ({
+  goal, status, checks, progress, parents, requires: (goal.requires ?? []).map((r) => ({ goal: r.goal, required: r.required !== false, status: null })),
+});
 
 export function hubFixture(): HubOverview {
-  const milestone = goalOf("alpha", "Alpha", { kind: "milestone", due: "2026-12-15" });
-  const movement = goalOf("movement", "Movement feels right", { parent: "alpha", owner: "dana", priority: "p1", checks: [jumpCheck.check, swimCheck.check] });
-  const tutorial = goalOf("tutorial", "Tutorial completes", { parent: "alpha" });
+  const milestone = goalOf("alpha", "Alpha", { kind: "milestone", due: "2026-12-15", requires: [{ goal: "movement" }, { goal: "tutorial" }] });
+  const movement = goalOf("movement", "Movement feels right", { owner: "dana", priority: "p1", checks: [jumpCheck.check, swimCheck.check] });
+  const tutorial = goalOf("tutorial", "Tutorial completes");
   return {
     goalsDir: "QA/Goals",
     goals: [
       goalState(milestone, "failing", [], { met: 0, total: 0 }),
-      goalState(movement, "failing", [jumpCheck, swimCheck], { met: 1, total: 2 }),
-      goalState(tutorial, "not_started", []),
+      goalState(movement, "failing", [jumpCheck, swimCheck], { met: 1, total: 2 }, ["alpha"]),
+      goalState(tutorial, "not_started", [], undefined, ["alpha"]),
     ],
     checks: [jumpCheck, swimCheck, menuCheck],
     inbox: [

@@ -110,6 +110,15 @@ a.hub-row:hover, div.hub-row:hover { background: var(--panel-2); }
 .hub-select-all { margin: 0 0 0 11px; color: var(--muted); }
 .hub-goal-chip { display: inline-flex; align-items: center; gap: 4px; max-width: 220px; padding: 0 8px; border: 1px solid var(--line); border-radius: 999px; font-size: 11.5px; line-height: 1.7; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 a.hub-goal-chip:hover { color: var(--text); border-color: var(--line-strong); }
+/* The relationship graph: what a goal is part of, the goals it requires, and what nothing uses. */
+.hub-part-of { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; margin: -4px 0 10px; }
+.hub-unused { color: var(--dim); font-style: italic; }
+.hub-unused-line { display: inline-block; margin-top: 10px; }
+.hub-required-row { display: flex; align-items: center; gap: 4px; min-width: 0; }
+.hub-required-row > .hub-row { flex: 1; min-width: 0; }
+.hub-required-row.optional .hub-row-title { color: var(--muted); }
+.hub-required-row .hub-row-actions { flex: none; }
+.hub-part-of-field .hub-picker-list { max-height: 180px; overflow: auto; }
 .hub-tag { color: var(--muted); font-size: 12px; margin-right: 6px; }
 
 /* Tracker links */
@@ -394,7 +403,6 @@ a.hub-group-head:hover .hub-group-title { color: var(--accent-hi); }
 .hub-live-notice p { margin: 0; }
 .hub-live-notice-title { display: flex; align-items: center; gap: 8px; font-size: 13px; }
 .hub-live-actions { display: flex; gap: 6px; flex-wrap: wrap; }
-.playhub button.hub-viewport-button .pie-dot { width: 7px; height: 7px; box-shadow: none; }
 
 /* Run screen: the card a line above the steps at rest; expanded, large beside them and kept in view while they scroll, or above them when narrow. */
 .hub-run-stage { display: flex; flex-direction: column; align-items: stretch; gap: 14px; min-width: 0; }
