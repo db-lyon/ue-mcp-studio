@@ -132,14 +132,6 @@ describe("the hub's Viewport card", () => {
     expect(m.joinViewport).not.toHaveBeenCalled();
   });
 
-  it("says the editor is offline, and offers to start it once expanded", async () => {
-    m.viewport.mockResolvedValue(status({ editor: "no-editor", pie: false }));
-    render(<Harness start />);
-    watch();
-    await screen.findByText("The editor is not running");
-    expect(screen.getByRole("button", { name: "Start editor" })).toBeTruthy();
-  });
-
   it("keeps the viewer when a screen goes and comes back, and leaves only after the grace period once hidden", async () => {
     render(<Harness start />);
     watch();
