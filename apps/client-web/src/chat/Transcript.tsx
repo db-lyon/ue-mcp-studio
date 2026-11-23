@@ -38,7 +38,7 @@ import {
   toolTitle,
   LIVE_OUTPUT_LABEL,
   NO_LIVE,
-  THINKING_LABEL,
+  thinkingLabel,
   type Call,
   type LiveParts,
   type ThreadItem,
@@ -400,12 +400,7 @@ export const MainTranscript = memo(function MainTranscript({ transcript, status,
             <pre>{live.output.text}</pre>
           </div>
         )}
-        {live.thinking && (
-          <details className="msg thinking" open>
-            <summary>{THINKING_LABEL}</summary>
-            <div className="thinking-text">{live.thinking}</div>
-          </details>
-        )}
+        {live.thinking && <ThinkingBlock text={live.thinking} since={live.thinkingSince} />}
         {streaming && <div className="msg assistant">{streaming}</div>}
         {asked > 0 && <div className="banner warn" role="status">Waiting on you: {asked === 1 ? "a call needs" : `${asked} calls need`} your approval below.</div>}
         {waiting && <div className="banner warn">Waiting for editor: {waitingCause ?? "not connected"}. The turn continues when it is back.</div>}
@@ -415,6 +410,17 @@ export const MainTranscript = memo(function MainTranscript({ transcript, status,
     </>
   );
 });
+
+/** The model's thinking while it answers, with how long this think has run in its header; its own clock, so the thread does not render every second. */
+function ThinkingBlock({ text, since }: { text: string; since: number | null }) {
+  const now = useNow(true);
+  return (
+    <details className="msg thinking" open>
+      <summary>{thinkingLabel(since, now)}</summary>
+      <div className="thinking-text">{text}</div>
+    </details>
+  );
+}
 
 /** A thread's lines, the main one or a subagent's, keyed by the entry or first call each starts at so a fold keeps its open state while the turn streams. */
 function ThreadItems({ items, transcript, onOpen, onStop }: { items: ThreadItem[]; transcript: TranscriptEntry[]; onOpen?: (id: string) => void; onStop?: (id: string) => void }) {

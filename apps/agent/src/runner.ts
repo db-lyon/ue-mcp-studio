@@ -2616,9 +2616,9 @@ ${result}`);
    * ended, a new reply starts with it. False when the main agent cannot take
    * one now.
    */
-  private async tell(s: StoredSession, text: string, attachments: Array<Attachment & { path: string }>, about?: string): Promise<boolean> {
-    const old = this.legacy.get(s.id);
-    if (!old && !this.mainFreeNow(s)) return false;
+  private async tell(s: StoredSession, text: string, attachments: Array<Attachment & { path: string }>, about?: string, interject = false): Promise<boolean> {
+    const old = interject ? undefined : this.legacy.get(s.id);
+    if (!old && !(interject ? this.interjects(s) : this.mainFreeNow(s))) return false;
     const content: unknown[] = [];
     for (const note of [...s.notes, ...this.aboutNotes(s, about)]) content.push({ type: "text", text: `[Studio] ${note}` });
     for (const a of attachments) content.push(...(await contentFor(a)));
@@ -2630,8 +2630,8 @@ ${result}`);
       s.messages.push({ role: "user", content } as MessageParam);
     } else if (durable) {
       // On the durable runtime its subagents go on in the background and the harness steers the message into the main agent's run.
-      if (this.replying.has(s.id)) this.toBackground(s);
-      if (!(await this.durable!.tell(s, content))) return false;
+      if (this.replying.has(s.id) && !interject) this.toBackground(s);
+      if (!(await this.durable!.tell(s, content, interject))) return false;
       // An earlier Studio's session keeps its copy until its next reply on the runtime empties it.
       if (!s.durable?.only) addUserContent(s.messages, content);
     } else {
@@ -2656,6 +2656,29 @@ ${result}`);
       else this.startReply(s);
     }
     return true;
+  }
+
+  /**
+   * Whether a message reaches the main agent within its running reply: it replies on the durable runtime, whose
+   * harness steers the message in and stops an answer in progress for it. A tool call in progress finishes first.
+   */
+  private interjects(s: StoredSession): boolean {
+    return this.busy(s) && this.replying.has(s.id) && !this.legacy.has(s.id) && !!this.durable?.owns(s) && this.durable.interrupts();
+  }
+
+  /** A message just queued goes into the main agent's running reply instead (interjects); a /command stays queued for the turn's end. */
+  private interjectQueued(s: StoredSession, q: QueuedMessage): void {
+    if (!this.interjects(s) || (!q.attachments.length && parseSlashCommand(q.text))) return;
+    s.queue = (s.queue ?? []).filter((x) => x.id !== q.id);
+    this.o.store.save(s);
+    void this.tell(s, q.text, this.queuedFiles(s, q), q.about, true).then((told) => {
+      if (told) return;
+      // The reply ended meanwhile: the message goes back in the queue, and the next turn sends it.
+      s.queue = [...(s.queue ?? []), q];
+      this.o.store.save(s);
+      this.o.host.events.publish("session.changed", { sessionId: s.id, status: s.status, waitingCause: s.waitingCause });
+      if (!this.busy(s)) void this.sendQueued(s.id);
+    }, (e) => this.o.host.log.warn(`a message in session ${s.id} did not reach the running reply`, e));
   }
 
   /** The first queued message, to a main agent that is free while subagents run. */
@@ -3248,6 +3271,7 @@ ${result}`);
     this.o.host.events.publish("session.changed", { sessionId: s.id, status: s.status, waitingCause: s.waitingCause });
     if (!this.busy(s)) void this.sendQueued(s.id);
     else if (this.mainFree(s.id)) this.tellQueued(s.id);
+    else this.interjectQueued(s, q);
     return q;
   }
 

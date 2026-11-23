@@ -258,8 +258,12 @@ export interface LedgerUsage {
 /** Client to harness. Requests carry an id answered by ret. */
 export type ClientMessage =
   | { t: "hello"; protocol: number; token: string; version: string; role: "daemon" | "observer"; extension?: { version: string; file: string } }
-  /** Run the session's main conversation on `content`: a new run, a steer into the running one, or a follow-up. */
-  | { t: "submit"; id: string; sessionId: string; requestId: string; content: UserContent; agent: AgentSpec; whenBusy: "steer" | "followUp" }
+  /**
+   * Run the session's main conversation on `content`: a new run, a steer into the running one, or a follow-up.
+   * `interrupt`, with a steer: a model answer in progress stops, and the run goes on with the steer, so the model
+   * replies to it now. A tool call in progress finishes first. Only a harness whose hello lists "interrupt" reads it.
+   */
+  | { t: "submit"; id: string; sessionId: string; requestId: string; content: UserContent; agent: AgentSpec; whenBusy: "steer" | "followUp"; interrupt?: boolean }
   /** A migrated session's earlier conversation, written before its first run. */
   | { t: "seed"; id: string; sessionId: string; messages: Array<{ role: "user" | "assistant"; text: string }> }
   | { t: "abort"; id: string; sessionId: string; children: boolean }
