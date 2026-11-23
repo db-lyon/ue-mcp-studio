@@ -55,7 +55,7 @@ function Harness({ start = false, two = false }: { start?: boolean; two?: boolea
       <button onClick={() => setPlaying((p) => !p)}>toggle</button>
       <button onClick={() => setShown((s) => !s)}>screen</button>
       {shown && <Card id="a" running={playing ? RUN : null} />}
-      {two && <Card id="b" running={null} />}
+      {two && <Card id="b" running={playing ? RUN : null} />}
       <ViewportButton relevant={playing} />
     </HubLiveProvider>
   );
@@ -86,12 +86,15 @@ afterEach(() => cleanup());
 const watch = (id = "a") => fireEvent.click(within(screen.getByTestId(id)).getByRole("button", { name: "Watch" }));
 
 describe("the hub's Viewport card", () => {
-  it("is always there, says what Play In Editor does, and never connects on its own", async () => {
+  it("is not on the screen while none of its checks runs, and comes and goes with the run", async () => {
     render(<Harness />);
-    await screen.findByText("Play In Editor is running");
-    expect(screen.getByRole("region", { name: "Viewport" })).toBeTruthy();
-    expect(screen.queryByLabelText("Play In Editor, live")).toBeNull();
+    await act(async () => undefined);
+    expect(screen.queryByRole("region", { name: "Viewport" })).toBeNull();
+    fireEvent.click(screen.getByText("toggle"));
+    await screen.findByRole("region", { name: "Viewport" });
     expect(m.joinViewport).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByText("toggle"));
+    await waitFor(() => expect(screen.queryByRole("region", { name: "Viewport" })).toBeNull());
   });
 
   it("marks the screen's check running now, collapsed, without connecting", async () => {
@@ -112,8 +115,7 @@ describe("the hub's Viewport card", () => {
   it("shows the waiting notice, not a black box, when Play In Editor is not running", async () => {
     m.viewport.mockResolvedValue(status({ pie: false }));
     streamer(false);
-    render(<Harness />);
-    await screen.findByText("Play In Editor is not running");
+    render(<Harness start />);
     watch();
     await screen.findByText("Waiting for Play In Editor");
     expect(screen.queryByLabelText("Play In Editor, live")).toBeNull();
@@ -123,8 +125,7 @@ describe("the hub's Viewport card", () => {
 
   it("explains a gate with its ways forward, and does not join", async () => {
     m.viewport.mockResolvedValue(status({ editor: "plugin-off", pie: false }));
-    render(<Harness />);
-    await screen.findByText("Streaming unavailable: Pixel Streaming 2 is off");
+    render(<Harness start />);
     watch();
     await screen.findByText("Pixel Streaming 2 is off");
     expect(screen.getByRole("button", { name: "Enable Pixel Streaming 2" })).toBeTruthy();
@@ -133,8 +134,7 @@ describe("the hub's Viewport card", () => {
 
   it("says the editor is offline, and offers to start it once expanded", async () => {
     m.viewport.mockResolvedValue(status({ editor: "no-editor", pie: false }));
-    render(<Harness />);
-    await screen.findByText("Editor offline");
+    render(<Harness start />);
     watch();
     await screen.findByText("The editor is not running");
     expect(screen.getByRole("button", { name: "Start editor" })).toBeTruthy();

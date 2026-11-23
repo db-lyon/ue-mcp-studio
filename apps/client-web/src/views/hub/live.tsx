@@ -313,7 +313,8 @@ export function HubViewer({ viewer, overlay, linkRun = true, className = "" }: {
   useEffect(() => {
     if (video.current) video.current.srcObject = (stream as MediaStream | null) ?? null;
   }, [stream]);
-  if (!ctx) return null;
+  // Only while one of the screen's checks runs, or for the moment its last frame shows after: never an idle card.
+  if (!ctx || (!line.run && view !== "ended")) return null;
 
   const run = line.run;
   const route = run ? { screen: "run" as const, runId: run.runId } : null;

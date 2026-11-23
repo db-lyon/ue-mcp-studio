@@ -121,8 +121,6 @@ export function CheckScreen({ checkId }: { checkId: string }) {
         </>}
       />
       {state.missing && <div className="banner bad small">The script no longer resolves in the project. Goals keep it listed until it is removed or relinked.</div>}
-      <div className="hub-split">
-      <div className="hub-split-main">
       <div className="hub-stats">
         <div className="hub-stat"><span className="hub-stat-value">{passRateText(state.passRate)}</span><span className="hub-stat-label">Pass rate</span></div>
         <div className="hub-stat"><span className="hub-stat-value">{flipCount}</span><span className="hub-stat-label">{flipCount === 1 ? "Flip" : "Flips"} in {state.recent.length} runs</span></div>
@@ -144,6 +142,8 @@ export function CheckScreen({ checkId }: { checkId: string }) {
         onRemove={goals.length ? (url) => void saveCheckLinks(links.find((x) => x.link.url === url)?.goalIds ?? [], (had) => withoutLink(had, url)).catch((e: Error) => hub.notify(e.message, "bad")) : undefined}
         note={HUB_LINK_COPY.checkNeedsGoal}
       />
+
+      <HubViewer viewer={viewer} className="hub-viewer-inline" />
 
       {editing && script ? (
         <QaContext.Provider value={live}>
@@ -175,9 +175,6 @@ export function CheckScreen({ checkId }: { checkId: string }) {
         </div>
         {more && <button className="ghost" onClick={loadOlder}>Show older runs</button>}
       </section>
-      </div>
-      <aside className="hub-split-side"><HubViewer viewer={viewer} /></aside>
-      </div>
     </div>
   );
 }

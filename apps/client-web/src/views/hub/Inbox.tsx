@@ -86,8 +86,7 @@ export function InboxScreen() {
         title={<>{HUB_COPY.inbox}{items.length > 0 && <span className="hub-title-count">{items.length}</span>}</>}
         sub={items.length > 0 && !hub.narrow ? <span className="hub-keys-hint"><Kbd>j</Kbd><Kbd>k</Kbd> move <Kbd>p</Kbd> pass <Kbd>f</Kbd> fail <Kbd>s</Kbd> skip <Kbd>Enter</Kbd> open</span> : undefined}
       />
-      <div className="hub-split">
-      <div className="hub-split-main">
+      <HubViewer viewer={viewer} className="hub-viewer-inline" />
       {items.length === 0 ? <Empty title={HUB_COPY.inboxEmpty}>{HUB_COPY.inboxEmptyDetail}</Empty> : (
         <div className="hub-inbox-list" ref={list} role="list" aria-label={HUB_COPY.inbox}>
           {items.map((it, i) => {
@@ -135,9 +134,6 @@ export function InboxScreen() {
           })}
         </div>
       )}
-      </div>
-      <aside className="hub-split-side"><HubViewer viewer={viewer} /></aside>
-      </div>
     </div>
   );
 }
