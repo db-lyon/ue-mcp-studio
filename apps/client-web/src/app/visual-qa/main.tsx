@@ -49,7 +49,8 @@ const fake: AppHost = {
     const p = projects.find((x) => x.uproject === uproject);
     return p ? statusAnswer(p, s.problems?.[p.key] ?? []) : { ok: false, error: "not a listed project" };
   },
-  rebuild: () => never(),
+  rebuild: () => (s.rebuild ? Promise.resolve(s.rebuild) : never()),
+  denyconsent: async () => ({ ok: true }),
   addproject: async () => ({ ok: false, cancelled: true }),
   removeproject: async () => ({ ok: true }),
   readlog: async () => s.log ?? "",

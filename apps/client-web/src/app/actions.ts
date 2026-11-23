@@ -6,7 +6,7 @@
  */
 import { useEffect, useSyncExternalStore } from "react";
 import type { StatusReport } from "ue-mcp/daemon";
-import { beforeLaunch, readRebuild, type ProblemCopy } from "@ue-mcp-studio/client-core";
+import { beforeLaunch, consentAskOf, readRebuild, type ConsentAsk, type ProblemCopy } from "@ue-mcp-studio/client-core";
 import type { Machine } from "./App";
 import { follow, host, type IdeInfo, type JobState } from "./native";
 import { installedKey, updatesOf, type MachineProject } from "./model";
@@ -40,6 +40,8 @@ export interface Work {
   needsFiles?: NeedsFiles;
   /** Launch editor found a problem that makes Unreal ask to rebuild on launch, and waits for Rebuild or Launch anyway. */
   beforeLaunch?: ProblemCopy;
+  /** Rebuild is held by other sessions using the editor, and waits for Rebuild anyway or Cancel. */
+  consent?: ConsentAsk;
 }
 
 /**
@@ -215,10 +217,15 @@ export function projectActions(p: MachineProject, m: Machine, current: Work | nu
       set(r?.ok ? null : { kind: "launch", error: r?.error ?? "The editor did not start." });
       void m.refresh();
     },
-    /** The daemon's rebuild: build the project's C++ for this engine, then open the editor. */
-    rebuild: async () => {
+    /**
+     * The daemon's rebuild: build the project's C++ for this engine, then open
+     * the editor. While other sessions use the editor the daemon holds it (409
+     * with its consent request): the person sees who and why, and `force`
+     * rebuilds anyway.
+     */
+    rebuild: async (force = false) => {
       set({ kind: "rebuild" });
-      const r = await host()?.rebuild?.({ key: p.key, uproject: p.uproject });
+      const r = await host()?.rebuild?.({ key: p.key, uproject: p.uproject, ...(force ? { force: "yes" as const } : {}) });
       let failed = r ? r.error ?? null : "This version of the UE-MCP Launcher cannot rebuild projects. Update it in Settings.";
       if (r?.body) {
         let steps: Record<string, unknown> | null = null;
@@ -227,6 +234,8 @@ export function projectActions(p: MachineProject, m: Machine, current: Work | nu
         } catch {
           steps = null;
         }
+        const held = consentAskOf("rebuild", { status: r.status, body: steps });
+        if (held) return set({ kind: "rebuild", consent: held });
         const outcome = steps ? readRebuild(steps) : null;
         if (outcome && !outcome.ok) {
           failed = outcome.built && outcome.failure?.step === "start"
@@ -251,6 +260,12 @@ export function projectActions(p: MachineProject, m: Machine, current: Work | nu
       if (end?.ok) set(null);
     },
     cancel: () => set(null),
+    /** Cancel a held rebuild: its request is denied, so the sessions it was put to stop waiting on it. */
+    cancelConsent: () => {
+      const id = current?.consent?.request.id;
+      if (id) void host()?.denyconsent?.({ key: p.key, id }).catch(() => undefined);
+      set(null);
+    },
     /**
      * Open in IDE, or with one IDE from Open with... (kept for the project
      * unless `remember` is false). Visual Studio without a solution asks to

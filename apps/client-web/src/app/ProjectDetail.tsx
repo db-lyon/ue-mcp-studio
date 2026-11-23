@@ -19,7 +19,7 @@ export function ProjectDetail({ p, m, onBack }: { p: MachineProject; m: Machine;
   const act = projectActions(p, m, work);
   const u = updatesOf(p, m.newest);
   const hint = nameHint(p, m.report?.projects ?? []);
-  const pending = (k: string) => work?.kind === k && !work.error && !work.done && !work.beforeLaunch;
+  const pending = (k: string) => work?.kind === k && !work.error && !work.done && !work.beforeLaunch && !work.consent;
   const [removing, run] = useBusy();
   const channel = channelLabel(m.newest?.channel ?? "stable");
 

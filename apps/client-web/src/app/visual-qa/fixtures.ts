@@ -4,7 +4,7 @@
  * No ue-mcp, daemon or editor is involved.
  */
 import type { Screen } from "../App";
-import type { AppUpdate, DaemonAnswer, HostState, IdeInfo, JobState, Live, Newest, OpenIde, ReportAnswer, StatusAnswer } from "../native";
+import type { AppUpdate, DaemonAnswer, HostState, IdeInfo, JobState, Live, Newest, OpenIde, RebuildAnswer, ReportAnswer, StatusAnswer } from "../native";
 import type { MachineDaemon, MachineProject, MachineReport } from "../model";
 
 export interface AppScenario {
@@ -32,6 +32,8 @@ export interface AppScenario {
   clicks?: string[];
   /** The install problem codes `ue-mcp status` reports, by project key; a project not named has none. */
   problems?: Record<string, string[]>;
+  /** What Rebuild answers; the default never answers, a rebuild in progress. */
+  rebuild?: RebuildAnswer;
 }
 
 /** A StatusReport carrying these problem codes, as the host's status call answers it. */
@@ -259,6 +261,35 @@ export const APP_SCENARIOS: Record<string, AppScenario> = {
     live: [vale.key, harbor.key],
     problems: { [harbor.key]: ["bridge_engine_mismatch"] },
     clicks: [".app-row:nth-child(2) .app-launch"],
+  },
+  "app-engine-mismatch-rebuild-held": {
+    title: "Rebuild on that project while other sessions use its editor: who holds it and why, with Rebuild anyway and Cancel.",
+    report: report(states, stateDaemons),
+    live: [vale.key, harbor.key],
+    problems: { [harbor.key]: ["bridge_engine_mismatch"] },
+    rebuild: {
+      ok: false,
+      status: 409,
+      error: "Not run yet: request r-5e6f70 to rebuild the editor is waiting on the other sessions using this editor.",
+      body: JSON.stringify({
+        error: "Not run yet.",
+        request: {
+          id: "r-5e6f70",
+          op: "rebuild",
+          action: "POST /v1/editor/rebuild",
+          requester: { id: "http:the user in the UE-MCP Launcher", label: "the user in the UE-MCP Launcher" },
+          state: "pending",
+          createdAt: "2026-11-04T23:24:00Z",
+          expiresAt: "2026-11-04T23:39:00Z",
+          answers: [
+            { session: "mcp-7f2a", label: "Claude Code", answer: "wait_until_released", reason: "busy (blueprint.add_variable)", auto: true },
+            { session: "studio:s-4", label: "Studio: Dress the courtyard", answer: "unanswered", reason: "active 40s ago and has not answered; it counts as go after 180s without a call", auto: true },
+          ],
+          self: { attestationRequired: false, attested: null, inflight: [] },
+        },
+      }),
+    },
+    clicks: [".app-row:nth-child(2) .app-row-work .row button.primary"],
   },
   "app-engine-mismatch-no-compiler": {
     title: "The same problem on a computer without the C++ tools: no Rebuild, and what to install or update instead.",

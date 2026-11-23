@@ -8,6 +8,7 @@ const m = vi.hoisted(() => ({
   contextStrategy: vi.fn(),
   saveContextStrategy: vi.fn(),
   editor: vi.fn(),
+  denyDisruption: vi.fn(async () => ({})) as ReturnType<typeof vi.fn>,
   config: vi.fn(async () => ({ path: "ue-mcp.yml", exists: true, text: "" })),
 }));
 vi.mock("../../api", () => ({ api: m, ApiError: Error }));
@@ -111,7 +112,7 @@ describe("Project > a bridge that needs a rebuild", () => {
     m.install.mockClear();
     m.install.mockResolvedValue(report);
     await confirmRebuild();
-    expect(m.editor.mock.calls).toEqual([["rebuild"]]);
+    expect(m.editor.mock.calls).toEqual([["rebuild", { requester: "the user in Studio" }]]);
     expect(screen.getByRole("status").textContent).toBe("The bridge plugin is rebuilt and the editor is open again.");
     expect(m.install).toHaveBeenCalled();
   });
@@ -130,7 +131,7 @@ describe("Project > a bridge that needs a rebuild", () => {
       })
       .mockResolvedValueOnce({ op: "start", steps: [step("editor.start_editor", true)] });
     await confirmRebuild();
-    expect(m.editor.mock.calls).toEqual([["rebuild"], ["start"]]);
+    expect(m.editor.mock.calls).toEqual([["rebuild", { requester: "the user in Studio" }], ["start"]]);
     const alert = screen.getByRole("alert").textContent ?? "";
     expect(alert).toContain("The build failed. The editor opened again on the previous build.");
     expect(alert).toContain("error C2065: 'Bar': undeclared identifier");
@@ -154,6 +155,70 @@ describe("Project > a bridge that needs a rebuild", () => {
     await confirmRebuild();
     expect(m.editor).toHaveBeenCalledTimes(1);
     expect(screen.getByRole("alert").textContent).toBe("The editor did not close, so nothing was built. Save your work and close any open dialogs in the editor, then try again.");
+  });
+});
+
+/** A daemon's 409 while another session uses the editor (ue-mcp feature "editor.consent"). */
+const held = () => {
+  const e = new Error("Not run yet: request r-1a2b3c to rebuild the editor is waiting on the other sessions using this editor.") as Error & { status: number; body: unknown };
+  e.status = 409;
+  e.body = {
+    error: "Not run yet.",
+    request: {
+      id: "r-1a2b3c",
+      op: "rebuild",
+      action: "POST /v1/editor/rebuild",
+      requester: { id: "http:the user in Studio", label: "the user in Studio" },
+      state: "pending",
+      createdAt: "2026-11-23T10:00:00Z",
+      expiresAt: "2026-11-23T10:15:00Z",
+      answers: [
+        { session: "s1", label: "Claude Code", answer: "wait_until_released", reason: "busy (blueprint.add_variable)", auto: true },
+        { session: "s2", label: "Cursor", answer: "go", reason: "idle for 400s", auto: true },
+        { session: "s3", label: "Studio: Fix the lights", answer: "block", reason: "saving a level", auto: false },
+      ],
+      self: { attestationRequired: false, attested: null, inflight: [] },
+    },
+  };
+  return e;
+};
+
+describe("Project > a rebuild other sessions hold", () => {
+  it("shows who holds it and why, and Rebuild anyway overrides it", async () => {
+    await show(ctx(), stale());
+    m.editor.mockRejectedValueOnce(held()).mockResolvedValueOnce({ op: "rebuild", steps: [step("editor.stop_editor", true), step("project.build", true), step("editor.start_editor", true)] });
+    await confirmRebuild();
+    const ask = screen.getByTestId("editor-consent").textContent ?? "";
+    expect(ask).toContain("Other sessions are using the editor");
+    expect(ask).toContain("Claude Code: Waiting, busy (blueprint.add_variable)");
+    expect(ask).toContain("Studio: Fix the lights: Blocked, saving a level");
+    // A session that agreed is not holding anything.
+    expect(ask).not.toContain("Cursor");
+    await act(async () => void fireEvent.click(screen.getByRole("button", { name: "Rebuild anyway" })));
+    expect(m.editor.mock.calls[1]).toEqual(["rebuild", { requester: "the user in Studio", force: true }]);
+    expect(screen.getByRole("status").textContent).toBe("The bridge plugin is rebuilt and the editor is open again.");
+  });
+
+  it("Cancel denies the request and rebuilds nothing", async () => {
+    await show(ctx(), stale());
+    m.denyDisruption = vi.fn(async () => ({}));
+    m.editor.mockRejectedValueOnce(held());
+    await confirmRebuild();
+    await act(async () => void fireEvent.click(screen.getByRole("button", { name: "Cancel" })));
+    expect(m.denyDisruption).toHaveBeenCalledWith("r-1a2b3c", "the user in Studio");
+    expect(m.editor).toHaveBeenCalledTimes(1);
+    expect(screen.queryByTestId("editor-consent")).toBeNull();
+    expect(screen.getByRole("button", { name: "Rebuild" })).toBeTruthy();
+  });
+
+  it("says a 409 without a request as it always did", async () => {
+    await show(ctx(), stale());
+    const e = new Error("Busy.") as Error & { status: number };
+    e.status = 409;
+    m.editor.mockRejectedValueOnce(e);
+    await confirmRebuild();
+    expect(screen.queryByTestId("editor-consent")).toBeNull();
+    expect(screen.getByRole("alert").textContent).toBe("The rebuild did not run. Busy.");
   });
 });
 

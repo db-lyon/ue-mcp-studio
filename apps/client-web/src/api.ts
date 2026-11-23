@@ -81,7 +81,7 @@ import { FILE_REVEAL_PATH } from "@ue-mcp-studio/shared";
 import type { AgentThreadPage, Notice, NotifyDelivery, NotifyDevice, ProjectNotifyUpdate } from "@ue-mcp-studio/shared";
 import { agentSettingsOf, catalogOf, contextOf, healthOf, installOf, nativeOf, settingsOf } from "./normalize";
 
-import type { CatalogPlugin, InstalledPlugin, PluginCommandResult } from "@ue-mcp-studio/client-core";
+import type { CatalogPlugin, EditorOpBody, InstalledPlugin, PluginCommandResult } from "@ue-mcp-studio/client-core";
 export type { CatalogPlugin, InstalledPlugin, PluginCommandResult } from "@ue-mcp-studio/client-core";
 
 async function pluginCommand(command: "install" | "update" | "uninstall", body: Record<string, string>): Promise<PluginCommandResult> {
@@ -190,7 +190,9 @@ export const api = {
   flows: () => call<{ flows: FlowSummary[] }>("GET", "/v1/flows"),
   planFlow: (name: string) => call<unknown>("GET", `/v1/flows/${encodeURIComponent(name)}/plan`),
   runFlow: (name: string) => call<unknown>("POST", `/v1/flows/${encodeURIComponent(name)}/run`, {}),
-  editor: (op: "start" | "stop" | "restart" | "rebuild") => call<Record<string, unknown>>("POST", `/v1/editor/${op}`),
+  editor: (op: "start" | "stop" | "restart" | "rebuild", body?: EditorOpBody) => call<Record<string, unknown>>("POST", `/v1/editor/${op}`, body),
+  /** A person cancels a held editor operation (feature "editor.consent"). */
+  denyDisruption: (id: string, by: string) => call<unknown>("POST", `/v1/disruptions/${encodeURIComponent(id)}/deny`, { by }),
   settings: () => call<unknown>("GET", "/v1/ext/studio/settings").then(settingsOf),
   saveSettings: (u: StudioSettingsUpdate) => call<unknown>("PUT", "/v1/ext/studio/settings", u).then(settingsOf),
   models: () => call<unknown>("GET", "/v1/ext/studio/models").then(catalogOf),

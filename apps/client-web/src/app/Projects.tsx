@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import type { Machine } from "./App";
 import { host, type IdeInfo } from "./native";
-import { beforeLaunch, type ProblemCopy } from "@ue-mcp-studio/client-core";
+import { beforeLaunch, consentCopy, consentHolders, type ProblemCopy } from "@ue-mcp-studio/client-core";
 import { actionsOf, engineBlocked, filterProjects, ideButton, ideOpens, installedKey, listReadAt, nameHint, running, updatesOf, versionsOf, type MachineProject } from "./model";
 import { JobOutput } from "./NodeCard";
 import { useBusy } from "./busy";
@@ -110,7 +110,7 @@ function ProjectRow({ p, all, m, work, busy, onOpen }: { p: MachineProject; all:
   const hint = nameHint(p, all);
   const engine = engineBlocked(p, m.newest?.pluginEngines);
   const versions = versionsOf(p, m.live, m.report?.ueMcp ?? null);
-  const pending = (k: Work["kind"]) => work?.kind === k && !work.error && !work.done && !work.beforeLaunch;
+  const pending = (k: Work["kind"]) => work?.kind === k && !work.error && !work.done && !work.beforeLaunch && !work.consent;
   const [removing, run] = useBusy();
   const remove = () => void run(() => m.removeProject(p));
 
@@ -218,6 +218,30 @@ export function WorkPanel({ p, work, act }: { p: MachineProject; work: Work | nu
           <button className="ghost" onClick={act.cancel}>Cancel</button>
           <button className={c.action === "rebuild" ? "" : "primary"} onClick={() => void act.launch(true)}>Launch anyway</button>
           {c.action === "rebuild" && <button className="primary" onClick={() => void act.rebuild()}>Rebuild</button>}
+        </div>
+      </div>
+    );
+  }
+  if (work.consent) {
+    const copy = consentCopy(work.consent.op);
+    const holders = consentHolders(work.consent.request);
+    return (
+      <div className="app-row-work" data-testid="editor-consent">
+        <div className="banner warn small" role="alert">
+          <strong>{copy.title}</strong>
+          <p>{copy.lead}</p>
+          {holders.length > 0 && (
+            <ul className="consent-holders">
+              {holders.map((h) => (
+                <li key={h.session}><strong>{h.label}</strong>: {h.state}{h.reason ? <span className="dim">, {h.reason}</span> : null}</li>
+              ))}
+            </ul>
+          )}
+        </div>
+        <div className="row">
+          <span className="spacer" />
+          <button className="ghost" onClick={act.cancelConsent}>{copy.cancel}</button>
+          <button className="primary" onClick={() => void act.rebuild(true)}>{copy.approve}</button>
         </div>
       </div>
     );

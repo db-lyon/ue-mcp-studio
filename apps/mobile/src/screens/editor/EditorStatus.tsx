@@ -6,7 +6,8 @@
  */
 import { useState, type ReactNode } from "react";
 import { StyleSheet, Text, View } from "react-native";
-import { DISCONNECT_CAUSE, EDITOR_OPS, stepsLine, type EditorOp } from "@ue-mcp-studio/client-core";
+import { DISCONNECT_CAUSE, EDITOR_OPS, isConsentOp, stepsLine, type EditorOp } from "@ue-mcp-studio/client-core";
+import { EditorConsent, useEditorConsent } from "./EditorConsent";
 import { Button, Card, Dot, Label, T, font, useTheme } from "../../ui";
 import { useProjectNav } from "../../nav";
 import { useHealth } from "./state";
@@ -20,11 +21,14 @@ export function EditorStatus() {
   const h = useHealth();
   const [busy, setBusy] = useState<EditorOp | null>(null);
   const [result, setResult] = useState<string | null>(null);
-  const run = (op: EditorOp) => {
+  const consent = useEditorConsent(api);
+  const run = (op: EditorOp, override = false) => {
     setBusy(op);
     setResult(null);
-    api.editor(op).then(
-      (r) => setResult(stepsLine(r)),
+    // Stop, restart and rebuild wait for the other sessions using the editor; start takes nothing from anyone.
+    const answer = override ? consent.approve() : isConsentOp(op) ? consent.run(op) : api.editor(op);
+    answer.then(
+      (r) => setResult(r ? stepsLine(r) : null),
       (e: Error) => setResult(e.message),
     ).finally(() => {
       setBusy(null);
@@ -67,6 +71,11 @@ export function EditorStatus() {
             <Button key={op} title={busy === op ? `${op}...` : title(op)} disabled={busy !== null || (op === "start" ? anyUp : !anyUp)} onPress={() => run(op)} />
           ))}
         </View>
+        {consent.ask ? (
+          <View style={{ marginTop: 14 }}>
+            <EditorConsent ask={consent.ask} onApprove={() => run(consent.ask!.op, true)} onCancel={consent.cancel} />
+          </View>
+        ) : null}
         {result ? <T tone="muted" style={{ marginVertical: 13.5 }}>{result}</T> : null}
       </Card>
       </View>

@@ -57,8 +57,10 @@ export interface RebuildAnswer {
   ok: boolean;
   /** Why the rebuild could not be asked for (no daemon, an HTTP error). */
   error?: string;
-  /** The daemon's answer to POST /v1/editor/rebuild, with its steps. */
+  /** The daemon's answer to POST /v1/editor/rebuild, with its steps, or the consent request on a 409. */
   body?: string;
+  /** The HTTP status the daemon answered with. */
+  status?: number;
 }
 
 export interface DaemonAnswer {
@@ -161,7 +163,9 @@ export interface AppHost {
   /** The project's install report (`ue-mcp status --json`, ue-mcp's StatusReport). Older hosts lack it. */
   status?(arg: { uproject: string }): Promise<StatusAnswer>;
   /** Start the project's daemon if needed, then its rebuild: stop the editor, build the project's C++, start the editor. Older hosts lack it. */
-  rebuild?(arg: { key: string; uproject: string }): Promise<RebuildAnswer>;
+  rebuild?(arg: { key: string; uproject: string; force?: "yes" }): Promise<RebuildAnswer>;
+  /** Deny the consent request a held rebuild opened, by its id (ue-mcp feature "editor.consent"). */
+  denyconsent?(arg: { key: string; id: string }): Promise<Done>;
   /** Without a uproject, opens a file picker; with one, adds (shows again) that project. */
   addproject(arg?: { uproject: string }): Promise<Done>;
   removeproject(arg: { uproject: string }): Promise<Done>;

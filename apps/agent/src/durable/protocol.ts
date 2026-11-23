@@ -143,7 +143,16 @@ export type HarnessRequest =
   /** #463 L3: may this local tool call run? The daemon's approval gate and input check. Answers LocalGate. */
   | { kind: "gate"; sessionId: string; parent: string | null; callId: string; name: string; input: Record<string, unknown> }
   /** #463 L3: a local tool call the harness ran ended: the daemon records it as every route does. Answers the ToolExecution the model is given. */
-  | { kind: "finished"; sessionId: string; parent: string | null; callId: string; name: string; input: Record<string, unknown>; result: LocalOutcome };
+  | { kind: "finished"; sessionId: string; parent: string | null; callId: string; name: string; input: Record<string, unknown>; result: LocalOutcome }
+  /**
+   * Editor consent (ue-mcp "editor.consent"): may this disruptive call or vote run now? `subagents` are the
+   * conversation's running subagents from the harness's task graph; `canWait`: the harness can wait for them and
+   * then release a hold. Answers ConsentGate. The call is named `tool`/`args`, not `name`/`input`, so a daemon that
+   * does not know this kind never takes it for a tool request.
+   */
+  | { kind: "consent"; sessionId: string; parent: string | null; callId: string; tool: string; args: Record<string, unknown>; subagents: Array<{ callId: string; description: string }>; canWait: boolean }
+  /** The subagents a go_after_subagents vote waited for have ended: the conversation's hold is released. Answers { ok }. */
+  | { kind: "release"; sessionId: string; callId: string };
 
 /** The daemon's answer to a local call's gate: it may run, or it is blocked with the text the model gets. */
 export type LocalGate = { allow: true } | { allow: false; text: string };

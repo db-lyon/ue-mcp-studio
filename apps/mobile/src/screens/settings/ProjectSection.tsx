@@ -16,8 +16,9 @@ import { Message } from "./GeneralSection";
 import { RemoteReadOnly } from "../../views/settings/RemoteReadOnly";
 import { PathText } from "./NativePanel";
 import { useSettingsApi } from "./hooks";
+import { EditorConsent, useEditorConsent } from "../editor/EditorConsent";
 
-type RebuildState = "idle" | "confirm" | "running";
+type RebuildState = "idle" | "confirm" | "running" | "held";
 
 function rebuildMessage(outcome: ReturnType<typeof readRebuild>, reopened: boolean | null): { ok: boolean; text: string } {
   if (outcome.ok) return { ok: true, text: "The bridge plugin is rebuilt and the editor is open again." };
@@ -43,11 +44,19 @@ export function ProjectSection({ onSection }: { onSection: (s: SettingsSection) 
     api.contextStrategy().then(setContext, (e: Error) => (notThere(e) ? setContext(null) : msg.fail(e)));
   };
   useEffect(load, [api]);
-  const runRebuild = async () => {
+  // Other sessions using the editor are asked first; while they hold it, the person sees them and decides.
+  const consent = useEditorConsent(api);
+  const runRebuild = async (override = false) => {
     setRebuild("running");
     msg.clear();
+    let held = false;
     try {
-      const outcome = readRebuild(await api.editor("rebuild"));
+      const answer = override ? await consent.approve() : await consent.run("rebuild");
+      if (!answer) {
+        held = true;
+        return;
+      }
+      const outcome = readRebuild(answer);
       let reopened: boolean | null = null;
       if (outcome.failure?.step === "build") reopened = await api.editor("start").then((r) => readRebuild(r).ok, () => false);
       const said = rebuildMessage(outcome, reopened);
@@ -56,8 +65,8 @@ export function ProjectSection({ onSection }: { onSection: (s: SettingsSection) 
     } catch (e) {
       msg.fail(`The rebuild did not run. ${e instanceof Error ? e.message : String(e)}`);
     } finally {
-      setRebuild("idle");
-      load();
+      setRebuild(held ? "held" : "idle");
+      if (!held) load();
     }
   };
   const clients = report?.clients.filter((c) => c.configured) ?? [];
@@ -101,6 +110,16 @@ export function ProjectSection({ onSection }: { onSection: (s: SettingsSection) 
                     <Button variant="ghost" title="Cancel" onPress={() => setRebuild("idle")} />
                   </View>
                 </Banner>
+              ) : null}
+              {copy.action === "rebuild" && rebuild === "held" && consent.ask ? (
+                <EditorConsent
+                  ask={consent.ask}
+                  onApprove={() => void runRebuild(true)}
+                  onCancel={() => {
+                    consent.cancel();
+                    setRebuild("idle");
+                  }}
+                />
               ) : null}
               {copy.action === "rebuild" && rebuild === "running" ? (
                 <Banner kind="ok" role="status">
