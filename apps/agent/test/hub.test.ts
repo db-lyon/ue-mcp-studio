@@ -1,8 +1,8 @@
 /**
  * The Playtest Hub end to end over the real QaBroker, PlaytestIndex and
  * session store, with ue-mcp faked: the overview and missing checks, goal
- * routes and their errors, a plan that runs through the card with deferred
- * manual steps and their verdicts, Write
+ * routes and their errors, a plan that runs through the card and holds at
+ * manual steps for their verdicts, unattended plans, Write
  * playtests linking what it drafts, the run screen's evidence, schedules,
  * hub.changed, remote access and the experiment setting.
  */
@@ -71,7 +71,7 @@ const host = (): QaHost & Record<string, unknown> => ({
         return ok(status.get(String(args.run_id)) ?? { run_id: args.run_id, state: "idle", steps: [] });
       case "script_stop": {
         const s = status.get(String(args.run_id));
-        if (s) status.set(String(args.run_id), { ...s, state: "stopped" });
+        if (s) status.set(String(args.run_id), { ...s, state: "stopped", ...(args.reason ? { stop_reason: args.reason } : {}) });
         return ok({ stopped: true });
       }
       case "verdict": {
@@ -207,7 +207,8 @@ describe("routes", () => {
   it("bad plan, schedule and query bodies are 400; unknown ids 404", async () => {
     setup();
     expect((await call("POST", "/hub/plans", { scope: { kind: "nope" } })).status).toBe(400);
-    expect((await call("POST", "/hub/plans", { scope: { kind: "all" }, options: { manualSteps: "later" } })).status).toBe(400);
+    expect((await call("POST", "/hub/plans", { scope: { kind: "all" }, options: { attended: "yes" } })).status).toBe(400);
+    expect((await call("POST", "/hub/plans", { scope: { kind: "all" }, options: { verdictWaitMinutes: 7 } })).status).toBe(400);
     expect((await call("POST", "/hub/plans", { scope: { kind: "goal", goalId: "missing" } })).status).toBe(404);
     expect((await call("POST", "/hub/schedules", { title: "N", scope: { kind: "all" }, at: "25:00", days: [1] })).status).toBe(400);
     expect((await call("POST", "/hub/schedules", { title: "N", scope: { kind: "all" }, at: "02:00", days: [] })).status).toBe(400);
@@ -229,7 +230,7 @@ describe("overview", () => {
     expect(o.checks.find((c) => c.id === "script:/Game/Tests/Deleted")).toMatchObject({ health: "missing", missing: true, goalIds: ["gone"] });
     expect(o.checks.find((c) => c.id === `script:${DOOR}`)).toMatchObject({ health: "never_run", goalIds: [], map: "/Game/Maps/Test", name: "DoorOpens" });
     expect(o.goals[0].status).toBe("failing");
-    expect(o.inbox.map((i) => i.kind)).toEqual(["missing_check"]);
+    expect(o.attention.map((i) => i.kind)).toEqual(["missing_check"]);
     expect(o.goalsDir).toBe("QA/Goals");
 
     // Offline nothing is flagged missing.
@@ -249,38 +250,47 @@ describe("overview", () => {
 });
 
 describe("plans", () => {
-  it("runs a goal through the card and defers its manual step to the inbox while the plan moves on", async () => {
+  it("runs a goal through the card; the plan holds at its manual step with PIE paused until the verdict, then moves on", async () => {
     setup();
     const g = (await call("POST", "/hub/goals", { title: "Doors", checks: [{ kind: "script", target: DOOR }, { kind: "script", target: JUMP }, { kind: "manual", target: "Feels good" }] })).body.goal;
     const planned = await call("POST", "/hub/plans", { scope: { kind: "goal", goalId: g.id } });
-    expect(planned.body.plan).toMatchObject({ title: "Run Doors", trigger: "person", items: [{ name: "DoorOpens" }, { name: "JumpCheck" }, { name: "Feels good" }] });
+    expect(planned.body.plan).toMatchObject({ title: "Run Doors", trigger: "person", options: { attended: true }, items: [{ name: "DoorOpens" }, { name: "JumpCheck" }, { name: "Feels good" }] });
     await settle();
     await settle();
 
-    // The script's card is made in one session for the plan, and its run starts unattended.
+    // The script's card is made in one session for the plan, and its run holds at manual steps (ue-mcp's default).
     const start = calls.find((c) => c.action === "script_run")!;
-    expect(start.args).toMatchObject({ script: DOOR, start_pie: true, block_on_manual: false });
+    expect(start.args).toMatchObject({ script: DOOR, start_pie: true });
+    expect(start.args.block_on_manual).toBeUndefined();
     const plan = () => ((call("GET", "/hub/queue") as Promise<{ body: QueueState }>));
     let q = (await plan()).body;
     const run0 = q.current!.items[0].runId!;
     expect(run0).toBe("script_DoorOpens_0");
     expect(store.all().map((s) => s.title)).toContain("Plan: Run Doors");
-    expect(broker.get(run0)?.sessionId).toBeTruthy();
     expect(hub.runs.get(run0)).toMatchObject({ source: "plan", planRunId: q.current!.id });
 
-    // Auto step passed, manual step waiting: the run is stopped and the plan moves on.
-    status.set(run0, { ...status.get(run0)!, state: "running", steps: steps(["passed", "awaiting_verdict"]), awaiting: [1] });
+    // The manual step waits: PIE is paused, the item needs you, and nothing else starts.
+    status.set(run0, { ...status.get(run0)!, state: "awaiting_verdict", steps: steps(["passed", "awaiting_verdict"]), awaiting: [1] });
     await hub.tick();
-    expect(calls.filter((c) => c.action === "script_stop").map((c) => c.args.run_id)).toEqual([run0]);
+    await settle();
+    expect(calls.filter((c) => c.action === "set_pie_paused").map((c) => c.args)).toEqual([{ paused: true, mode: "debug" }]);
+    expect(broker.hold.held()).toMatchObject([{ runId: run0, step: 1, instruction: "It looks right", paused: true }]);
+    expect(calls.some((c) => c.action === "script_stop")).toBe(false);
+    q = (await plan()).body;
+    expect(q.current!.items.map((i) => i.state)).toEqual(["needs_you", "queued", "queued"]);
+    expect(((await call("GET", "/hub")).body as HubOverview).goals[0].status).toBe("needs_you");
+
+    // The verdict: PIE runs again, the run finishes and the plan goes on.
+    expect("run" in (await broker.verdict(run0, { step: 1, verdict: "pass" }))).toBe(true);
+    await settle();
+    expect(calls.filter((c) => c.action === "set_pie_paused").map((c) => c.args.paused)).toEqual([true, false]);
+    expect(broker.hold.held()).toEqual([]);
+    status.set(run0, { ...status.get(run0)!, state: "finished", steps: steps(["passed", "passed"]), awaiting: [] });
     await hub.tick();
     await settle();
     q = (await plan()).body;
-    expect(q.current!.items[0]).toMatchObject({ state: "needs_you" });
+    expect(q.current!.items[0].state).toBe("passed");
     expect(q.current!.items[1]).toMatchObject({ state: "running", runId: "script_JumpCheck_1" });
-
-    let o = (await call("GET", "/hub")).body as HubOverview;
-    expect(o.inbox.find((i) => i.kind === "verdict")).toMatchObject({ id: `verdict:${run0}:1`, runId: run0, step: 1, instruction: "It looks right", goalIds: [g.id] });
-    expect(o.goals[0].status).toBe("needs_you");
 
     // The second item fails; the manual check is skipped; the plan is done.
     const run1 = "script_JumpCheck_1";
@@ -289,51 +299,54 @@ describe("plans", () => {
     await settle();
     q = (await plan()).body;
     expect(q.current).toBeNull();
-    expect(q.recent[0].items.map((i) => i.state)).toEqual(["needs_you", "failed", "skipped"]);
+    expect(q.recent[0].items.map((i) => i.state)).toEqual(["passed", "failed", "skipped"]);
     expect(q.recent[0].items[2].reason).toBe("Manual check checks cannot run yet");
-
-    // ue-mcp now holds run1 and refuses run0's verdict (docs/plans/playtest-hub/ue-mcp-asks.md): nothing stands in for it.
-    const r = await broker.verdict(run0, { step: 1, verdict: "pass" });
-    expect(r).toMatchObject({ status: 409 });
-    expect(calls.some((c) => c.action === "script_run" && c.args.mode === "manual")).toBe(false);
-    expect(hub.runs.get(run0)?.outcome).toBe("needs_you");
-    o = (await call("GET", "/hub")).body as HubOverview;
-    expect(o.inbox.filter((i) => i.kind === "verdict").map((i) => i.id)).toEqual([`verdict:${run0}:1`]);
   });
 
-  it("a deferred step judged while ue-mcp still holds its stopped run makes the run pass, not fail", async () => {
+  it("a plan's own verdict wait sets the held run's deadline; Stop now ends the run and PIE, and the item is not judged", async () => {
     setup();
-    const g = (await call("POST", "/hub/goals", { title: "Doors", checks: [{ kind: "script", target: DOOR }] })).body.goal;
-    await call("POST", "/hub/plans", { scope: { kind: "goal", goalId: g.id } });
+    await call("POST", "/hub/plans", { scope: { kind: "checks", checks: [{ kind: "script", target: DOOR }] }, options: { verdictWaitMinutes: 2 } });
     await settle();
     await settle();
     const run0 = "script_DoorOpens_0";
     status.set(run0, { ...status.get(run0)!, state: "awaiting_verdict", steps: steps(["passed", "awaiting_verdict"]), awaiting: [1] });
     await hub.tick();
+    const [h] = broker.hold.held();
+    expect(Date.parse(h.dueAt) - Date.parse(h.since)).toBe(2 * 60_000);
+
+    // The fake editor records the stop's reason as ue-mcp does.
+    expect("run" in (await broker.stopRun(run0, "no verdict"))).toBe(true);
+    expect(calls.filter((c) => c.action === "script_stop").map((c) => c.args)).toEqual([{ run_id: run0, reason: "no verdict" }]);
+    expect(calls.filter((c) => c.action === "play_in_editor").map((c) => c.args)).toEqual([{ pieAction: "stop" }]);
     await hub.tick();
     await settle();
-    expect(hub.runs.get(run0)?.outcome).toBe("needs_you");
-
-    const r = await broker.verdict(run0, { step: 1, verdict: "pass" });
-    expect("run" in r && r.run.state).toBe("stopped");
-    expect(hub.runs.get(run0)?.outcome).toBe("passed");
-    const o = (await call("GET", "/hub")).body as HubOverview;
-    expect(o.goals[0].checks[0].health).toBe("passing");
-    expect(o.inbox.filter((i) => i.kind === "verdict")).toEqual([]);
+    const q = (await call("GET", "/hub/queue")).body as QueueState;
+    expect(q.recent[0].items[0]).toMatchObject({ state: "unjudged", reason: "no verdict" });
+    // No result: the check keeps the health it had (never run here), it is not failing.
+    expect(hub.runs.get(run0)?.outcome).toBe("unjudged");
+    expect(((await call("GET", "/hub")).body as HubOverview).checks.find((c) => c.id === `script:${DOOR}`)?.health).toBe("never_run");
+    expect(broker.hold.held()).toEqual([]);
+    // Stopped for the verdict, PIE was not resumed.
+    expect(calls.filter((c) => c.action === "set_pie_paused").map((c) => c.args.paused)).toEqual([true]);
   });
 
-  it("block holds the plan at the verdict and starts with the session's form", async () => {
+  it("an unattended plan never starts a check that needs a person; a schedule's plans are unattended unless it says otherwise", async () => {
     setup();
-    await call("POST", "/hub/plans", { scope: { kind: "checks", checks: [{ kind: "script", target: DOOR }] }, options: { manualSteps: "block" } });
+    listed = [DOOR, JUMP, "/Game/Tests/AutoOnly"];
+    await call("POST", "/hub/plans", { scope: { kind: "checks", checks: [{ kind: "script", target: DOOR }] }, options: { attended: false } });
     await settle();
     await settle();
-    const start = calls.find((c) => c.action === "script_run")!;
-    expect(start.args.block_on_manual).toBeUndefined();
-    const run0 = "script_DoorOpens_0";
-    status.set(run0, { ...status.get(run0)!, state: "awaiting_verdict", steps: steps(["passed", "awaiting_verdict"]), awaiting: [1] });
-    await hub.tick();
-    expect(calls.some((c) => c.action === "script_stop")).toBe(false);
-    expect((await call("GET", "/hub/queue")).body.current.items[0].state).toBe("needs_you");
+    let q = (await call("GET", "/hub/queue")).body as QueueState;
+    expect(q.recent[0].items[0]).toMatchObject({ state: "skipped", reason: "needs a person" });
+    expect(calls.some((c) => c.action === "script_run")).toBe(false);
+    const p = await hub.plan({ scope: { kind: "checks", checks: [{ kind: "script", target: JUMP }] } }, "schedule");
+    expect(p.options.attended).toBe(false);
+    await settle();
+    await settle();
+    q = (await call("GET", "/hub/queue")).body as QueueState;
+    expect(q.recent[0].items[0]).toMatchObject({ state: "skipped", reason: "needs a person" });
+    expect(calls.some((c) => c.action === "script_run")).toBe(false);
+    expect(broker.hold.held()).toEqual([]);
   });
 
   it("run a check is a one-item plan; agents may not plan under Manual", async () => {
@@ -442,7 +455,7 @@ describe("run screen", () => {
     expect(page.runs.map((r: { runId: string }) => r.runId)).toEqual(["script_DoorOpens_new"]);
     expect(page.more).toBe(true);
     const o = (await call("GET", "/hub")).body as HubOverview;
-    expect(o.inbox.find((i) => i.kind === "regression")).toMatchObject({ runId: "script_DoorOpens_new", checkId: `script:${DOOR}` });
+    expect(o.attention.find((i) => i.kind === "regression")).toMatchObject({ runId: "script_DoorOpens_new", checkId: `script:${DOOR}` });
     const detail = (await call("GET", `/hub/checks/${enc(`script:${DOOR}`)}`)).body;
     expect(detail.state).toMatchObject({ health: "failing", recent: ["failed", "passed"] });
   });
@@ -528,7 +541,7 @@ describe("events and access", () => {
     hub.flush();
     const hubEvents = published.filter((e) => e.type === "hub.changed");
     expect(hubEvents).toHaveLength(1);
-    expect(hubEvents[0].data).toEqual({ what: ["goals", "checks", "inbox"] });
+    expect(hubEvents[0].data).toEqual({ what: ["goals", "checks", "attention"] });
   });
 
   it("a paired browser reaches the hub's routes; running playtests asks for the PIN", () => {

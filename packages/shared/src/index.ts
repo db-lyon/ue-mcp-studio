@@ -959,6 +959,8 @@ export interface AgentSettings {
   dialogMode: { mode: DialogMode | null; project: boolean };
   /** Playtest runs: who starts a playtest's run. */
   playtestRuns: PlaytestRunsMode;
+  /** Wait for a verdict: minutes a run holds at a manual step before it stops (QA_VERDICT_WAIT_CHOICES). */
+  verdictWaitMinutes: number;
   restarting?: boolean;
 }
 
@@ -1042,7 +1044,7 @@ export interface StudioPluginUpdate {
 export * from "./qa.js";
 export * from "./playtests.js";
 export * from "./hub.js";
-export * from "./hub-inbox.js";
+export * from "./hub-attention.js";
 export * from "./agents.js";
 export * from "./review.js";
 export * from "./diff-tree.js";

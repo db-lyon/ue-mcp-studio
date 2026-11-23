@@ -58,7 +58,7 @@ describe("the navigation drawer", () => {
     expect(screen.queryByText("Playtests")).toBeNull();
   });
 
-  it("lists Playtests with its inbox count once the Playtest Hub is on", () => {
+  it("lists Playtests with its Needs attention count once the Playtest Hub is on", () => {
     m.sessions.mockResolvedValue({ sessions: [] });
     const onTab = vi.fn();
     render(<NavDrawer open tab="Chat" session={null} updates={0} playtestsWaiting={3} showPlaytests onClose={vi.fn()} onTab={onTab} onSession={vi.fn()} onNewSession={vi.fn()} />);

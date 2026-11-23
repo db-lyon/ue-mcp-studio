@@ -181,13 +181,14 @@ a.hub-group-head:hover .hub-group-title { color: var(--accent-hi); }
 .hub-now-line { display: flex; align-items: center; gap: 8px; min-width: 0; }
 .hub-now-line .hub-row-title { flex: 1; }
 .hub-next { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.hub-inbox-kind { font: var(--label-font); text-transform: var(--label-case); letter-spacing: var(--label-spacing); color: var(--dim); white-space: nowrap; }
+.hub-attention-kind { font: var(--label-font); text-transform: var(--label-case); letter-spacing: var(--label-spacing); color: var(--dim); white-space: nowrap; }
+.hub-attention-row.kind-regression .hub-attention-kind, .hub-attention-row.kind-loop_blocked .hub-attention-kind, .hub-attention-row.kind-plan_failed .hub-attention-kind { color: var(--bad); }
 .hub-start { display: flex; flex-direction: column; gap: 14px; }
 .hub-start-list { display: flex; flex-direction: column; gap: 6px; }
 .hub-start-list p { margin: 0 6px; }
 @media (max-width: 1100px) {
   .hub-overview-grid { grid-template-columns: minmax(0, 1fr); }
-  /* What needs a person comes first on a narrow screen: the inbox is the phone's main use. */
+  /* What needs a person comes first on a narrow screen. */
   .hub-side { order: -1; }
 }
 
@@ -199,23 +200,11 @@ a.hub-group-head:hover .hub-group-title { color: var(--accent-hi); }
 .hub-placeholder { padding: 4px 0; }
 .hub-placeholder-row { display: block; height: 14px; margin: 12px 0; border-radius: 4px; background: var(--panel-2); animation: hub-pulse 1.4s ease-in-out infinite; }
 
-/* Inbox */
-.hub-inbox-list { display: flex; flex-direction: column; gap: 8px; }
-.hub-inbox-item { display: flex; flex-direction: column; gap: 7px; padding: 10px 12px; border: 1px solid var(--line); border-radius: var(--radius-lg); background: var(--panel); }
-.hub-inbox-item.on { border-color: var(--accent-line); box-shadow: 0 0 0 1px var(--accent-line); }
-.hub-inbox-item.kind-verdict .hub-inbox-kind { color: var(--warn); }
-.hub-inbox-item.kind-regression .hub-inbox-kind, .hub-inbox-item.kind-loop_blocked .hub-inbox-kind, .hub-inbox-item.kind-plan_failed .hub-inbox-kind { color: var(--bad); }
-.hub-inbox-top { display: flex; align-items: baseline; gap: 10px; min-width: 0; }
-.hub-inbox-title { font-weight: 600; color: var(--text); min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.hub-inbox-title:hover { color: var(--accent-hi); }
-.hub-inbox-detail { margin: 0; }
-.hub-ask { display: flex; gap: 10px; align-items: baseline; padding: 8px 10px; border-left: 3px solid var(--warn); border-radius: var(--radius); background: var(--panel-2); }
-.hub-ask-label { font: 600 11px/1.4 var(--mono); color: var(--warn); white-space: nowrap; }
-.hub-inbox-foot { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+/* Verdicts on the Run screen */
 .hub-verdict { display: inline-flex; gap: 6px; flex-wrap: wrap; }
 .hub-verdict button.verdict-pass:hover:not(:disabled) { border-color: var(--ok); }
 .hub-verdict button.verdict-fail:hover:not(:disabled) { border-color: var(--bad); }
-.hub-inbox-item .qa-fail-note, .hub-run-step .qa-fail-note { margin-left: 0; }
+.hub-run-step .qa-fail-note { margin-left: 0; }
 
 /* Goal */
 .hub-facts { display: flex; flex-wrap: wrap; gap: 8px 28px; margin: 0; }
@@ -374,7 +363,7 @@ a.hub-group-head:hover .hub-group-title { color: var(--accent-hi); }
 .hub-viewer .icon-button { width: 26px; height: 26px; justify-content: center; }
 .hub-viewer .hub-live-notice { border-radius: var(--radius); background: var(--panel-2); }
 
-/* Goal, Check and Inbox: the card in a side column kept in view while the screen scrolls; above the content when narrow. */
+/* Goal and Check: the card in a side column kept in view while the screen scrolls; above the content when narrow. */
 .hub-split { display: flex; align-items: flex-start; gap: 18px; min-width: 0; }
 .hub-split-main { flex: 1 1 0; min-width: 0; display: flex; flex-direction: column; gap: 14px; }
 .hub-split-side { flex: 0 0 340px; min-width: 0; position: sticky; top: 0; z-index: 1; display: flex; flex-direction: column; gap: 14px; }
@@ -428,8 +417,6 @@ a.hub-group-head:hover .hub-group-title { color: var(--accent-hi); }
   .hub-row { padding: 6px 8px; gap: 8px; }
   .hub-goal-row .hub-progress-track { width: 40px; }
   .hub-head-actions { width: 100%; }
-  .hub-inbox-top { flex-wrap: wrap; }
-  .hub-inbox-title { white-space: normal; }
   .hub-verdict { width: 100%; }
   .hub-verdict button { flex: 1; justify-content: center; min-height: 40px; }
   .hub-evidence, .hub-act, .hub-captures { padding-left: 0; }

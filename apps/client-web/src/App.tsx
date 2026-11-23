@@ -34,7 +34,9 @@ import { replaceStaleWindow } from "./window-version";
 import { RefusalPending, RefusedScreen, useRefusal } from "./views/Refused";
 import { ErrorBoundary } from "./views/ErrorBoundary";
 import { onRemotePage } from "./connection";
-import { playingRuns, projectListUrl, viewportAllowed } from "@ue-mcp-studio/client-core";
+import { HUB_COPY, playingRuns, projectListUrl, viewportAllowed } from "@ue-mcp-studio/client-core";
+import { HeldBar, useHeld } from "./held";
+import { HeldContext } from "./held-context";
 import { BarProjectSwitch } from "./views/ProjectSwitch";
 import { Slot } from "./extensions/Slot";
 
@@ -141,14 +143,17 @@ function Studio({ daemon }: { daemon: DaemonState }) {
   const updates = useUpdateCount();
   // The project's playtests: the page's rows, and the count on its tab of those that wait for the user.
   const playtests = usePlaytestIndex(daemon);
-  // The Playtest Hub experiment: the tab shows, draws the hub, and counts its inbox.
+  // The Playtest Hub experiment: the tab shows, draws the hub, and counts what needs attention there.
+  // A verdict waiting live has the held bar on every tab instead, so it is not counted twice.
   const experiments = useExperiments(daemon.events);
   const hubOn = experiments?.playtestHub === true;
   const hub = useHubOverview(daemon, hubOn);
   const shownTabs = hubOn ? TABS : WITHOUT_PLAYTESTS;
   const playtestsWaiting = hubOn
-    ? hub.overview?.inbox.length ?? 0
+    ? hub.overview?.attention.length ?? 0
     : (playtests.index?.playtests ?? []).filter((e) => playtestMatches(e, "needs-you")).length;
+  // Runs holding at a manual step for a verdict, PIE paused: the bar under the header, and the cards' Resume and watch.
+  const held = useHeld(daemon);
   const openPlaytest = (sessionId: string, runId?: string) => {
     openChat(sessionId);
     if (runId) focusRun(runId);
@@ -206,7 +211,7 @@ function Studio({ daemon }: { daemon: DaemonState }) {
                   <button key={t} className={t === tab ? "tab active" : "tab"} onClick={() => setTab(t)}>
                     {t}
                     {t === "Settings" && updates > 0 && <span className="tab-dot" title={`${updates} ${updates === 1 ? "update" : "updates"} available`} />}
-                    {t === "Playtests" && playtestsWaiting > 0 && <span className="tab-count warn" aria-label={`${playtestsWaiting} need you`} title={`${playtestsWaiting} waiting in the inbox`}>{playtestsWaiting}</span>}
+                    {t === "Playtests" && playtestsWaiting > 0 && <span className="tab-count warn" aria-label={`${playtestsWaiting} need you`} title={hubOn ? `${playtestsWaiting} ${HUB_COPY.attention.toLowerCase()}` : `${playtestsWaiting} need you`}>{playtestsWaiting}</span>}
                   </button>
                 ))}
               </nav>
@@ -242,6 +247,7 @@ function Studio({ daemon }: { daemon: DaemonState }) {
           </div>
         )}
         <DialogBanner daemon={daemon} />
+        <HeldBar value={held} onOpenCard={(h) => h.sessionId && openPlaytest(h.sessionId, h.runId)} />
         <VersionNotice daemon={daemon} />
         <RemoteApprovalBanner onOpenAsk={(o) => { if (o.tab === "Settings") setSection(o.section ?? "general"); setTab(o.tab); }} />
         {!narrow && <EditorBanner daemon={daemon} />}
@@ -272,7 +278,8 @@ function Studio({ daemon }: { daemon: DaemonState }) {
       </div>
     </FileViewerProvider>
   );
-  return liveAllowed ? <LiveProvider daemon={daemon} onSettings={settingsFromChat}>{studio}</LiveProvider> : studio;
+  const withHeld = <HeldContext.Provider value={held}>{studio}</HeldContext.Provider>;
+  return liveAllowed ? <LiveProvider daemon={daemon} onSettings={settingsFromChat}>{withHeld}</LiveProvider> : withHeld;
 }
 
 function MenuGlyph() {

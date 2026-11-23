@@ -9,7 +9,7 @@
  * Routes are under /v1/ext/studio/hub (see HUB_ROUTES below); every change
  * publishes `studio.hub.changed` with a HubChanged body.
  */
-import type { QaRun, QaStepStatus, QaSummary } from "./qa.js";
+import { qaEnded, type QaRun, type QaStep, type QaStepStatus, type QaSummary } from "./qa.js";
 
 export const HUB_SCHEMA = 1 as const;
 /** Where goal files live in the project unless the project sets another folder. */
@@ -232,7 +232,7 @@ export const GOAL_ID = /^[a-z0-9][a-z0-9-]{0,63}$/;
 
 // ---------- Runs (per machine) ----------
 
-export type RunOutcome = "passed" | "failed" | "needs_you" | "running" | "incomplete" | "stopped" | "error";
+export type RunOutcome = "passed" | "failed" | "needs_you" | "running" | "incomplete" | "unjudged" | "stopped" | "error";
 export type RunSource = "person" | "agent" | "plan" | "schedule" | "outside";
 
 /** One run of one check, as the hub's run index keeps it. */
@@ -259,19 +259,22 @@ export interface RunRecord {
 }
 
 /**
- * A run's outcome from its QaRun, judged by its steps, not by how it ended.
- * A stopped run whose every step settled (a plan stopped it to defer its
- * manual steps, which were judged after) passed or failed like any other;
- * only a stopped run with steps never reached is "stopped". A run that ended
- * on its own with steps never reached (PIE or the observation ended) is
- * "incomplete".
+ * A run's outcome from its QaRun, judged by its steps. A live run waiting on
+ * a verdict is "needs_you". Once ended, a failed step makes it "failed"; a
+ * step the run reached but nobody judged (the wait ran out, or the run was
+ * stopped while it waited) makes it "unjudged", no result, since a person's
+ * absence says nothing about the game. A run that ended on its own with
+ * steps never reached (PIE or the observation ended) is "incomplete"; a
+ * stopped one is "stopped".
  */
 export function outcomeOf(run: Pick<QaRun, "state" | "steps" | "summary">): RunOutcome {
   const steps = run.steps ?? [];
   const failed = run.summary?.failed ?? steps.filter((s) => s.status === "failed").length;
-  if (run.state === "awaiting_verdict" || steps.some((s) => s.status === "awaiting_verdict")) return "needs_you";
+  const ended = qaEnded(run.state);
+  if (!ended && (run.state === "awaiting_verdict" || steps.some((s) => s.status === "awaiting_verdict"))) return "needs_you";
   if (run.state === "armed" || run.state === "running") return failed > 0 ? "failed" : "running";
   if (failed > 0) return "failed";
+  if (steps.some((s) => s.status === "awaiting_verdict")) return "unjudged";
   const open: QaStepStatus[] = ["pending", "running"];
   if (steps.length === 0 || steps.some((s) => open.includes(s.status))) return run.state === "stopped" ? "stopped" : "incomplete";
   return "passed";
@@ -358,10 +361,11 @@ export interface GoalState {
 
 /**
  * Outcomes that say something about the game: what health, acceptance, pass
- * rates and regressions count. "stopped" is not one: a person (or a cancelled
- * plan) ended the run before its steps were reached, which proves nothing
- * either way, so the run before it speaks for the check. "incomplete" and
- * "error" are: the run could not get through its steps on its own.
+ * rates and regressions count. "stopped" and "unjudged" are not: the run was
+ * ended before its steps were reached, or nobody gave a manual step its
+ * verdict, which proves nothing about the game either way, so the run before
+ * it speaks for the check. "incomplete" and "error" are: the game could not
+ * get through the run's steps on its own.
  */
 export const RESULT_OUTCOMES: readonly RunOutcome[] = ["passed", "failed", "incomplete", "error"];
 const FINISHED = RESULT_OUTCOMES;
@@ -631,18 +635,42 @@ export type PlanScope =
   | { kind: "all" };
 
 export interface PlanOptions {
-  /** Manual steps go to the inbox while the plan moves on (defer), or hold the plan until judged (block). */
-  manualSteps: "defer" | "block";
+  /**
+   * A person is there to judge manual steps while they play. Without one, a
+   * check whose script has a manual step is skipped (NEEDS_PERSON) rather
+   * than started.
+   */
+  attended: boolean;
+  /** How long each run waits for a verdict, one of QA_VERDICT_WAIT_CHOICES. Absent: the "Wait for a verdict" setting. */
+  verdictWaitMinutes?: number;
   stopOnFailure: boolean;
   /** Replay each check's last recording instead of a live run, where it has one. */
   replay: boolean;
 }
-export const DEFAULT_PLAN_OPTIONS: PlanOptions = { manualSteps: "defer", stopOnFailure: false, replay: false };
+/** A person's plan: they are there to judge. */
+export const DEFAULT_PLAN_OPTIONS: PlanOptions = { attended: true, stopOnFailure: false, replay: false };
+/** The options a plan starts from when its request gives none: a schedule's runs are unattended. */
+export const planOptionsFor = (trigger: PlanTrigger): PlanOptions => ({ ...DEFAULT_PLAN_OPTIONS, attended: trigger !== "schedule" });
 
-export type PlanItemState = "queued" | "running" | "passed" | "failed" | "needs_you" | "skipped" | "error" | "cancelled";
+/** Why an unattended plan skips a check. */
+export const NEEDS_PERSON = "needs a person";
+
+/**
+ * Whether a script needs someone at the editor: it has a manual step. A step
+ * an agent may judge counts too, since a plan run has no agent assigned to
+ * judge it.
+ */
+export const needsPerson = (steps: readonly Pick<QaStep, "judge">[]): boolean => steps.some((s) => s.judge === "manual");
+
+export type PlanItemState = "queued" | "running" | "passed" | "failed" | "needs_you" | "unjudged" | "skipped" | "error" | "cancelled";
 export interface PlanItem {
   check: CheckRef;
   name: string;
+  /**
+   * needs_you: its run holds at a manual step, PIE paused, until a verdict.
+   * unjudged: the run ended without that verdict, no result (reason "no verdict").
+   * error: the run could not get through its steps (reason says why).
+   */
   state: PlanItemState;
   runId?: string | null;
   reason?: string | null;
@@ -701,38 +729,41 @@ export interface QueueState {
   editor: { connected: boolean };
 }
 
-// ---------- Inbox (computed) ----------
+// ---------- Needs attention (computed) ----------
 
-export type InboxKind = "verdict" | "loop_blocked" | "regression" | "sign_off" | "missing_check" | "plan_failed";
+/**
+ * What waits for a person and does not depend on a game playing now. A
+ * verdict is not one: it is given live, while its step plays (the run's
+ * held verdict, QaHeld).
+ */
+export type AttentionKind = "loop_blocked" | "regression" | "sign_off" | "missing_check" | "plan_failed";
 
-export interface InboxItem {
-  /** Stable while the thing it points at waits: "<kind>:<runId>:<step>" and the like. */
+export interface AttentionItem {
+  /** Stable while the thing it points at waits: "<kind>:<id>" and the like. */
   id: string;
-  kind: InboxKind;
+  kind: AttentionKind;
   at: string;
   title: string;
   detail?: string;
   goalIds: string[];
   runId?: string;
   step?: number;
-  /** For a verdict: what to check in PIE. */
-  instruction?: string;
   checkId?: string;
   planRunId?: string;
 }
 
-export const INBOX_ORDER: readonly InboxKind[] = ["verdict", "loop_blocked", "sign_off", "regression", "missing_check", "plan_failed"];
+export const ATTENTION_ORDER: readonly AttentionKind[] = ["loop_blocked", "sign_off", "regression", "missing_check", "plan_failed"];
 
 // ---------- Overview ----------
 
-/** GET /hub. Everything the overview, library and inbox draw, in one answer. */
+/** GET /hub. Everything the overview and library draw, in one answer. */
 export interface HubOverview {
   /** The folder goal files are read from, relative to the project. */
   goalsDir: string;
   goals: GoalState[];
   /** Every known check: those goals name and scripts in the project no goal names yet. */
   checks: CheckState[];
-  inbox: InboxItem[];
+  attention: AttentionItem[];
   queue: QueueState;
   /** Newest runs across the project, at most 30. */
   recent: RunRecord[];
@@ -751,7 +782,7 @@ export interface CheckDetail {
   script?: QaRun | null;
 }
 
-export type HubChangedWhat = "goals" | "runs" | "queue" | "inbox" | "checks";
+export type HubChangedWhat = "goals" | "runs" | "queue" | "attention" | "checks";
 /** The body of `studio.hub.changed`. */
 export interface HubChanged {
   what: HubChangedWhat[];

@@ -1,5 +1,5 @@
 /** Reading a plan's scope and options from a body. */
-import { GOAL_ID, type PlanOptions, type PlanScope } from "@ue-mcp-studio/shared";
+import { GOAL_ID, QA_VERDICT_WAIT_CHOICES, qaVerdictWaitValid, type PlanOptions, type PlanScope } from "@ue-mcp-studio/shared";
 import { bad, checkRefOf, isObject } from "./util.js";
 
 const SCOPE_HELP = "scope must be { kind: goal, goalId } | { kind: checks, checks } | { kind: failing | stale, goalId? } | { kind: all }";
@@ -37,11 +37,16 @@ export function scopeOf(v: unknown): PlanScope {
 
 export function planOptionsOf(v: unknown, base: PlanOptions): PlanOptions {
   if (v === undefined) return { ...base };
-  if (!isObject(v)) throw bad("options must be { manualSteps?, stopOnFailure?, replay? }");
+  if (!isObject(v)) throw bad("options must be { attended?, verdictWaitMinutes?, stopOnFailure?, replay? }");
   const out = { ...base };
-  if (v.manualSteps !== undefined) {
-    if (v.manualSteps !== "defer" && v.manualSteps !== "block") throw bad("options.manualSteps must be defer or block");
-    out.manualSteps = v.manualSteps;
+  if (v.attended !== undefined) {
+    if (typeof v.attended !== "boolean") throw bad("options.attended must be a boolean");
+    out.attended = v.attended;
+  }
+  if (v.verdictWaitMinutes === null) delete out.verdictWaitMinutes;
+  else if (v.verdictWaitMinutes !== undefined) {
+    if (!qaVerdictWaitValid(v.verdictWaitMinutes)) throw bad(`options.verdictWaitMinutes must be one of ${QA_VERDICT_WAIT_CHOICES.join(", ")}`);
+    out.verdictWaitMinutes = v.verdictWaitMinutes;
   }
   if (v.stopOnFailure !== undefined) {
     if (typeof v.stopOnFailure !== "boolean") throw bad("options.stopOnFailure must be a boolean");

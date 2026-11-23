@@ -51,7 +51,7 @@ describe("the Playtest Hub gate", () => {
     expect(m.hub.overview).not.toHaveBeenCalled();
   });
 
-  it("on: the tab shows with the inbox count and opens the hub", async () => {
+  it("on: the tab shows with the count of what needs attention and opens the hub", async () => {
     m.settings.mockResolvedValue({ theme: "ue-mcp", experiments: { playtestHub: true } });
     render(<App />);
     const tab = await screen.findByRole("button", { name: /Playtests/ });

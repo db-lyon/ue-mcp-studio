@@ -36,6 +36,7 @@ import {
 import { api } from "../api";
 import {
   PATH_MARKS,
+  HELD_COPY,
   QA_VERDICTS,
   STARTING,
   WITHOUT_CHECKPOINTS_QUESTION,
@@ -68,6 +69,7 @@ import { ExactAssetLink, StepText } from "./AssetLink";
 import { stepPlain } from "./asset-links";
 import { StepSetup } from "./step-setup";
 import { PieLiveContext } from "./PieLive";
+import { useHeldRun } from "../held-context";
 
 /** A script's path under its card's title, a link that opens the script asset; an inline script has no asset. */
 function ScriptPath({ script }: { script: string }) {
@@ -519,6 +521,7 @@ export function QaCard({ run: saved, form: own, onDismiss, actions: outside, met
               />
             ) : (
               <span className="qa-verdict">
+                <ResumeWatch runId={run.runId} step={askBox.index} />
                 {QA_VERDICTS.map((v) => (
                   <button
                     key={v.verdict}
@@ -646,6 +649,7 @@ export function QaCard({ run: saved, form: own, onDismiss, actions: outside, met
               )}
               {verdictable && !failBox && askBox?.index !== s.index && (
                 <div className="qa-verdict">
+                  <ResumeWatch runId={run.runId} step={s.index} />
                   {QA_VERDICTS.map((v) => (
                     <button
                       key={v.verdict}
@@ -745,6 +749,21 @@ function Chevron({ open }: { open: boolean }) {
     <svg className={`qa-chevron ${open ? "open" : ""}`} width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
       <path d="M4.5 2.5 8 6l-3.5 3.5" />
     </svg>
+  );
+}
+
+/** Resume and watch, while the run holds at this step with Play In Editor paused (the agent's verdict-hold.ts). */
+function ResumeWatch({ runId, step }: { runId: string; step: number }) {
+  const h = useHeldRun(runId);
+  const [busy, setBusy] = useState(false);
+  if (!h || h.held.step !== step || !h.held.paused) return null;
+  return (
+    <button className="small-button" disabled={busy} title={HELD_COPY.resumeHelp} onClick={() => {
+      setBusy(true);
+      h.resume().catch(() => undefined).finally(() => setBusy(false));
+    }}>
+      {HELD_COPY.resume}
+    </button>
   );
 }
 

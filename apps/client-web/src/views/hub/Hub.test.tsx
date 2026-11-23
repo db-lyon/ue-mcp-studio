@@ -39,9 +39,9 @@ afterEach(() => {
 
 describe("hub routes", () => {
   it("opens the screen the hash names and follows Back and Forward", async () => {
-    window.location.hash = "#/playtests/inbox";
+    window.location.hash = "#/playtests/queue";
     render(<Harness start={hubFixture()} />);
-    expect(heading()).toContain("Inbox");
+    expect(heading()).toContain("Queue");
     act(() => {
       window.location.hash = "#/playtests/goals/movement";
     });
@@ -77,7 +77,7 @@ describe("hub routes", () => {
     render(<Harness start={hubFixture()} narrow />);
     const bar = screen.getByRole("navigation", { name: "Playtests" });
     expect(bar.classList.contains("hub-seg")).toBe(true);
-    expect(within(bar).getByText("Inbox").closest("a")?.querySelector(".tab-count")?.textContent).toBe("3");
+    expect(within(bar).getByText("Overview").closest("a")?.querySelector(".tab-count")?.textContent).toBe("3");
   });
 });
 
@@ -124,37 +124,19 @@ describe("the keyboard", () => {
   });
 });
 
-describe("the inbox", () => {
-  it("passes the selected verdict with p, and the row leaves at once", async () => {
-    window.location.hash = "#/playtests/inbox";
+describe("Needs attention", () => {
+  it("lists on the Overview what waits for a person, each linking to where it is dealt with", () => {
     render(<Harness start={hubFixture()} />);
-    expect(screen.getByText("Walk to the door and see it open")).toBeTruthy();
-    key("p");
-    expect(screen.queryByText("Walk to the door and see it open")).toBeNull();
-    await waitFor(() => expect(m.hub.verdict).toHaveBeenCalledWith("run-a", 1, "pass", undefined));
-    // The next item is selected: s skips it.
-    key("s");
-    await waitFor(() => expect(m.hub.verdict).toHaveBeenCalledWith("run-b", 0, "skip", undefined));
-  });
-
-  it("asks for a note before a fail, and sends it", async () => {
-    window.location.hash = "#/playtests/inbox";
-    render(<Harness start={hubFixture()} />);
-    key("f");
-    const submit = screen.getByRole("button", { name: "Submit" }) as HTMLButtonElement;
-    expect(submit.disabled).toBe(true);
-    fireEvent.change(screen.getByLabelText("What went wrong?"), { target: { value: "The door stays shut" } });
-    fireEvent.click(submit);
-    await waitFor(() => expect(m.hub.verdict).toHaveBeenCalledWith("run-a", 1, "fail", "The door stays shut"));
-  });
-
-  it("brings a verdict back and says why when the daemon refuses it", async () => {
-    m.hub.verdict.mockRejectedValue(new Error("The run has ended"));
-    window.location.hash = "#/playtests/inbox";
-    render(<Harness start={hubFixture()} />);
-    fireEvent.click(screen.getAllByRole("button", { name: "Pass" })[0]);
-    expect(await screen.findByText(/The verdict was not recorded: The run has ended/)).toBeTruthy();
-    expect(screen.getByText("Walk to the door and see it open")).toBeTruthy();
+    const card = screen.getByRole("region", { name: "Needs attention" });
+    expect(within(card).getByText("Fix loop stopped")).toBeTruthy();
+    expect(within(card).getByText("Missing check")).toBeTruthy();
+    const regression = within(card).getByText("Jump failed after passing").closest("a")!;
+    expect(regression.getAttribute("href")).toBe("#/playtests/runs/run-jump-2");
+    // There is no Inbox any more: its old address is the Overview.
+    act(() => {
+      window.location.hash = "#/playtests/inbox";
+    });
+    expect(heading()).toBe("Overview");
   });
 });
 

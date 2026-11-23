@@ -66,7 +66,7 @@ export function settingsApi(t: Transport) {
     saveSettings: (u: StudioSettingsUpdate) => send<unknown>("PUT", `${S}/settings`, u).then(settingsOf) as Promise<StudioSettings>,
     models: () => get<unknown>(`${S}/models`).then(catalogOf) as Promise<ModelCatalog>,
     agentSettings: () => get<unknown>(`${S}/agent-settings`).then(agentSettingsOf) as Promise<AgentSettings>,
-    saveAgentSettings: (u: Partial<{ feedbackTool: boolean; feedbackMode: FeedbackMode; dialogMode: DialogMode; playtestRuns: PlaytestRunsMode }>) =>
+    saveAgentSettings: (u: Partial<{ feedbackTool: boolean; feedbackMode: FeedbackMode; dialogMode: DialogMode; playtestRuns: PlaytestRunsMode; verdictWaitMinutes: number }>) =>
       send<unknown>("PUT", `${S}/agent-settings`, u).then(agentSettingsOf) as Promise<AgentSettings>,
     native: () => get<unknown>(`${S}/native`).then(nativeOf) as Promise<NativeOverview>,
     nativePreview: (convention: Convention) => get<NativePreview>(`${S}/native/preview?convention=${enc(convention)}`),

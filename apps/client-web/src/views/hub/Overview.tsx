@@ -9,15 +9,15 @@ import { GOAL_STATUS_ORDER } from "@ue-mcp-studio/shared";
 import {
   CHECK_HEALTH_LOOK,
   GOAL_STATUS_LOOK,
+  ATTENTION_KIND_LABEL,
   HUB_COPY,
-  INBOX_KIND_LABEL,
   PLAN_ITEM_LOOK,
+  attentionTarget,
   RUN_OUTCOME_LOOK,
   dueText,
   goalCounts,
   goalSummary,
   hubHash,
-  inboxTarget,
   milestoneGroups,
   planProgress,
   playingRuns,
@@ -25,8 +25,8 @@ import {
   proposeGoals,
   regressions,
   shortAgo,
+  sortAttention,
   sortChecks,
-  sortInbox,
 } from "@ue-mcp-studio/client-core";
 import { api } from "../../api";
 import { useCursor, useHub } from "./state";
@@ -118,7 +118,7 @@ export function OverviewScreen({ onChat }: { onChat?: () => void }) {
           </>}
         </section>
         <aside className="hub-side">
-          <InboxCard />
+          <AttentionCard />
           <QueueCard />
           <RegressionsCard />
         </aside>
@@ -187,26 +187,26 @@ function GettingStarted({ onChat }: { onChat?: () => void }) {
   );
 }
 
-function InboxCard() {
+/** What waits for a person and does not need the game playing: each item links to where it is dealt with. */
+function AttentionCard() {
   const { o, go } = useHub();
-  const items = useMemo(() => sortInbox(o.inbox), [o.inbox]);
+  const items = useMemo(() => sortAttention(o.attention), [o.attention]);
   return (
-    <section className="hub-card" aria-label={HUB_COPY.inbox}>
+    <section className="hub-card" aria-label={HUB_COPY.attention}>
       <div className="hub-card-head">
-        <HubIcon name="inbox" />
-        <HubLink href={hubHash({ screen: "inbox" })} onGo={() => go({ screen: "inbox" })}>{HUB_COPY.inbox}</HubLink>
+        <HubIcon name="attention" />
+        <span>{HUB_COPY.attention}</span>
         {items.length > 0 && <span className="tab-count warn">{items.length}</span>}
       </div>
-      {items.length === 0 ? <p className="dim small">{HUB_COPY.inboxEmpty}</p> : (
+      {items.length === 0 ? <p className="dim small">{HUB_COPY.attentionEmpty}</p> : (
         <div className="hub-list">
-          {items.slice(0, 4).map((it) => (
-            <HubLink key={it.id} className="hub-row hub-mini-row" href={hubHash(inboxTarget(it))} onGo={() => go(it.kind === "verdict" ? { screen: "inbox" } : inboxTarget(it))}>
-              <span className="hub-inbox-kind">{INBOX_KIND_LABEL[it.kind]}</span>
+          {items.map((it) => (
+            <HubLink key={it.id} className={`hub-row hub-mini-row hub-attention-row kind-${it.kind}`} href={hubHash(attentionTarget(it))} onGo={() => go(attentionTarget(it))} title={it.detail}>
+              <span className="hub-attention-kind">{ATTENTION_KIND_LABEL[it.kind]}</span>
               <span className="hub-row-title">{it.title}</span>
               <span className="dim small">{shortAgo(it.at)}</span>
             </HubLink>
           ))}
-          {items.length > 4 && <HubLink className="small" href={hubHash({ screen: "inbox" })} onGo={() => go({ screen: "inbox" })}>{items.length - 4} more</HubLink>}
         </div>
       )}
     </section>

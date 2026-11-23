@@ -46,7 +46,7 @@ import type {
   DialogMode,
   FeedbackMode,
   PendingForm,
-  QaRun, QaScriptStep, PlaytestRunsMode, PlaytestIndexAnswer,
+  QaHeld, QaRun, QaScriptStep, PlaytestRunsMode, PlaytestIndexAnswer,
   QaVerdict,
   CheckpointChange,
   RestoreOutcome,
@@ -293,7 +293,7 @@ export const api = {
     call<void>("POST", `/v1/ext/studio/sessions/${encodeURIComponent(id)}/approvals/${encodeURIComponent(approvalId)}`, { decision }),
   busy: () => call<BusyState>("GET", "/v1/ext/studio/busy"),
   agentSettings: () => call<unknown>("GET", "/v1/ext/studio/agent-settings").then(agentSettingsOf),
-  saveAgentSettings: (u: Partial<{ feedbackTool: boolean; feedbackMode: FeedbackMode; dialogMode: DialogMode; playtestRuns: PlaytestRunsMode }>) => call<unknown>("PUT", "/v1/ext/studio/agent-settings", u).then(agentSettingsOf),
+  saveAgentSettings: (u: Partial<{ feedbackTool: boolean; feedbackMode: FeedbackMode; dialogMode: DialogMode; playtestRuns: PlaytestRunsMode; verdictWaitMinutes: number }>) => call<unknown>("PUT", "/v1/ext/studio/agent-settings", u).then(agentSettingsOf),
   forms: (sessionId: string) => call<{ forms: PendingForm[] }>("GET", `/v1/ext/studio/forms?session=${encodeURIComponent(sessionId)}`),
   answerForm: (id: string, answer: { action: "accept"; content: Record<string, unknown> } | { action: "decline" | "cancel" }) =>
     call<void>("POST", `/v1/ext/studio/forms/${encodeURIComponent(id)}`, answer),
@@ -313,6 +313,8 @@ export const api = {
   qaRevertLoop: (runId: string, attempt?: number) =>
     call<{ run: QaRun; outcome: RestoreOutcome }>("POST", `/v1/ext/studio/qa/runs/${encodeURIComponent(runId)}/loop/revert`, attempt === undefined ? {} : { attempt }),
   qaStop: (runId: string) => call<{ run: QaRun }>("POST", `/v1/ext/studio/qa/runs/${encodeURIComponent(runId)}/stop`),
+  qaHeld: () => call<{ held: QaHeld[] }>("GET", "/v1/ext/studio/qa/held"),
+  qaResume: (runId: string) => call<{ held: QaHeld }>("POST", `/v1/ext/studio/qa/runs/${encodeURIComponent(runId)}/resume`),
   qaRun: (runId: string, options: { startPie: boolean; players: number; listen: boolean; record: boolean }) =>
     call<{ run: QaRun }>("POST", `/v1/ext/studio/qa/runs/${encodeURIComponent(runId)}/run`, options),
   qaSaveScript: (runId: string, steps: QaScriptStep[], map?: string) => call<{ run: QaRun }>("PUT", `/v1/ext/studio/qa/runs/${encodeURIComponent(runId)}/script`, { steps, ...(map !== undefined ? { map } : {}) }),

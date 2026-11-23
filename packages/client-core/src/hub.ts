@@ -8,10 +8,9 @@
 import {
   CHECK_HEALTH_ORDER,
   DEFAULT_ACCEPTANCE,
-  DEFAULT_PLAN_OPTIONS,
   GOAL_STATUS_ORDER,
+  ATTENTION_ORDER,
   HUB_CHANGED,
-  INBOX_ORDER,
   TRACKER_LINKS_MAX,
   TRACKER_LINK_RELS,
   checkId as checkIdOf,
@@ -19,6 +18,7 @@ import {
   leafName,
   loopIfRequired,
   linkHost,
+  planOptionsFor,
   trackerLinkOf,
   type CheckDetail,
   type CheckUpdate,
@@ -34,10 +34,9 @@ import {
   type GoalStatus,
   type GoalUpdate,
   type HubOverview,
-  type InboxItem,
-  type InboxKind,
+  type AttentionItem,
+  type AttentionKind,
   type PlanItemState,
-  type PlanOptions,
   type PlanRequest,
   type PlanRun,
   type PlanScope,
@@ -127,10 +126,9 @@ export const hubApiOver = (transport: Transport): HubApi =>
 
 // ---------- Routes inside #/playtests ----------
 
-export type HubScreen = "overview" | "inbox" | "goal" | "library" | "check" | "run" | "queue";
+export type HubScreen = "overview" | "goal" | "library" | "check" | "run" | "queue";
 export type HubRoute =
   | { screen: "overview" }
-  | { screen: "inbox" }
   | { screen: "goal"; goalId: string }
   | { screen: "library" }
   | { screen: "check"; checkId: string }
@@ -148,15 +146,14 @@ const decode = (s: string): string | null => {
 
 /**
  * The hub's screen from what follows #/playtests/ (still encoded):
- * inbox, goals/<id>, checks, checks/<checkId>, runs/<runId>, queue. Anything
- * else is the overview.
+ * goals/<id>, checks, checks/<checkId>, runs/<runId>, queue. Anything else is
+ * the overview.
  */
 export function parseHubPath(sub: string | null | undefined): HubRoute {
   const parts = (sub ?? "").split("/").filter(Boolean);
   const [head, id] = parts;
   const value = id ? decode(id) : null;
   switch (head) {
-    case "inbox": return { screen: "inbox" };
     case "queue": return { screen: "queue" };
     case "checks": return value ? { screen: "check", checkId: value } : { screen: "library" };
     case "goals": return value ? { screen: "goal", goalId: value } : { screen: "overview" };
@@ -169,7 +166,6 @@ export function parseHubPath(sub: string | null | undefined): HubRoute {
 export function hubPath(r: HubRoute): string {
   switch (r.screen) {
     case "overview": return "";
-    case "inbox": return "inbox";
     case "queue": return "queue";
     case "library": return "checks";
     case "goal": return `goals/${enc(r.goalId)}`;
@@ -185,8 +181,7 @@ export const hubHash = (r: HubRoute): string => {
 };
 
 /** Which rail entry a screen sits under. */
-export function hubSection(r: HubRoute): "overview" | "inbox" | "library" | "queue" {
-  if (r.screen === "inbox") return "inbox";
+export function hubSection(r: HubRoute): "overview" | "library" | "queue" {
   if (r.screen === "queue") return "queue";
   if (r.screen === "library" || r.screen === "check") return "library";
   return "overview";
@@ -230,6 +225,7 @@ export const RUN_OUTCOME_LOOK: Record<RunOutcome, StatusLook> = {
   error: { label: "Error", glyph: "fail", tone: "bad" },
   running: { label: "Running", glyph: "running", tone: "run" },
   incomplete: { label: "Incomplete", glyph: "risk", tone: "warn" },
+  unjudged: { label: "Not judged", glyph: "skip", tone: "idle" },
   stopped: { label: "Stopped", glyph: "stop", tone: "idle" },
   passed: { label: "Passed", glyph: "check", tone: "ok" },
 };
@@ -238,6 +234,7 @@ export const PLAN_ITEM_LOOK: Record<PlanItemState, StatusLook> = {
   needs_you: { label: "Needs you", glyph: "needs", tone: "attention" },
   failed: { label: "Failed", glyph: "fail", tone: "bad" },
   error: { label: "Error", glyph: "fail", tone: "bad" },
+  unjudged: { label: "Not judged", glyph: "skip", tone: "idle" },
   running: { label: "Running", glyph: "running", tone: "run" },
   queued: { label: "Queued", glyph: "queued", tone: "idle" },
   skipped: { label: "Skipped", glyph: "skip", tone: "idle" },
@@ -265,7 +262,7 @@ const rank = <T>(order: readonly T[]) => (v: T): number => {
 };
 export const healthRank = rank(CHECK_HEALTH_ORDER);
 export const goalStatusRank = rank(GOAL_STATUS_ORDER);
-export const inboxRank = rank(INBOX_ORDER);
+export const attentionRank = rank(ATTENTION_ORDER);
 
 // ---------- Labels ----------
 
@@ -281,8 +278,7 @@ export const PRIORITIES: readonly GoalPriority[] = ["p0", "p1", "p2", "p3"];
 export const PRIORITY_LABEL: Record<GoalPriority, string> = { p0: "P0 Urgent", p1: "P1 High", p2: "P2 Normal", p3: "P3 Low" };
 export const PRIORITY_SHORT: Record<GoalPriority, string> = { p0: "P0", p1: "P1", p2: "P2", p3: "P3" };
 
-export const INBOX_KIND_LABEL: Record<InboxKind, string> = {
-  verdict: "Verdict",
+export const ATTENTION_KIND_LABEL: Record<AttentionKind, string> = {
   loop_blocked: "Fix loop stopped",
   sign_off: "Sign-off",
   regression: "Regression",
@@ -302,7 +298,7 @@ export const RUN_SOURCE_LABEL: Record<RunSource, string> = {
 export const HUB_COPY = {
   title: "Playtests",
   overview: "Overview",
-  inbox: "Inbox",
+  attention: "Needs attention",
   goals: "Goals",
   library: "Library",
   queue: "Queue",
@@ -329,8 +325,9 @@ export const HUB_COPY = {
   noRequiredGoals: "A goal can require other goals. It is met only when they are.",
   noGoalsInMilestone: "No goals in this milestone yet.",
   unusedChecks: (n: number) => `${n} ${n === 1 ? "check is" : "checks are"} not part of any goal`,
-  inboxEmpty: "Nothing needs you.",
-  inboxEmptyDetail: "Verdicts, stopped fix loops and regressions land here.",
+  attentionEmpty: "Nothing needs attention.",
+  attended: "Someone is there to judge manual steps",
+  attendedHelp: "Without someone there, checks with manual steps are skipped. With someone there, each run holds at its manual steps for a verdict.",
   noGoalsTitle: "No goals yet",
   noGoalsLead: "A goal is something the game must do, proven by the playtests linked to it. Its status follows their runs.",
   noChecksLead: "This project has no test scripts yet. Ask for one in Chat with /playtest.",
@@ -411,9 +408,9 @@ export function sortChecks(checks: readonly CheckState[]): CheckState[] {
     || byText(a.name, b.name));
 }
 
-/** The inbox in the ladder's order (verdicts first), oldest first within a kind, so the longest wait is settled first. */
-export function sortInbox(items: readonly InboxItem[]): InboxItem[] {
-  return [...items].sort((a, b) => inboxRank(a.kind) - inboxRank(b.kind) || byText(a.at, b.at) || byText(a.id, b.id));
+/** Needs attention in ATTENTION_ORDER, oldest first within a kind, so the longest wait comes first. */
+export function sortAttention(items: readonly AttentionItem[]): AttentionItem[] {
+  return [...items].sort((a, b) => attentionRank(a.kind) - attentionRank(b.kind) || byText(a.at, b.at) || byText(a.id, b.id));
 }
 
 export interface MilestoneGroup {
@@ -709,7 +706,7 @@ export interface PlanProgress {
   current: PlanRun["items"][number] | null;
 }
 
-const SETTLED: readonly PlanItemState[] = ["passed", "failed", "needs_you", "skipped", "error", "cancelled"];
+const SETTLED: readonly PlanItemState[] = ["passed", "failed", "unjudged", "skipped", "error", "cancelled"];
 
 export function planProgress(p: Pick<PlanRun, "items">): PlanProgress {
   return {
@@ -717,7 +714,7 @@ export function planProgress(p: Pick<PlanRun, "items">): PlanProgress {
     total: p.items.length,
     failed: p.items.filter((i) => i.state === "failed" || i.state === "error").length,
     waiting: p.items.filter((i) => i.state === "needs_you").length,
-    current: p.items.find((i) => i.state === "running") ?? null,
+    current: p.items.find((i) => i.state === "running" || i.state === "needs_you") ?? null,
   };
 }
 
@@ -773,7 +770,7 @@ export function scheduleErrors(s: Pick<ScheduleDraft, "title" | "at" | "days" | 
 export const blankSchedule = (): ScheduleDraft => ({
   title: "Nightly",
   scope: { kind: "all" },
-  options: { ...DEFAULT_PLAN_OPTIONS },
+  options: planOptionsFor("schedule"),
   at: "02:00",
   days: [0, 1, 2, 3, 4, 5, 6],
   enabled: true,
@@ -992,10 +989,10 @@ export const HUB_LINK_COPY = {
   checkNeedsGoal: "Add this check to a goal to link it.",
 } as const;
 
-// ---------- Inbox ----------
+// ---------- Needs attention ----------
 
-/** Where an inbox item leads when opened. */
-export function inboxTarget(item: InboxItem): HubRoute {
+/** Where an item that needs attention leads when opened. */
+export function attentionTarget(item: AttentionItem): HubRoute {
   if (item.kind === "sign_off" && item.goalIds[0]) return { screen: "goal", goalId: item.goalIds[0] };
   if (item.kind === "missing_check" && item.checkId) return { screen: "check", checkId: item.checkId };
   if (item.kind === "plan_failed") return { screen: "queue" };
@@ -1005,16 +1002,12 @@ export function inboxTarget(item: InboxItem): HubRoute {
   return { screen: "overview" };
 }
 
-/** Whether an item can be settled with Pass, Fail and Skip where it is. */
-export const settlesInline = (item: InboxItem): boolean => item.kind === "verdict" && !!item.runId && item.step !== undefined;
-
 // ---------- Keyboard ----------
 
 export type HubKeyAction =
-  | { type: "go"; to: "overview" | "inbox" | "library" | "queue" }
+  | { type: "go"; to: "overview" | "library" | "queue" }
   | { type: "next" } | { type: "prev" } | { type: "open" }
   | { type: "run" } | { type: "assign" } | { type: "select" }
-  | { type: "pass" } | { type: "fail" } | { type: "skip" }
   | { type: "filter" } | { type: "help" } | { type: "palette" } | { type: "newGoal" };
 
 export interface HubKey {
@@ -1029,7 +1022,6 @@ export interface HubKey {
 export const HUB_SHORTCUTS: ReadonlyArray<{ keys: string[]; label: string; group: "Move" | "Act" | "Go to" }> = [
   { keys: ["Ctrl K"], label: "Command palette", group: "Go to" },
   { keys: ["g", "o"], label: "Overview", group: "Go to" },
-  { keys: ["g", "i"], label: "Inbox", group: "Go to" },
   { keys: ["g", "l"], label: "Library", group: "Go to" },
   { keys: ["g", "q"], label: "Queue", group: "Go to" },
   { keys: ["j"], label: "Next row", group: "Move" },
@@ -1039,9 +1031,6 @@ export const HUB_SHORTCUTS: ReadonlyArray<{ keys: string[]; label: string; group
   { keys: ["r"], label: "Run the row, or the goal or check on screen", group: "Act" },
   { keys: ["a"], label: "Assign a failing check to a subagent", group: "Act" },
   { keys: ["x"], label: "Select the row", group: "Act" },
-  { keys: ["p"], label: "Pass (inbox)", group: "Act" },
-  { keys: ["f"], label: "Fail with a note (inbox)", group: "Act" },
-  { keys: ["s"], label: "Skip (inbox)", group: "Act" },
   { keys: ["c"], label: "New goal", group: "Act" },
   { keys: ["?"], label: "This list", group: "Act" },
 ];
@@ -1051,12 +1040,11 @@ const SINGLE: Record<string, HubKeyAction> = {
   k: { type: "prev" }, ArrowUp: { type: "prev" },
   Enter: { type: "open" }, o: { type: "open" },
   r: { type: "run" }, a: { type: "assign" }, x: { type: "select" },
-  p: { type: "pass" }, f: { type: "fail" }, s: { type: "skip" },
   "/": { type: "filter" }, "?": { type: "help" }, c: { type: "newGoal" },
 };
 const AFTER_G: Record<string, HubKeyAction> = {
   o: { type: "go", to: "overview" }, g: { type: "go", to: "overview" },
-  i: { type: "go", to: "inbox" }, l: { type: "go", to: "library" }, q: { type: "go", to: "queue" },
+  l: { type: "go", to: "library" }, q: { type: "go", to: "queue" },
 };
 /** A `g` waits this long for its second key. */
 export const CHORD_MS = 1200;
@@ -1122,7 +1110,6 @@ export function paletteEntries(o: Pick<HubOverview, "goals" | "checks" | "recent
     { id: "cmd:run-failing", kind: "command", label: HUB_COPY.runFailing, command: "runFailing" },
     { id: "cmd:run-all", kind: "command", label: "Run every check", command: "runAll" },
     { id: "screen:overview", kind: "screen", label: "Go to Overview", route: { screen: "overview" }, hint: "g o" },
-    { id: "screen:inbox", kind: "screen", label: "Go to Inbox", route: { screen: "inbox" }, hint: "g i" },
     { id: "screen:library", kind: "screen", label: "Go to Library", route: { screen: "library" }, hint: "g l" },
     { id: "screen:queue", kind: "screen", label: "Go to Queue", route: { screen: "queue" }, hint: "g q" },
     { id: "cmd:shortcuts", kind: "command", label: HUB_COPY.shortcuts, command: "shortcuts", hint: "?" },
@@ -1195,14 +1182,11 @@ export function checksNotIn(goal: Goal, all: readonly CheckState[]): CheckState[
   return sortChecks(all.filter((c) => !have.has(c.id)));
 }
 
-/** Default plan options, re-exported for clients that only import client-core. */
-export const HUB_PLAN_DEFAULTS: PlanOptions = DEFAULT_PLAN_OPTIONS;
-
 // ---------- The live viewport ----------
 
 /**
- * The Goal (and Milestone), Check and Run screens and the Inbox each carry a
- * Viewport card. It never connects on its own: collapsed, it says in one line
+ * The Goal (and Milestone), Check and Run screens each carry a Viewport
+ * card. It never connects on its own: collapsed, it says in one line
  * what the editor and Play In Editor are doing, and that one of the screen's
  * checks is running now; expanded, it joins the hub's one viewer and draws the
  * picture, or the viewer's notice with its ways forward. These rules say what
@@ -1216,7 +1200,7 @@ export interface PlayingRun {
   name: string;
 }
 
-/** A run still playing: not ended, and running or waiting on a person mid-run. A verdict deferred past the run's end does not count. */
+/** A run still playing: not ended, and running or holding for a person's verdict. */
 export const runPlaying = (r: Pick<RunRecord, "outcome" | "endedAt">): boolean => !r.endedAt && (r.outcome === "running" || r.outcome === "needs_you");
 
 /**

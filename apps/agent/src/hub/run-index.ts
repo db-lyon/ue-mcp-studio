@@ -28,7 +28,7 @@ import { readLinks } from "./util.js";
 
 /** The most runs kept. */
 export const MAX_RUNS = 5000;
-const OUTCOMES: readonly RunOutcome[] = ["passed", "failed", "needs_you", "running", "incomplete", "stopped", "error"];
+const OUTCOMES: readonly RunOutcome[] = ["passed", "failed", "needs_you", "running", "incomplete", "unjudged", "stopped", "error"];
 const SOURCES: readonly RunSource[] = ["person", "agent", "plan", "schedule", "outside"];
 const KINDS: readonly CheckKind[] = ["script", "uat", "repro", "automation", "manual"];
 

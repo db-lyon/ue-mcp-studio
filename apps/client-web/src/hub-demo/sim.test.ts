@@ -36,13 +36,14 @@ describe("the hub demo's seed", () => {
     expect(goalOf(o, "tutorial-glade").status).toBe("met");
     expect(goalOf(o, "traversal-feel").status).toBe("at_risk");
     expect(goalOf(o, "lantern-combat").status).toBe("failing");
-    expect(goalOf(o, "pause-settings").status).toBe("needs_you");
+    // Its newest run was not judged: no result, so the runs before it speak for the check.
+    expect(goalOf(o, "pause-settings").status).toBe("met");
     expect(goalOf(o, "coop-join").status).toBe("at_risk");
     expect(goalOf(o, "coop-revive").status).toBe("failing");
     expect(goalOf(o, "shared-loot").status).toBe("not_started");
     expect(goalOf(o, "ashwood-perf").status).toBe("needs_you");
     expect(goalOf(o, "save-load").status).toBe("met");
-    expect(goalOf(o, "vertical-slice").status).toBe("needs_you");
+    expect(goalOf(o, "vertical-slice").status).toBe("failing");
     expect(goalOf(o, "vertical-slice").requires.map((r) => r.goal)).toContain("lantern-combat");
     // One goal under both milestones, one check in two goals at different places.
     expect(goalOf(o, "lantern-combat").parents).toEqual(["vertical-slice", "coop-beta"]);
@@ -52,8 +53,8 @@ describe("the hub demo's seed", () => {
     expect(o.checks.find((c) => c.id === jump)?.goalIds).toEqual(["tutorial-glade", "traversal-feel"]);
     expect(goalOf(o, "save-load").unused).toBe(true);
     const health = Object.fromEntries(o.checks.map((c) => [c.name, c.health]));
-    expect(health).toMatchObject({ PT_LedgeGrab: "flaky", PT_Coop_Join_Late: "stale", PT_Revive_Downed_Old: "missing", PT_Revive_Timer: "never_run", PT_Settings_Apply: "needs_you", PT_Stagger_Wisp: "failing", PT_Boss_Phase2: "failing" });
-    expect(o.inbox.map((i) => i.kind)).toEqual(expect.arrayContaining(["verdict", "loop_blocked", "sign_off", "regression", "missing_check"]));
+    expect(health).toMatchObject({ PT_LedgeGrab: "flaky", PT_Coop_Join_Late: "stale", PT_Revive_Downed_Old: "missing", PT_Revive_Timer: "never_run", PT_Settings_Apply: "passing", PT_Stagger_Wisp: "failing", PT_Boss_Phase2: "failing" });
+    expect(o.attention.map((i) => i.kind)).toEqual(expect.arrayContaining(["loop_blocked", "sign_off", "regression", "missing_check"]));
     expect(o.queue.queued).toHaveLength(2);
     expect(o.queue.schedules[0].nextRunAt).toBeTruthy();
   });
@@ -120,35 +121,36 @@ describe("the hub demo's simulation", () => {
     expect(events.some((e) => e.type === "script.run_started")).toBe(true);
     expect(events.some((e) => e.type === "studio.hub.changed")).toBe(true);
     run(40_000);
+    // The first script holds at its manual step: the plan waits for the verdict.
+    const held = call<QueueState>("GET", "/hub/queue").current!;
+    expect(held.items.map((i) => i.state)).toEqual(["needs_you", "queued"]);
+    const runId = held.items[0].runId!;
+    const step = call<RunDetail>("GET", `/hub/runs/${encodeURIComponent(runId)}`).steps.find((s) => s.status === "awaiting_verdict")!.index;
+    call("POST", `/qa/runs/${encodeURIComponent(runId)}/verdict`, { step, verdict: "pass" });
+    run(40_000);
     const after = call<QueueState>("GET", "/hub/queue");
     expect(after.current).toBeNull();
     const done = after.recent.find((p) => p.id === plan.id)!;
     expect(done.state).toBe("done");
-    // The first script's manual step was deferred: it waits in the inbox while the plan moved on.
-    expect(done.items.map((i) => i.state)).toEqual(["needs_you", "passed"]);
+    expect(done.items.map((i) => i.state)).toEqual(["passed", "passed"]);
     const types = events.map((e) => e.type);
     for (const t of ["script.step_started", "script.step_passed", "script.verdict_requested", "script.run_finished"]) expect(types).toContain(t);
   });
 
-  it("settles a verdict and recomputes the goal's status", () => {
-    const { call } = demo();
-    const o = call<HubOverview>("GET", "/hub");
-    const item = o.inbox.find((i) => i.kind === "verdict")!;
-    expect(goalOf(o, "pause-settings").status).toBe("needs_you");
-    call("POST", `/qa/runs/${encodeURIComponent(item.runId!)}/verdict`, { step: item.step, verdict: "pass" });
-    const after = call<HubOverview>("GET", "/hub");
-    expect(after.inbox.find((i) => i.id === item.id)).toBeUndefined();
-    expect(goalOf(after, "pause-settings").status).toBe("met");
-    const detail = call<RunDetail>("GET", `/hub/runs/${encodeURIComponent(item.runId!)}`);
-    expect(detail.record.outcome).toBe("passed");
-    expect(Object.keys(detail.series ?? {}).length).toBeGreaterThan(0);
-  });
-
-  it("holds a blocking plan at a manual step until the verdict comes", () => {
+  it("an unattended plan skips a check that needs a person", () => {
     const { call, run } = demo();
     for (const p of call<QueueState>("GET", "/hub/queue").queued) call("POST", `/hub/plans/${p.id}/cancel`);
     const check = { kind: "script", target: "/Game/PIEStudio/Scripts/Save/PT_Save_Load_Checkpoint" };
-    call("POST", "/hub/plans", { scope: { kind: "checks", checks: [check] }, options: { manualSteps: "block" } });
+    call("POST", "/hub/plans", { scope: { kind: "checks", checks: [check] }, options: { attended: false } });
+    run(5000);
+    expect(call<QueueState>("GET", "/hub/queue").recent[0].items[0]).toMatchObject({ state: "skipped", reason: "needs a person" });
+  });
+
+  it("holds a plan at a manual step until the verdict comes", () => {
+    const { call, run } = demo();
+    for (const p of call<QueueState>("GET", "/hub/queue").queued) call("POST", `/hub/plans/${p.id}/cancel`);
+    const check = { kind: "script", target: "/Game/PIEStudio/Scripts/Save/PT_Save_Load_Checkpoint" };
+    call("POST", "/hub/plans", { scope: { kind: "checks", checks: [check] } });
     run(30_000);
     const q = call<QueueState>("GET", "/hub/queue");
     expect(q.current?.items[0].state).toBe("needs_you");
@@ -171,7 +173,7 @@ describe("the hub demo's simulation", () => {
     // Fixed, with the failure still in its recent runs: flaky until enough passes follow, by the shared rule.
     expect(o.checks.find((c) => c.id === id)!.health).toBe("flaky");
     expect(goalOf(o, "lantern-combat").status).toBe("at_risk");
-    expect(o.inbox.some((i) => i.checkId === id)).toBe(false);
+    expect(o.attention.some((i) => i.checkId === id)).toBe(false);
   });
 
   it("writes playtests for a goal after a short wait", () => {

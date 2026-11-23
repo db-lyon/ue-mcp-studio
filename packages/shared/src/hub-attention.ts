@@ -1,27 +1,28 @@
 /**
- * The Playtest Hub's inbox: everything that waits for a person, worked out
- * from what the hub already knows, never stored. Verdicts waiting and loops
- * blocked come from the playtest runs; regressions and missing checks from
- * the checks' history; sign-offs from the goals; failed plans from the queue.
- * Ids stay the same while the thing waits, so a client can keep its place.
- * The agent serves it, and the hub demo answers with the same rule.
+ * The Playtest Hub's Needs attention list: what waits for a person and does
+ * not depend on a game playing now, worked out from what the hub already
+ * knows, never stored. Blocked loops come from the playtest runs;
+ * regressions and missing checks from the checks' history; sign-offs from
+ * the goals; failed plans from the queue. Ids stay the same while the thing
+ * waits, so a client can keep its place. The agent serves it, and the hub
+ * demo answers with the same rule.
  */
 import {
-  INBOX_ORDER,
+  ATTENTION_ORDER,
   RESULT_OUTCOMES,
   checkId,
   needsSignOff,
+  type AttentionItem,
   type CheckState,
   type GoalState,
-  type InboxItem,
   type PlanRun,
 } from "./hub.js";
-import { qaIsDraft, qaScriptKey, type QaRun } from "./qa.js";
+import { qaScriptKey, type QaRun } from "./qa.js";
 
-/** How long a failed plan stays in the inbox. */
+/** How long a failed plan stays on the list. */
 export const PLAN_FAILED_DAYS = 3;
 
-export interface InboxInput {
+export interface AttentionInput {
   runs: QaRun[];
   goals: GoalState[];
   checks: CheckState[];
@@ -29,36 +30,10 @@ export interface InboxInput {
   now: number;
 }
 
-export function buildInbox(i: InboxInput): InboxItem[] {
+export function buildAttention(i: AttentionInput): AttentionItem[] {
   const goalsOf = new Map(i.checks.map((c) => [c.id, c.goalIds]));
   const scriptGoals = (script: string) => goalsOf.get(checkId({ kind: "script", target: qaScriptKey(script) })) ?? [];
-  const out: InboxItem[] = [];
-
-  // A check's newest run supersedes its older ones: their unjudged steps are history, not work for a person.
-  const newest = new Map<string, QaRun>();
-  for (const run of i.runs) {
-    if (qaIsDraft(run) || run.deleted || run.script === "inline") continue;
-    const cid = checkId({ kind: "script", target: qaScriptKey(run.script) });
-    const had = newest.get(cid);
-    if (!had || run.seenAt > had.seenAt) newest.set(cid, run);
-  }
-  for (const [cid, run] of newest) {
-    for (const step of run.steps) {
-      if (step.status !== "awaiting_verdict") continue;
-      out.push({
-        id: `verdict:${run.runId}:${step.index}`,
-        kind: "verdict",
-        at: run.seenAt,
-        title: run.scriptName,
-        detail: `Step ${step.index + 1} waits for a verdict`,
-        goalIds: scriptGoals(run.script),
-        runId: run.runId,
-        step: step.index,
-        instruction: step.instruction,
-        checkId: cid,
-      });
-    }
-  }
+  const out: AttentionItem[] = [];
 
   // A loop is carried by every card its attempts took: the newest carrier speaks for it.
   const loops = new Map<string, QaRun>();
@@ -134,6 +109,6 @@ export function buildInbox(i: InboxInput): InboxItem[] {
     });
   }
 
-  const rank = (k: InboxItem["kind"]) => INBOX_ORDER.indexOf(k);
+  const rank = (k: AttentionItem["kind"]) => ATTENTION_ORDER.indexOf(k);
   return out.sort((a, b) => rank(a.kind) - rank(b.kind) || (a.at < b.at ? -1 : a.at > b.at ? 1 : a.id < b.id ? -1 : 1));
 }

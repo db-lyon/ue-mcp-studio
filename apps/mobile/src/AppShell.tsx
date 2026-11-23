@@ -41,6 +41,7 @@ import { CompatBanner } from "./native/CompatBanner";
 import { useDeviceOnline } from "./native/online";
 import { OFFLINE_STRIP } from "./views/OfflineBanner";
 import { FileViewerProvider } from "./chat/FileViewer";
+import { HeldBar, HeldContext, useHeld } from "./held";
 // Ways out of the project the drawer offers at all times: the projects list and pairing.
 import { Exits } from "./exits";
 
@@ -169,6 +170,8 @@ function Studio({ daemon, initial, onBack, device }: { daemon: ReturnType<typeof
   const playtests = usePlaytestIndex(daemon);
   const playtestsWaiting = (playtests.index?.playtests ?? []).filter((e) => playtestMatches(e, "needs-you")).length;
   const openPlaytest = (sessionId: string) => openChat(sessionId);
+  // Runs holding at a manual step for a verdict, PIE paused: the bar under the top bar, and the cards' Resume and watch.
+  const held = useHeld(daemon);
   // The chat stays mounted once shown, parked while another tab is up, so coming back finds the same session and draft.
   const chatShown = useRef(tab === "Chat");
   if (tab === "Chat") chatShown.current = true;
@@ -177,6 +180,7 @@ function Studio({ daemon, initial, onBack, device }: { daemon: ReturnType<typeof
 
   return (
     <PieStatusContext.Provider value={pie}>
+    <HeldContext.Provider value={held}>
     <View style={s.app}>
       {/* body's glow over --bg, under everything; the bar's --bar-bg reads over it as the web's blurred bar does. */}
       <PageGlow top={insets.top} />
@@ -204,6 +208,7 @@ function Studio({ daemon, initial, onBack, device }: { daemon: ReturnType<typeof
         </Banner>
       ) : null}
       <DialogBanner daemon={daemon} />
+      <HeldBar value={held} onOpenCard={(h) => h.sessionId && openChat(h.sessionId)} onWatchLive={watchLive} />
       <VersionNotice daemon={daemon} />
       {/* A landscape navigation bar's side; each view pads the end of its own scrolling by the bottom one. */}
       <View style={[s.stage, { paddingLeft: insets.left, paddingRight: insets.right }]}>
@@ -254,6 +259,7 @@ function Studio({ daemon, initial, onBack, device }: { daemon: ReturnType<typeof
       </NavDrawer>
       {feedback ? <FeedbackDialog onClose={() => setFeedback(false)} /> : null}
     </View>
+    </HeldContext.Provider>
     </PieStatusContext.Provider>
   );
 }

@@ -3,9 +3,11 @@
  * "nightly at 02:00". A schedule is a person's standing instruction, so it
  * runs under the Manual playtest-runs setting too. It runs only when the
  * editor is up and the queue idle; otherwise the run is skipped and the
- * reason recorded. Schedules are kept with the queue (queue.ts).
+ * reason recorded. Nobody is there to judge unless the schedule says so
+ * (options.attended), so its plans skip checks that need a person. Schedules
+ * are kept with the queue (queue.ts).
  */
-import { DEFAULT_PLAN_OPTIONS, type Schedule, type ScheduleDraft } from "@ue-mcp-studio/shared";
+import { planOptionsFor, type Schedule, type ScheduleDraft } from "@ue-mcp-studio/shared";
 import { bad, isObject } from "./util.js";
 import { planOptionsOf, scopeOf } from "./scope.js";
 
@@ -39,7 +41,7 @@ export function scheduleDraftOf(body: unknown): ScheduleDraft {
   return {
     title: body.title.trim().slice(0, 200),
     scope: scopeOf(body.scope),
-    options: planOptionsOf(body.options, DEFAULT_PLAN_OPTIONS),
+    options: planOptionsOf(body.options, planOptionsFor("schedule")),
     at: body.at,
     days: daysOf(body.days),
     enabled: body.enabled !== false,

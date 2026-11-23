@@ -12,18 +12,20 @@
 import {
   CHECK_HEALTH_ORDER,
   DEFAULT_ACCEPTANCE,
-  DEFAULT_PLAN_OPTIONS,
   GOAL_ID,
   HUB_CHANGED,
   HUB_GOALS_DIR,
   HUB_SCHEMA,
-  buildInbox,
+  NEEDS_PERSON,
+  buildAttention,
   checkId,
   checkStateOf,
   goalChecksDeep,
   goalSlug,
   leafName,
   loopIfRequired,
+  needsPerson,
+  planOptionsFor,
   requiresOf,
   rollUpGoals,
   outcomeOf,
@@ -45,7 +47,7 @@ import {
   type GoalUpdate,
   type HubChangedWhat,
   type HubOverview,
-  type InboxItem,
+  type AttentionItem,
   type PlanItem,
   type PlanRequest,
   type PlanRun,
@@ -348,7 +350,7 @@ export class HubDemo {
       goalsDir: HUB_GOALS_DIR,
       goals,
       checks,
-      inbox: this.inbox(goals, checks),
+      attention: this.attention(goals, checks),
       queue: this.queueState(),
       recent: this.state.runs.slice(0, 30),
       editor: { connected: this.state.editor },
@@ -361,9 +363,9 @@ export class HubDemo {
     return { paused: s.paused, current: s.current, queued: s.queued, recent: s.recent.slice(0, 20), schedules: s.schedules, editor: { connected: s.editor } };
   }
 
-  /** The agent's own inbox rule, over the demo's runs. */
-  private inbox(goals: GoalState[], checks: CheckState[]): InboxItem[] {
-    return buildInbox({ runs: Object.values(this.state.qa), goals, checks, plans: this.state.recent, now: this.now() });
+  /** The agent's own Needs attention rule, over the demo's runs. */
+  private attention(goals: GoalState[], checks: CheckState[]): AttentionItem[] {
+    return buildAttention({ runs: Object.values(this.state.qa), goals, checks, plans: this.state.recent, now: this.now() });
   }
 
   private page(runs: RunRecord[], q: URLSearchParams): { runs: RunRecord[]; more: boolean } {
@@ -724,7 +726,7 @@ export class HubDemo {
       if (rest.length) x.requires = rest;
       else delete x.requires;
     }
-    this.hubChanged(["goals", "checks", "inbox"], { goalId: id });
+    this.hubChanged(["goals", "checks", "attention"], { goalId: id });
     return ok(undefined, 204);
   }
 
@@ -743,7 +745,7 @@ export class HubDemo {
     const g = this.goal(id);
     if (!g) return refuse(404, "No such goal");
     g.checks = g.checks.filter((c) => checkId(c) !== cid);
-    return this.touch(g, ["goals", "checks", "inbox"]);
+    return this.touch(g, ["goals", "checks", "attention"]);
   }
 
   /** PUT /hub/goals/:id/checks/:checkId: one check's title, required or links. */
@@ -786,7 +788,7 @@ export class HubDemo {
     const g = this.goal(id);
     if (!g) return refuse(404, "No such goal");
     g.signOff = clear ? null : { by: DEMO_USER, at: iso(this.now()), ...(note ? { note } : {}) };
-    return this.touch(g, ["goals", "inbox"]);
+    return this.touch(g, ["goals", "attention"]);
   }
 
   private writePlaytests(id: string): DemoAnswer {
@@ -842,7 +844,7 @@ export class HubDemo {
     const sc = this.script(path);
     if (!sc || sc.missing) return refuse(404, "No such script");
     sc.missing = true;
-    this.hubChanged(["checks", "goals", "inbox"]);
+    this.hubChanged(["checks", "goals", "attention"]);
     return by === "run" ? ok({ run: { ...this.draftOf(sc), deleted: true } }) : ok({ script: sc.path });
   }
 
@@ -901,7 +903,7 @@ export class HubDemo {
       id: `plan-${this.state.counter++}`,
       title: req.title?.trim() || this.planTitle(req.scope, refs),
       scope: req.scope,
-      options: { ...DEFAULT_PLAN_OPTIONS, ...req.options },
+      options: { ...planOptionsFor(trigger), ...req.options },
       state: "queued",
       items,
       trigger,
@@ -990,6 +992,13 @@ export class HubDemo {
       this.hubChanged(["queue"], { planRunId: cur.id });
       return;
     }
+    // The agent's rule: nobody is there to judge a manual step, so the check does not start.
+    if (!cur.options.attended && needsPerson(sc.steps)) {
+      item.state = "skipped";
+      item.reason = NEEDS_PERSON;
+      this.hubChanged(["queue"], { planRunId: cur.id });
+      return;
+    }
     item.state = "running";
     item.startedAt = iso(this.now());
     item.runId = this.startRun(sc, cur.trigger === "schedule" ? "schedule" : "plan", cur).runId;
@@ -1001,7 +1010,7 @@ export class HubDemo {
     cur.endedAt = iso(this.now());
     s.current = null;
     s.recent = [cur, ...s.recent].slice(0, 20);
-    this.hubChanged(["queue", "inbox"], { planRunId: cur.id });
+    this.hubChanged(["queue", "attention"], { planRunId: cur.id });
   }
 
   /** Where a plan's item stands now its run has moved. */
@@ -1011,7 +1020,7 @@ export class HubDemo {
     for (const p of [this.state.current, ...this.state.recent]) {
       const it = p?.items.find((i) => i.runId === runId);
       if (!p || !it || it.state === "cancelled" || it.state === "error") continue;
-      it.state = rec.outcome === "passed" ? "passed" : rec.outcome === "failed" ? "failed" : rec.outcome === "needs_you" ? "needs_you" : rec.outcome === "running" ? "running" : "error";
+      it.state = rec.outcome === "passed" || rec.outcome === "failed" || rec.outcome === "needs_you" || rec.outcome === "running" || rec.outcome === "unjudged" ? rec.outcome : "error";
       if (rec.endedAt) it.endedAt = rec.endedAt;
       if (it.state === "failed" && p === this.state.current && p.options.stopOnFailure) {
         for (const rest of p.items) if (rest.state === "queued") {
@@ -1042,7 +1051,7 @@ export class HubDemo {
 
   private createSchedule(d: ScheduleDraft): DemoAnswer {
     if (!d?.title?.trim() || !/^\d{2}:\d{2}$/.test(d.at ?? "") || !Array.isArray(d.days) || !d.scope?.kind) return refuse(400, "A schedule needs a title, a time (HH:MM), days and a scope");
-    const sch: Schedule = { id: `sched-${this.state.counter++}`, title: d.title.trim(), scope: d.scope, options: { ...DEFAULT_PLAN_OPTIONS, ...d.options }, at: d.at, days: d.days, enabled: d.enabled !== false, lastRunAt: null, lastSkipped: null, nextRunAt: null };
+    const sch: Schedule = { id: `sched-${this.state.counter++}`, title: d.title.trim(), scope: d.scope, options: { ...planOptionsFor("schedule"), ...d.options }, at: d.at, days: d.days, enabled: d.enabled !== false, lastRunAt: null, lastSkipped: null, nextRunAt: null };
     sch.nextRunAt = demoNextRun(sch, this.now());
     this.state.schedules.push(sch);
     this.hubChanged(["queue"]);
@@ -1079,7 +1088,7 @@ export class HubDemo {
     const rec: RunRecord = { runId, kind: "script", target: sc.path, name: sc.name, outcome: "running", startedAt: iso(now), endedAt: null, durationMs: null, summary: run.summary, failedSteps: [], source, sessionId: null, planRunId: plan?.id ?? null, replayOf: null, recordingId: null, map: sc.map };
     s.runs.unshift(rec);
     s.qa[runId] = run;
-    s.live = { runId, nextAt: now + this.ms(900), planId: plan?.id ?? null, manualSteps: plan?.options.manualSteps ?? "defer", blocked: false };
+    s.live = { runId, nextAt: now + this.ms(900), planId: plan?.id ?? null, blocked: false };
     this.scriptEvent(run, "run_started", { resultsPath: run.resultsPath });
     this.qaChanged(run);
     this.hubChanged(["runs", "checks", "goals", "queue"], { runId, ...(plan ? { planRunId: plan.id } : {}) });
@@ -1113,11 +1122,10 @@ export class HubDemo {
         this.refresh(run);
         this.scriptEvent(run, passed ? "step_passed" : "step_failed", { step: { ...going } });
       } else {
+        // The run holds at the step until its verdict, as ue-mcp's do.
         going.status = "awaiting_verdict";
-        if (live.manualSteps === "block") {
-          run.state = "awaiting_verdict";
-          live.blocked = true;
-        }
+        run.state = "awaiting_verdict";
+        live.blocked = true;
         this.refresh(run);
         this.scriptEvent(run, "verdict_requested", { awaiting: [{ index: going.index, instruction: going.instruction }] });
       }
@@ -1125,7 +1133,7 @@ export class HubDemo {
       this.syncRecord(run.runId);
       this.syncItem(run.runId);
       this.qaChanged(run);
-      this.hubChanged(going.status === "awaiting_verdict" ? ["runs", "checks", "goals", "inbox"] : ["runs", "checks"], { runId: run.runId });
+      this.hubChanged(going.status === "awaiting_verdict" ? ["runs", "checks", "goals", "attention"] : ["runs", "checks"], { runId: run.runId });
       return;
     }
     const next = run.steps.find((x) => x.status === "pending");
@@ -1166,7 +1174,7 @@ export class HubDemo {
       }
     }
     this.qaChanged(run);
-    this.hubChanged(["runs", "checks", "goals", "inbox", "queue"], { runId: run.runId, ...(live.planId ? { planRunId: live.planId } : {}) });
+    this.hubChanged(["runs", "checks", "goals", "attention", "queue"], { runId: run.runId, ...(live.planId ? { planRunId: live.planId } : {}) });
   }
 
   /** Recount a run's summary and waiting steps. */
@@ -1216,7 +1224,7 @@ export class HubDemo {
     this.syncRecord(runId);
     this.syncItem(runId);
     this.qaChanged(run);
-    this.hubChanged(["runs", "checks", "goals", "inbox", "queue"], { runId });
+    this.hubChanged(["runs", "checks", "goals", "attention", "queue"], { runId });
     return ok({ run });
   }
 
@@ -1270,7 +1278,7 @@ export class HubDemo {
     s.loopQueue.push(runId);
     this.pumpLoops();
     this.qaChanged(run);
-    this.hubChanged(["runs", "checks", "inbox"], { runId });
+    this.hubChanged(["runs", "checks", "attention"], { runId });
     return ok({ run });
   }
 
@@ -1318,7 +1326,7 @@ export class HubDemo {
     run.assignment = { ...run.assignment!, state: "done" };
     this.pumpLoops();
     this.qaChanged(run);
-    this.hubChanged(["runs", "checks", "goals", "inbox"], { runId });
+    this.hubChanged(["runs", "checks", "goals", "attention"], { runId });
   }
 
   /** The run a successful fix loop made: every step passed. */
@@ -1347,7 +1355,7 @@ export class HubDemo {
       this.pumpLoops();
     }
     this.qaChanged(run);
-    this.hubChanged(["runs", "checks", "inbox"], { runId });
+    this.hubChanged(["runs", "checks", "attention"], { runId });
     return ok({ run });
   }
 

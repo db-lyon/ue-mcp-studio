@@ -1,7 +1,8 @@
 /**
  * The Playtest Hub's service: goals (goals.ts), run history (run-index.ts),
- * the plan queue and schedules (queue.ts, schedules.ts) and the inbox
- * (inbox.ts), put together into the answers HUB_ROUTES name. Status is worked
+ * the plan queue and schedules (queue.ts, schedules.ts) and the Needs
+ * attention list (shared buildAttention), put together into the answers
+ * HUB_ROUTES name. Status is worked
  * out on every read with the shared rules (checkHealth, goalStatus), never
  * stored.
  *
@@ -18,9 +19,11 @@
 import type { ActionResult } from "ue-mcp/daemon";
 import {
   DEFAULT_ACCEPTANCE,
-  DEFAULT_PLAN_OPTIONS,
+  NEEDS_PERSON,
   RUNNABLE_KINDS,
-  buildInbox,
+  buildAttention,
+  needsPerson,
+  planOptionsFor,
   TRACKER_LINKS_MAX,
   checkId,
   checkStateOf,
@@ -89,7 +92,7 @@ export interface HubHost {
 
 export interface HubOptions {
   host: HubHost;
-  broker: Pick<QaBroker, "all" | "get" | "onSaved" | "runScript" | "status" | "assign" | "readScriptAt" | "drafted">;
+  broker: Pick<QaBroker, "all" | "get" | "onSaved" | "runScript" | "status" | "assign" | "readScriptAt" | "drafted" | "setPlanWait">;
   index: Pick<PlaytestIndex, "listScripts" | "recorded">;
   store: Pick<SessionStore, "create" | "get" | "all">;
   /** The Playtest runs setting: an agent's plan runs only under Automatic. */
@@ -141,8 +144,8 @@ export class Hub {
   constructor(private readonly o: HubOptions) {
     this.now = o.now ?? Date.now;
     const iso = () => new Date(this.now()).toISOString();
-    this.goals = new GoalStore({ projectDir: o.host.projectDir, dir: o.goalsDir, now: iso, changed: (goalId) => this.changed(["goals", "checks", "inbox"], { goalId }), log: o.host.log });
-    this.runs = new RunIndex({ dataDir: o.host.dataDir, now: iso, changed: (runId) => this.changed(["runs", "checks", "goals", "inbox"], { runId }), log: o.host.log });
+    this.goals = new GoalStore({ projectDir: o.host.projectDir, dir: o.goalsDir, now: iso, changed: (goalId) => this.changed(["goals", "checks", "attention"], { goalId }), log: o.host.log });
+    this.runs = new RunIndex({ dataDir: o.host.dataDir, now: iso, changed: (runId) => this.changed(["runs", "checks", "goals", "attention"], { runId }), log: o.host.log });
     this.queue = new PlanQueue({
       dataDir: o.host.dataDir,
       now: iso,
@@ -157,11 +160,13 @@ export class Hub {
       changed: (planRunId) => this.changed(["queue"], { planRunId }),
       finished: (plan) => {
         this.planSessions.delete(plan.id);
-        if (plan.state === "failed") this.changed(["inbox"], { planRunId: plan.id });
+        if (plan.state === "failed") this.changed(["attention"], { planRunId: plan.id });
       },
       enabled: () => this.o.enabled(),
       log: o.host.log,
     });
+    // A plan's own verdict wait applies to the runs it starts.
+    o.broker.setPlanWait((run) => this.queue.planOf(run.runId)?.options.verdictWaitMinutes);
     // Every run Studio holds now, so history starts with what the cards show.
     for (const run of o.broker.all()) this.runs.record(run);
     this.unsubscribe.push(o.broker.onSaved((run) => this.saw(run)));
@@ -273,8 +278,8 @@ export class Hub {
         this.note(`the playtest written for ${goalId} could not be added to it: ${e instanceof Error ? e.message : String(e)}`);
       }
     }
-    // Drafts, verdicts and loops change the inbox without a run record changing.
-    if (qaIsDraft(run) || run.assignment) this.changed(["inbox", "checks"], { runId: run.runId });
+    // Drafts and loops change the list without a run record changing.
+    if (qaIsDraft(run) || run.assignment) this.changed(["attention", "checks"], { runId: run.runId });
     if (run.assignment && run.assignment.state !== "running") {
       void this.pumpAssign();
       void this.queue.pump();
@@ -409,7 +414,7 @@ export class Hub {
       goalsDir: this.goals.relDir,
       goals,
       checks,
-      inbox: buildInbox({ runs: this.o.broker.all(), goals, checks, plans: this.queue.state().recent, now: this.now() }),
+      attention: buildAttention({ runs: this.o.broker.all(), goals, checks, plans: this.queue.state().recent, now: this.now() }),
       queue: this.queueState(),
       recent: this.runs.all().slice(0, 30),
       editor: { connected: cat.connected },
@@ -604,7 +609,7 @@ export class Hub {
     // A person's plan, and a schedule a person set, are the user's runs; an agent's only under Automatic.
     if (trigger === "agent" && this.o.playtestRuns() === "manual") throw conflict("Playtest runs are set to Manual: an agent cannot start a plan");
     const scope = scopeOf(body.scope);
-    const options = planOptionsOf(body.options, DEFAULT_PLAN_OPTIONS);
+    const options = planOptionsOf(body.options, planOptionsFor(trigger));
     const refs = await this.expand(scope);
     if (refs.length === 0) throw conflict("nothing to run: the plan's scope has no checks");
     const cat = await this.catalog();
@@ -656,20 +661,24 @@ export class Hub {
     const script = item.check.target;
     const listed = this.connected() ? await this.o.index.listScripts().catch(() => null) : null;
     if (listed && !listed.some((s) => s.path === script)) return { skipped: "the script no longer exists in the project" };
+    // A manual step needs someone watching it play. A replay is no way around that: it would copy an old run's verdict.
+    if (!plan.options.attended) {
+      const read = await this.o.broker.readScriptAt(script);
+      if ("error" in read) return { error: `the script could not be read: ${read.error}` };
+      if (needsPerson(read.run.steps)) return { skipped: NEEDS_PERSON };
+    }
     const card = await this.cardFor(script, plan.id, `Plan: ${plan.title}`);
     if ("error" in card) return card;
     const tag = { source: plan.trigger === "schedule" ? "schedule" as const : "plan" as const, planRunId: plan.id };
-    if (plan.options.replay && this.o.replay && card.sessionId) {
-      const src = this.runs.byCheck(checkId(item.check)).find((r) => r.recordingId && r.outcome !== "running" && r.outcome !== "needs_you");
-      if (src) {
-        const r = await this.o.replay(card.sessionId, { run_id: src.recordingId ?? src.runId });
-        const body = answerOf(r);
-        if (!body || typeof body.run_id !== "string") return { error: `the replay did not start: ${failureOf(r) ?? "ue-mcp started no run"}` };
-        this.runs.tag(body.run_id, tag);
-        return { runId: body.run_id };
-      }
+    const src = plan.options.replay && this.o.replay ? this.runs.byCheck(checkId(item.check)).find((r) => r.recordingId && r.outcome !== "running" && r.outcome !== "needs_you") : undefined;
+    if (src && this.o.replay && card.sessionId) {
+      const r = await this.o.replay(card.sessionId, { run_id: src.recordingId ?? src.runId });
+      const body = answerOf(r);
+      if (!body || typeof body.run_id !== "string") return { error: `the replay did not start: ${failureOf(r) ?? "ue-mcp started no run"}` };
+      this.runs.tag(body.run_id, tag);
+      return { runId: body.run_id };
     }
-    const r = await this.o.broker.runScript(card.runId, { startPie: true, unattended: plan.options.manualSteps === "defer" });
+    const r = await this.o.broker.runScript(card.runId, { startPie: true });
     if ("error" in r) return { error: r.error };
     this.runs.tag(r.run.runId, tag);
     return { runId: r.run.runId };
@@ -775,7 +784,7 @@ export class Hub {
     const running = new Set(this.o.broker.all().filter((r) => r.assignment?.state === "running").map((r) => qaScriptKey(r.script)));
     const fresh = scripts.filter((s) => !running.has(s));
     this.assignQueue.push(...fresh);
-    if (fresh.length) this.changed(["queue", "inbox"]);
+    if (fresh.length) this.changed(["queue", "attention"]);
     void this.pumpAssign();
     return { queued: fresh.length };
   }

@@ -3,7 +3,7 @@
  * editor's busy state and start, stop, restart and rebuild, the project's
  * flows, the verdict forms a playtest raises, and asset links. studioApi includes them.
  */
-import type { AssetOpenResponse, AssetRef, AssetResolveResponse, BusyState, FlowListing, FlowRunRequest, PendingForm, PlaytestIndexAnswer, QaRun, QaScriptStep, QaVerdict, RestoreOutcome } from "@ue-mcp-studio/shared";
+import type { AssetOpenResponse, AssetRef, AssetResolveResponse, BusyState, FlowListing, FlowRunRequest, PendingForm, PlaytestIndexAnswer, QaHeld, QaRun, QaScriptStep, QaVerdict, RestoreOutcome } from "@ue-mcp-studio/shared";
 import { requestJson, type Transport } from "./transport.js";
 import { playtestsQuery } from "./qa.js";
 import type { EditorOp } from "./editor.js";
@@ -42,6 +42,8 @@ export function projectApi(t: Transport) {
     qaCancelAssign: (runId: string) => send<{ run: QaRun }>("DELETE", `${runPath(runId)}/assign`),
     qaRevertLoop: (runId: string, attempt?: number) => send<{ run: QaRun; outcome: RestoreOutcome }>("POST", `${runPath(runId)}/loop/revert`, attempt === undefined ? {} : { attempt }),
     qaStop: (runId: string) => send<{ run: QaRun }>("POST", `${runPath(runId)}/stop`),
+    qaHeld: () => get<{ held: QaHeld[] }>(`${S}/qa/held`),
+    qaResume: (runId: string) => send<{ held: QaHeld }>("POST", `${runPath(runId)}/resume`),
     qaRun: (runId: string, options: RunOptions) => send<{ run: QaRun }>("POST", `${runPath(runId)}/run`, options),
     qaSaveScript: (runId: string, steps: QaScriptStep[], map?: string) => send<{ run: QaRun }>("PUT", `${runPath(runId)}/script`, { steps, ...(map !== undefined ? { map } : {}) }),
     qaDeleteScript: (runId: string) => send<{ run: QaRun }>("DELETE", `${runPath(runId)}/script`),

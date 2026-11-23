@@ -80,7 +80,7 @@ export function Kbd({ children }: { children: ReactNode }) {
 
 const ICON_PATHS = {
   overview: "M2.5 2.5h4.5v4.5H2.5zM9 2.5h4.5v4.5H9zM2.5 9h4.5v4.5H2.5zM9 9h4.5v4.5H9z",
-  inbox: "M2.5 9.5 4 3.5h8l1.5 6v3a1 1 0 0 1-1 1h-9a1 1 0 0 1-1-1zM2.5 9.5h3.2l.8 1.6h3l.8-1.6h3.2",
+  attention: "M2.5 9.5 4 3.5h8l1.5 6v3a1 1 0 0 1-1 1h-9a1 1 0 0 1-1-1zM2.5 9.5h3.2l.8 1.6h3l.8-1.6h3.2",
   library: "M3 3h2.5v10H3zM7 3h2.5v10H7zM11 3.5l2.3-.6 2 9.6-2.3.5z",
   queue: "M3 4h10M3 8h10M3 12h6M12 10.5l2 1.5-2 1.5z",
   goal: "M8 14.5a6.5 6.5 0 1 0 0-13 6.5 6.5 0 0 0 0 13zM8 11a3 3 0 1 0 0-6 3 3 0 0 0 0 6z",

@@ -1,15 +1,17 @@
 /**
  * What Studio keeps about this project's playtests that ue-mcp's scripts do
  * not hold: who may start a run (the Playtest runs setting, manual or
- * automatic) and the player each step is for. One file in the extension's
+ * automatic), how long a run waits for a verdict, and the player each step
+ * is for. One file in the extension's
  * per-project data directory.
  */
 import * as fs from "node:fs";
 import * as path from "node:path";
-import { qaScriptKey, type PlaytestRunsMode } from "@ue-mcp-studio/shared";
+import { QA_VERDICT_WAIT_MINUTES, qaScriptKey, qaVerdictWaitValid, type PlaytestRunsMode } from "@ue-mcp-studio/shared";
 
 interface Saved {
   runs?: PlaytestRunsMode;
+  verdictWait?: number;
   players?: Record<string, Record<string, string>>;
 }
 
@@ -33,6 +35,16 @@ export class PlaytestStore {
 
   setRuns(mode: PlaytestRunsMode): void {
     this.data.runs = mode;
+    this.write();
+  }
+
+  /** Wait for a verdict: how many minutes a run holds at a manual step before it is stopped. */
+  verdictWaitMinutes(): number {
+    return qaVerdictWaitValid(this.data.verdictWait) ? this.data.verdictWait : QA_VERDICT_WAIT_MINUTES;
+  }
+
+  setVerdictWait(minutes: number): void {
+    this.data.verdictWait = minutes;
     this.write();
   }
 

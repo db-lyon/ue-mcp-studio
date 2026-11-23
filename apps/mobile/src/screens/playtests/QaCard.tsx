@@ -11,6 +11,7 @@ import { lhOf } from "./live";
 import { Fragment, useContext, useEffect, useRef, useState, type ReactNode } from "react";
 import { Alert, Platform, Pressable, ScrollView, View, type ViewStyle, Text } from "react-native";
 import {
+  HELD_COPY,
   QA_VERDICTS,
   STARTING,
   WITHOUT_CHECKPOINTS_QUESTION,
@@ -43,6 +44,7 @@ import {
 import { assetLinkTarget, qaAgentMayJudge, qaAgentVerdict, qaIsDraft, qaSummaryOf, qaVerdictForm, type PendingForm, type QaRun, type QaScriptStep, type QaStep, type QaVerdict } from "@ue-mcp-studio/shared";
 import { useProjectNav } from "../../nav";
 import { PieLiveContext } from "../../chat/PieLive";
+import { useHeldRun } from "../../held";
 import { Banner, CardTint, T, bannerText, font, italic, labelFont, lineBox, monoNormal, useStyles, useTheme, type Theme } from "../../ui";
 import { Chevron } from "../../ui/glyphs";
 import { RevealContext, useLiveRun, useQaLive, type Measurable } from "./live";
@@ -73,6 +75,19 @@ export function useSavedScript(script: string | undefined, after: () => void = (
       after();
     },
   };
+}
+
+/** Resume and watch, while the run holds at this step with Play In Editor paused (client-web chat/Qa.tsx ResumeWatch). */
+function ResumeWatch({ runId, step }: { runId: string; step: number }) {
+  const h = useHeldRun(runId);
+  const [busy, setBusy] = useState(false);
+  if (!h || h.held.step !== step || !h.held.paused) return null;
+  return (
+    <SmallButton title={HELD_COPY.resume} label={HELD_COPY.resumeHelp} disabled={busy} onPress={() => {
+      setBusy(true);
+      h.resume().catch(() => undefined).finally(() => setBusy(false));
+    }} />
+  );
 }
 
 function PillView({ pill, label }: { pill: PillState; label?: string }) {
@@ -412,6 +427,7 @@ export function QaCard({ run: saved, form: own, onDismiss, actions: outside, met
               />
             ) : (
               <View style={s.verdict}>
+                <ResumeWatch runId={run.runId} step={askBox.index} />
                 {QA_VERDICTS.map((v) => verdictButton(askBox, v, () => (v.verdict === "fail" ? setFailing({ index: askBox.index, via: "box" }) : decide(askBox, v.verdict)), { disabled: off }))}
                 {waiting.length > 1 ? <SmallButton title={`+${waiting.length - 1} more`} label={waiting.length === 2 ? "1 more step needs you" : `${waiting.length - 1} more steps need you`} onPress={() => openAt(askBox.index)} /> : null}
               </View>
@@ -529,6 +545,7 @@ export function QaCard({ run: saved, form: own, onDismiss, actions: outside, met
                     ) : null}
                     {verdictable && !failBox && askBox?.index !== step.index ? (
                       <View style={[s.inset, s.verdict]}>
+                        <ResumeWatch runId={run.runId} step={step.index} />
                         {QA_VERDICTS.map((v) =>
                           verdictButton(step, v, () => (v.verdict === "fail" ? setFailing({ index: step.index, via: "verdict" }) : decide(step, v.verdict)), {
                             picked: picked[step.index] === v.verdict || busy === v.verdict,

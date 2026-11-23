@@ -2,6 +2,7 @@
 import { describe, expect, it } from "vitest";
 import {
   DEFAULT_ACCEPTANCE,
+  RESULT_OUTCOMES,
   checkHealth,
   checkId,
   checkSatisfied,
@@ -88,8 +89,10 @@ describe("checkHealth", () => {
     expect(checkHealth({ check: script, runs: runs("incomplete"), now: NOW })).toBe("failing");
   });
 
-  it("a stopped run is no result: the run before it speaks for the check", () => {
+  it("a stopped or unjudged run is no result: the run before it speaks for the check", () => {
     expect(checkHealth({ check: script, runs: runs("stopped", "passed"), now: NOW })).toBe("passing");
+    expect(checkHealth({ check: script, runs: runs("unjudged", "passed"), now: NOW })).toBe("passing");
+    expect(checkSatisfied(runs("unjudged", "passed"), DEFAULT_ACCEPTANCE)).toBe(true);
     expect(checkHealth({ check: script, runs: runs("stopped", "failed"), now: NOW })).toBe("failing");
     expect(checkHealth({ check: script, runs: runs("stopped"), now: NOW })).toBe("never_run");
   });
@@ -287,9 +290,13 @@ describe("outcomeOf", () => {
   const step = (status: QaStep["status"], judge: QaStep["judge"] = "auto"): QaStep => ({ index: 0, instruction: "", judge, status });
   const run = (state: Parameters<typeof outcomeOf>[0]["state"], steps: QaStep[]) => outcomeOf({ state, steps: steps.map((s, index) => ({ ...s, index })), summary: undefined as never });
 
-  it("needs you while a step waits, even on an ended run", () => {
+  it("needs you while a live run waits for a verdict; not judged, no result, once it ended without one", () => {
     expect(run("awaiting_verdict", [step("passed"), step("awaiting_verdict", "manual")])).toBe("needs_you");
-    expect(run("stopped", [step("passed"), step("awaiting_verdict", "manual")])).toBe("needs_you");
+    expect(run("stopped", [step("passed"), step("awaiting_verdict", "manual"), step("pending")])).toBe("unjudged");
+    expect(run("finished", [step("passed"), step("awaiting_verdict", "manual")])).toBe("unjudged");
+    // A failure before the hold still makes the run failed.
+    expect(run("stopped", [step("failed"), step("awaiting_verdict", "manual")])).toBe("failed");
+    expect(RESULT_OUTCOMES).not.toContain("unjudged");
   });
 
   it("running, or failed as soon as a step fails", () => {
@@ -307,7 +314,6 @@ describe("outcomeOf", () => {
   });
 
   it("a stopped run whose every step settled is judged by its steps", () => {
-    // A plan stopped it to defer its manual step, which was judged after.
     expect(run("stopped", [step("passed"), step("passed", "manual")])).toBe("passed");
     expect(run("stopped", [step("passed"), step("failed", "manual")])).toBe("failed");
     expect(run("stopped", [])).toBe("stopped");

@@ -4,6 +4,17 @@ Status: draft plan, 2026-11-22. Branch `feat/playtest-hub`. Experimental: ships 
 
 The Playtest Hub is the place in Studio where a team says what the game must do, sees whether it does, and puts agents to work on the gap. It manages goals, the playtests and other checks that prove them, the runs that produce evidence, and the queue that schedules those runs on the editor.
 
+## Design review (2026-11-23, in progress)
+
+The deferred-verdict flaw was a design error, and no code review would have caught it. Before anything new is built, the hub gets an adversarial design review from four angles. Each review writes its findings beside this plan:
+
+- [Game state and time](review-game-state.md)
+- [Teams and source control](review-teams.md)
+- [Editor ownership and concurrency](review-editor.md)
+- [Product coherence](review-product.md)
+
+A consolidated triage with severity and decisions follows in `review.md`.
+
 ## Findings
 
 - [Agent and shared types](findings-backend.md)
@@ -34,7 +45,7 @@ The Playtest Hub is the place in Studio where a team says what the game must do,
 | **Run** | One execution of a check, with its verdicts and evidence. | ue-mcp (`results.json`); Studio indexes it |
 | **Plan run** | A batch of checks run in order on one editor, for example "run the goal", "run everything failing" or "nightly". | Studio (new) |
 | **Queue** | The ordered plan runs and single runs waiting for the editor. One run at a time per editor (ue-mcp rule). | Studio (new) |
-| **Inbox** | Everything that needs a person: verdicts waiting, loops blocked, goals that regressed. | Studio (derived) |
+| **Needs attention** | What needs a person and does not depend on a game playing now: loops blocked, sign-offs, regressions. Replaces the Inbox (decision 12); a verdict is given live, while its step plays. | Studio (derived) |
 
 ### Goal status
 
@@ -56,8 +67,7 @@ The Playtests tab returns as **Playtests** when the experimental setting is on. 
 
 | Route | Screen |
 |---|---|
-| `#/playtests` | **Overview**: goals with status, the inbox count, the queue strip, recent regressions. |
-| `#/playtests/inbox` | **Inbox**: verdicts, blocked loops and regressions, oldest first, settled one by one from the keyboard. |
+| `#/playtests` | **Overview**: goals with status, Needs attention, the queue strip, recent regressions. (The Inbox screen is removed, decision 12.) |
 | `#/playtests/goals/<id>` | **Goal**: its checks with health and history sparklines, its acceptance rules, Run goal, and Write playtests for this goal. |
 | `#/playtests/checks` | **Library**: every script and other check, filterable by goal, status, tag, map and author, with bulk select. Grows from today's hidden page. |
 | `#/playtests/checks/<script>` | **Check**: definition, history (every run, newest first), flakiness, edit. |
@@ -69,15 +79,14 @@ The Playtests tab returns as **Playtests** when the experimental setting is on. 
 - **The status ladder is the same everywhere.** Needs you sorts above Failing, Failing above At risk, then Running, Met and Not started. The same colours and glyphs appear in pills, sparklines and the tab badge.
 - **Keyboard first on wide screens:**
   - `j`/`k` to move and `Enter` to open;
-  - `p`/`f`/`s` to pass, fail or skip in the inbox;
   - `r` to run and `a` to assign;
-  - `g i`, `g g` and `g q` to jump between screens;
+  - `g o`, `g l` and `g q` to jump between screens (the Inbox's `g i` and `p`/`f`/`s` went with it, decision 12);
   - `/` to filter;
   - a command palette (`Ctrl+K`) for "run goal X" and "open check Y".
 - **Every object has a URL,** so notifications, chat cards and agent replies link straight to it.
 - **Chat and hub stay linked both ways.** A chat card links to its check and run in the hub, and the hub shows which session holds a card. Acting from the hub no longer creates a session card behind the scenes. A run started from the hub belongs to the hub until someone opens it in chat.
 - **Bulk actions:** run selected, add to goal, assign failing to subagents (queued one at a time under the editor rule), delete.
-- **Narrow screens and the phone get the same screens as stacked lists.** The inbox's verdict flow is the main use on a phone.
+- **Narrow screens and the phone get the same screens as stacked lists.**
 
 ### Evidence (the run screen)
 
@@ -96,7 +105,7 @@ The run screen shows:
 - **Plan runs:** run a goal, run the selected checks, run what is failing, run what is stale.
 - **The queue** is persisted, survives a daemon restart, and resumes when the editor reconnects. Before a run that needs it, the queue checks for unsaved levels, since ue-mcp refuses to open a map over unsaved changes.
 - **Schedules:** "nightly at 02:00", or "after every N agent turns that change gameplay assets". A schedule runs only when the editor is up and idle, and is skipped and recorded otherwise.
-- **Manual steps inside a plan** either block the plan, or are deferred to the inbox while the plan moves on. Each plan chooses, and deferring is the default.
+- **Manual steps inside a plan** hold the plan, with PIE paused, until the verdict or the wait runs out; an unattended plan skips checks that have them (decision 12).
 - **Agent work:**
   - **Assign failing** sends each failing check to today's fix loop, one at a time.
   - **Write playtests for this goal** runs the `/playtest` flow seeded with the goal's text and existing checks, and links what it creates to the goal.
@@ -120,7 +129,7 @@ The run screen shows:
     - Entries are keyed by runId, with script, goal ids, outcome, summary, timings, session and replayOf.
     - Format: `<dataDir>/hub/runs.jsonl`, append-only and compacted on start.
   - `queue.ts`: plan runs, the queue and schedules, persisted in `<dataDir>/hub/queue.json`. It runs checks through the existing `QaBroker.runScript` so cards, players and verdict routing keep working.
-  - `inbox.ts`: derived from broker runs, loops and goal status.
+  - Needs attention: derived from broker runs, loops and goal status (`packages/shared/src/hub-attention.ts`).
 - **Routes** under `/v1/ext/studio/hub/...`. They publish `studio.hub.changed` events in the existing style.
 - **Fix the durability gaps the hub depends on:**
   - persist runs started outside Studio and the dismissed set;
@@ -129,7 +138,7 @@ The run screen shows:
 ### Shared and client-core
 
 - Types in `packages/shared/src/hub.ts`.
-- Status rules, sorting, copy and the inbox model in `packages/client-core/src/hub.ts`, so both clients share them.
+- Status rules, sorting, copy and the Needs attention model in `packages/client-core/src/hub.ts`, so both clients share them.
 
 ### Web
 
@@ -138,11 +147,11 @@ The run screen shows:
 
 ### Mobile
 
-- Required by the parity gate. During the experiment, phone entries can be `notOnPhone` with a reason, which counts as the recorded exception. Building the inbox and goal list on the phone is the second step.
+- Required by the parity gate. During the experiment, phone entries can be `notOnPhone` with a reason, which counts as the recorded exception. Building the goal list on the phone is the second step. The held-verdict bar is on the phone already.
 
 ### ue-mcp asks
 
-All of these are general features, per the rule in CLAUDE.md. [ue-mcp-asks.md](ue-mcp-asks.md) writes up the ones the hub needs now: a verdict on any ended run, ending a run once only verdicts remain, and exporting the script run types.
+All of these are general features, per the rule in CLAUDE.md. [ue-mcp-asks.md](ue-mcp-asks.md) writes up the ones the hub needs now: pausing PIE on the frame a manual step starts waiting, and exporting the script run types.
 
 1. Export the `ScriptEvent`/`ScriptStep` types from `ue-mcp/daemon`.
 2. Optionally, `tags` and `description` fields on test scripts that `script_list` returns, so grouping can travel with the asset. Goals stay in Studio either way.
@@ -157,11 +166,11 @@ Studio pins 1.4.11; the sibling checkout is at 1.4.16-beta.1. Moving the pin bri
 | 0 | Experimental setting. Unhide the Playtests page behind it. Clean up leftovers: `sessionRuns`, `strip-*` scenario names, doubled JSDoc. | The page shows with the setting on, and tests and visual QA pass. |
 | 1 | Run index and history: the check screen with history and sparkline, and the run screen with timeline, observed values and errors. | Any script shows every run it has had, and any run opens on its own URL. |
 | 2 | Goals: model, status, overview, goal screen, add to goal. | A goal's status follows its checks' runs. |
-| 3 | Queue and plan runs: run goal, run failing, persisted queue, resume after restart, deferred manual steps feeding the inbox. | Run goal executes every check in order without a person present, and survives a daemon restart. |
-| 4 | Inbox and keyboard flow. Bulk actions. Assign failing. Write playtests for this goal. | A morning's verdicts can be cleared from the keyboard in one pass. |
+| 3 | Queue and plan runs: run goal, run failing, persisted queue, resume after restart, manual steps held live (decision 12). | Run goal executes every check in order, holding at manual steps for a person, and survives a daemon restart. |
+| 4 | Needs attention and the keyboard flow. Bulk actions. Assign failing. Write playtests for this goal. | What needs a person can be dealt with from the Overview. |
 | 5 | Schedules. Stale and flaky detection. Comparison with the last passing run. | A nightly run produces an overview that says what regressed. |
 | 6 | Other check kinds: UAT, reproduction tests, automation filters, manual checklist items. | A goal can mix kinds. |
-| 7 | The phone's inbox and goals, the rest of the parity work. | The parity gate passes with no hub `notOnPhone` entries except deliberate ones. |
+| 7 | The phone's goals, the rest of the parity work. | The parity gate passes with no hub `notOnPhone` entries except deliberate ones. |
 
 ## Open questions
 
@@ -176,7 +185,7 @@ These are the user's to decide. Answers get recorded here.
    - **Format.** Checks are referenced by asset path. A path that no longer resolves shows as a missing check, offering Relink, and is never dropped silently. The folder can be overridden by a Studio setting for studios with an existing QA layout.
    - Rejected alternative: per user in `<dataDir>`. Simpler, but teammates never see each other's goals, which defeats the point for a team.
 2. **How the experiment ships:** a setting on the main build, or only on a prerelease line.
-3. **Mobile during the experiment:** `notOnPhone` exceptions until phase 7, or the inbox on the phone from phase 4.
+3. **Mobile during the experiment:** `notOnPhone` exceptions until phase 7, or the hub on the phone from phase 4.
 4. **Captures for failing auto steps:** Studio adds `capture` acts to scripts it runs, or asks ue-mcp for a general capture-on-failure option.
 5. **Where to start:** phases 0 to 2 (a visible, useful hub over today's data), or a clickable prototype of the whole hub on visual-QA fixtures first, to settle the UX before building the backend.
 
@@ -243,5 +252,14 @@ Made 2026-11-23. The user handed the design over in full: decide, build, deliver
       - Cycles are refused. Goals and checks that nothing references show as unused, so they cannot go stale silently.
       - Requirements live in the parent's file, so adding a goal to a milestone edits only the milestone's file.
     - **When:** after the viewport card lands, since both touch the Goal screen.
+12. **Manual verdicts are live only; the Inbox is removed** (user, 2026-11-23). A manual verdict means a person watched the step happen. A verdict given later, on a game that has moved on, is meaningless, so deferral and the Inbox go. This supersedes the deferral parts of the plan above (the Inbox concept, route and keys, "manual steps are deferred" under Orchestration, phases 3 and 4) and of decisions 7 and 11.
+    - **Every run holds at a manual step and pauses PIE**, whoever started it (a chat card, a plan, an agent). One owner in the agent, `apps/agent/src/verdict-hold.ts`, used by `QaBroker`: when a step waits for a person it calls `editor(set_pie_paused, mode=debug)`, the editor's own Pause, available since ue-mcp 1.4.8. Script timing is game time, so no auto step's window passes meanwhile.
+      - Interim: the pause lands a round trip after the step began waiting, after its act and some frames. ue-mcp-asks.md asks for `pause_on_manual`, the bridge pausing on that frame; once it ships, the agent's pause is only a feature-checked fallback.
+    - **The person engages** at the editor or remotely: the playtest card, a bar under Studio's header on every tab (web and phone), and the existing notification. Resume and watch unpauses for a step that must be seen moving; nothing unpauses on its own. Then Pass, Fail or Skip; the verdict resumes PIE if it is still paused and the run goes on. On a paired browser or the phone the bar also offers Live.
+    - **Timeout:** the Settings > Approvals & review setting "Wait for a verdict" (2, 5, 10, 30 or 60 minutes, default 10), or a plan's own `verdictWaitMinutes`, read when the step starts waiting. The agent publishes the deadline (`GET /qa/held`, `studio.qa.held`) and the bar counts down to it. Resume and watch does not extend it, so the deadline never moves. When it passes, or the person picks Stop now (the card's Stop route, which stops PIE too for a held run), the run and PIE stop.
+    - **No verdict is no result.** A run that ended with a step nobody judged is `unjudged` ("Not judged"), reason recorded on the run and the plan item. Like `stopped` it is left out of `RESULT_OUTCOMES`: a person's absence says nothing about the game, so the run before it speaks for the check, and it does not trip Stop at the first failure. A failed step before the hold still makes the run failed.
+    - **Unattended plans** (`PlanOptions.attended`, true for a person's plan, false for a schedule's unless it says otherwise) skip every check whose script has a manual step, reason "needs a person". That includes agent-judgeable steps, since a plan run has no agent assigned to judge them, and replays, which would copy an old run's verdict.
+    - **Needs attention:** items that do not depend on live game state (blocked loops, sign-offs, regressions, missing checks, failed plans) are a "Needs attention" list on the Overview. The Playtests tab badge counts them; a verdict waiting live has the bar instead, so it is not counted twice.
+    - The two ue-mcp asks that existed only for deferral are withdrawn.
 8. **Status ladder:** checks are ranked needs you, failing, missing, running, flaky, stale, never run, passing. Goals are ranked needs you, failing, at risk, running, not started, met.
-11. **Stopped runs** (2026-11-23). A run's outcome follows its steps, not how it ended (`outcomeOf`): a run a plan stopped to defer its manual steps is Needs you while one waits, then passes or fails. A run stopped before its steps were reached is `stopped` and counts for nothing in health, acceptance or pass rate (`RESULT_OUTCOMES`), since stopping a run says nothing about the game; the run before it speaks for the check. `incomplete` (PIE or the observation ended on its own) and `error` still count as failing.
+11. **Stopped runs** (2026-11-23; the deferral part superseded by decision 12). A run's outcome follows its steps, not how it ended (`outcomeOf`). A run stopped before its steps were reached is `stopped` and counts for nothing in health, acceptance or pass rate (`RESULT_OUTCOMES`), since stopping a run says nothing about the game; the run before it speaks for the check. `incomplete` (PIE or the observation ended on its own) and `error` still count as failing.

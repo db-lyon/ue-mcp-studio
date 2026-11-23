@@ -119,6 +119,33 @@ export interface QaRun {
    * auto steps not checked until Run starts a full run.
    */
   manual?: boolean;
+  /** Why an ended run ended, as ue-mcp recorded it (a stop's reason, such as QA_NO_VERDICT). */
+  stopReason?: string;
+}
+
+/** How long a run holds at a step waiting for a person's verdict before it is stopped, unless the "Wait for a verdict" setting says otherwise. */
+export const QA_VERDICT_WAIT_MINUTES = 10;
+/** The waits the setting, and a plan's own, may choose, in minutes. */
+export const QA_VERDICT_WAIT_CHOICES: readonly number[] = [2, 5, 10, 30, 60];
+export const qaVerdictWaitValid = (v: unknown): v is number => typeof v === "number" && QA_VERDICT_WAIT_CHOICES.includes(v);
+/** The stop reason of a run nobody judged in time. */
+export const QA_NO_VERDICT = "no verdict";
+
+/**
+ * A run holding at a manual step for a person's verdict, with Play In Editor
+ * paused so nothing happens that nobody sees (GET /qa/held, studio.qa.held).
+ */
+export interface QaHeld {
+  runId: string;
+  scriptName: string;
+  sessionId: string | null;
+  step: number;
+  instruction: string;
+  /** When the step began to wait; the run stops at dueAt without a verdict. */
+  since: string;
+  dueAt: string;
+  /** PIE is paused. False once the person chose Resume and watch. */
+  paused: boolean;
 }
 
 /** A playtest handed to a subagent: its agent call, which is its thread, and how it is going. */
@@ -331,6 +358,7 @@ export function qaRunFromAnswer(answer: unknown, where: { sessionId?: string | n
   const events = Array.isArray(a.events) ? a.events.map((e) => int(obj(e)?.seq) ?? 0) : [];
   const replayOf = str(a.replay_of);
   const recordingId = str(a.recording_id);
+  const stopReason = str(a.stop_reason);
   const run: QaRun = {
     runId,
     script: str(a.script) ?? "inline",
@@ -348,6 +376,7 @@ export function qaRunFromAnswer(answer: unknown, where: { sessionId?: string | n
     seenAt: where.seenAt ?? new Date().toISOString(),
     ...(recordingId ? { recordingId } : {}),
     ...(a.mode === "manual" ? { manual: true } : {}),
+    ...(stopReason ? { stopReason } : {}),
   };
   return settle(run);
 }
@@ -373,6 +402,7 @@ export function qaMergeAnswer(run: QaRun, answer: unknown): QaRun {
     resultsPath: fresh.resultsPath ?? next.resultsPath,
     ...(fresh.replayOf ? { replayOf: fresh.replayOf } : {}),
     ...(fresh.recordingId ? { recordingId: fresh.recordingId } : {}),
+    ...(fresh.stopReason ? { stopReason: fresh.stopReason } : {}),
   });
 }
 
@@ -386,6 +416,8 @@ interface Change {
   blocking?: boolean;
   state?: QaRunState;
   resultsPath?: string;
+  /** run_finished: why the run ended. */
+  reason?: string;
 }
 
 function apply(run: QaRun, c: Change): QaRun {
@@ -418,6 +450,7 @@ function apply(run: QaRun, c: Change): QaRun {
     }
     case "run_finished":
       next.state = c.state ?? "finished";
+      if (c.reason) next.stopReason = c.reason;
       break;
     default:
       // A script.* type this version does not know: only its seq counts.
@@ -444,6 +477,7 @@ export function qaApplyEditorEvent(run: QaRun, event: unknown): QaRun {
     blocking: typeof d.blocking === "boolean" ? d.blocking : undefined,
     state: runState(d.state),
     resultsPath: str(d.results_path),
+    reason: str(d.reason),
   });
 }
 
@@ -465,6 +499,7 @@ export function qaApplyStreamEvent(run: QaRun, type: string, data: unknown): QaR
     awaitingSteps: Array.isArray(d.awaiting) ? awaitedSteps(d.awaiting) : undefined,
     state: runState(d.state),
     resultsPath: str(d.resultsPath),
+    reason: str(d.reason),
   });
 }
 
@@ -510,6 +545,18 @@ export const qaAgentVerdict = (s: QaStep): boolean => s.verdictSource === "agent
 
 /** Whether an agent may judge a manual step: unless the script keeps it with a person. */
 export const qaAgentMayJudge = (s: QaStep): boolean => s.judge === "manual" && s.agentJudgeable !== false;
+
+/**
+ * The step a live run holds at for a person: awaiting a verdict that no
+ * running subagent will give (the script keeps it with a person, or no agent
+ * is assigned). Null when the run waits for nobody. A manual run (no PIE,
+ * every manual step at once) is a person's own and holds nothing.
+ */
+export function qaWaitingForPerson(run: QaRun): QaStep | null {
+  if (qaEnded(run.state) || run.manual || qaIsDraft(run)) return null;
+  const agent = run.assignment?.state === "running";
+  return run.steps.find((s) => s.status === "awaiting_verdict" && (!agent || !qaAgentMayJudge(s))) ?? null;
+}
 
 /**
  * Whether a playtest has work a subagent could do: a step not settled, or an

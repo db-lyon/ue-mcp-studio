@@ -1,4 +1,4 @@
-/** A small project for the hub's tests: two goals under a milestone, a goal of its own, checks, an inbox and a queue. */
+/** A small project for the hub's tests: two goals under a milestone, a goal of its own, checks, what needs attention and a queue. */
 import { DEFAULT_ACCEPTANCE, type CheckState, type Goal, type GoalState, type HubOverview, type RunRecord } from "@ue-mcp-studio/shared";
 
 const goalOf = (id: string, title: string, over: Partial<Goal> = {}): Goal => ({
@@ -38,9 +38,9 @@ export function hubFixture(): HubOverview {
       goalState(tutorial, "not_started", [], undefined, ["alpha"]),
     ],
     checks: [jumpCheck, swimCheck, menuCheck],
-    inbox: [
-      { id: "verdict:run-a:1", kind: "verdict", at: "2026-11-22T09:00:00Z", title: "Door opens", goalIds: ["movement"], runId: "run-a", step: 1, instruction: "Walk to the door and see it open", checkId: swimCheck.id },
-      { id: "verdict:run-b:0", kind: "verdict", at: "2026-11-22T09:30:00Z", title: "Menu shows", goalIds: [], runId: "run-b", step: 0, instruction: "The main menu is on screen" },
+    attention: [
+      { id: "loop_blocked:loop-1", kind: "loop_blocked", at: "2026-11-22T09:00:00Z", title: "Door opens", detail: "The fix loop stopped and needs you.", goalIds: ["movement"], runId: "run-a", checkId: swimCheck.id },
+      { id: "missing_check:script:/Game/T/Menu", kind: "missing_check", at: "2026-11-22T09:30:00Z", title: "Menu shows", goalIds: [], checkId: menuCheck.id },
       { id: "regression:run-jump-2", kind: "regression", at: "2026-11-22T10:00:00Z", title: "Jump failed after passing", goalIds: ["movement"], runId: "run-jump-2", checkId: jumpCheck.id },
     ],
     queue: { paused: false, current: null, queued: [], recent: [], schedules: [], editor: { connected: true } },

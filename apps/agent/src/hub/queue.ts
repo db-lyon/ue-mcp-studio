@@ -6,18 +6,11 @@
  * again when Studio still has the run, otherwise queued again for when the
  * editor is back.
  *
- * Manual steps in a plan:
- *  - defer (the default): the run starts with block_on_manual false, so
- *    manual steps start and the run moves on. Once every auto step has
- *    settled and only manual steps wait, ue-mcp keeps the run (and PIE)
- *    open for them, so the queue ends it with script_stop: the auto
- *    evidence is kept, the item is needs_you (failed when an auto step
- *    failed), the verdicts wait in the inbox, and the plan moves on.
- *    outcomeOf judges the run by its steps, so once judged it passes or
- *    fails like any run. ue-mcp takes those verdicts only until the next run
- *    starts; both limits are asks in docs/plans/playtest-hub/ue-mcp-asks.md.
- *  - block: the run holds at manual steps until they are judged, and the plan
- *    waits with it; the item shows needs_you while it waits.
+ * A run holds at a manual step until it is judged (verdict-hold.ts pauses
+ * PIE, and stops the run when no verdict comes in time), and the plan waits
+ * with it: the item is needs_you meanwhile. An ended item takes its run's
+ * outcome: passed, failed, unjudged (nobody gave the verdict, no result) or
+ * error, with the run's stop reason when it has no result ("no verdict").
  *
  * What runs an item (a card, QaBroker.runScript) is the hub's, given as a
  * QueueRunner, so this file only keeps order and state.
@@ -80,8 +73,8 @@ export interface QueueOptions {
 
 export const newId = (prefix: string): string => `${prefix}-${Date.now().toString(36)}-${crypto.randomBytes(3).toString("hex")}`;
 
-/** An item whose run is on the editor: running, or held at a manual step under block (needs_you with no end yet). */
-const live = (i: PlanItem): boolean => i.state === "running" || (i.state === "needs_you" && !i.endedAt);
+/** An item whose run is on the editor: running, or held at a manual step. */
+const live = (i: PlanItem): boolean => i.state === "running" || i.state === "needs_you";
 /** An item that has its result. */
 const settled = (i: PlanItem): boolean => i.state !== "queued" && !live(i);
 
@@ -90,8 +83,6 @@ export class PlanQueue {
   private readonly file: string;
   private readonly now: () => string;
   private pumping = false;
-  /** Runs this queue stopped to defer their manual steps, so they are stopped once. */
-  private readonly deferring = new Set<string>();
 
   constructor(private readonly o: QueueOptions) {
     this.file = path.join(o.dataDir, "hub", "queue.json");
@@ -151,6 +142,11 @@ export class PlanQueue {
   currentRun(): string | null {
     const item = this.s.current?.items.find(live);
     return item?.runId ?? null;
+  }
+
+  /** The running plan, when one of its items ran this run. */
+  planOf(runId: string): PlanRun | undefined {
+    return this.s.current?.items.some((i) => i.runId === runId) ? this.s.current : undefined;
   }
 
   /** A plan item holds the editor: its run is on it, or is being started (no run id yet). */
@@ -255,18 +251,8 @@ export class PlanQueue {
 
   private evaluate(plan: PlanRun, item: PlanItem, run: QaRun): void {
     if (!qaEnded(run.state)) {
-      const open = run.steps.some((s) => s.status === "pending" || s.status === "running");
       const waiting = run.steps.some((s) => s.status === "awaiting_verdict");
-      if (plan.options.manualSteps === "defer" && waiting && !open && !this.deferring.has(run.runId)) {
-        // Only manual steps are left: they wait in the inbox while the plan moves on. ue-mcp holds such a run open,
-        // so it is stopped here until it can end one itself (ue-mcp-asks.md, ask 2).
-        this.deferring.add(run.runId);
-        void this.o.runner.stop(run.runId, `Manual steps left for later by the plan "${plan.title}"`).catch((e: unknown) => {
-          // Tried again on the next look, or the plan would wait on the run forever.
-          this.deferring.delete(run.runId);
-          this.o.log?.warn("hub: a deferred run could not be stopped", e);
-        });
-      } else if (plan.options.manualSteps === "block" && waiting && item.state !== "needs_you") {
+      if (waiting && item.state !== "needs_you") {
         item.state = "needs_you";
         item.reason = "waiting for a verdict";
         this.save(plan.id);
@@ -278,20 +264,10 @@ export class PlanQueue {
       }
       return;
     }
-    this.deferring.delete(run.runId);
     const outcome = outcomeOf(run);
-    const failedAuto = run.steps.some((s) => s.status === "failed");
-    let state: PlanItemState;
-    let reason: string | null = null;
-    if (outcome === "passed") state = "passed";
-    else if (outcome === "failed") state = "failed";
-    else if (outcome === "needs_you") {
-      state = failedAuto ? "failed" : "needs_you";
-      reason = "manual steps wait for a verdict in the inbox";
-    } else {
-      state = "error";
-      reason = "the run ended before every step settled";
-    }
+    const state: PlanItemState = outcome === "passed" || outcome === "failed" || outcome === "unjudged" ? outcome : "error";
+    // A run that did not get through its steps says why it ended: "no verdict", "PIE ended" and the like.
+    const reason = state === "passed" || state === "failed" ? null : run.stopReason ?? (state === "unjudged" ? "no verdict" : "the run ended before every step settled");
     Object.assign(item, { state, reason, endedAt: this.now() });
     if (plan.options.stopOnFailure && (state === "failed" || state === "error")) {
       this.close(plan, "failed", "cancelled", "the plan stopped at a failure");

@@ -7,6 +7,7 @@ import type { QaRun } from "@ue-mcp-studio/shared";
 import { QaBroker, type QaHost } from "../src/qa.js";
 import { ELICIT_FEATURE, FormBroker } from "../src/forms.js";
 import { SessionStore } from "../src/sessions.js";
+import { PlaytestStore } from "../src/playtest-store.js";
 import type { AgentHost } from "../src/tools.js";
 import { RUN, runAnswer } from "./qa-fixture.js";
 
@@ -15,7 +16,7 @@ const ok = (body: unknown): ActionResult => ({ isError: false, content: [{ type:
 type Listener = (e: { type: string; data: Record<string, unknown> }) => void;
 type Call = { category: string; action: string; args?: Record<string, unknown>; opts?: { elicit?: unknown } };
 
-function setup(opts: { connected?: boolean } = {}) {
+function setup(opts: { connected?: boolean; playtests?: PlaytestStore } = {}) {
   const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), "studio-qa-"));
   const projectDir = fs.mkdtempSync(path.join(os.tmpdir(), "studio-qa-project-"));
   const calls: Call[] = [];
@@ -54,7 +55,7 @@ function setup(opts: { connected?: boolean } = {}) {
   const s = store.create();
   s.transcript.push({ kind: "tool", call: { id: "tu1", name: "ue_mcp", input: { action: "call", category: "pie", method: "script_run" }, outcome: "pending", startedAt: "now" } });
   store.save(s);
-  const broker = new QaBroker({ host, store, forms, now: () => "2026-10-23T15:00:00.000Z" });
+  const broker = new QaBroker({ host, store, forms, playtests: opts.playtests, now: () => "2026-10-23T15:00:00.000Z" });
   return { host, calls, published, emit, store, forms, s, broker, projectDir, dataDir, setAnswer: (f: typeof answer) => (answer = f) };
 }
 
@@ -157,10 +158,14 @@ describe("after a restart", () => {
     };
     const broker = new QaBroker({ host, store, forms: new FormBroker(() => {}) });
     await broker.resume();
-    expect(calls).toHaveLength(1);
-    expect(calls[0]).toMatchObject({ action: "script_status", args: { run_id: RUN, since_seq: 4 } });
-    expect(typeof calls[0].opts?.elicit).toBe("function");
+    const reads = calls.filter((c) => c.category === "pie");
+    expect(reads).toHaveLength(1);
+    expect(reads[0]).toMatchObject({ action: "script_status", args: { run_id: RUN, since_seq: 4 } });
+    expect(typeof reads[0].opts?.elicit).toBe("function");
     expect(broker.get(RUN)).toMatchObject({ state: "awaiting_verdict", lastSeq: 7, awaiting: [2] });
+    // Still waiting for a person: it is held again, PIE paused.
+    expect(calls.filter((c) => c.category === "editor").map((c) => c.action)).toEqual(["set_pie_paused"]);
+    broker.dispose();
   });
 
   it("waits for the editor before reading", async () => {
@@ -181,9 +186,32 @@ describe("the user's verdict", () => {
     t.emit("script.verdict_requested", { runId: RUN, script: "x", atMs: 60, seq: 7, awaiting: [{ index: 2, instruction: "x" }] });
     t.setAnswer(async () => ok({ success: true, run_id: RUN, step: 2, status: "failed", verdict: "fail", verdict_source: "action", note: "pops", state: "finished", awaiting: [] }));
     const r = await t.broker.verdict(RUN, { step: 2, verdict: "fail", note: "  pops " });
-    expect(t.calls.at(-1)).toMatchObject({ action: "verdict", args: { run_id: RUN, step: 2, verdict: "fail", note: "pops" } });
+    expect(t.calls.filter((c) => c.category === "pie").at(-1)).toMatchObject({ action: "verdict", args: { run_id: RUN, step: 2, verdict: "fail", note: "pops" } });
+    // Held at the step with PIE paused, and resumed once it was judged.
+    expect(t.calls.filter((c) => c.action === "set_pie_paused").map((c) => c.args?.paused)).toEqual([true, false]);
     expect("run" in r && r.run.steps[2]).toMatchObject({ status: "failed", note: "pops", verdictSource: "action" });
     expect(qaEntry(t.store, t.s.id)!.awaiting).toEqual([]);
+  });
+
+  it("holds the run for the Wait for a verdict setting, and Stop now takes PIE down with it", async () => {
+    const playtests = new PlaytestStore(fs.mkdtempSync(path.join(os.tmpdir(), "studio-qa-pt-")));
+    playtests.setVerdictWait(30);
+    playtests.setRuns("automatic");
+    const t = setup({ playtests });
+    t.setAnswer(async () => ok(runAnswer()));
+    await t.broker.wrap(t.host, t.s.id).callAction("pie", "script_run", {});
+    t.emit("script.verdict_requested", { runId: RUN, script: "x", atMs: 60, seq: 7, awaiting: [{ index: 2, instruction: "x" }] });
+    const [h] = t.broker.hold.held();
+    expect(Date.parse(h.dueAt) - Date.parse(h.since)).toBe(30 * 60_000);
+    expect(t.published.filter((e) => e.type === "qa.held").at(-1)?.data).toMatchObject({ held: [{ runId: RUN, step: 2, dueAt: h.dueAt }] });
+    t.setAnswer(async (c) => ok(c.action === "script_status" ? { ...runAnswer(), state: "stopped", stop_reason: "Stopped from its card" } : { success: true }));
+    expect("run" in (await t.broker.stopRun(RUN))).toBe(true);
+    expect(t.calls.filter((c) => c.action === "script_stop" || c.action === "play_in_editor").map((c) => [c.action, c.args])).toEqual([
+      ["script_stop", { run_id: RUN, reason: "Stopped from its card" }],
+      ["play_in_editor", { pieAction: "stop" }],
+    ]);
+    expect(t.broker.hold.held()).toEqual([]);
+    t.broker.dispose();
   });
 
   it("reports ue-mcp's refusal and a body that is not a verdict", async () => {

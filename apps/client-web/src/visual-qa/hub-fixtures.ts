@@ -54,9 +54,8 @@ const ledge = checkId({ kind: "script", target: `${DEMO_SCRIPTS_DIR}/Traversal/P
 const staggerRun = full.state.runs.find((r) => r.name === "PT_Stagger_Wisp" && r.outcome === "failed")!.runId;
 
 export const HUB_SCENARIOS: Record<string, Scenario> = {
-  "hub-overview": hub("Playtest Hub overview: milestones and goals by status, the inbox count, a plan running on the editor", "#/playtests", full),
+  "hub-overview": hub("Playtest Hub overview: milestones and goals by status, Needs attention (a blocked fix loop, a sign-off, a regression, a missing script), a plan running on the editor", "#/playtests", full),
   "hub-overview-empty": hub("Playtest Hub overview on a project with scripts and no goals yet: the first goal offered", "#/playtests", empty),
-  "hub-inbox": hub("Playtest Hub inbox: verdicts waiting, a blocked fix loop, a sign-off, a regression and a missing script", "#/playtests/inbox", full),
   "hub-goal": hub("A failing goal: its checks with health and history, Run goal and Write playtests", "#/playtests/goals/lantern-combat", full),
   "hub-goal-milestone": hub("A milestone: its goals' statuses rolled up, with progress", "#/playtests/goals/vertical-slice", full),
   "hub-library": hub("The check library: every script with its health, goals and pass rate", "#/playtests/checks", full),

@@ -9,6 +9,7 @@ import {
   DEFAULT_ACCEPTANCE,
   DEFAULT_PLAN_OPTIONS,
   HUB_SCHEMA,
+  planOptionsFor,
   qaScriptKey,
   type Goal,
   type PlanItem,
@@ -67,8 +68,7 @@ export interface DemoLive {
   runId: string;
   nextAt: number;
   planId: string | null;
-  manualSteps: "defer" | "block";
-  /** Waiting for a verdict on a blocking manual step. */
+  /** Holding at a manual step for its verdict. */
   blocked: boolean;
 }
 
@@ -392,11 +392,11 @@ function history(scripts: DemoScript[], seeds: ScriptSeed[], now: number, rand: 
         if (rand() < 0.15 && d > 0) add(night(d) + (9 + rand() * 8) * 3_600_000, noise(script, d, 10), "person");
       }
       if (kind === "awaiting") {
-        // Run from the hub forty minutes ago; its manual step was deferred to the inbox.
+        // Run from the hub forty minutes ago; nobody gave its manual step a verdict in time, so it has no result.
         const r = add(now - 40 * MIN, [], "plan");
         if (r) {
           const manualAt = script.steps.findIndex((s) => s.judge === "manual");
-          r.outcome = "needs_you";
+          r.outcome = "unjudged";
           r.summary = { ...r.summary!, passed: r.summary!.total - 1, pending: 1, awaiting: 1 };
           qa[r.runId] = demoQaRun(script, r, { awaiting: [manualAt] });
         }
@@ -485,7 +485,7 @@ export function demoQaRun(script: Pick<DemoScript, "path" | "name" | "map" | "st
     script: qaScriptKey(script.path),
     scriptName: script.name,
     map: script.map,
-    state: stopped ? "stopped" : "finished",
+    state: stopped || r.outcome === "unjudged" ? "stopped" : "finished",
     steps,
     awaiting,
     lastSeq: steps.length * 2 + 2,
@@ -631,8 +631,8 @@ export function demoState(seed: DemoSeed, now = Date.now(), randomSeed = 7): Dem
     return { ...base, scripts, runs, qa };
   }
   const schedules: Schedule[] = [
-    { id: "sched-nightly", title: "Nightly: Vertical Slice", scope: { kind: "goal", goalId: "vertical-slice" }, options: { ...DEFAULT_PLAN_OPTIONS }, at: "02:00", days: [0, 1, 2, 3, 4, 5, 6], enabled: true, lastRunAt: null, lastSkipped: null, nextRunAt: null },
-    { id: "sched-coop", title: "Co-op smoke test", scope: { kind: "goal", goalId: "coop-join" }, options: { ...DEFAULT_PLAN_OPTIONS, stopOnFailure: true }, at: "13:00", days: [1, 2, 3, 4, 5], enabled: true, lastRunAt: null, lastSkipped: "The editor was not connected", nextRunAt: null },
+    { id: "sched-nightly", title: "Nightly: Vertical Slice", scope: { kind: "goal", goalId: "vertical-slice" }, options: planOptionsFor("schedule"), at: "02:00", days: [0, 1, 2, 3, 4, 5, 6], enabled: true, lastRunAt: null, lastSkipped: null, nextRunAt: null },
+    { id: "sched-coop", title: "Co-op smoke test", scope: { kind: "goal", goalId: "coop-join" }, options: { ...planOptionsFor("schedule"), stopOnFailure: true }, at: "13:00", days: [1, 2, 3, 4, 5], enabled: true, lastRunAt: null, lastSkipped: "The editor was not connected", nextRunAt: null },
   ];
   // The stagger bug was filed from the newest failing run of its check.
   const filed = runs.filter((r) => r.target.endsWith("/PT_Stagger_Wisp") && r.outcome === "failed").sort((a, b) => (a.startedAt < b.startedAt ? 1 : -1))[0];

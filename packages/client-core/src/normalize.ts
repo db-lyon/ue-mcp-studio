@@ -20,6 +20,8 @@ import {
   dialogPolicyOf,
   isVendorId,
   usageOf,
+  QA_VERDICT_WAIT_MINUTES,
+  qaVerdictWaitValid,
   type AgentSettings,
   type ClientContextStrategy,
   type ContextStrategy,
@@ -116,6 +118,7 @@ export function agentSettingsOf(raw: unknown): AgentSettings {
     feedbackMode: { mode: oneOf(feedback.mode, FEEDBACK_MODES, "interactive"), project: feedback.project === true },
     dialogMode: { mode: DIALOG_MODES.includes(dialog.mode as DialogMode) ? (dialog.mode as DialogMode) : null, project: dialog.project === true },
     playtestRuns: a.playtestRuns === "automatic" ? "automatic" : "manual",
+    verdictWaitMinutes: qaVerdictWaitValid(a.verdictWaitMinutes) ? a.verdictWaitMinutes : QA_VERDICT_WAIT_MINUTES,
     ...(a.restarting === true ? { restarting: true } : {}),
   };
 }

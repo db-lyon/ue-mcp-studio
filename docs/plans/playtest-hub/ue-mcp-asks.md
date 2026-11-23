@@ -2,27 +2,19 @@
 
 General features the Playtest Hub needs from ue-mcp, per the rule in CLAUDE.md: Studio does not patch around them. Each was checked against the sibling checkout at 1.4.16-beta.1 (`src/`, `plugin/ue_mcp_bridge`, `docs/pie-scripts.md`); none is there yet. The Studio side of each names its interim shape below.
 
-## 1. A verdict on any ended run
+Two earlier asks, a verdict on any ended run and ending a run once only verdicts remain, existed only for deferred verdicts. Decision 12 in the [plan](README.md) removed deferral, so they are withdrawn.
 
-**Problem.** `pie(verdict)` is refused for every run except the one the editor holds (`PieScriptVerdict`: "Run X is not the current run (Y)"). The held run takes a verdict after it ended and rewrites its `results.json`, but once another run starts, the earlier run's waiting manual steps can never be judged. A plan that defers manual steps starts its next check straight away, so only the last check's deferred steps can still be judged.
+## 1. Pause PIE on the frame a manual step starts waiting
 
-**Proposed API.** `pie(verdict, run_id, step, verdict, note?, source?, evidence?)` accepts an ended run that is not held by loading it from `<output_dir>/results.json`, applying the verdict to a step that is `awaiting_verdict`, recounting `summary`, and writing the file back. The answer is the same as today's, with `live: false`. A run with no `results.json`, or a step not awaiting, is refused as now. The `script.verdict` event fires with the run's id.
+**Problem.** A manual verdict means a person watched the step happen, so the game must not run on while the run waits for them. With `block_on_manual` (the default) the bridge holds the run at a manual step, but PIE keeps simulating. A client can pause it with `editor(set_pie_paused)` only once it hears `awaiting_verdict`, a round trip later: the step's `act` has played and some frames have passed, so the person sees the moment after the one they are asked to judge.
 
-**Who benefits.** Any client that runs scripts unattended and collects verdicts later: CI followed by a morning review, an agent judging a batch, a person who answers a form after the next run began.
+**Proposed API.** A `script_run` option, `pause_on_manual: boolean` (default false). With it, the bridge pauses PIE with the editor's own Pause (as `set_pie_paused` with `mode: "debug"` does) on the frame a step a person judges (`judge: "manual"` and `agent_judgeable: false`, or any manual step when no agent will judge it) starts waiting, before its act's effects advance, and resumes PIE when the step gets its verdict. The run's status and `script.awaiting_verdict` event carry `paused: true` while it holds. A resume the client asks for in between (`set_pie_paused` false) is the person's choice and is left alone.
 
-**Studio today.** `QaBroker.verdict` passes the refusal through. The inbox keeps the step and the check stays Needs you until the check runs again. (An earlier draft judged the step in a hidden manual run and copied the verdict onto the ended run's card; it was removed because ue-mcp's record and Studio's then disagreed.)
+**Who benefits.** Every client that asks a person to judge a running game: a QA tool, a CI flow with someone on call, an agent that hands a step to a person.
 
-## 2. End a run once only verdicts remain
+**Studio today.** `apps/agent/src/verdict-hold.ts` pauses PIE from the agent when a run's step starts waiting for a person, and resumes it on the verdict. The comment there names it interim. Once ue-mcp ships `pause_on_manual`, Studio passes it and keeps the agent's pause only as a fallback for an older ue-mcp, chosen by feature check.
 
-**Problem.** With `block_on_manual: false`, the bridge starts each manual step and moves on, but once every auto step has settled it keeps the run, and PIE, open until each manual step has a verdict (`AdvanceScriptRun` leaves the state `awaiting_verdict`; `IsScriptRunSettled` is false). A caller that wants to move on has to `script_stop` the run, which records `state: "stopped"` and a stop reason that reads like an interruption.
-
-**Proposed API.** A `script_run` option, `manual_after: "hold" | "end"` (default `"hold"`, today's behaviour). With `"end"`, once no auto step is pending or running, the run finishes with `state: "finished"`, `stop_reason: "verdicts outstanding"`, its manual steps still `awaiting_verdict`, PIE stopped as at any finish, and `results.json` written. Ask 1 then takes those verdicts.
-
-**Who benefits.** Every unattended caller: a CI flow, a batch of scripts, an agent queue. Each has to detect "only manual steps left" from the steps and stop the run itself today.
-
-**Studio today.** `PlanQueue.evaluate` (`apps/agent/src/hub/queue.ts`) works out from the steps that only manual steps wait and calls `script_stop`. `outcomeOf` (`packages/shared/src/hub.ts`) judges a run by its steps rather than by how it ended, so a run stopped this way is Needs you while a step waits, and passes or fails once judged. A run stopped before its steps were reached is `stopped`, and health ignores it: it says nothing about the game.
-
-## 3. Export the script run types
+## 2. Export the script run types
 
 **Problem.** `ScriptEvent`, `ScriptStep` and the run states live in `dist/pie/script-events.d.ts` and are not exported from `ue-mcp/daemon`, so Studio keeps its own copies in `packages/shared/src/qa.ts`.
 

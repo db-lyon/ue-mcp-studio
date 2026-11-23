@@ -30,7 +30,6 @@ import { pushLocation, readLocation } from "../../location";
 import { HubContext, useHub, type HubContextValue, type HubData } from "./state";
 import { HubIcon, HubLink, Kbd, Placeholder, StatusMark, type HubIconName } from "./parts";
 import { OverviewScreen } from "./Overview";
-import { InboxScreen } from "./Inbox";
 import { GoalScreen } from "./Goal";
 import { LibraryScreen } from "./Library";
 import { CheckScreen } from "./Check";
@@ -167,7 +166,6 @@ export function HubView({ data, narrow, onOpenChat, onChat }: {
   const screen = (() => {
     switch (route.screen) {
       case "overview": return <OverviewScreen onChat={onChat} />;
-      case "inbox": return <InboxScreen />;
       case "goal": return <GoalScreen key={route.goalId} goalId={route.goalId} />;
       case "library": return <LibraryScreen />;
       case "check": return <CheckScreen key={route.checkId} checkId={route.checkId} />;
@@ -196,16 +194,15 @@ export function HubView({ data, narrow, onOpenChat, onChat }: {
   );
 }
 
-const SECTIONS: ReadonlyArray<{ id: "overview" | "inbox" | "library" | "queue"; label: string; icon: HubIconName; keys: string }> = [
+const SECTIONS: ReadonlyArray<{ id: "overview" | "library" | "queue"; label: string; icon: HubIconName; keys: string }> = [
   { id: "overview", label: HUB_COPY.overview, icon: "overview", keys: "g o" },
-  { id: "inbox", label: HUB_COPY.inbox, icon: "inbox", keys: "g i" },
   { id: "library", label: HUB_COPY.library, icon: "library", keys: "g l" },
   { id: "queue", label: HUB_COPY.queue, icon: "queue", keys: "g q" },
 ];
 
 function sectionCount(id: string, ctx: Pick<HubContextValue, "o">): ReactNode {
   const { o } = ctx;
-  if (id === "inbox" && o.inbox.length) return <span className="tab-count warn" aria-label={`${o.inbox.length} waiting`}>{o.inbox.length}</span>;
+  if (id === "overview" && o.attention.length) return <span className="tab-count warn" aria-label={`${o.attention.length} need attention`}>{o.attention.length}</span>;
   if (id === "queue" && o.queue.current) return <span className="hub-live-dot" aria-label="Running" title="Running" />;
   if (id === "library") return <span className="hub-rail-count">{o.checks.length}</span>;
   return null;

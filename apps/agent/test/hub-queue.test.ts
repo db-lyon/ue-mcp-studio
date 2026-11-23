@@ -1,8 +1,7 @@
 /**
- * The plan queue: one item on the editor at a time, deferred manual steps
- * (stop once only manual steps wait, item needs you, move on), blocking ones
- * (wait for the verdict), stop on failure, pause, cancel, move, and a plan
- * that survives a restart.
+ * The plan queue: one item on the editor at a time, manual steps (the plan
+ * waits for the verdict; a run that ended without one is not judged), stop
+ * on failure, pause, cancel, move, and a plan that survives a restart.
  */
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import * as fs from "node:fs";
@@ -91,36 +90,22 @@ describe("PlanQueue", () => {
     expect(q.state().current).toBeNull();
   });
 
-  it("defer: once only manual steps wait, the run is stopped, the item needs you and the plan moves on", async () => {
+  it("a run stopped because no verdict came: the item is not judged, with the run's reason, and the plan moves on", async () => {
     const q = make();
     q.enqueue(plan(["/Game/A", "/Game/B"]));
     await settle();
-    // An auto step still going: nothing yet.
-    q.observe(qa("run0", "running", ["passed", "awaiting_verdict", "running"], ["auto", "manual", "auto"]));
-    expect(stops).toEqual([]);
-    const waiting = qa("run0", "running", ["passed", "awaiting_verdict", "passed"], ["auto", "manual", "auto"]);
-    q.observe(waiting);
-    q.observe(waiting);
-    expect(stops.map((s) => s.runId)).toEqual(["run0"]);
-    q.observe(qa("run0", "stopped", ["passed", "awaiting_verdict", "passed"], ["auto", "manual", "auto"]));
+    q.observe(qa("run0", "awaiting_verdict", ["passed", "awaiting_verdict", "pending"], ["auto", "manual", "auto"]));
+    expect(q.state().current!.items[0]).toMatchObject({ state: "needs_you", reason: "waiting for a verdict" });
+    q.observe({ ...qa("run0", "stopped", ["passed", "awaiting_verdict", "pending"], ["auto", "manual", "auto"]), stopReason: "no verdict" });
     await settle();
-    const cur = q.state().current!;
-    expect(cur.items[0]).toMatchObject({ state: "needs_you", reason: "manual steps wait for a verdict in the inbox" });
+    expect(q.state().current!.items[0]).toMatchObject({ state: "unjudged", reason: "no verdict" });
+    expect(stops).toEqual([]);
     expect(starts).toEqual(["/Game/A", "/Game/B"]);
   });
 
-  it("defer with a failed auto step: the item failed", async () => {
+  it("the plan waits at the verdict, then carries on", async () => {
     const q = make();
-    q.enqueue(plan(["/Game/A"]));
-    await settle();
-    q.observe(qa("run0", "stopped", ["failed", "awaiting_verdict"], ["auto", "manual"]));
-    await settle();
-    expect(q.state().recent[0].items[0].state).toBe("failed");
-  });
-
-  it("block: the plan waits at the verdict, then carries on", async () => {
-    const q = make();
-    q.enqueue(plan(["/Game/A", "/Game/B"], { manualSteps: "block" }));
+    q.enqueue(plan(["/Game/A", "/Game/B"]));
     await settle();
     q.observe(qa("run0", "awaiting_verdict", ["passed", "awaiting_verdict"], ["auto", "manual"]));
     await settle();

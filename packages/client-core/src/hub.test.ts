@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { DEFAULT_ACCEPTANCE, type CheckState, type Goal, type GoalState, type InboxItem, type QueueState, type PlanRun } from "@ue-mcp-studio/shared";
+import { DEFAULT_ACCEPTANCE, type CheckState, type Goal, type GoalState, type AttentionItem, type QueueState, type PlanRun } from "@ue-mcp-studio/shared";
 import {
   CHECK_HEALTH_LOOK,
   GOAL_STATUS_LOOK,
@@ -34,7 +34,7 @@ import {
   searchPalette,
   sortChecks,
   sortGoals,
-  sortInbox,
+  sortAttention,
   sparkBars,
   typingTarget,
   hubLiveView,
@@ -71,7 +71,7 @@ const check = (name: string, health: CheckState["health"], over: Partial<CheckSt
 describe("hub routes", () => {
   it("round-trips every screen through the hash, encoding ids", () => {
     const routes: HubRoute[] = [
-      { screen: "overview" }, { screen: "inbox" }, { screen: "library" }, { screen: "queue" },
+      { screen: "overview" }, { screen: "library" }, { screen: "queue" },
       { screen: "goal", goalId: "tutorial" },
       { screen: "check", checkId: "script:/Game/Tests/Jump Test" },
       { screen: "run", runId: "run/42:a" },
@@ -110,9 +110,9 @@ describe("the status ladder", () => {
     expect(sorted.map((c) => c.name)).toEqual(["n", "f2", "f1", "p"]);
   });
 
-  it("puts verdicts first in the inbox, oldest first within a kind", () => {
-    const item = (id: string, kind: InboxItem["kind"], at: string): InboxItem => ({ id, kind, at, title: id, goalIds: [] });
-    expect(sortInbox([item("r", "regression", "1"), item("v2", "verdict", "3"), item("v1", "verdict", "2")]).map((i) => i.id)).toEqual(["v1", "v2", "r"]);
+  it("puts blocked loops first in Needs attention, oldest first within a kind", () => {
+    const item = (id: string, kind: AttentionItem["kind"], at: string): AttentionItem => ({ id, kind, at, title: id, goalIds: [] });
+    expect(sortAttention([item("r", "regression", "1"), item("l2", "loop_blocked", "3"), item("l1", "loop_blocked", "2")]).map((i) => i.id)).toEqual(["l1", "l2", "r"]);
   });
 });
 
@@ -249,7 +249,7 @@ describe("schedules and the queue", () => {
   });
 
   it("moves a queued plan and counts a plan's progress", () => {
-    const plan = (id: string): PlanRun => ({ id, title: id, scope: { kind: "all" }, options: { manualSteps: "defer", stopOnFailure: false, replay: false }, state: "queued", items: [], trigger: "person", createdAt: "" });
+    const plan = (id: string): PlanRun => ({ id, title: id, scope: { kind: "all" }, options: { attended: true, stopOnFailure: false, replay: false }, state: "queued", items: [], trigger: "person", createdAt: "" });
     const q: QueueState = { paused: false, current: null, queued: [plan("a"), plan("b"), plan("c")], recent: [], schedules: [], editor: { connected: true } };
     expect(moveQueued(q, "c", 0).queued.map((p) => p.id)).toEqual(["c", "a", "b"]);
     const p = planProgress({ items: [
@@ -267,10 +267,10 @@ describe("keys", () => {
     const k = hubKeymap(() => t);
     expect(k.press({ key: "g" })).toBeNull();
     expect(k.pending()).toBe(true);
-    expect(k.press({ key: "i" })).toEqual({ type: "go", to: "inbox" });
+    expect(k.press({ key: "q" })).toEqual({ type: "go", to: "queue" });
     k.press({ key: "g" });
     t = 5000;
-    expect(k.press({ key: "i" })).toBeNull();
+    expect(k.press({ key: "q" })).toBeNull();
     expect(k.press({ key: "j" })).toEqual({ type: "next" });
     expect(k.press({ key: "k", ctrl: true })).toEqual({ type: "palette" });
     expect(k.press({ key: "r", ctrl: true })).toBeNull();
@@ -340,11 +340,9 @@ describe("the live viewport in the hub", () => {
   const idle: QueueState = { paused: false, current: null, queued: [], recent: [], schedules: [], editor: { connected: true } };
   const over = (recent: RunRecord[], queue: QueueState = idle, connected = true) => ({ recent, queue, editor: { connected } });
 
-  it("counts a run as playing until it ends, including one waiting on a person mid-run", () => {
+  it("counts a run as playing until it ends, including one holding for a person's verdict", () => {
     expect(runPlaying(rec("a", "A", "running"))).toBe(true);
     expect(runPlaying(rec("a", "A", "needs_you"))).toBe(true);
-    // A verdict deferred past the end of its run: nothing left to watch.
-    expect(runPlaying(rec("a", "A", "needs_you", "2026-11-23T10:01:00Z"))).toBe(false);
     expect(runPlaying(rec("a", "A", "passed", "2026-11-23T10:01:00Z"))).toBe(false);
   });
 

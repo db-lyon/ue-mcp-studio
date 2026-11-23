@@ -235,14 +235,7 @@ function ScheduleForm({ schedule, onDone }: { schedule?: Schedule; onDone: () =>
       <HubField id="hub-schedule-at" label="Time" error={shown.at}>
         {(a) => <input {...a} type="time" value={s.at} onChange={(e) => setS({ ...s, at: e.target.value })} />}
       </HubField>
-      <HubField id="hub-schedule-manual" label="Manual steps">
-        {(a) => (
-          <select {...a} value={s.options.manualSteps} onChange={(e) => setS({ ...s, options: { ...s.options, manualSteps: e.target.value as "defer" | "block" } })}>
-            <option value="defer">Send to the inbox and go on</option>
-            <option value="block">Hold the plan until judged</option>
-          </select>
-        )}
-      </HubField>
+      <label className="hub-check-label" title={HUB_COPY.attendedHelp}><input type="checkbox" checked={s.options.attended} onChange={(e) => setS({ ...s, options: { ...s.options, attended: e.target.checked } })} /> {HUB_COPY.attended}</label>
       <label className="hub-check-label"><input type="checkbox" checked={s.options.stopOnFailure} onChange={(e) => setS({ ...s, options: { ...s.options, stopOnFailure: e.target.checked } })} /> Stop at the first failure</label>
       <div className="hub-form-actions">
         <span className="small dim">{scheduleText(s)}</span>
