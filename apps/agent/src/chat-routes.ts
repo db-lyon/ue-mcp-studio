@@ -43,6 +43,7 @@
 import { registerVersionNotice } from "./version-notice.js";
 import { registerWhatsNew } from "./whats-new.js";
 import { readDiscovery, type DaemonExtensionApi } from "ue-mcp/daemon";
+import { ConsentLedger } from "./consent.js";
 import { registerQueueRoutes } from "./queue-routes.js";
 import { registerVideoRoutes } from "./video-routes.js";
 import { PlaytestFlow } from "./playtest-flow.js";
@@ -347,6 +348,8 @@ export function registerChat(api: DaemonExtensionApi, agentVersion = "0.0.0", pa
     flows: new FlowCaller({ endpoint, subscribe: (listener) => api.events.subscribe((e) => listener(e)) }),
     flowStepApproval: () => offersStepApproval(stepHost),
     contextWindow: knownWindow,
+    // ue-mcp's editor consent ledger: each conversation takes part in deciding whether the editor may be stopped (used on a daemon with "editor.consent").
+    consent: new ConsentLedger(endpoint),
     // Claude sign-in turns run in host processes beside the bundle, so an update installs while they run.
     turnHosts: new TurnHosts({
       dataDir: api.dataDir,

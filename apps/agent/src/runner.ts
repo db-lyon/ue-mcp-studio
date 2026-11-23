@@ -28,7 +28,7 @@ import type { CardEntry, CardPost } from "@ue-mcp-studio/extension-api";
 import type { BusyTracker } from "./busy.js";
 import type { DialogBroker } from "./dialogs.js";
 import type { QaBroker } from "./qa.js";
-import { TOOLS, WORK_TOOLS, editorConnected, executeTool, forModel, packageFile, validateInput, verifyUnknown, type AgentHost, type ToolExecution } from "./tools.js";
+import { TOOLS, WORK_TOOLS, editorConnected, executeTool, forModel, packageFile, validateInput, verifyUnknown, type AgentHost, type ToolExecution, type TurnCallOptions } from "./tools.js";
 import type Anthropic from "@anthropic-ai/sdk";
 import { approvalFor, localToolDefinitions, shell } from "./local-tools.js";
 import { WEB_SEARCH_TOOL } from "./web-search.js";
@@ -58,6 +58,7 @@ import type { FormBroker } from "./forms.js";
 import { SKILL_TOOL, agentTool, skillResult, skillsSection, type NativeHelper, type NativeRun } from "./native-runtime.js";
 import { DurableTurns } from "./durable/runtime.js";
 import type { HarnessClientOptions } from "./durable/client.js";
+import { CONSENT_FEATURE, ConsentParticipants, SESSION_FEATURE, disruptiveCallOf, gateCall, participantId, participantLabel, steerText, withParams, type ConsentLedger, type DisruptionView } from "./consent.js";
 import type { AgentSpec, AgentStart, DurableInspection, LocalGate, LocalOutcome, RouteSpec, ToolDef, TraceDetail, TraceFilter, TracePage, TraceSummary } from "./durable/protocol.js";
 
 /** The most of a /action's answer the agent's note carries; the transcript keeps all of it. */
@@ -355,6 +356,12 @@ export interface RunnerOptions {
     credential(route: string): Promise<string | null>;
     harness: Omit<HarnessClientOptions, "onMessage" | "onConnection" | "log">;
   };
+  /**
+   * The daemon's editor consent ledger (consent.ts), used when the daemon has
+   * "editor.consent": each conversation takes part as a participant. Without
+   * it, or on an older daemon, nothing changes.
+   */
+  consent?: ConsentLedger;
 }
 
 /** Where a Claude sign-in reply's own bookkeeping stands; kept with the session while it runs in a host. */
@@ -545,8 +552,22 @@ export class AgentRunner {
   /** The durable runtime, when this Studio has one; sessions whose route selects it run there. */
   private readonly durable: DurableTurns | null;
 
+  /** Editor consent: each conversation as a participant in the daemon's ledger; null on a daemon without "editor.consent". */
+  private readonly participants: ConsentParticipants | null;
+  /** The daemon attributes a call to the session it names (callAction.session). */
+  private readonly attributes: boolean;
+
   constructor(private readonly o: RunnerOptions) {
     this.files = new AttachmentStore(o.host.dataDir);
+    const features = (o.host as { features?: readonly string[] }).features ?? [];
+    this.attributes = features.includes(SESSION_FEATURE);
+    this.participants = o.consent && features.includes(CONSENT_FEATURE) ? new ConsentParticipants({
+      ledger: o.consent,
+      state: (id) => this.runState(id),
+      sessions: () => o.store.all().filter((s) => this.replying.has(s.id) || this.runsOf(s.id, true).length > 0).map((s) => s.id),
+      log: (m) => o.host.log.warn(m),
+    }) : null;
+    this.participants?.start();
     this.durable = o.durable ? new DurableTurns({
       host: o.host,
       store: o.store,
@@ -590,6 +611,15 @@ export class AgentRunner {
       agentStart: (s, id, input, signal, say, stop) => this.durableAgentStart(s, id, input, signal, say, stop),
       agentEnded: (s, id, r, background) => this.durableAgentEnded(s, id, r, background),
       runningAgents: (s) => this.runsOf(s.id, true).map((r) => r.callId),
+      ...(this.participants ? {
+        consent: (s, req) => gateCall(
+          { ledger: o.consent!, participants: this.participants!, editorRunning: () => o.host.editors().some((e) => e.connected) },
+          { sessionId: s.id, callId: req.callId, parent: req.parent, name: req.tool, input: req.args, subagents: req.subagents, canWait: req.canWait },
+        ),
+        releaseHold: async (s) => {
+          await o.consent!.release(participantId(s.id)).catch((e) => o.host.log.warn(`session ${s.id}: could not release its editor hold`, e));
+        },
+      } : {}),
       deliver: (s, id, n, to) => this.deliver(s, id, n, to),
       mainSpec: () => this.durableMainSpec(),
       credential: (route) => o.durable!.credential(route),
@@ -622,16 +652,71 @@ export class AgentRunner {
       } else if (e.type === "studio.busy.changed" && e.data.failure && !e.data.operation) {
         // The restart or rebuild ended without the editor: nothing will bring it back, so stop waiting for it.
         this.resumeAll();
+      } else if (e.type === "disruption.requested" && this.participants) {
+        this.steerRequest(e.data as unknown as DisruptionView);
       }
     });
+  }
+
+  /** A conversation's run state, for the editor consent ledger. */
+  private runState(sessionId: string): { title: string; replying: boolean; subagents: Array<{ callId: string; description: string }> } | null {
+    const s = this.o.store.get(sessionId);
+    if (!s) return null;
+    return { title: s.title, replying: this.replying.has(sessionId), subagents: this.runsOf(sessionId, true).map((r) => ({ callId: r.callId, description: r.description })) };
+  }
+
+  /**
+   * Another session asks to stop, restart, rebuild or patch the editor: each
+   * conversation on the durable runtime that is replying now is told, steered
+   * into its run, and answers with editor(disruption_vote). One that is not
+   * replying is not woken; it answers go by itself once idle long enough.
+   */
+  private steerRequest(view: DisruptionView): void {
+    if (!view?.id || !view.requester || (view.state !== "pending" && view.state !== "confirm" && view.state !== "blocked")) return;
+    for (const s of this.o.store.all()) {
+      if (!s.durable || !this.durable?.owns(s) || !this.replying.has(s.id)) continue;
+      if (participantId(s.id) === view.requester.id) continue;
+      void this.durable.steer(s, `disruption:${view.id}`, steerText(view, this.participants!.subagentsOf(s.id)));
+    }
   }
 
   /** The host a session's tool calls run on: its editor calls are tracked when there is a busy tracker. */
   /** assigned: a subagent the user started from a card, whose runs are the user's. */
   private hostFor(sessionId: string, assigned = false): AgentHost {
-    const host = this.o.dialogs ? this.o.dialogs.wrap(this.o.host, sessionId) : this.o.host;
+    const host = this.o.dialogs ? this.o.dialogs.wrap(this.consentHost(sessionId), sessionId) : this.consentHost(sessionId);
     const tracked = this.o.busy ? this.o.busy.wrap(host, sessionId) : host;
     return this.o.qa ? this.o.qa.wrap(tracked, sessionId, { assigned }) : tracked;
+  }
+
+  /**
+   * The daemon as one conversation's calls reach it: each editor call
+   * attributed to the conversation (callAction.session), so another session's
+   * request to stop the editor waits on it, and an editor operation asked as
+   * the conversation with its subagents attested (editor.consent). The daemon
+   * itself on a ue-mcp without those features.
+   */
+  private consentHost(sessionId: string): AgentHost {
+    const host = this.o.host;
+    if (!this.attributes && !this.participants) return host;
+    const session = () => ({ id: participantId(sessionId), label: participantLabel(this.o.store.get(sessionId)?.title) });
+    // Restated: the pinned ue-mcp's types do not name these options yet.
+    const operate = (op: "start" | "stop" | "restart" | "rebuild", opts?: Record<string, unknown>) =>
+      (host.editorOperation as (op: string, opts?: Record<string, unknown>) => Promise<Record<string, unknown>>).call(host, op, opts);
+    return {
+      get projectDir() { return host.projectDir; },
+      get dataDir() { return host.dataDir; },
+      get features() { return (host as { features?: readonly string[] }).features; },
+      callAction: (c, a, args, opts) => (this.attributes ? host.callAction(c, a, args, { ...(opts ?? {}), session: session() } as TurnCallOptions) : host.callAction(c, a, args, opts)),
+      editors: () => host.editors(),
+      editorOperation: (op) => {
+        if (!this.participants) return host.editorOperation(op);
+        const subagents = this.participants.attestation(sessionId);
+        return operate(op, { session: session(), ...(subagents ? { subagents } : {}) });
+      },
+      events: host.events,
+      setBusy: (busy) => host.setBusy(busy),
+      log: host.log,
+    } as AgentHost;
   }
 
   /** The Playtest runs setting the prompts state. */
@@ -696,8 +781,24 @@ export class AgentRunner {
     const pass = this.surface().passthrough(name);
     if (!pass) {
       if (!live) return executeTool(host, name, input, signal);
+      // Editor consent: while a disruptive call runs, its caller (the reply, or the subagent making it) does not hold its own request.
+      const p = this.participants;
+      const exempt = p && disruptiveCallOf(name, input) ? live : null;
       const out = this.liveOutput(live.sessionId, live.callId);
-      return executeTool(host, name, input, signal, out.push).finally(out.flush);
+      const run = async (): Promise<ToolExecution> => {
+        let args = input;
+        if (exempt) {
+          p!.begin(exempt.sessionId, exempt.callId, this.o.store.get(exempt.sessionId)?.transcript.find((t) => t.kind === "tool" && t.call.id === exempt.callId)?.parent ?? null);
+          await p!.sync(exempt.sessionId);
+          // Studio sees every subagent of its own, so a call with none of them running says so (ue-mcp asks otherwise).
+          if (name !== "editor_restart" && p!.attestation(exempt.sessionId) === "none") args = withParams(name, input, { subagents: "none" });
+        }
+        return executeTool(host, name, args, signal, out.push);
+      };
+      return run().finally(() => {
+        out.flush();
+        if (exempt) p!.end(exempt.sessionId, exempt.callId);
+      });
     }
     return pass(input).then(
       (r) => {
@@ -1108,6 +1209,7 @@ export class AgentRunner {
     // What this daemon's subagents do from here is the next daemon's to apply: nothing of theirs is saved here.
     this.disposed = true;
     this.unsubscribe();
+    this.participants?.stop();
     for (const [id, run] of [...this.hosted]) {
       run.detach();
       this.active.delete(id);

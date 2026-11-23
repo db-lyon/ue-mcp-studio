@@ -137,6 +137,8 @@ interface SessionRecord {
   children: Record<string, ChildRecord>;
   /** The user's messages to subagents, by request id, until each is read or goes to the main agent. */
   told: Record<string, { callId: string; submission: string }>;
+  /** Editor consent: the durable waits for subagents a go_after_subagents vote made, by the vote's call id. */
+  waits?: Record<string, unknown>;
 }
 interface SessionsDoc {
   sessions: Record<string, SessionRecord>;
@@ -177,6 +179,13 @@ export interface Kit {
   projectDir?: string;
   /** What a local tool call is printing, to the daemon as it prints it. */
   output?(sessionId: string, callId: string, text: string): void;
+  /** Editor consent: a session's subagents still running, from the task graph (its children whose report was not handed over). */
+  runningSubagents?(sessionId: string): Promise<Array<{ callId: string; description: string }>>;
+  /**
+   * Editor consent: a durable wait for these subagents to end, which then has the daemon release the session's
+   * hold. Made once per `key` (the vote's call id), so a rerun of the vote makes no second one.
+   */
+  awaitSubagents?(sessionId: string, callIds: string[], key: string): Promise<void>;
 }
 
 /** Studio's extension: built from the daemon's tool definitions on every change, and replaced in place by registry.install(). */
@@ -612,6 +621,8 @@ export class DurableEngine {
       ToolTask,
       ...(this.projectDir ? { projectDir: this.projectDir } : {}),
       output: (sessionId, callId, text) => this.host.emit({ t: "output", sessionId, callId, text }),
+      runningSubagents: (sessionId) => this.runningSubagents(sessionId),
+      awaitSubagents: (sessionId, callIds, key) => this.awaitSubagents(sessionId, callIds, key),
       log: (text) => this.host.log(text),
       searches: (conv) => this.searching.get(conv) === true,
       searchRefused: (provider) => this.refused.has(provider),
@@ -1379,6 +1390,45 @@ export class DurableEngine {
     }
     await this.markChild(sessionId, callId, { reported: true });
   }
+
+  /** Editor consent: the session's subagents still running, from the task graph: children whose report was not handed over. */
+  async runningSubagents(sessionId: string): Promise<Array<{ callId: string; description: string }>> {
+    const rec = (await this.sessions()).sessions[sessionId];
+    if (!rec) return [];
+    return Object.entries(rec.children).filter(([, c]) => !c.reported).map(([callId, c]) => ({ callId, description: c.description }));
+  }
+
+  /**
+   * Editor consent: "go after my subagents stop" as a durable task on the
+   * session's main conversation, made once per vote in the commit that records
+   * it. A background task, so the main agent's Stop never cancels it, and it
+   * resumes by itself after a restart: it waits for each subagent's prompt to
+   * settle, then has the daemon release the session's hold.
+   */
+  async awaitSubagents(sessionId: string, callIds: string[], key: string): Promise<void> {
+    await this.harness.commit(async (tx) => {
+      const t = tx as unknown as { doc(t: unknown): Promise<SessionsDoc>; createTask(task: unknown, input: unknown, o: unknown): Promise<unknown> };
+      const rec = (await t.doc(Sessions)).sessions[sessionId];
+      if (!rec || rec.waits?.[key] !== undefined) return;
+      (rec.waits ??= {})[key] = await t.createTask(ConsentWait, { sessionId, callIds, key }, { ownership: { kind: "conversation" }, conversationId: idOf(rec.conv), background: true });
+    }, CTX);
+  }
+
+  /** The consent wait's wait: every one of these subagents' prompts has settled (or it has reported, or never started). */
+  async settleSubagents(sessionId: string, callIds: string[]): Promise<void> {
+    const rec = (await this.sessions()).sessions[sessionId];
+    for (const callId of callIds) {
+      const c = rec?.children[callId];
+      if (!c || c.reported || !c.submission) continue;
+      const sub = await this.harness.submission(c.submission as never, CTX);
+      if (sub) await sub.wait(CTX);
+    }
+  }
+
+  /** The consent wait's release, from whichever daemon is connected. Repeating it is harmless. */
+  async releaseHold(sessionId: string, key: string): Promise<void> {
+    await this.host.request({ kind: "release", sessionId, callId: key });
+  }
 }
 
 /** A conversation id as Pi Durable made it: Studio keeps them as text, Pi Durable's are numbers. */
@@ -1446,8 +1496,38 @@ const Anchor = (defineTask as unknown as (d: unknown) => unknown)({
   abort: async (_task: unknown, runtime: Runtime, context: Ctx) => runtime.commit(() => ABORTED, context),
 });
 
+/** What a consent wait is made with. */
+interface ConsentWaitInput {
+  sessionId: string;
+  callIds: string[];
+  key: string;
+}
+
+/**
+ * Editor consent's "go after my subagents stop": waits for the subagents a
+ * vote named to end, then releases the session's hold, which turns its wait
+ * vote into go. Each phase commits before the next runs, so a restart between
+ * them repeats only the release, which is idempotent.
+ */
+const ConsentWait = (defineTask as unknown as (d: unknown) => unknown)({
+  name: "studio.consent-wait",
+  version: 1,
+  initial: () => ({ phase: "wait" }),
+  phases: {
+    wait: async (task: { input: ConsentWaitInput }, runtime: Runtime, context: Ctx) => {
+      await engine().settleSubagents(task.input.sessionId, task.input.callIds);
+      await runtime.commit(() => ({ status: "running", checkpoint: { phase: "release" } }), context);
+    },
+    release: async (task: { input: ConsentWaitInput }, runtime: Runtime, context: Ctx) => {
+      await engine().releaseHold(task.input.sessionId, task.input.key);
+      await runtime.commit(() => DONE, context);
+    },
+  },
+  abort: async (_task: unknown, runtime: Runtime, context: Ctx) => runtime.commit(() => ABORTED, context),
+});
+
 /** Studio's own durable tasks, resolved by name for every conversation. */
-const RuntimeTasks: unknown = (defineExtension as unknown as (d: unknown) => unknown)({ name: "studio-runtime", tasks: [Reporter, Anchor] });
+const RuntimeTasks: unknown = (defineExtension as unknown as (d: unknown) => unknown)({ name: "studio-runtime", tasks: [Reporter, Anchor, ConsentWait] });
 
 const backgroundText = (description: string): string =>
   `The subagent "${description}" keeps working in the background: the user wrote to you, or stopped only your reply, while it worked. `

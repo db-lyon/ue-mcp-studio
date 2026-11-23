@@ -28,6 +28,7 @@ import type { Kit } from "./pi.js";
 import type { AgentStart, LocalGate, LocalOutcome, ToolDef } from "./protocol.js";
 import type { ToolExecution } from "../tools.js";
 import { CHANGING_TOOLS, isLocalTool, runLocal, type LocalToolName } from "../local-tools.js";
+import { needsConsent, type ConsentGate } from "../consent.js";
 
 /** This extension's version: a newer Studio's daemon installs its own over it. */
 export const EXTENSION_NAME = "studio";
@@ -87,7 +88,11 @@ export function createStudioExtension(kit: Kit, defs: ToolDef[]) {
     } as never);
   });
   // A harness before 0.1.35-beta.35 has no hooks to hand out: it runs the tools alone.
-  const hooks = [...(kit.hook && kit.GenerationTask && kit.searches ? [searchHook(kit)] : []), ...(local ? [approvalHook(kit)] : [])];
+  const hooks = [
+    ...(kit.hook && kit.GenerationTask && kit.searches ? [searchHook(kit)] : []),
+    ...(local ? [approvalHook(kit)] : []),
+    ...(kit.hook && kit.ToolTask ? [consentHook(kit)] : []),
+  ];
   return kit.defineExtension({ name: EXTENSION_NAME, tools, hooks } as never);
 }
 
@@ -115,6 +120,43 @@ function approvalHook(kit: Kit) {
         gate = (await api.memo("studio.gate", asked, context)) as LocalGate;
       }
       return gate.allow ? undefined : { block: gate.text };
+    },
+  } as never);
+}
+
+/**
+ * Editor consent (ue-mcp "editor.consent") as a beforeTool hook: a call that
+ * would stop, restart, rebuild, build under or Live Coding patch the editor,
+ * and a vote on another session's request, go to the daemon's gate first,
+ * with the session's running subagents read from the task graph here. A
+ * refusal blocks the call with the gate's words (who holds the editor and
+ * why); a go_after_subagents vote comes back as a wait vote, and the durable
+ * wait that releases the hold once those subagents end is made here, once.
+ * The answer is memoized, so a harness restart never asks twice. A daemon
+ * whose answer is not a gate (one without the gate) lets the call go on:
+ * ue-mcp's own gate still answers it.
+ */
+export function consentHook(kit: Kit) {
+  return kit.hook!(kit.ToolTask!, {
+    beforeTool: async (call: { id: string; name: string; arguments: Record<string, unknown> }, api: HookApi, context: { abortSignal?: AbortSignal }) => {
+      const args = call.arguments ?? {};
+      if (!needsConsent(call.name, args)) return undefined;
+      const where = kit.whereIs(String(api.conversationId));
+      if (!where) return undefined;
+      let gate = (await api.memo("studio.consent", context)) as ConsentGate | undefined;
+      if (!gate) {
+        const subagents = (await kit.runningSubagents?.(where.sessionId).catch(() => undefined)) ?? [];
+        const asked = (await kit.request(
+          { kind: "consent", sessionId: where.sessionId, parent: where.parent, callId: call.id, tool: call.name, args, subagents, canWait: !!kit.awaitSubagents },
+          undefined,
+          context.abortSignal,
+        )) as ConsentGate | undefined;
+        if (typeof asked?.allow !== "boolean") return undefined;
+        gate = (await api.memo("studio.consent", asked, context)) as ConsentGate;
+      }
+      if (!gate.allow) return { block: gate.text };
+      if (gate.waitFor?.length && kit.awaitSubagents) await kit.awaitSubagents(where.sessionId, gate.waitFor, call.id);
+      return gate.arguments ? { arguments: gate.arguments } : undefined;
     },
   } as never);
 }

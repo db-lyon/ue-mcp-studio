@@ -14,6 +14,8 @@ import type { HarnessLaunch } from "../../src/durable/protocol.js";
 
 export class FakeHost implements AgentHost {
   connected = true;
+  /** The extension features the daemon advertises. */
+  features?: readonly string[];
   published: Array<{ type: string; data?: Record<string, unknown> }> = [];
   busy: () => boolean = () => false;
   private listeners: Array<(e: { type: string; data: Record<string, unknown> }) => void> = [];
@@ -83,8 +85,11 @@ export function durableRunner(o: {
   extra?: Partial<RunnerOptions>;
   /** The route has the provider's own web search, as an Anthropic key does. */
   search?: boolean;
+  /** The extension features the fake daemon advertises. */
+  features?: readonly string[];
 }): DurableRig {
   const host = new FakeHost(o.projectDir, o.dataDir);
+  if (o.features) host.features = o.features;
   const store = new SessionStore(o.dataDir);
   const runner = new AgentRunner({
     host,
