@@ -26,7 +26,7 @@ import { api } from "../../api";
 import { FailNote } from "../../chat/Qa";
 import { useHub } from "./state";
 import { Empty, HubIcon, HubLink, Placeholder, ScreenHead, StatusMark, StatusPill } from "./parts";
-import { HubLive, ViewportButton, useHubLive } from "./live";
+import { HubViewer, useHubViewer } from "./live";
 
 export function RunScreen({ runId }: { runId: string }) {
   const hub = useHub();
@@ -62,8 +62,9 @@ export function RunScreen({ runId }: { runId: string }) {
   }, [focus]);
 
   const tl = useMemo(() => (d ? runTimeline(d.steps) : null), [d]);
-  // The editor's viewport while this run plays, the last frame for a moment after.
-  const live = useHubLive(!!record && runPlaying(record) && hub.o.editor.connected, "panel");
+  // The Viewport card: "Running now" while this run plays; the picture once expanded.
+  const playing = !!record && runPlaying(record) && hub.o.editor.connected;
+  const viewer = useHubViewer(playing && record ? { runId: record.runId, checkId: `${record.kind}:${record.target}`, name: record.name } : null);
 
   if (!d || !record) {
     return <div className="hub-screen">{error ? <Empty title="This run is not known" actions={<button onClick={() => go({ screen: "overview" })}>Go to Overview</button>}>{error}</Empty> : <Placeholder rows={5} />}</div>;
@@ -113,7 +114,6 @@ export function RunScreen({ runId }: { runId: string }) {
           {record.map && <span className="mono small dim">{record.map.split("/").pop()}</span>}
         </>}
         actions={<>
-          <ViewportButton relevant={runPlaying(record) && hub.o.editor.connected} />
           {checkId && <button className="primary" onClick={() => void hub.runCheck(checkId, record.name)} title="Run again (r)"><HubIcon name="play" size={12} /> Run again</button>}
           {record.outcome === "failed" && <button onClick={() => void api.hub.assign(runId).then(() => hub.notify("Assigned to a subagent"), (e: Error) => hub.notify(e.message, "bad"))}><HubIcon name="assign" size={12} /> Assign</button>}
           {record.sessionId && <button className="ghost" onClick={() => hub.openChat(record.sessionId!, runId)} title="The playtest's card in its session"><HubIcon name="external" size={12} /> Open in chat</button>}
@@ -129,8 +129,8 @@ export function RunScreen({ runId }: { runId: string }) {
         <div className="hub-compare small">Replay of <HubLink href={`#/playtests/runs/${encodeURIComponent(record.replayOf)}`} onGo={() => go({ screen: "run", runId: record.replayOf! })}>an earlier run</HubLink>{d.run?.summary.regressions ? `, ${d.run.summary.regressions} regressed` : ""}</div>
       )}
 
-      <div className={`hub-run-stage ${live.view !== "hidden" ? "with-live" : ""}`}>
-      <HubLive live={live} overlay={overlay} className="hub-run-live" />
+      <div className={`hub-run-stage ${viewer.open ? "with-live" : ""}`}>
+      <HubViewer viewer={viewer} overlay={overlay} linkRun={false} className="hub-run-live" />
       <div className="hub-run-col">
       {tl && d.steps.length > 0 && (
         <section className="hub-section">

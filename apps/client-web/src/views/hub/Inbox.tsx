@@ -12,7 +12,7 @@ import { api } from "../../api";
 import { FailNote } from "../../chat/Qa";
 import { useCursor, useHub } from "./state";
 import { Empty, HubIcon, HubLink, Kbd, ScreenHead, StatusMark } from "./parts";
-import { HubLive, ViewportButton, useHubLive } from "./live";
+import { HubViewer, ViewportButton, useHubViewer } from "./live";
 
 export function InboxScreen() {
   const hub = useHub();
@@ -23,14 +23,11 @@ export function InboxScreen() {
   const items = useMemo(() => sortInbox(o.inbox).filter((i) => !gone.has(i.id)), [o.inbox, gone]);
   const list = useRef<HTMLDivElement>(null);
   const [at, setAt, move] = useCursor(items.length, list);
-  // A verdict whose run still plays: the editor's viewport beside it, so the step is judged by watching.
-  // One run plays at a time, so at most one item has it; the last one keeps the ended frame.
-  const playing = useMemo(() => new Set(playingRuns(o).map((r) => r.runId)), [o]);
+  // One Viewport card beside the list: "Running now" while a waiting verdict's run still plays, so the step is judged by watching.
+  const runs = useMemo(() => playingRuns(o), [o]);
+  const playing = useMemo(() => new Set(runs.map((r) => r.runId)), [runs]);
   const liveItem = items.find((i) => i.kind === "verdict" && i.runId && playing.has(i.runId)) ?? null;
-  const lastLive = useRef<string | null>(null);
-  if (liveItem) lastLive.current = liveItem.id;
-  const live = useHubLive(liveItem !== null, "panel");
-  const liveAt = live.view === "hidden" ? null : liveItem?.id ?? lastLive.current;
+  const viewer = useHubViewer(liveItem ? runs.find((r) => r.runId === liveItem.runId) ?? null : null);
 
   const settle = async (item: InboxItem, verdict: QaVerdict, note?: string) => {
     if (!settlesInline(item)) return;
@@ -89,14 +86,15 @@ export function InboxScreen() {
         title={<>{HUB_COPY.inbox}{items.length > 0 && <span className="hub-title-count">{items.length}</span>}</>}
         sub={items.length > 0 && !hub.narrow ? <span className="hub-keys-hint"><Kbd>j</Kbd><Kbd>k</Kbd> move <Kbd>p</Kbd> pass <Kbd>f</Kbd> fail <Kbd>s</Kbd> skip <Kbd>Enter</Kbd> open</span> : undefined}
       />
+      <div className="hub-split">
+      <div className="hub-split-main">
       {items.length === 0 ? <Empty title={HUB_COPY.inboxEmpty}>{HUB_COPY.inboxEmptyDetail}</Empty> : (
         <div className="hub-inbox-list" ref={list} role="list" aria-label={HUB_COPY.inbox}>
           {items.map((it, i) => {
             const target = inboxTarget(it);
             const goals = it.goalIds.map((id) => o.goals.find((g) => g.goal.id === id)).filter(Boolean);
             return (
-              <article key={it.id} className={`hub-inbox-item kind-${it.kind} ${i === at ? "on" : ""} ${liveAt === it.id ? "has-live" : ""}`} data-row="" role="listitem" aria-current={i === at || undefined} onMouseDown={() => setAt(i)}>
-                {liveAt === it.id && <HubLive live={live} className="hub-inbox-live" />}
+              <article key={it.id} className={`hub-inbox-item kind-${it.kind} ${i === at ? "on" : ""}`} data-row="" role="listitem" aria-current={i === at || undefined} onMouseDown={() => setAt(i)}>
                 <div className="hub-inbox-top">
                   <span className="hub-inbox-kind">{INBOX_KIND_LABEL[it.kind]}</span>
                   <HubLink className="hub-inbox-title" href={hubHash(target)} onGo={() => go(target)}>{it.title}</HubLink>
@@ -137,6 +135,9 @@ export function InboxScreen() {
           })}
         </div>
       )}
+      </div>
+      <aside className="hub-split-side"><HubViewer viewer={viewer} /></aside>
+      </div>
     </div>
   );
 }

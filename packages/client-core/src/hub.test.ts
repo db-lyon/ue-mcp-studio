@@ -32,6 +32,7 @@ import {
   sparkBars,
   typingTarget,
   hubLiveView,
+  hubViewerLine,
   playingStep,
   playingFor,
   playingRuns,
@@ -39,7 +40,7 @@ import {
   type HubLiveInput,
   type HubRoute,
 } from "./hub.js";
-import type { RunRecord } from "@ue-mcp-studio/shared";
+import type { RunRecord, ViewportStatus } from "@ue-mcp-studio/shared";
 
 const goal = (id: string, over: Partial<Goal> = {}): Goal => ({
   schema: 1, id, kind: "goal", title: id, acceptance: DEFAULT_ACCEPTANCE, checks: [], createdAt: "", updatedAt: "", ...over,
@@ -299,21 +300,34 @@ describe("the live viewport in the hub", () => {
     expect(playingRuns(over([rec("c", "C", "running")], idle, false))).toEqual([]);
   });
 
-  it("draws the video only while live, a notice only on a panel, and the last frame only after the run", () => {
-    const base: HubLiveInput = { playing: true, endedFrame: false, statusKnown: true, gated: false, phase: "live", variant: "panel" };
+  it("draws only the line while collapsed, and once expanded the video or a notice, never an empty box", () => {
+    const base: HubLiveInput = { open: true, playing: true, endedFrame: false, gated: false, phase: "live" };
     expect(hubLiveView(base)).toBe("video");
-    expect(hubLiveView({ ...base, variant: "thumb" })).toBe("video");
+    expect(hubLiveView({ ...base, open: false })).toBe("collapsed");
+    expect(hubLiveView({ ...base, open: false, playing: false })).toBe("collapsed");
     expect(hubLiveView({ ...base, phase: "connecting" })).toBe("notice");
-    expect(hubLiveView({ ...base, phase: "connecting", variant: "tile" })).toBe("hidden");
     expect(hubLiveView({ ...base, gated: true })).toBe("notice");
-    expect(hubLiveView({ ...base, gated: true, variant: "thumb" })).toBe("hidden");
-    expect(hubLiveView({ ...base, statusKnown: false })).toBe("hidden");
-    expect(hubLiveView({ ...base, playing: false })).toBe("hidden");
-    expect(hubLiveView({ ...base, playing: false, endedFrame: true, variant: "tile" })).toBe("ended");
-    // Already shown during this run: a stream that drops back keeps its last frame, on every placement.
-    expect(hubLiveView({ ...base, phase: "waiting", seenFrame: true, variant: "thumb" })).toBe("held");
+    // Play In Editor not running: the viewer waits, and the card says so.
+    expect(hubLiveView({ ...base, playing: false, phase: "waiting" })).toBe("notice");
+    expect(hubLiveView({ ...base, playing: false, phase: "live" })).toBe("video");
+    expect(hubLiveView({ ...base, playing: false, phase: "waiting", endedFrame: true })).toBe("ended");
+    // Already shown during this run: a stream that drops back keeps its last frame.
+    expect(hubLiveView({ ...base, phase: "waiting", seenFrame: true })).toBe("held");
     expect(hubLiveView({ ...base, phase: "failed", seenFrame: true })).toBe("notice");
     expect(hubLiveView({ ...base, phase: "waiting", seenFrame: true, gated: true })).toBe("notice");
+  });
+
+  it("says in one line what the editor does, or which of the screen's checks runs", () => {
+    const ready = { access: "ok", editor: "ready", streamer: false, source: null, viewers: 0, pie: false } as ViewportStatus;
+    const run = { runId: "r", checkId: "script:/Game/T/A", name: "Door opens" };
+    expect(hubViewerLine({ editorConnected: false, status: ready, running: null })).toEqual({ tone: "off", text: "Editor offline", run: null });
+    expect(hubViewerLine({ editorConnected: true, status: { ...ready, editor: "no-editor" }, running: null }).text).toBe("Editor offline");
+    expect(hubViewerLine({ editorConnected: true, status: ready, running: null }).text).toBe("Play In Editor is not running");
+    expect(hubViewerLine({ editorConnected: true, status: null, running: null }).text).toBe("Play In Editor is not running");
+    expect(hubViewerLine({ editorConnected: true, status: { ...ready, pie: true }, running: null })).toEqual({ tone: "on", text: "Play In Editor is running", run: null });
+    expect(hubViewerLine({ editorConnected: true, status: { ...ready, pie: true }, running: run })).toEqual({ tone: "run", text: "Running now", run });
+    expect(hubViewerLine({ editorConnected: true, status: { ...ready, editor: "plugin-off" }, running: null })).toEqual({ tone: "warn", text: "Streaming unavailable: Pixel Streaming 2 is off", run: null });
+    expect(hubViewerLine({ editorConnected: true, status: { ...ready, editor: "no-actions" }, running: null }).text).toBe("Streaming unavailable: ue-mcp needs an update");
   });
 
   it("follows the running step, then the one waiting for a verdict, then the next to start", () => {

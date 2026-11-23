@@ -3,7 +3,7 @@
  * other clients' calls, the editor coming and going, and the streamer of a PIE
  * stream. And the agent kept off the stream the Viewport tab owns (#570).
  */
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import WebSocket from "ws";
 import type { ActionResult, DaemonExtensionApi } from "ue-mcp/daemon";
 import type { ViewportStatus } from "@ue-mcp-studio/shared";
@@ -155,10 +155,9 @@ describe("the viewport status", () => {
       ws.once("open", () => resolve());
       ws.once("error", reject);
     });
-    await new Promise((x) => setTimeout(x, 30));
-    expect(w.get()).toBe(true);
+    // Polled rather than a fixed sleep: under a full suite's load the socket's events can take longer than a few ms.
+    await vi.waitFor(() => expect(w.get()).toBe(true), { timeout: 2000, interval: 10 });
     ws.close();
-    await new Promise((x) => setTimeout(x, 30));
-    expect(w.get()).toBe(false);
+    await vi.waitFor(() => expect(w.get()).toBe(false), { timeout: 2000, interval: 10 });
   });
 });

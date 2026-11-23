@@ -24,8 +24,7 @@ import { api } from "../../api";
 import { useCursor, useHub } from "./state";
 import { Empty, HubIcon, HubLink, Progress, ScreenHead, StatusPill } from "./parts";
 import { CheckRow, GoalRow } from "./rows";
-import { LiveTile } from "./Check";
-import { ViewportButton, useHubLive } from "./live";
+import { HubViewer, ViewportButton, useHubViewer } from "./live";
 
 export function GoalScreen({ goalId }: { goalId: string }) {
   const hub = useHub();
@@ -43,7 +42,7 @@ export function GoalScreen({ goalId }: { goalId: string }) {
   // A run of one of this goal's checks, or of its goals' checks for a milestone, playing now.
   const ids = [...checks.map((c) => c.id), ...children.flatMap((c) => c.checks.map((x) => x.id))];
   const nowRun = playingFor(o, ids);
-  const tile = useHubLive(nowRun !== null, "tile");
+  const viewer = useHubViewer(nowRun);
   const runGoal = () => g && void hub.runPlan({ scope: { kind: "goal", goalId: g.goal.id } }, g.goal.title);
   const assignFailing = async () => {
     if (!g) return;
@@ -153,7 +152,8 @@ export function GoalScreen({ goalId }: { goalId: string }) {
         </>}
       />
       <Progress met={g.progress.met} total={g.progress.total} label={progressText(g.progress)} />
-      <LiveTile live={tile} run={nowRun} />
+      <div className="hub-split">
+      <div className="hub-split-main">
       <dl className="hub-facts">
         <div><dt>Owner</dt><dd>{goal.owner || <span className="dim">Nobody</span>}</dd></div>
         <div><dt>Priority</dt><dd>{goal.priority ? <span className={`hub-prio ${goal.priority}`}>{PRIORITY_LABEL[goal.priority]}</span> : <span className="dim">None</span>}</dd></div>
@@ -228,6 +228,9 @@ export function GoalScreen({ goalId }: { goalId: string }) {
           </span>
         ) : <button className="ghost small" onClick={() => setConfirmDelete(true)}><HubIcon name="trash" size={12} /> Delete goal</button>}
       </section>
+      </div>
+      <aside className="hub-split-side"><HubViewer viewer={viewer} /></aside>
+      </div>
     </div>
   );
 }

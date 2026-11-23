@@ -32,7 +32,7 @@ import { api } from "../../api";
 import { useCursor, useHub } from "./state";
 import { Empty, HubIcon, HubLink, Progress, ScreenHead, StatusMark, StatusPill } from "./parts";
 import { GoalRow } from "./rows";
-import { HubLive, ViewportButton, useHubLive } from "./live";
+import { ViewportButton } from "./live";
 
 export function OverviewScreen({ onChat }: { onChat?: () => void }) {
   const hub = useHub();
@@ -208,14 +208,13 @@ function InboxCard() {
   );
 }
 
-/** What runs now and what is next, one line each, with the editor's viewport over what plays. */
+/** What runs now and what is next, one line each, and the Viewport button while something plays. */
 function QueueCard() {
   const { o, go } = useHub();
   const q = o.queue;
   const cur = q.current;
   const p = cur ? planProgress(cur) : null;
   const playing = playingRuns(o)[0] ?? null;
-  const thumb = useHubLive(playing !== null, "thumb");
   // A run outside any plan (from Chat, or a fix loop) plays too: named here, since the plan line does not.
   const solo = playing && !cur?.items.some((i) => i.runId === playing.runId) ? playing : null;
   return (
@@ -227,7 +226,6 @@ function QueueCard() {
         <span className="spacer" />
         <ViewportButton relevant={playing !== null} compact />
       </div>
-      <HubLive live={thumb} />
       {solo && (
         <HubLink className="hub-now-line" href={hubHash({ screen: "run", runId: solo.runId })} onGo={() => go({ screen: "run", runId: solo.runId })}>
           <StatusMark look={RUN_OUTCOME_LOOK.running} />

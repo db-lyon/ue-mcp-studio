@@ -1,22 +1,21 @@
 /**
- * The editor's Play In Editor viewport in the Playtest Hub, beside whatever
- * is playing now: large on the run screen, a tile on a check or goal, a
- * thumbnail in the overview's queue card, and next to a verdict whose run
- * still plays, so a person judges a manual step by watching it.
+ * The editor's Play In Editor viewport in the Playtest Hub: a Viewport card
+ * that is always on the Goal (and Milestone), Check and Run screens and the
+ * Inbox. It never connects on its own. Collapsed, it says in one line what the
+ * editor and Play In Editor are doing, or that one of the screen's checks is
+ * running now. Expanded, it joins the viewer and draws the picture in place,
+ * or the viewer's notice with its ways forward; a second control opens the
+ * full viewer.
  *
- * The hub holds one viewer for all of them (HubLiveProvider). A placement
- * that is involved in a playing run holds it; the viewer joins on the first
- * hold and leaves HUB_LIVE_LINGER_MS after the last one lets go, so moving
- * between screens, or from one run of a plan to the next, keeps the same
- * connection. Every placement draws the same MediaStream, and the full
- * viewer opened from any of them draws it too (ViewportDialog's `viewer`),
- * so the hub never asks the editor for a second stream.
+ * The hub holds one viewer for every card (HubLiveProvider), and whether the
+ * cards are expanded is the hub's, not each screen's: a card that is expanded
+ * and on screen holds the viewer, which joins on the first hold and leaves
+ * HUB_LIVE_LINGER_MS after the last one lets go, so moving between screens
+ * keeps the same connection. Every card draws the same MediaStream, and the
+ * full viewer draws it too (ViewportDialog's `viewer`), so the hub never asks
+ * the editor for a second stream.
  *
- * What each placement draws is client-core's hubLiveView: the video while it
- * is live, the last frame dimmed for a moment after the run ends, and
- * otherwise nothing, except that the run screen and the inbox say once why
- * there is no picture (the editor's state, the stream's) with the Viewport
- * tab's own words and ways forward.
+ * What a card says and draws is client-core's hubViewerLine and hubLiveView.
  */
 import { createContext, useContext, useEffect, useLayoutEffect, useRef, useState, type ReactNode } from "react";
 import type { ViewportStatus } from "@ue-mcp-studio/shared";
@@ -24,19 +23,23 @@ import {
   HUB_LIVE_COPY,
   HUB_LIVE_ENDED_MS,
   HUB_LIVE_LINGER_MS,
+  HUB_VIEWER_COPY,
   VIEWPORT_BUTTON,
   VIEWPORT_BUTTON_HINT,
   ViewportSession,
   asksViewportAgain,
+  hubHash,
   hubLiveView,
+  hubViewerLine,
   pieFromEvent,
   showsViewportButton,
   viewerNotice,
   viewportGate,
   withPie,
-  type HubLiveVariant,
   type HubLiveView,
+  type HubViewerLine,
   type PeerFactory,
+  type PlayingRun,
   type ViewerPhase,
   type ViewportAction,
   type ViewportNotice,
@@ -47,7 +50,8 @@ import { ViewportDialog } from "../../chat/PieLive";
 import { browserPeer, runViewportAction } from "../Viewport";
 import type { DaemonState } from "../../state";
 import type { SettingsSection } from "../settings/sections";
-import { HubIcon } from "./parts";
+import { HubIcon, HubLink } from "./parts";
+import { HubContext } from "./state";
 
 /** The longest side of the frame kept for after a run ends. */
 const FRAME_MAX_W = 640;
@@ -59,7 +63,10 @@ export interface HubLiveValue {
   gate: ViewportNotice | null;
   phase: ViewerPhase;
   remote: boolean;
-  /** Keep the viewer while the caller shows a playing run; call what it returns to let go. Stable across renders. */
+  /** The cards are expanded: the person asked to watch. */
+  expanded: boolean;
+  setExpanded: (on: boolean) => void;
+  /** Keep the viewer while an expanded card is on screen; call what it returns to let go. Stable across renders. */
   hold: () => () => void;
   /** A frame of the stream has been kept. */
   hasFrame: () => boolean;
@@ -76,7 +83,7 @@ export const HubLiveContext = createContext<HubLiveValue | null>(null);
 
 const NO_EVENTS: Pick<DaemonState, "events"> = { events: [] };
 
-/** The hub's one viewer, and the full viewer over the hub when one is open. */
+/** The hub's one viewer, whether its cards are expanded, and the full viewer over the hub when one is open. */
 export function HubLiveProvider({ daemon = NO_EVENTS, onSettings = () => undefined, peer = browserPeer, children }: {
   daemon?: Pick<DaemonState, "events">;
   onSettings?: (s: SettingsSection) => void;
@@ -86,10 +93,11 @@ export function HubLiveProvider({ daemon = NO_EVENTS, onSettings = () => undefin
   const remote = onRemotePage();
   const [holds, setHolds] = useState(0);
   const [dialog, setDialog] = useState(false);
+  const [expanded, setExpanded] = useState(false);
   const wanted = holds > 0 || dialog;
 
   // GET /viewport on mount, when something comes to want the viewer, and after an event that may change it;
-  // a pie.* event applies at once. Nothing polls. The Viewport buttons read whether PIE runs from it.
+  // a pie.* event applies at once. Nothing polls. The cards' line reads whether PIE runs from it.
   const [status, setStatus] = useState<ViewportStatus | null>(null);
   const check = (fresh = false): Promise<ViewportStatus | null> =>
     Promise.resolve()
@@ -200,7 +208,7 @@ export function HubLiveProvider({ daemon = NO_EVENTS, onSettings = () => undefin
     };
   }
 
-  const value: HubLiveValue = { status, gate, phase, remote, ...stable.current, expand: () => setDialog(true), act, busy, actionError };
+  const value: HubLiveValue = { status, gate, phase, remote, expanded, setExpanded, ...stable.current, expand: () => setDialog(true), act, busy, actionError };
   return (
     <HubLiveContext.Provider value={value}>
       {children}
@@ -210,9 +218,8 @@ export function HubLiveProvider({ daemon = NO_EVENTS, onSettings = () => undefin
 }
 
 /**
- * The explicit way into the full viewer: shown while the thing beside it is
- * involved in a playing run, or while Play In Editor runs at all. Hidden
- * otherwise, since there is nothing to watch.
+ * A row's way into the full viewer: shown while the row's run plays, or while
+ * Play In Editor runs at all. Hidden otherwise, since there is nothing to watch.
  */
 export function ViewportButton({ relevant, compact = false, className = "" }: { relevant: boolean; compact?: boolean; className?: string }) {
   const ctx = useContext(HubLiveContext);
@@ -225,12 +232,14 @@ export function ViewportButton({ relevant, compact = false, className = "" }: { 
   );
 }
 
-/** The ways forward a hub placement offers: not the source switch, since the hub shows Play In Editor only. */
+/** The ways forward a card offers: not the source switch, since the hub shows Play In Editor only. */
 const hubNotice = (n: ViewportNotice): ViewportNotice => ({ ...n, actions: n.actions.filter((a) => a.id !== "level-viewport" && a.id !== "pie") });
 
-export interface HubLiveState {
+export interface HubViewerState {
   view: HubLiveView;
-  variant: HubLiveVariant;
+  line: HubViewerLine;
+  /** The card is expanded. */
+  open: boolean;
   /** The frame an ended or held view draws. */
   frame: string | null;
   notice: ViewportNotice | null;
@@ -238,38 +247,34 @@ export interface HubLiveState {
 }
 
 /**
- * What one placement draws, and its hold on the hub's viewer while `playing`:
- * the thing it sits beside is involved in a run playing now. A screen that
- * lays itself out around the viewport reads `view` first.
+ * One screen's Viewport card: its line, what it draws, and its hold on the
+ * hub's viewer while expanded. `running` is the screen's check that is
+ * running now, or null. A screen that lays itself out around the card reads
+ * `open` first.
  */
-export function useHubLive(playing: boolean, variant: HubLiveVariant): HubLiveState {
+export function useHubViewer(running: PlayingRun | null): HubViewerState {
   const ctx = useContext(HubLiveContext);
+  const editorConnected = useContext(HubContext)?.o.editor.connected ?? true;
+  const open = !!ctx?.expanded;
   const hold = ctx?.hold;
   useEffect(() => {
-    if (!hold || !playing) return;
+    if (!hold || !open) return;
     return hold();
-  }, [playing, hold]);
+  }, [open, hold]);
+  const playing = running !== null;
 
   // Live here at least once during this run: a stream that drops back keeps its frame, and the end shows it.
   const [seen, setSeen] = useState(false);
   const [ended, setEnded] = useState<string | null>(null);
   const [held, setHeld] = useState<string | null>(null);
   const view = ctx
-    ? hubLiveView({
-        playing,
-        endedFrame: ended !== null,
-        seenFrame: seen && ctx.hasFrame(),
-        statusKnown: ctx.status !== null,
-        gated: ctx.gate !== null,
-        phase: ctx.phase.phase,
-        variant,
-      })
-    : "hidden";
+    ? hubLiveView({ open, playing, endedFrame: ended !== null, seenFrame: seen && ctx.hasFrame(), gated: ctx.gate !== null, phase: ctx.phase.phase })
+    : "collapsed";
 
   useEffect(() => {
-    if (view === "video" && !seen) setSeen(true);
-  }, [view, seen]);
-  // Before paint, so the end never flashes an empty place between the video and its last frame.
+    if (view === "video" && playing && !seen) setSeen(true);
+  }, [view, seen, playing]);
+  // Before paint, so the end never flashes a notice between the video and its last frame.
   const was = useRef(playing);
   useLayoutEffect(() => {
     if (was.current && !playing && seen) {
@@ -290,34 +295,61 @@ export function useHubLive(playing: boolean, variant: HubLiveVariant): HubLiveSt
     return () => clearTimeout(t);
   }, [ended]);
 
+  const line = hubViewerLine({ editorConnected, status: ctx?.status ?? null, running });
   const notice = view === "notice" && ctx ? hubNotice(ctx.gate ?? viewerNotice(ctx.phase, "pie", { remote: ctx.remote }) ?? { tone: "info", title: HUB_LIVE_COPY.starting, body: "", actions: [], busy: true }) : null;
-  return { view, variant, frame: view === "ended" ? ended : view === "held" ? held : null, notice, ctx };
+  return { view, line, open, frame: view === "ended" ? ended : view === "held" ? held : null, notice, ctx };
 }
 
 /**
- * One placement of the viewport. Clicking the picture opens the full viewer.
- * `overlay` sits over the picture's foot (the run screen's current step);
- * `caption` goes under it.
+ * The Viewport card. `overlay` sits over the picture's foot (the run screen's
+ * current step). `linkRun` links the running check's name to its run, for
+ * screens other than that run's own.
  */
-export function HubLive({ live, overlay, caption, className = "" }: { live: HubLiveState; overlay?: ReactNode; caption?: ReactNode; className?: string }) {
-  const { view, variant, ctx } = live;
+export function HubViewer({ viewer, overlay, linkRun = true, className = "" }: { viewer: HubViewerState; overlay?: ReactNode; linkRun?: boolean; className?: string }) {
+  const go = useContext(HubContext)?.go;
+  const { view, line, open, ctx } = viewer;
   const video = useRef<HTMLVideoElement>(null);
   const stream = view === "video" && ctx?.phase.phase === "live" ? ctx.phase.stream : null;
   useEffect(() => {
     if (video.current) video.current.srcObject = (stream as MediaStream | null) ?? null;
   }, [stream]);
+  if (!ctx) return null;
 
-  if (view === "hidden" || !ctx) return null;
+  const run = line.run;
+  const route = run ? { screen: "run" as const, runId: run.runId } : null;
+  const head = (
+    <div className="hub-viewer-head">
+      <span className={`pie-dot ${line.tone === "on" || line.tone === "run" ? "live" : ""}`} aria-hidden="true" />
+      <span className="hub-viewer-title">{HUB_VIEWER_COPY.title}</span>
+      <span className="hub-viewer-line">
+        {run && route ? (
+          <>
+            <span className="pill hub-viewer-running">{line.text}</span>
+            {linkRun && go ? <HubLink href={hubHash(route)} onGo={() => go(route)}>{run.name}</HubLink> : <span>{run.name}</span>}
+          </>
+        ) : <span className={line.tone === "warn" ? "hub-warn-text" : ""}>{line.text}</span>}
+      </span>
+      {open && (
+        <button className="ghost icon-button" onClick={ctx.expand} aria-label={HUB_LIVE_COPY.expand} title={HUB_LIVE_COPY.expand}>
+          <HubIcon name="expand" size={13} />
+        </button>
+      )}
+      <button className={open ? "ghost small-button" : "small-button"} aria-expanded={open} onClick={() => ctx.setExpanded(!open)}>
+        {open ? HUB_VIEWER_COPY.hide : HUB_VIEWER_COPY.watch}
+      </button>
+    </div>
+  );
 
+  let body: ReactNode = null;
   if (view === "notice") {
-    const n = live.notice!;
-    return (
-      <div className={`hub-live hub-live-${variant} hub-live-notice tone-${n.tone} ${className}`} role={n.tone === "bad" ? "alert" : "status"}>
+    const n = viewer.notice!;
+    body = (
+      <div className={`hub-live-notice tone-${n.tone}`} role={n.tone === "bad" ? "alert" : "status"}>
         <div className="hub-live-notice-title">
           {n.busy ? <span className="spinner small" aria-hidden="true" /> : <span className="pie-dot" aria-hidden="true" />}
           <strong>{n.title}</strong>
         </div>
-        {!n.busy && n.body && <p className="small muted">{n.body}</p>}
+        {n.body && <p className="small muted">{n.body}</p>}
         {n.actions.length > 0 && (
           <div className="hub-live-actions">
             {n.actions.map((a) => (
@@ -330,28 +362,30 @@ export function HubLive({ live, overlay, caption, className = "" }: { live: HubL
         {ctx.actionError && <p className="small hub-bad-text">{ctx.actionError}</p>}
       </div>
     );
+  } else if (view !== "collapsed") {
+    const still = view === "ended" || view === "held";
+    body = (
+      <figure className={`hub-live view-${view}`}>
+        <div className="hub-live-stage">
+          {still ? (
+            viewer.frame ? <img className="hub-live-frame" src={viewer.frame} alt="" /> : <span className="hub-live-frame blank" />
+          ) : (
+            <video ref={video} className="hub-live-video" autoPlay playsInline muted aria-label="Play In Editor, live" />
+          )}
+          {view === "video" && <span className="hub-live-badge"><span className="pie-dot live" aria-hidden="true" />{HUB_LIVE_COPY.live}</span>}
+          {view === "ended" && <span className="hub-live-ended" role="status">{HUB_LIVE_COPY.ended}</span>}
+          {view === "held" && <span className="hub-live-ended" aria-hidden="true"><span className="spinner small" /></span>}
+          {overlay && view !== "ended" && <div className="hub-live-overlay">{overlay}</div>}
+          {view !== "ended" && <button className="hub-live-hit" onClick={ctx.expand} aria-label={HUB_LIVE_COPY.expand} tabIndex={-1} />}
+        </div>
+      </figure>
+    );
   }
 
-  const still = view === "ended" || view === "held";
   return (
-    <figure className={`hub-live hub-live-${variant} view-${view} ${className}`}>
-      <div className="hub-live-stage">
-        {still ? (
-          live.frame ? <img className="hub-live-frame" src={live.frame} alt="" /> : <span className="hub-live-frame blank" />
-        ) : (
-          <video ref={video} className="hub-live-video" autoPlay playsInline muted aria-label="Play In Editor, live" />
-        )}
-        {view === "video" && <span className="hub-live-badge"><span className="pie-dot live" aria-hidden="true" />{HUB_LIVE_COPY.live}</span>}
-        {view === "ended" && <span className="hub-live-ended" role="status">{HUB_LIVE_COPY.ended}</span>}
-        {view === "held" && <span className="hub-live-ended" aria-hidden="true"><span className="spinner small" /></span>}
-        {overlay && view !== "ended" && <div className="hub-live-overlay">{overlay}</div>}
-        {view !== "ended" && (
-          <button className="hub-live-hit" onClick={ctx.expand} aria-label={HUB_LIVE_COPY.expand} title={HUB_LIVE_COPY.expand}>
-            <span className="hub-live-expand"><HubIcon name="expand" size={variant === "thumb" ? 12 : 14} /></span>
-          </button>
-        )}
-      </div>
-      {caption && <figcaption className="hub-live-caption">{caption}</figcaption>}
-    </figure>
+    <section className={`hub-viewer tone-${line.tone} ${open ? "open" : ""} ${className}`} aria-label={HUB_VIEWER_COPY.title}>
+      {head}
+      {body}
+    </section>
   );
 }

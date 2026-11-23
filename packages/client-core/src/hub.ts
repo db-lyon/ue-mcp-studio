@@ -43,6 +43,8 @@ import {
   type RunStepSpan,
   type Schedule,
   type ScheduleDraft,
+  type ViewportEditorState,
+  type ViewportStatus,
 } from "@ue-mcp-studio/shared";
 import { requestJson, type Transport } from "./transport.js";
 import type { ViewerPhase } from "./viewport.js";
@@ -1014,10 +1016,12 @@ export const HUB_PLAN_DEFAULTS: PlanOptions = DEFAULT_PLAN_OPTIONS;
 // ---------- The live viewport ----------
 
 /**
- * The hub shows the editor's Play In Editor viewport only beside what is
- * playing now: a run, its check, its goal, the queue's current item, a
- * verdict whose run still plays. These rules say what plays and what each
- * placement draws, so nothing ever shows an empty video box.
+ * The Goal (and Milestone), Check and Run screens and the Inbox each carry a
+ * Viewport card. It never connects on its own: collapsed, it says in one line
+ * what the editor and Play In Editor are doing, and that one of the screen's
+ * checks is running now; expanded, it joins the hub's one viewer and draws the
+ * picture, or the viewer's notice with its ways forward. These rules say what
+ * plays, what the line says and what an expanded card draws.
  */
 
 /** A run playing on the editor now. */
@@ -1056,52 +1060,95 @@ export function playingFor(o: Pick<HubOverview, "recent" | "queue" | "editor">, 
   return playingRuns(o).find((r) => ids.has(r.checkId)) ?? null;
 }
 
-/** Where the viewport is drawn: a panel that explains why it cannot stream (Run, Inbox), a tile (Check, Goal), a thumbnail (Overview). */
-export type HubLiveVariant = "panel" | "tile" | "thumb";
 /**
- * What a placement draws: nothing, a short notice (the gate or the stream's
- * state), the video, the last frame held while the stream reconnects
- * mid-run, or the last frame after the run ended.
+ * What a Viewport card draws: collapsed (its line only), a notice (the gate or
+ * the viewer's state, with its ways forward), the video, the last frame held
+ * while the stream reconnects mid-run, or the last frame after the run ended.
  */
-export type HubLiveView = "hidden" | "notice" | "video" | "held" | "ended";
+export type HubLiveView = "collapsed" | "notice" | "video" | "held" | "ended";
 
 export interface HubLiveInput {
-  /** The thing on screen is involved in a run playing now. */
+  /** The card is expanded: the person asked to watch. */
+  open: boolean;
+  /** One of the screen's checks is running now. */
   playing: boolean;
   /** A last frame is held from the run that just ended. */
   endedFrame: boolean;
   /** This run was already live here and a frame of it is kept. */
   seenFrame?: boolean;
-  /** GET /viewport has answered. */
-  statusKnown: boolean;
   /** Something stops watching (viewportGate). */
   gated: boolean;
   phase: ViewerPhase["phase"];
-  variant: HubLiveVariant;
 }
 
 /**
- * What a placement draws. The video only while it is live; a panel says why
- * it is not, once, where a person needs to know; tiles and thumbnails stay
- * out of the way until there is a picture. A stream that drops back to
- * waiting or connecting during a run it already showed (PIE restarting, or
- * stopping a moment before the run reports its end) keeps its last frame
- * instead of flashing a notice.
+ * What a card draws. Nothing but its line until it is expanded; then the
+ * video while it is live, and otherwise the notice that says why not, never
+ * an empty black box. A stream that drops back to waiting or connecting
+ * during a run it already showed (PIE restarting, or stopping a moment before
+ * the run reports its end) keeps its last frame instead of flashing a notice,
+ * and the end of a run it showed keeps the last frame for a moment.
  */
 export function hubLiveView(i: HubLiveInput): HubLiveView {
-  if (!i.playing) return i.endedFrame ? "ended" : "hidden";
-  if (!i.statusKnown) return "hidden";
-  if (!i.gated && i.phase === "live") return "video";
-  if (!i.gated && i.seenFrame && (i.phase === "waiting" || i.phase === "connecting" || i.phase === "joining")) return "held";
-  return i.variant === "panel" ? "notice" : "hidden";
+  if (!i.open) return "collapsed";
+  if (i.gated) return "notice";
+  if (i.phase === "live") return "video";
+  if (i.playing && i.seenFrame && (i.phase === "waiting" || i.phase === "connecting" || i.phase === "joining")) return "held";
+  if (!i.playing && i.endedFrame) return "ended";
+  return "notice";
 }
+
+/** What a collapsed card's line says: the editor and Play In Editor, or the screen's check that is running now. */
+export interface HubViewerLine {
+  /** off: nothing to watch; on: Play In Editor runs; run: one of the screen's checks runs; warn: the editor cannot stream. */
+  tone: "off" | "on" | "run" | "warn";
+  text: string;
+  /** The screen's check that is running now, named after the text. */
+  run: PlayingRun | null;
+}
+
+/** Why the editor cannot stream, short enough for the line; the expanded card says the rest (viewportGate). */
+const CANNOT_STREAM: Partial<Record<ViewportEditorState, string>> = {
+  "no-actions": "ue-mcp needs an update",
+  "plugin-off": "Pixel Streaming 2 is off",
+  "plugin-restart": "the editor needs a restart",
+  unavailable: "this editor cannot stream",
+};
+
+/**
+ * The collapsed card's line. The editor being away comes first, then the
+ * screen's run, then what stops streaming, then whether Play In Editor runs.
+ * `editorConnected` is the hub's own view of the editor; `status` is
+ * GET /viewport, null until it answers.
+ */
+export function hubViewerLine(i: { editorConnected: boolean; status: ViewportStatus | null; running: PlayingRun | null }): HubViewerLine {
+  const s = i.status;
+  if (!i.editorConnected || s?.editor === "no-editor") return { tone: "off", text: HUB_VIEWER_COPY.offline, run: null };
+  if (i.running) return { tone: "run", text: HUB_VIEWER_COPY.runningNow, run: i.running };
+  const why = s ? CANNOT_STREAM[s.editor] : undefined;
+  if (why) return { tone: "warn", text: HUB_VIEWER_COPY.cannotStream(why), run: null };
+  return s?.pie ? { tone: "on", text: HUB_VIEWER_COPY.pieOn, run: null } : { tone: "off", text: HUB_VIEWER_COPY.pieOff, run: null };
+}
+
+export const HUB_VIEWER_COPY = {
+  title: "Viewport",
+  /** Expands the card and joins the stream. */
+  watch: "Watch",
+  /** Collapses it; the stream stops a little later. */
+  hide: "Hide",
+  offline: "Editor offline",
+  runningNow: "Running now",
+  cannotStream: (why: string) => `Streaming unavailable: ${why}`,
+  pieOn: "Play In Editor is running",
+  pieOff: "Play In Editor is not running",
+} as const;
 
 /** The step a playing run is on: the running one, else the first waiting for a person, else the next to start. */
 export function playingStep<T extends Pick<RunStepSpan, "status">>(steps: readonly T[]): T | null {
   return steps.find((s) => s.status === "running") ?? steps.find((s) => s.status === "awaiting_verdict") ?? steps.find((s) => s.status === "pending") ?? null;
 }
 
-/** How long the hub keeps its viewer after the last placement lets go, so moving between screens or runs does not reconnect. */
+/** How long the hub keeps its viewer after the last card collapses or leaves the screen, so moving between screens does not reconnect. */
 export const HUB_LIVE_LINGER_MS = 15_000;
 /** How long the last frame stays, dimmed, after a run ends. */
 export const HUB_LIVE_ENDED_MS = 4_000;

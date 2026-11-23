@@ -192,6 +192,12 @@ Made 2026-11-23. The user handed the design over in full: decide, build, deliver
 6. **Contract:** `packages/shared/src/hub.ts` holds every type, the status rules (`checkHealth`, `checkSatisfied`, `goalStatus`) and the route table (`HUB_ROUTES`). Agent, clients and demo all import it.
 7. **Live viewport in the hub** (2026-11-23, after the user's first look). One component follows what runs now. It is live while the relevant run plays, shows the last frame briefly after it ends, and is hidden otherwise, so there is never an empty box.
    - **Placements:** large on the Run screen with the current step overlaid; a tile on the Check and Goal screens while one of their checks runs; a thumbnail in the overview's queue strip; beside live verdicts in the Inbox, so a person judges manual steps by watching from any paired browser.
+   - **Revised after the user's review:** a live view that appears only while a run plays left Goal and Milestone screens empty. The viewer is now a card that is always on the layout of the Goal (and Milestone), Check and Run screens and the Inbox.
+     - It never connects on its own. At rest it shows the editor's state in one line.
+     - Expand connects and loads the pixels in place; a second control opens the full viewer.
+     - While one of the screen's checks runs, the collapsed card says "Running now".
+     - Placement: a side column on wide Goal, Check and Inbox screens, above the content when narrow; on the Run screen a line above the steps, large beside them once expanded, with the current step overlaid. Whether the cards are expanded is the hub's, so moving between screens keeps watching on the one connection.
+     - The overview's queue thumbnail is gone: the queue card already names what runs, and its Viewport button opens the full viewer. Row Viewport buttons (goal check rows, queue items, the playing verdict) stay; the header buttons on Run and Check, which the card replaces, are gone.
    - **The Viewport tab and the chat bar's viewport icon are removed** on web and Android, on this branch (the user's call, same day). An explicit **Viewport** button opens the full viewer from the in-chat playtest card, on both clients, and wherever a run is live in the hub. The viewer and the agent's viewport routes stay.
 9. **Issue trackers: PARKED until the viewport work lands; design it deliberately, do not rush.** Corrected by the user: the hub fully owns goals, playtests and everything about them. Trackers are not a boundary of ownership. Goals and playtests (and runs) need **relationships** to their counterparts in remote trackers (Gitea, GitHub, Jira and the like).
    - **The minimum:** they store links to those counterparts.
@@ -224,4 +230,12 @@ Made 2026-11-23. The user handed the design over in full: decide, build, deliver
       - Jira only on demand.
 
    - **Configuration (sketch):** tracker type, base URL and repo in a checked-in `QA/hub.json`. Tokens never leave the machine.
+10. **The relationship graph** (2026-11-23, from the user's review). The user wants no duplicates and no stale goals: one playtest may be step 1 in goal A and step 10 in goal B, and one goal may be a condition of many milestones.
+    - **Today:** checks are already shared by reference across any number of goals, with per-goal order, one run history and one status. But a goal has a single `parent`, so it can sit under only one milestone. That forces duplicates.
+    - **Change:** replace `parent` with one graph.
+      - A goal lists what it requires, in its own order: checks and other goals (`requires: [{ goal: id }]` beside `checks`). A milestone is a goal with `kind: "milestone"`, a label rather than a separate level.
+      - A goal can sit under any number of milestones or goals. Status rolls up through every path.
+      - Cycles are refused. Goals and checks that nothing references show as unused, so they cannot go stale silently.
+      - Requirements live in the parent's file, so adding a goal to a milestone edits only the milestone's file.
+    - **When:** after the viewport card lands, since both touch the Goal screen.
 8. **Status ladder:** checks are ranked needs you, failing, missing, running, flaky, stale, never run, passing. Goals are ranked needs you, failing, at risk, running, not started, met.
