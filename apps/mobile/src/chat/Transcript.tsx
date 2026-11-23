@@ -37,7 +37,7 @@ import {
   toolTitle,
   LIVE_OUTPUT_LABEL,
   NO_LIVE,
-  THINKING_LABEL,
+  thinkingLabel,
   type AgentState,
   type Call,
   type LiveParts,
@@ -447,14 +447,15 @@ function StreamPiece({ text, first, last }: { text: string; first: boolean; last
   );
 }
 
-/** .msg.thinking: the model's thinking while it answers, quiet and folded open, gone once the answer lands. */
-function ThinkingLine({ text }: { text: string }) {
+/** .msg.thinking: the model's thinking while it answers, quiet and folded open, gone once the answer lands; its header says how long this think has run. */
+function ThinkingLine({ text, since }: { text: string; since: number | null }) {
   const t = useTheme();
   const [open, setOpen] = useState(true);
+  const now = useNow(true);
   return (
     <View testID="live-thinking" style={{ alignSelf: "flex-start", maxWidth: "100%", marginVertical: 4, paddingVertical: 6, paddingHorizontal: 10, borderLeftWidth: 2, borderLeftColor: t.c.line }}>
       <Pressable accessibilityRole="button" accessibilityState={{ expanded: open }} onPress={() => setOpen((o) => !o)} style={{ minHeight: 32, justifyContent: "center" }}>
-        <Text style={[labelFont(t), { color: t.c.dim }]}>{THINKING_LABEL.toUpperCase()}</Text>
+        <Text style={[labelFont(t), { color: t.c.dim }]}>{thinkingLabel(since, now).toUpperCase()}</Text>
       </Pressable>
       {open ? <Text style={[baseFont(t), { color: t.c.dim, fontSize: 12.5 }]}>{text}</Text> : null}
     </View>
@@ -483,7 +484,8 @@ function liveRows(live: LiveParts): ThreadRow[] {
   }
   if (live.thinking) {
     const text = live.thinking;
-    rows.push({ key: "live-thinking", render: () => <ThinkingLine text={text} /> });
+    const since = live.thinkingSince;
+    rows.push({ key: "live-thinking", render: () => <ThinkingLine text={text} since={since} /> });
   }
   return rows;
 }

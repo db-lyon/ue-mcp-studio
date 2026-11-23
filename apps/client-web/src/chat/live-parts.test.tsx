@@ -4,7 +4,7 @@
  * what the running call has printed, before either lands in the transcript.
  */
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { cleanup, render, screen } from "@testing-library/react";
+import { act, cleanup, render, screen } from "@testing-library/react";
 import type { TranscriptEntry } from "@ue-mcp-studio/shared";
 import { NO_LIVE } from "@ue-mcp-studio/client-core";
 import { MainTranscript } from "./Transcript";
@@ -19,10 +19,25 @@ const props = { transcript, status: "running" as const, streaming: "", waitingCa
 
 describe("the live parts of a running turn", () => {
   it("shows the running call's output so far and the thinking, under their labels", () => {
-    render(<MainTranscript {...props} live={{ thinking: "The build log will say which module failed.", output: { callId: "c1", text: "Compiling Module.Core\nLinking" } }} />);
+    render(<MainTranscript {...props} live={{ thinking: "The build log will say which module failed.", thinkingSince: Date.now(), output: { callId: "c1", text: "Compiling Module.Core\nLinking" } }} />);
     expect(screen.getByRole("log", { name: "Output so far" }).textContent).toContain("Compiling Module.Core");
     expect(screen.getByText("Thinking")).toBeTruthy();
     expect(screen.getByText("The build log will say which module failed.")).toBeTruthy();
+  });
+
+  it("shows how long a long think has run in its header, and counts on", () => {
+    vi.useFakeTimers();
+    try {
+      vi.setSystemTime(new Date("2026-11-16T10:05:00Z"));
+      render(<MainTranscript {...props} live={{ thinking: "Still weighing it.", thinkingSince: Date.parse("2026-11-16T10:01:48Z"), output: null }} />);
+      expect(screen.getByText("Thinking 3m 12s")).toBeTruthy();
+      act(() => {
+        vi.advanceTimersByTime(2000);
+      });
+      expect(screen.getByText("Thinking 3m 14s")).toBeTruthy();
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("shows neither when there is nothing live", () => {
