@@ -12,8 +12,9 @@ import { REFUSED_SCENARIOS } from "./refused-fixtures";
 import { CONTEXT_SCENARIOS } from "./context-fixtures";
 import { PAIRED_SCENARIOS } from "./paired-fixtures";
 import { VIEWPORT_SCENARIOS } from "./viewport-fixtures";
+import { HUB_SCENARIOS } from "./hub-fixtures";
 
-export const SCENARIOS: Record<string, Scenario> = { ...PLAYTESTS, ...SETTINGS_SCENARIOS, ...REVIEW_SCENARIOS, ...REFUSED_SCENARIOS, ...CONTEXT_SCENARIOS, ...PAIRED_SCENARIOS, ...VIEWPORT_SCENARIOS };
+export const SCENARIOS: Record<string, Scenario> = { ...PLAYTESTS, ...SETTINGS_SCENARIOS, ...REVIEW_SCENARIOS, ...REFUSED_SCENARIOS, ...CONTEXT_SCENARIOS, ...PAIRED_SCENARIOS, ...VIEWPORT_SCENARIOS, ...HUB_SCENARIOS };
 
 
 /** A scenario's daemon: its settings, and its answer to each GET. `arrived()` says whether its arriving line has been sent. */

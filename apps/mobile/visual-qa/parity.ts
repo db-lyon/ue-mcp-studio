@@ -35,6 +35,9 @@ export interface ParityEntry {
 /** The UE-MCP desktop app's screens (apps/client-web/src/app): they manage the computer itself. */
 const DESKTOP_APP = "The UE-MCP desktop app manages this computer's projects (each with its updates and daemon) and its own setup; a paired phone reaches one project's Studio, never the computer's app.";
 
+/** The Playtest Hub's screens: the recorded exception CONTRIBUTING.md asks for, until the web UX settles (docs/plans/playtest-hub). */
+const HUB = "The Playtest Hub is an experiment on web first; the phone gets it once the UX settles.";
+
 /** The message box, as the app's page draws it. */
 const BOX = "textarea";
 
@@ -326,4 +329,15 @@ export const PARITY: Record<string, ParityEntry> = {
   "setup-installing": {notOnPhone: DESKTOP_APP},
   "setup-done": {notOnPhone: DESKTOP_APP},
   "setup-failed": {notOnPhone: DESKTOP_APP},
+  // The Playtest Hub, behind its experimental setting.
+  "hub-overview": {notOnPhone: HUB},
+  "hub-overview-empty": {notOnPhone: HUB},
+  "hub-inbox": {notOnPhone: HUB},
+  "hub-goal": {notOnPhone: HUB},
+  "hub-goal-milestone": {notOnPhone: HUB},
+  "hub-library": {notOnPhone: HUB},
+  "hub-check": {notOnPhone: HUB},
+  "hub-run": {notOnPhone: HUB},
+  "hub-queue": {notOnPhone: HUB},
+  "hub-editor-offline": {notOnPhone: HUB},
 };
