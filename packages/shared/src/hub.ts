@@ -443,7 +443,8 @@ export function goalStatus(goal: Goal, checks: Array<{ state: CheckState; runs: 
   const manualRequired = required.filter((c) => c.state.check.kind === "manual").length;
   // A manual check is satisfied by the goal's sign-off.
   const metAll = met + (goal.signOff ? manualRequired : 0);
-  const progress = { met: metAll, total: required.length };
+  // Required goals count as one each beside the checks, so a milestone made of goals shows how many are met.
+  const progress = { met: metAll + childStatuses.filter((s) => s === "met").length, total: required.length + childStatuses.length };
   const hs = checks.map((c) => c.state.health);
   const reqHs = required.map((c) => c.state.health);
   if (hs.includes("needs_you") || childStatuses.includes("needs_you") || optNeeds) return { status: "needs_you", progress };

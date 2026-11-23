@@ -529,10 +529,10 @@ export function flips(recent: readonly RunOutcome[]): number {
 /** Pass rate as text: "85%" or "No runs". */
 export const passRateText = (rate: number | null): string => (rate === null ? "No runs" : `${Math.round(rate * 100)}%`);
 
-/** The goal's progress as words: "3 of 5 required checks meet the rule". */
+/** The goal's progress as words, counting its required checks and required goals: "3 of 5 requirements met". */
 export function progressText(p: { met: number; total: number }): string {
-  if (p.total === 0) return "No required checks";
-  return `${p.met} of ${p.total} required ${p.total === 1 ? "check meets" : "checks meet"} the rule`;
+  if (p.total === 0) return "Nothing required yet";
+  return `${p.met} of ${p.total} ${p.total === 1 ? "requirement" : "requirements"} met`;
 }
 
 /** A goal's acceptance rule in a sentence. */
