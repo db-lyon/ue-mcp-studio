@@ -14,6 +14,7 @@ import {
 } from "@ue-mcp-studio/client-core";
 import { api } from "../api";
 import { openExternal } from "../native";
+import { EditorConsent, useEditorConsent } from "./EditorConsent";
 import { onRemotePage } from "../connection";
 import type { DaemonState } from "../state";
 import type { SettingsSection } from "./settings/sections";
@@ -43,6 +44,7 @@ export function ViewportView({ daemon, onSettings, peer = browserPeer, embedded 
   const [watch, setWatch] = useState(0);
   const [busy, setBusy] = useState<string | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
+  const consent = useEditorConsent();
   const [muted, setMuted] = useState(true);
   const video = useRef<HTMLVideoElement>(null);
   const stage = useRef<HTMLDivElement>(null);
@@ -115,9 +117,12 @@ export function ViewportView({ daemon, onSettings, peer = browserPeer, embedded 
           onSettings("general");
           break;
         case "start-editor":
-        case "restart-editor":
-          await api.editor(a.id === "start-editor" ? "start" : "restart");
+          await api.editor("start");
           await check();
+          break;
+        case "restart-editor":
+          // Held while other sessions use the editor: the ask below shows who, and Restart anyway runs it.
+          if (await consent.run("restart")) await check();
           break;
         case "enable-plugin":
           setStatus(await api.enableStreamPlugin());
@@ -171,6 +176,20 @@ export function ViewportView({ daemon, onSettings, peer = browserPeer, embedded 
                   </button>
                 ))}
               </div>
+            )}
+            {consent.ask && (
+              <EditorConsent
+                ask={consent.ask}
+                onApprove={() => {
+                  setBusy("restart-editor");
+                  setActionError(null);
+                  void consent.approve().then(
+                    (r) => (r ? check() : undefined),
+                    (e: unknown) => setActionError(e instanceof Error ? e.message : String(e)),
+                  ).finally(() => setBusy(null));
+                }}
+                onCancel={consent.cancel}
+              />
             )}
             {actionError && <p className="viewport-error">{actionError}</p>}
           </div>

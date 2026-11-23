@@ -203,6 +203,13 @@ export const SETTINGS_SCENARIOS: Record<string, Scenario> = {
         }
       : undefined,
   }),
+  "settings-project-rebuild-held": page("Project after Rebuild while other sessions use the editor: who holds it and why, with Rebuild anyway and Cancel", "project", {
+    get: (p) => p === "/v1/install"
+      ? { ...INSTALL, ok: false, problems: [{ code: "bridge_build_stale", what: "The compiled plugin is older than its source, so handlers added since the last build answer 'Unknown method'.", fix: "Rebuild with the editor STOPPED: project(action='build')." }] }
+      : undefined,
+    post: (p) => (p === "/v1/editor/rebuild" ? { status: 409, body: { error: "Not run yet: request r-1a2b3c to rebuild the editor is waiting on the other sessions using this editor.", request: HELD_REBUILD } } : undefined),
+    clicks: [".problem .actions button.primary", ".problem .banner .actions button.primary"],
+  }),
   "settings-project-yaml": page("Project with Advanced open: ue-mcp.yml highlighted, focused, with a line longer than the box", "project", {
     get: (p) => (p === "/v1/ext/studio/config" ? { path: "C:/Projects/StudioE2E/ue-mcp.yml", exists: true, text: YAML } : undefined),
     click: "details.advanced > summary",
@@ -304,6 +311,23 @@ export const SETTINGS_SCENARIOS: Record<string, Scenario> = {
     clicks: [".log-event:nth-child(3) .log-data > summary"],
     scroll: ".log",
   },
+};
+
+/** A rebuild other sessions hold (ue-mcp feature "editor.consent"): one waits, one blocks, one agreed. */
+export const HELD_REBUILD = {
+  id: "r-1a2b3c",
+  op: "rebuild",
+  action: "POST /v1/editor/rebuild",
+  requester: { id: "http:the user in Studio", label: "the user in Studio" },
+  state: "blocked",
+  createdAt: "2026-11-04T23:24:00Z",
+  expiresAt: "2026-11-04T23:39:00Z",
+  answers: [
+    { session: "mcp-7f2a", label: "Claude Code", answer: "wait_until_released", reason: "busy (blueprint.add_variable, level.place_actor)", auto: true },
+    { session: "mcp-91c0", label: "Cursor", answer: "go", reason: "idle for 412s", auto: true },
+    { session: "studio:s-4", label: "Studio: Dress the courtyard", answer: "block", reason: "a playtest is recording", auto: false },
+  ],
+  self: { attestationRequired: false, attested: null, inflight: [] },
 };
 
 export const INSTALL = {

@@ -122,7 +122,7 @@ describe("EditorStatus", () => {
     expect(screen.getByText("C:/P/StudioE2E")).toBeTruthy();
     expect(screen.getByText("studio 0.1.25")).toBeTruthy();
     fireEvent.click(screen.getByText("Restart"));
-    expect(a.editor).toHaveBeenCalledWith("restart");
+    expect(a.editor).toHaveBeenCalledWith("restart", { requester: "the user in Studio" });
     expect(screen.getByText("restart...")).toBeTruthy();
     await settle();
     expect(screen.getByText("editor.restart_editor: ok, connect: failed")).toBeTruthy();
@@ -140,6 +140,63 @@ describe("EditorStatus", () => {
   it("says when the daemon cannot be read yet", () => {
     renderInProject(<EditorStatus />);
     expect(screen.getByText("Connecting to ue-mcp")).toBeTruthy();
+  });
+
+  /** The daemon answering a restart while other sessions use the editor (ue-mcp feature "editor.consent"), then the person's choice. */
+  function consentDaemon() {
+    const enc = new TextEncoder();
+    const reply = (status: number, body: unknown): Reply => ({ status, headers: { "content-type": "application/json" }, body: (async function* () { yield enc.encode(JSON.stringify(body)); })() });
+    const sent: Array<{ method: string; path: string; json?: unknown }> = [];
+    const request = {
+      id: "r-9f8e7d",
+      op: "restart",
+      action: "POST /v1/editor/restart",
+      requester: { id: "http:the user in Studio", label: "the user in Studio" },
+      state: "pending",
+      createdAt: "2026-11-23T10:00:00Z",
+      expiresAt: "2026-11-23T10:15:00Z",
+      answers: [{ session: "s1", label: "Claude Code", answer: "wait_until_released", reason: "it started a PIE session that is still running", auto: true }],
+      self: { attestationRequired: false, attested: null, inflight: [] },
+    };
+    const raw: Transport = async (method, path, options) => {
+      sent.push({ method, path, json: options?.json });
+      if (path === "/v1/editor/restart") {
+        const forced = (options?.json as { force?: boolean } | undefined)?.force === true;
+        return forced ? reply(200, { steps: [{ step: "editor.restart_editor", ok: true }] }) : reply(409, { error: "Not run yet.", request });
+      }
+      if (path === "/v1/disruptions/r-9f8e7d/deny") return reply(200, { ...request, state: "denied" });
+      return reply(404, {});
+    };
+    return { api: { ...studioApi(raw), daemonHealth: async () => health(true) }, sent };
+  }
+
+  it("shows who holds a restart and why, and Restart anyway overrides it", async () => {
+    const d = consentDaemon();
+    renderInProject(<EditorStatus />, d.api as never);
+    await settle();
+    fireEvent.click(screen.getByText("Restart"));
+    await settle();
+    expect(screen.getByText("Other sessions are using the editor")).toBeTruthy();
+    expect(screen.getByText("Restarting the editor now ends their work in it, including anything unsaved.")).toBeTruthy();
+    expect(screen.getByTestId("editor-consent").textContent).toContain("Claude Code: Waiting, it started a PIE session that is still running");
+    fireEvent.click(screen.getByText("Restart anyway"));
+    await settle();
+    expect(d.sent.filter((s) => s.path === "/v1/editor/restart").map((s) => s.json)).toEqual([{ requester: "the user in Studio" }, { requester: "the user in Studio", force: true }]);
+    expect(screen.queryByTestId("editor-consent")).toBeNull();
+    expect(screen.getByText("editor.restart_editor: ok")).toBeTruthy();
+  });
+
+  it("Cancel denies a held restart and restarts nothing", async () => {
+    const d = consentDaemon();
+    renderInProject(<EditorStatus />, d.api as never);
+    await settle();
+    fireEvent.click(screen.getByText("Restart"));
+    await settle();
+    fireEvent.click(screen.getByText("Cancel"));
+    await settle();
+    expect(d.sent.find((s) => s.path === "/v1/disruptions/r-9f8e7d/deny")?.json).toEqual({ by: "the user in Studio" });
+    expect(d.sent.filter((s) => s.path === "/v1/editor/restart")).toHaveLength(1);
+    expect(screen.queryByTestId("editor-consent")).toBeNull();
   });
 
   it("asks for the PIN before a restart, then sends it", async () => {
