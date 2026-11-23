@@ -23,7 +23,6 @@ import { Banner, Button, font, PageGlow, T, useInsets, useSetTheme, useStyles, u
 import { Chat } from "./views/Chat";
 import { PlaytestsView, usePlaytestIndex } from "./views/Playtests";
 import { PluginsView } from "./views/Plugins";
-import { ViewportView } from "./views/Viewport";
 import { ViewportSheet } from "./chat/PieLive";
 import { SettingsHub } from "./views/SettingsHub";
 import { sectionOf, type SettingsSection } from "./views/settings/sections";
@@ -45,7 +44,7 @@ import { FileViewerProvider } from "./chat/FileViewer";
 // Ways out of the project the drawer offers at all times: the projects list and pairing.
 import { Exits } from "./exits";
 
-const TABS = ["Chat", "Viewport", "Playtests", "Plugins", "Settings"] as const;
+const TABS = ["Chat", "Playtests", "Plugins", "Settings"] as const;
 type Tab = (typeof TABS)[number];
 
 const THEMES: StudioTheme[] = ["ue-mcp", "editor", "editor-orange"];
@@ -144,7 +143,7 @@ function Studio({ daemon, initial, onBack, device }: { daemon: ReturnType<typeof
     setTab("Settings");
   });
   const [feedback, setFeedback] = useState(false);
-  // The live viewport over the chat, from the PIE indicator or a Play In Editor card; closing it returns to the chat as it was.
+  // The live viewport over the chat, from a Play In Editor card or a live playtest's Viewport; closing it returns to the chat as it was.
   const [watching, setWatching] = useState(false);
   const watchLive = useCallback(() => setWatching(true), []);
   const settingsFromChat = useCallback((x: string) => {
@@ -226,7 +225,6 @@ function Studio({ daemon, initial, onBack, device }: { daemon: ReturnType<typeof
           <View style={[s.main, tab !== "Playtests" && s.padded]}>
             <ErrorBoundary what={tab} resetKey={tab}>
               {tab === "Playtests" ? <PlaytestsView daemon={daemon} index={playtests} onOpenSession={openPlaytest} onChat={() => setTab("Chat")} /> : null}
-              {tab === "Viewport" ? <ViewportView daemon={daemon} onSettings={(x) => { setSection(x); setTab("Settings"); }} /> : null}
               {tab === "Plugins" ? <PluginsView daemon={daemon} remote /> : null}
               {tab === "Settings" ? <SettingsHub daemon={daemon} section={section} onSection={setSection} onTheme={(x: StudioTheme) => THEMES.includes(x) && setTheme(x)} updates={updates} narrow /> : null}
             </ErrorBoundary>

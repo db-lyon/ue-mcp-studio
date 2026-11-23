@@ -1,9 +1,10 @@
 /**
- * The way into the live PIE viewport from the chat: the composer bar's PIE
- * indicator, the Play In Editor card after what started PIE, and the dialog
- * both open, which draws the Viewport tab's own player, gate and states. The
- * card never streams in the thread; the dialog joins as a viewer while it is
- * open, and closing it leaves, so the stream stops once nobody watches.
+ * The way into the live PIE viewport from the chat: the Play In Editor card
+ * after what started PIE, a live playtest card's Viewport (Qa.tsx), and the
+ * dialog both open, which draws the viewer's player, gate and states
+ * (views/Viewport.tsx). The cards never stream in the thread; the dialog
+ * joins as a viewer while it is open, and closing it leaves, so the stream
+ * stops once nobody watches.
  *
  * The status is GET /viewport, asked on mount and again after the events
  * client-core's asksViewportAgain names, and a pie.* event from the daemon
@@ -15,7 +16,7 @@ import type { ViewportStatus } from "@ue-mcp-studio/shared";
 import { VIEWPORT_MODAL_TITLE, WATCH_LIVE, asksViewportAgain, pieCard, pieFromEvent, withPie } from "@ue-mcp-studio/client-core";
 import { api } from "../api";
 import type { DaemonState } from "../state";
-import { ViewportView } from "../views/Viewport";
+import { ViewportView, type SharedViewer } from "../views/Viewport";
 import type { SettingsSection } from "../views/settings/sections";
 
 /** GET /viewport for the chat, asked again after an event that may change it. */
@@ -37,7 +38,7 @@ export function usePieStatus(daemon: Pick<DaemonState, "events">, enabled = true
   return { status, check };
 }
 
-/** What the chat's PIE card and indicator read: the status, and the ways out of the thread. */
+/** What the chat's PIE card and playtest cards read: the status, and the ways out of the thread. */
 export interface PieLiveValue {
   status: ViewportStatus | null;
   remote: boolean;
@@ -67,10 +68,11 @@ export function PieCard({ current }: { current: boolean }) {
 }
 
 /**
- * The viewport in a dialog over the chat. Mounted only while open, so its
- * viewer joins on open and leaves on close; Escape or the scrim closes it.
+ * The viewport in a dialog over the chat or the Playtest Hub. Mounted only
+ * while open, so its viewer joins on open and leaves on close; Escape or the
+ * scrim closes it. Given `viewer`, it draws that one instead of joining.
  */
-export function ViewportDialog({ daemon, onClose, onSettings }: { daemon: DaemonState; onClose: () => void; onSettings: (s: SettingsSection) => void }) {
+export function ViewportDialog({ daemon, onClose, onSettings, viewer }: { daemon: Pick<DaemonState, "events">; onClose: () => void; onSettings: (s: SettingsSection) => void; viewer?: SharedViewer }) {
   useEffect(() => {
     const esc = (e: KeyboardEvent) => e.key === "Escape" && onClose();
     document.addEventListener("keydown", esc);
@@ -84,21 +86,9 @@ export function ViewportDialog({ daemon, onClose, onSettings }: { daemon: Daemon
           <span className="spacer" />
           <button className="ghost" onClick={onClose}>Close</button>
         </div>
-        <ViewportView daemon={daemon} embedded onSettings={(s) => { onClose(); onSettings(s); }} />
+        <ViewportView daemon={daemon} embedded viewer={viewer} onSettings={(s) => { onClose(); onSettings(s); }} />
       </div>
     </div>,
     document.body,
-  );
-}
-
-/** The bar's PIE indicator: the viewport's screen with a live dot. */
-export function PieLiveGlyph() {
-  return (
-    <span className="pie-glyph" aria-hidden="true">
-      <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round">
-        <path d="M2.5 4.5A1.5 1.5 0 0 1 4 3h8a1.5 1.5 0 0 1 1.5 1.5v6A1.5 1.5 0 0 1 12 12H4a1.5 1.5 0 0 1-1.5-1.5zM7 5.8v3.4l2.8-1.7zM5.5 14h5" />
-      </svg>
-      <span className="pie-dot live" />
-    </span>
   );
 }

@@ -49,6 +49,8 @@ describe("the navigation drawer", () => {
     expect(screen.getByText("Chat").closest("button")?.getAttribute("aria-current")).toBeNull();
     expect(screen.getByText("Settings").closest("button")?.querySelector(".tab-dot")).not.toBeNull();
     expect(screen.getByText("Docs")).toBeTruthy();
+    // The live viewport opens from a playtest card, not a tab.
+    expect(screen.queryByText("Viewport")).toBeNull();
   });
 
   it("hides the Playtests page while the Playtest Hub is off, even while playtests need the user", () => {

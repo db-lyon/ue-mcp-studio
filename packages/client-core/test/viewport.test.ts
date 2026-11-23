@@ -359,8 +359,9 @@ describe("what the viewport panel says", () => {
     expect(viewerNotice({ phase: "waiting" }, "pie", { remote: true })!.actions.map((a) => a.id)).toEqual(["level-viewport"]);
   });
 
-  it("keeps the tab in the location", () => {
-    expect(parseLocation("#/viewport").tab).toBe("Viewport");
-    expect(formatLocation({ tab: "Viewport", session: null, section: null })).toBe("#/viewport");
+  it("lands an old Viewport tab link on Chat", () => {
+    expect(parseLocation("#/viewport")).toEqual({ tab: "Chat", session: null, section: null });
+    expect(parseLocation("#/viewport/anything").tab).toBe("Chat");
+    expect(formatLocation(parseLocation("#/viewport"))).toBe("#/chat");
   });
 });

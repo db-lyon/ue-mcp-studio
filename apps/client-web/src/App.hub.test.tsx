@@ -32,7 +32,7 @@ beforeEach(() => {
   m.sessions.mockResolvedValue({ sessions: [] });
   m.qaPlaytests.mockResolvedValue({ playtests: [], listed: true, more: false });
   m.hub.overview.mockResolvedValue(hubFixture());
-  window.location.hash = "#/viewport";
+  window.location.hash = "#/settings/general";
 });
 afterEach(() => {
   cleanup();
@@ -47,7 +47,7 @@ describe("the Playtest Hub gate", () => {
     m.settings.mockResolvedValue({ theme: "ue-mcp", experiments: { playtestHub: false } });
     render(<App />);
     await waitFor(() => expect(m.settings).toHaveBeenCalled());
-    expect(tabs()).toEqual(["Chat", "Viewport", "Plugins", "Settings"]);
+    expect(tabs()).toEqual(["Chat", "Plugins", "Settings"]);
     expect(m.hub.overview).not.toHaveBeenCalled();
   });
 
@@ -55,7 +55,7 @@ describe("the Playtest Hub gate", () => {
     m.settings.mockResolvedValue({ theme: "ue-mcp", experiments: { playtestHub: true } });
     render(<App />);
     const tab = await screen.findByRole("button", { name: /Playtests/ });
-    expect(tabs()).toEqual(["Chat", "Viewport", "Playtests", "Plugins", "Settings"]);
+    expect(tabs()).toEqual(["Chat", "Playtests", "Plugins", "Settings"]);
     await waitFor(() => expect(tab.querySelector(".tab-count")?.textContent).toBe("3"));
     fireEvent.click(tab);
     expect(await screen.findByRole("heading", { level: 1, name: "Overview" })).toBeTruthy();

@@ -7,6 +7,7 @@
  * run is answered from the same buttons. Assign to subagent hands the playtest
  * to a subagent that drives PIE and judges the manual steps it may judge; its
  * verdicts carry an Agent badge and its evidence, and one click overrides each.
+ * In a chat, Viewport opens the live viewer over it while the run plays in PIE.
  *
  * Collapsed, the card is its title, its state, its primary action, a path of
  * one bar per step and a line of what happened. The primary action is Start
@@ -52,6 +53,9 @@ import {
   offlinePill,
   runPill,
   pathSummary,
+  showsViewportButton,
+  VIEWPORT_BUTTON,
+  VIEWPORT_BUTTON_HINT,
   statusLabel,
   stepBarLabel,
   stepTone,
@@ -63,6 +67,7 @@ import { PictureOr } from "./AssetTile";
 import { ExactAssetLink, StepText } from "./AssetLink";
 import { stepPlain } from "./asset-links";
 import { StepSetup } from "./step-setup";
+import { PieLiveContext } from "./PieLive";
 
 /** A script's path under its card's title, a link that opens the script asset; an inline script has no asset. */
 function ScriptPath({ script }: { script: string }) {
@@ -218,6 +223,8 @@ export function QaCard({ run: saved, form: own, onDismiss, actions: outside, met
   offline?: string;
 }) {
   const live = useContext(QaContext);
+  /** The chat's Play In Editor status and its viewer; absent outside a chat, where the card offers no Viewport. */
+  const pie = useContext(PieLiveContext);
   const [run, setRun] = useLiveRun(saved, live);
   const [notes, setNotes] = useState<Record<number, string>>({});
   /** Verdicts picked for a form that asks about several steps, sent once each has one. */
@@ -382,7 +389,7 @@ export function QaCard({ run: saved, form: own, onDismiss, actions: outside, met
   };
 
   const scripted = outside ? outside.script : !qaIsDraft(run) && run.script ? savedScriptActions(run.script) : undefined;
-  const { draft, ended, owned, needsYouLoop, runnable, stoppable, canAssign, assignWaits, editable } = cardControls(run, { outside: outside && { start: !!outside.start, assign: !!outside.assign, script: !!outside.script }, assignSession, open });
+  const { draft, ended, owned, needsYouLoop, runnable, stoppable, canAssign, assignWaits, editable, viewport } = cardControls(run, { outside: outside && { start: !!outside.start, assign: !!outside.assign, script: !!outside.script }, assignSession, open, pie: pie ? showsViewportButton({ relevant: false, status: pie.status }) : undefined });
   /** Edit, Delete and a draft's early verdicts change the script through the session that has its card. */
   /**
    * Start playtest on the card: a draft's, or the manual run a verdict on the
@@ -421,6 +428,8 @@ export function QaCard({ run: saved, form: own, onDismiss, actions: outside, met
       />
     </span>
   );
+  // The viewer opens over the chat and says itself why it cannot stream, when it cannot.
+  const viewportButton = viewport && pie && <IconButton label={VIEWPORT_BUTTON} disabled={!!offline} title={offline ?? VIEWPORT_BUTTON_HINT} onClick={pie.watch} glyph={GLYPH.viewport} />;
   const stopButton = stoppable && <IconButton label={`Stop playtest ${run.scriptName}`} disabled={working || !!offline} title={offline ?? "Stop: end the run now"} onClick={stop} glyph={GLYPH.stop} />;
   const cancelAssigned = assigned && <IconButton label={assignment?.loop ? "End the loop" : "Cancel the subagent"} disabled={assigning || !!offline} title={offline} onClick={toggleAssign} glyph={GLYPH.cancel} />;
   const assignButton = canAssign && !assigned
@@ -449,7 +458,7 @@ export function QaCard({ run: saved, form: own, onDismiss, actions: outside, met
   const editRun = panel === "edit" ? (scripted ? editing : draft ? run : null) : null;
   const dismiss = onDismiss && ended && <IconButton label="Dismiss this run" onClick={onDismiss} glyph={GLYPH.cancel} />;
   /** The card's own buttons, in one order everywhere. */
-  const ownActions = [startButtons, stopButton, cancelAssigned, assignButton, endLoop, draftButtons, extra, dismiss].filter(Boolean);
+  const ownActions = [startButtons, viewportButton, stopButton, cancelAssigned, assignButton, endLoop, draftButtons, extra, dismiss].filter(Boolean);
   // Delete asks in the card's corner, in words, where the click was.
   const confirmDelete = panel === "delete" && (
     <span className="qa-box-actions qa-confirm" role="group" aria-label="Confirm delete">
@@ -716,6 +725,8 @@ const GLYPH = {
   cancel: glyph("M4 4l8 8M12 4l-8 8"),
   edit: glyph("M10.5 2.5l3 3L6 13H3v-3z"),
   trash: glyph("M3 4.5h10M6.5 4.5V3h3v1.5M4.5 4.5l.6 8.5h5.8l.6-8.5"),
+  // A screen with a play mark on a stand: the live viewport.
+  viewport: glyph("M2.5 4.5A1.5 1.5 0 0 1 4 3h8a1.5 1.5 0 0 1 1.5 1.5v6A1.5 1.5 0 0 1 12 12H4a1.5 1.5 0 0 1-1.5-1.5zM7 5.8v3.4l2.8-1.7zM5.5 14h5"),
 };
 
 /** A card action as an icon: its name is the tooltip and the accessible label. */

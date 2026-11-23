@@ -366,14 +366,12 @@ export interface BarUtility {
   disabled?: boolean;
   /** A toggle's state: Subagents where its list is inline, pressed while that list shows. Undefined is a plain button. */
   pressed?: boolean;
-  /** Its tooltip, when it changes with what it shows (the PIE indicator's); UTILITY_TITLE otherwise. */
+  /** Its tooltip, when it changes with what it shows; UTILITY_TITLE otherwise. */
   title?: string;
-  /** Something is live behind it (the PIE indicator): the overflow button shows the live dot too. */
-  live?: boolean;
 }
 
 /** Each utility's class, for styles and for the visual QA's clicks. */
-const UTILITY_CLASS: Record<BarUtilityId, string> = { viewport: "composer-pie", checkpoints: "composer-checkpoints", subagents: "composer-agents", attach: "attach-button" };
+const UTILITY_CLASS: Record<BarUtilityId, string> = { checkpoints: "composer-checkpoints", subagents: "composer-agents", attach: "attach-button" };
 
 /** A utility as an icon button, named for the keyboard and a screen reader; `hidden` is the measured copy, out of reach. */
 function UtilityButton({ u, hidden }: { u: BarUtility; hidden?: boolean }) {
@@ -451,7 +449,7 @@ function UtilityMenu({ items }: { items: BarUtility[] }) {
         onClick={() => setOpen(!open)}
       >
         <MoreGlyph />
-        {agents > 0 ? <span className="utility-count">{agents}</span> : items.some((u) => u.live) ? <span className="pie-dot live more-dot" aria-hidden="true" /> : null}
+        {agents > 0 ? <span className="utility-count">{agents}</span> : null}
       </button>
       {open && (
         <div className="composer-more-menu" role="menu" aria-label={UTILITY_MORE_LABEL} ref={menu}>

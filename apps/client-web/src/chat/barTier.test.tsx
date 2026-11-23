@@ -55,8 +55,8 @@ describe("the utilities' fold", () => {
   });
 
   it("names every utility and the overflow button for a screen reader", () => {
-    expect(BAR_UTILITIES).toEqual(["viewport", "checkpoints", "subagents", "attach"]);
-    expect(BAR_UTILITIES.map((id) => utilityLabel(id, 2))).toEqual(["PIE live", "Checkpoints", "Subagents (2)", "Attach"]);
+    expect(BAR_UTILITIES).toEqual(["checkpoints", "subagents", "attach"]);
+    expect(BAR_UTILITIES.map((id) => utilityLabel(id, 2))).toEqual(["Checkpoints", "Subagents (2)", "Attach"]);
     expect(moreLabel(0)).toBe("More controls");
     expect(moreLabel(1)).toBe("More controls, 1 subagent");
     expect(moreLabel(3)).toBe("More controls, 3 subagents");

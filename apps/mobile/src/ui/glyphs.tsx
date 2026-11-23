@@ -1,6 +1,6 @@
 /**
  * The web client's line glyphs, drawn with react-native-svg from the same
- * paths: a card's play, stop, assign, cancel, edit and delete, the options
+ * paths: a card's play, stop, assign, cancel, edit, delete and viewport, the options
  * sliders, and the disclosure chevron.
  */
 import Svg, { Circle, Path } from "react-native-svg";
@@ -13,6 +13,7 @@ const PATHS = {
   cancel: "M4 4l8 8M12 4l-8 8",
   edit: "M10.5 2.5l3 3L6 13H3v-3z",
   trash: "M3 4.5h10M6.5 4.5V3h3v1.5M4.5 4.5l.6 8.5h5.8l.6-8.5",
+  viewport: "M2.5 4.5A1.5 1.5 0 0 1 4 3h8a1.5 1.5 0 0 1 1.5 1.5v6A1.5 1.5 0 0 1 12 12H4a1.5 1.5 0 0 1-1.5-1.5zM7 5.8v3.4l2.8-1.7zM5.5 14h5",
 } as const;
 const FILLED = new Set(["play", "stop"]);
 

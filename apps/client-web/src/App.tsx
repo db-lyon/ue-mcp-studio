@@ -5,7 +5,6 @@ import { applyTheme } from "./theme";
 import { useDaemon, type DaemonState } from "./state";
 import { openDocs } from "./native";
 import { PluginsView } from "./views/Plugins";
-import { ViewportView } from "./views/Viewport";
 import { useUpdateCount } from "./views/Updates";
 import { UpdateRunner } from "./views/UpdateOverlay";
 import { FeedbackDialog } from "./views/Feedback";
@@ -41,7 +40,7 @@ import { Slot } from "./extensions/Slot";
 
 const NO_CTX = {};
 
-const TABS = ["Chat", "Viewport", "Playtests", "Plugins", "Settings"] as const;
+const TABS = ["Chat", "Playtests", "Plugins", "Settings"] as const;
 // Playtests shows only with the Playtest Hub experiment on; otherwise its old page stays reachable by URL alone.
 const WITHOUT_PLAYTESTS: readonly (typeof TABS)[number][] = TABS.filter((t) => t !== "Playtests");
 type Tab = (typeof TABS)[number];
@@ -82,7 +81,7 @@ function Studio({ daemon }: { daemon: DaemonState }) {
   const [tab, setTab] = useState<Tab>(() => readLocation().tab);
   // null: the section list, which only a narrow panel shows on its own.
   const [section, setSection] = useState<SettingsSection | null>(() => sectionOf(readLocation().section));
-  // The live viewport over the chat, from the PIE indicator or a Play In Editor card; closing it returns to the chat as it was.
+  // The live viewport over the chat, from a Play In Editor card or a live playtest's Viewport; closing it returns to the chat as it was.
   const [watching, setWatching] = useState(false);
   const watchLive = useCallback(() => setWatching(true), []);
   const settingsFromChat = useCallback((s: SettingsSection) => { setSection(s); setTab("Settings"); }, []);
@@ -255,11 +254,10 @@ function Studio({ daemon }: { daemon: DaemonState }) {
             <main className={`view-${tab.toLowerCase()}${tab === "Playtests" && hubOn ? " hub-host" : ""}`}>
               <ErrorBoundary what={tab} resetKey={tab}>
                 {tab === "Playtests" && (hubOn
-                  ? <HubView data={hub} narrow={narrow} onOpenChat={openPlaytest} onChat={() => setTab("Chat")} />
+                  ? <HubView data={hub} narrow={narrow} onOpenChat={openPlaytest} onChat={() => setTab("Chat")} daemon={daemon} onSettings={settingsFromChat} />
                   // A hub link before the setting has been read waits for it rather than flashing the old page.
                   : experiments === null && readLocation().sub ? null
                   : <PlaytestsView daemon={daemon} index={playtests} onOpenSession={openPlaytest} onChat={() => setTab("Chat")} />)}
-                {tab === "Viewport" && <ViewportView daemon={daemon} onSettings={(s) => { setSection(s); setTab("Settings"); }} />}
                 {tab === "Plugins" && <PluginsView daemon={daemon} />}
                 {tab === "Settings" && <SettingsHub daemon={daemon} section={section} onSection={setSection} onTheme={(t: StudioTheme) => void applyTheme(t)} updates={updates} narrow={narrow} />}
               </ErrorBoundary>

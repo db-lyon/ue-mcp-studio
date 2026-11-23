@@ -190,4 +190,38 @@ Made 2026-11-23. The user handed the design over in full: decide, build, deliver
 4. **Captures for failing auto steps:** deferred. The run screen draws the observer's values instead.
 5. **Build order:** everything at once, against one contract. The backend, web UI and an interactive demo daemon are built in parallel. The demo is an in-browser simulated daemon with seed data and runs that progress, so the hub can be tried without an editor. The real backend installs with `npm run install:dev` for use with a real editor.
 6. **Contract:** `packages/shared/src/hub.ts` holds every type, the status rules (`checkHealth`, `checkSatisfied`, `goalStatus`) and the route table (`HUB_ROUTES`). Agent, clients and demo all import it.
-7. **Status ladder:** checks are ranked needs you, failing, missing, running, flaky, stale, never run, passing. Goals are ranked needs you, failing, at risk, running, not started, met.
+7. **Live viewport in the hub** (2026-11-23, after the user's first look). One component follows what runs now. It is live while the relevant run plays, shows the last frame briefly after it ends, and is hidden otherwise, so there is never an empty box.
+   - **Placements:** large on the Run screen with the current step overlaid; a tile on the Check and Goal screens while one of their checks runs; a thumbnail in the overview's queue strip; beside live verdicts in the Inbox, so a person judges manual steps by watching from any paired browser.
+   - **The Viewport tab and the chat bar's viewport icon are removed** on web and Android, on this branch (the user's call, same day). An explicit **Viewport** button opens the full viewer from the in-chat playtest card, on both clients, and wherever a run is live in the hub. The viewer and the agent's viewport routes stay.
+9. **Issue trackers: PARKED until the viewport work lands; design it deliberately, do not rush.** Corrected by the user: the hub fully owns goals, playtests and everything about them. Trackers are not a boundary of ownership. Goals and playtests (and runs) need **relationships** to their counterparts in remote trackers (Gitea, GitHub, Jira and the like).
+   - **The minimum:** they store links to those counterparts.
+   - **Requirement (user, 2026-11-23): provider-agnostic.** Any tracker must work: GitHub, Gitea, Jira, Trello, a Google Sheet, anything. Studio must not be on the hook for maintaining point integrations. The design supplies the indirection, and end users wire up their tool with configuration forms. Starting direction, to be designed properly:
+     - **Links** are plain URLs with a relationship kind. They need no provider knowledge at all.
+     - **Generic connectors configured by forms.**
+       - URL templates: view an item, and open a prefilled new item from a run's report with placeholders such as `{title}`, `{body}` and `{runUrl}`.
+       - Outgoing webhooks on hub events, with a documented JSON payload and optional body templates.
+       - An inbound endpoint so a tracker's own automation can push state back, such as "issue closed" or "link this item to goal X".
+       - Presets are only filled-in forms, never code.
+     - **Code-level connectors through `packages/extension-api`.** A tracker connector contract (create item, read state, comment) that any daemon extension can implement and ship. Providers are then written by whoever needs them, outside Studio.
+   - **To work out when unparked:**
+     - the link model (relationship kinds such as counterpart, related, filed from this run; external id; cached state);
+     - many-to-many links;
+     - how links show and are edited;
+     - whether anything syncs.
+   - **Agent-first (user, 2026-11-23).** In most cases the project's local development agent does the tracker work. The user's own agent records Gitea issues into goals and tests and refers back to them while it works, which covers 80% or more of the need. So the near-term scope is only:
+     1. a `links` field on goals, checks and runs (`url`, optional `title`, optional relationship), shown in the hub, with no sync;
+     2. a JSON Schema plus a short README written next to the goal files in `QA/Goals/`, so any agent can read and write goals and links correctly;
+     3. hub tools for Studio's own agent: list and read goals and checks, add links.
+
+     Everything further (forms, webhooks, connectors, below) waits until a concrete scenario shows a need.
+   - **The earlier sketch below is input to that design, not a decision:**
+   1. **Links.** Goals, checks and runs carry tracker URLs, with the provider recognised from the URL for an icon. Any provider works.
+   2. **File issue from a failed run.** A Markdown report built from the evidence: the failing step, expected against observed, map, run id and a link back. It opens the tracker's new-issue URL prefilled (Gitea, GitHub and GitLab take `title` and `body`), or offers "Copy as Markdown". The issue URL is linked to the run.
+   3. **Outgoing webhooks and one adapter interface.**
+      - Webhooks post JSON on run finished, goal status changed and regression, for studios to wire into Jira automation, chat or n8n themselves.
+      - Optional adapters (create issue, read state, comment) use a per-machine token. One GitHub/Gitea adapter comes first; the two APIs match closely.
+      - The adapter enables comments like "Verified: passed 3 runs in a row", issue state on goals, and Write playtests from an issue URL.
+      - Jira only on demand.
+
+   - **Configuration (sketch):** tracker type, base URL and repo in a checked-in `QA/hub.json`. Tokens never leave the machine.
+8. **Status ladder:** checks are ranked needs you, failing, missing, running, flaky, stale, never run, passing. Goals are ranked needs you, failing, at risk, running, not started, met.

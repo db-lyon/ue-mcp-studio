@@ -2395,7 +2395,7 @@ h1.viewport-title { margin: 0; font: 600 20px/1.2 var(--sans); letter-spacing: 0
 .viewport-notice p.viewport-error { color: var(--bad-text); }
 .viewport-tools { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
 .viewport-head[hidden] { display: none; }
-/* The viewport over the chat (PieLive.tsx): the Viewport tab's player in a dialog. */
+/* The viewport over the chat or the Playtest Hub (PieLive.tsx): the player in a dialog. */
 .overlay-card.viewport-dialog { width: min(1040px, 100%); max-height: min(92vh, 100%); gap: 10px; padding: 14px 16px; }
 .viewport-page.embedded { max-width: none; width: 100%; }
 .viewport-page.embedded .viewport-stage.live { max-height: calc(92vh - 150px); }
@@ -2406,9 +2406,6 @@ h1.viewport-title { margin: 0; font: 600 20px/1.2 var(--sans); letter-spacing: 0
 .pie-card:not(.live) .pie-card-title { color: var(--muted); font-weight: 500; }
 .pie-dot { flex: none; width: 8px; height: 8px; border-radius: 50%; background: var(--dim); }
 .pie-dot.live { background: var(--bad); box-shadow: 0 0 0 3px color-mix(in srgb, var(--bad) 22%, transparent); }
-.pie-glyph { position: relative; display: inline-flex; }
-.pie-glyph .pie-dot { position: absolute; top: -2px; right: -3px; width: 6px; height: 6px; box-shadow: 0 0 0 2px var(--panel); }
-.composer-more-button .more-dot { position: absolute; top: 4px; right: 4px; width: 6px; height: 6px; box-shadow: 0 0 0 2px var(--panel); }
 @media (max-width: 760px) {
   .viewport-page { padding: 4px 4px 12px; }
   .viewport-notice { margin: 10px; padding: 12px 14px; width: calc(100% - 20px); max-width: none; box-sizing: border-box; }

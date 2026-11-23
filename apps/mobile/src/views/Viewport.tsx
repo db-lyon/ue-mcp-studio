@@ -1,8 +1,9 @@
 /**
  * The live viewport on the phone (client-web views/Viewport.tsx): Play In
  * Editor, or the level viewport, streamed from the editor over WebRTC while
- * the tab is open, with each gate and its way forward drawn in the stage in
- * place of the video. A phone is always a paired device.
+ * the sheet over the chat is open (chat/PieLive.tsx), with each gate and its
+ * way forward drawn in the stage in place of the video. A phone is always a
+ * paired device.
  */
 import { useEffect, useState } from "react";
 import { Linking, Pressable, ScrollView, View } from "react-native";

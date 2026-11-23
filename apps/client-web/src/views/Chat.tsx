@@ -43,8 +43,7 @@ import { useSessionRuns } from "../chat/sessionRuns";
 import { NARROW, useMedia } from "../layout";
 import { Slot } from "../extensions/Slot";
 import { ErrorBoundary } from "./ErrorBoundary";
-import { PieLiveContext, PieLiveGlyph, usePieStatus, type PieLiveValue } from "../chat/PieLive";
-import { PIE_LIVE_TITLE, pieLive } from "@ue-mcp-studio/client-core";
+import { PieLiveContext, usePieStatus, type PieLiveValue } from "../chat/PieLive";
 import { onRemotePage } from "../connection";
 
 /** How long a subagent thread takes to slide in or out; matches .thread-drawer's transition. */
@@ -94,7 +93,7 @@ export function ChatView({ daemon, nav, active = true, onSettings, onWatchLive }
   active?: boolean;
   /** Open a Settings section, for /remote on a paid plan. */
   onSettings?: (section: SettingsSection) => void;
-  /** Open the live viewport over the chat: the PIE indicator and the Play In Editor card. Without it neither shows. */
+  /** Open the live viewport over the chat: the Play In Editor card and a live playtest's Viewport. Without it neither shows. */
   onWatchLive?: () => void;
 }) {
   const pie = usePieStatus(daemon, !!onWatchLive);
@@ -545,7 +544,6 @@ export function ChatView({ daemon, nav, active = true, onSettings, onWatchLive }
     }
   };
   const utilities: BarUtility[] = [
-    ...(pieValue && pieLive(pie.status) ? [{ id: "viewport" as const, icon: <PieLiveGlyph />, live: true, title: PIE_LIVE_TITLE, onClick: pieValue.watch }] : []),
     { id: "checkpoints", icon: <CheckpointsGlyph />, onClick: () => setReviewOpen(true) },
     ...(listedAgents.length > 0 ? [{ id: "subagents" as const, icon: <AgentsGlyph />, count: listedAgents.length, onClick: pressAgents, pressed: narrow ? undefined : agentsShown }] : []),
   ];

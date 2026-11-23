@@ -1,10 +1,10 @@
 /**
  * The way into the live PIE viewport from the chat (client-web chat/PieLive.tsx):
- * the composer bar's PIE indicator, the Play In Editor card after what started
- * PIE, and the full-screen sheet both open, which draws the Viewport tab's own
- * player, gate and states. The card never streams in the thread; the sheet
- * joins as a viewer while it is open, and closing it leaves, so the stream
- * stops once nobody watches.
+ * the Play In Editor card after what started PIE, a live playtest card's
+ * Viewport (screens/playtests/QaCard.tsx), and the full-screen sheet both
+ * open, which draws the viewer's player, gate and states (views/Viewport.tsx).
+ * The cards never stream in the thread; the sheet joins as a viewer while it
+ * is open, and closing it leaves, so the stream stops once nobody watches.
  *
  * The status is GET /viewport, asked on mount and again after the events
  * client-core's asksViewportAgain names, and a pie.* event from the daemon
@@ -39,7 +39,7 @@ export function usePieStatus(enabled = true): { status: ViewportStatus | null; c
   return { status, check };
 }
 
-/** What the chat's PIE card and indicator read: the status, and the ways out of the thread. */
+/** What the chat's PIE card and playtest cards read: the status, and the ways out of the thread. */
 export interface PieLiveValue {
   status: ViewportStatus | null;
   /** Open the viewport over the chat. */

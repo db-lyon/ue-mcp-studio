@@ -478,7 +478,7 @@ function withPieStart(): SessionDetail {
   };
 }
 
-/** GET /viewport as the chat reads it for its PIE indicator and card. */
+/** GET /viewport as the chat reads it for its Play In Editor card and a live playtest's Viewport. */
 const pieStatus = (s: Partial<ViewportStatus>): ViewportStatus => ({ access: "ok", editor: "ready", streamer: false, source: null, viewers: 0, pie: true, ...s });
 
 /** Two approvals waiting at once: a file edit with its diff, and a build command. */
@@ -856,7 +856,7 @@ export const SCENARIOS: Record<string, Scenario> = {
   "approvals-waiting": { title: "Two approvals waiting: an edit with its diff and a build command", hash: `#/chat/${SESSION_ID}`, session: withApprovals(), index: { playtests: [], listed: true } },
   "reply-image": { title: "A reply that shows a PIE capture: the animated GIF inline above its text, loaded through Studio", hash: `#/chat/${SESSION_ID}`, session: withReplyImage(), index: { playtests: [], listed: true }, waitFor: { selector: ".md-image-tile.is-loaded", timeout: 5000 } },
   "chat-pie-live": {
-    title: "The agent started PIE: the Play In Editor card with Watch live, and PIE live in the composer bar",
+    title: "The agent started PIE: the Play In Editor card with Watch live",
     hash: `#/chat/${SESSION_ID}`,
     session: withPieStart(),
     index: { playtests: [], listed: true },
@@ -1116,6 +1116,17 @@ export const SCENARIOS: Record<string, Scenario> = {
   "draft-asset-links": { ...inSession("A draft opened: asset names in its steps, its script path and its arrange and act targets as links; a name that does not resolve stays plain", "Broken bridge", [RUNS.linked], ".thread-stage .qa-toggle"), post: resolveLinked, focus: ".thread-stage .qa-instruction .asset-link:not(.code)" },
   "armed": inSession("Armed: the latest item in the conversation", "Door playtest", [RUNS.armed]),
   "running": inSession("Running: the latest item in the conversation", "Jump check", [RUNS.running]),
+  "running-viewport": {
+    ...inSession("Running while Play In Editor plays: Viewport on the card", "Jump check", [RUNS.running]),
+    get: (p) => (p === "/v1/ext/studio/viewport" ? pieStatus({}) : undefined),
+    waitFor: { selector: '.thread-stage button[aria-label="Viewport"]', timeout: 5000 },
+  },
+  "running-viewport-open": {
+    ...inSession("Viewport pressed in a project without Pixel Streaming 2: the viewer over the chat says so, with Enable it", "Jump check", [RUNS.running]),
+    get: (p) => (p === "/v1/ext/studio/viewport" ? pieStatus({ editor: "plugin-off", bridge: { available: true, pluginEnabled: false, streaming: false, armed: false } }) : undefined),
+    click: '.thread-stage button[aria-label="Viewport"]',
+    waitFor: { selector: ".viewport-dialog .viewport-notice", timeout: 5000 },
+  },
   "waiting": inSession("Waiting for a verdict: Pass, Fail and Skip on the card", "Door playtest", [RUNS.waiting]),
   "waiting-open": inSession("Waiting, opened in place from the waiting step's bar", "Door playtest", [RUNS.waiting], ".thread-stage .qa-path-step[data-status='awaiting_verdict'] button"),
   "focus-step-bar": inSession("Keyboard focus on a step bar of a waiting card", "Door playtest", [RUNS.waiting], undefined, ".thread-stage .qa-path-step:nth-child(2) button"),

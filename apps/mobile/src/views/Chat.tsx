@@ -29,9 +29,8 @@ import { Threads } from "../chat/Threads";
 import { ContextMeter, ContextWarning } from "../chat/ContextMeter";
 import { CompactContext } from "../screens/chat/items";
 import { SessionRow } from "../chat/SessionRow";
-import { AgentsGlyph, CheckpointsGlyph, Composer, PieLiveGlyph, type BarUtility } from "../chat/Composer";
+import { AgentsGlyph, CheckpointsGlyph, Composer, type BarUtility } from "../chat/Composer";
 import { PieLiveContext, usePieStatus, type PieLiveValue } from "../chat/PieLive";
-import { PIE_LIVE_TITLE, pieLive } from "@ue-mcp-studio/client-core";
 import { RemoteReply, useRemoteCommand } from "../screens/chat/composer/RemoteReply";
 import type { MentionSearchFn } from "../chat/MentionMenu";
 import { Approvals } from "../screens/chat/items";
@@ -109,7 +108,7 @@ export function Chat({ nav, initialSession = null, onSettings, active = true, on
   initialSession?: string | null;
   /** Open a Settings section. */
   onSettings?: (section: string) => void;
-  /** Open the live viewport over the chat: the PIE indicator and the Play In Editor card. Without it neither shows. */
+  /** Open the live viewport over the chat: the Play In Editor card and a live playtest's Viewport. Without it neither shows. */
   onWatchLive?: () => void;
 }) {
   const pie = usePieStatus(!!onWatchLive);
@@ -563,7 +562,6 @@ export function Chat({ nav, initialSession = null, onSettings, active = true, on
     if (subagentsPress({ inline: false, shown: false, inView: false }) === "open-list") setSheet(true);
   };
   const utilities: BarUtility[] = [
-    ...(pieValue && pieLive(pie.status) ? [{ id: "viewport" as const, icon: <PieLiveGlyph />, live: true, title: PIE_LIVE_TITLE, onClick: pieValue.watch }] : []),
     { id: "checkpoints", icon: <CheckpointsGlyph />, onClick: () => setReviewOpen(true) },
     ...(listedAgents.length > 0 ? [{ id: "subagents" as const, icon: <AgentsGlyph />, count: listedAgents.length, onClick: pressAgents }] : []),
   ];
