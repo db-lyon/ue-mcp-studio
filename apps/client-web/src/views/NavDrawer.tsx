@@ -13,7 +13,7 @@ const TABS: NavTab[] = ["Chat", "Viewport", "Plugins", "Settings"];
  * tabs, the recent sessions and, at the foot, the bar's tools. A pick, the
  * scrim, or Escape closes it. The recent sessions are read each time it opens.
  */
-export function NavDrawer({ open, onClose, tab, session, updates, playtestsWaiting = 0, onTab, onSession, onNewSession, project, children }: {
+export function NavDrawer({ open, onClose, tab, session, updates, playtestsWaiting = 0, onTab, onSession, onNewSession, project, viewport = true, children }: {
   open: boolean;
   onClose: () => void;
   tab: NavTab;
@@ -27,8 +27,11 @@ export function NavDrawer({ open, onClose, tab, session, updates, playtestsWaiti
   onNewSession: () => void;
   /** On a paired device: the open project as the relay lists it, and the way to every other one. */
   project?: { name: string | null; onSwitch: () => void };
+  /** Whether to list the Viewport tab: false in Studio on the computer, beside the editor's own viewport. */
+  viewport?: boolean;
   children?: ReactNode;
 }) {
+  const tabs = viewport ? TABS : TABS.filter((t) => t !== "Viewport");
   const [recent, setRecent] = useState<SessionSummary[] | null>(null);
 
   useEffect(() => {
@@ -72,7 +75,7 @@ export function NavDrawer({ open, onClose, tab, session, updates, playtestsWaiti
           New session
         </button>
         <nav className="drawer-nav" aria-label="Sections">
-          {TABS.map((t) => (
+          {tabs.map((t) => (
             <button key={t} className={`drawer-item ${t === tab ? "active" : ""}`} aria-current={t === tab ? "page" : undefined} onClick={pick(() => onTab(t))}>
               <TabGlyph tab={t} />
               <span>{t}</span>
