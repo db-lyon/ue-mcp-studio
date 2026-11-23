@@ -102,6 +102,7 @@ const ICON_PATHS = {
   chevron: "M6 3.5 10.5 8 6 12.5",
   back: "M10 3.5 5.5 8l4.5 4.5",
   keyboard: "M2 4.5h12v7H2zM4.5 7h1M7.5 7h1M10.5 7h1M5 9.5h6",
+  expand: "M9.5 2.5h4v4M13.5 2.5 9 7M6.5 13.5h-4v-4M2.5 13.5 7 9",
 } as const;
 export type HubIconName = keyof typeof ICON_PATHS;
 

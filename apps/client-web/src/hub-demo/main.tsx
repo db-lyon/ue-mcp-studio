@@ -20,6 +20,7 @@ import { daemonFor } from "../visual-qa/daemon";
 import { DEMO_PROJECT, DEMO_PROJECT_DIR, DEMO_SEEDS, demoState, type DemoSeed, type DemoState } from "./seed";
 import { HubDemo } from "./sim";
 import { Toolbar } from "./Toolbar";
+import { DemoViewport, installSimulatedPeer } from "./feed";
 
 const params = new URLSearchParams(location.search);
 const seed: DemoSeed = DEMO_SEEDS.includes(params.get("seed") as DemoSeed) ? (params.get("seed") as DemoSeed) : "full";
@@ -89,12 +90,18 @@ function publish(type: string, data: Record<string, unknown>): void {
 }
 
 const demo = new HubDemo(loadState(), { emit: publish });
+// Play In Editor runs while the simulated project plays a run; its video is a canvas, through a stand-in peer.
+const viewport = new DemoViewport({ playing: () => demo.state.live !== null, editor: () => demo.state.editor, emit: publish });
+installSimulatedPeer();
 const save = () => {
   if (!demo.dirty) return;
   demo.dirty = false;
   storage.set(STATE_KEY, JSON.stringify(demo.state));
 };
-setInterval(() => demo.tick(), 200);
+setInterval(() => {
+  demo.tick();
+  viewport.tick();
+}, 200);
 setInterval(save, 1000);
 window.addEventListener("pagehide", save);
 
@@ -171,6 +178,11 @@ window.fetch = async (input: RequestInfo | URL, init?: RequestInit): Promise<Res
   }
   const hub = demo.handle(method, url.pathname, url.searchParams, body);
   if (hub) return json(hub.body, hub.status);
+  const seen = viewport.handle(method, url.pathname, url.searchParams, init?.signal);
+  if (seen) {
+    const a = await seen;
+    return json(a.body, a.status);
+  }
   if (url.pathname === "/v1/health") return json(health());
   if (url.pathname === "/v1/ext/studio/about") return json({ agentVersion: "demo", daemonVersion: base.health.version, uiVersion: "demo", projectDir: DEMO_PROJECT_DIR, name: `${DEMO_PROJECT} on DEV-PC` });
   if (url.pathname === "/v1/ext/studio/settings" && method === "PUT") return json(updateSettings((body ?? {}) as StudioSettingsUpdate));

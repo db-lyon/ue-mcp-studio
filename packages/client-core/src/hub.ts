@@ -45,6 +45,7 @@ import {
   type ScheduleDraft,
 } from "@ue-mcp-studio/shared";
 import { requestJson, type Transport } from "./transport.js";
+import type { ViewerPhase } from "./viewport.js";
 
 // ---------- API ----------
 
@@ -1009,3 +1010,109 @@ export function checksNotIn(goal: Goal, all: readonly CheckState[]): CheckState[
 
 /** Default plan options, re-exported for clients that only import client-core. */
 export const HUB_PLAN_DEFAULTS: PlanOptions = DEFAULT_PLAN_OPTIONS;
+
+// ---------- The live viewport ----------
+
+/**
+ * The hub shows the editor's Play In Editor viewport only beside what is
+ * playing now: a run, its check, its goal, the queue's current item, a
+ * verdict whose run still plays. These rules say what plays and what each
+ * placement draws, so nothing ever shows an empty video box.
+ */
+
+/** A run playing on the editor now. */
+export interface PlayingRun {
+  runId: string;
+  checkId: string;
+  name: string;
+}
+
+/** A run still playing: not ended, and running or waiting on a person mid-run. A verdict deferred past the run's end does not count. */
+export const runPlaying = (r: Pick<RunRecord, "outcome" | "endedAt">): boolean => !r.endedAt && (r.outcome === "running" || r.outcome === "needs_you");
+
+/**
+ * Every run playing now: from the newest runs, then the queue's current plan
+ * for one the run list does not know yet. A run record, when there is one,
+ * decides. Nothing plays while the editor is away.
+ */
+export function playingRuns(o: Pick<HubOverview, "recent" | "queue" | "editor">): PlayingRun[] {
+  if (!o.editor.connected) return [];
+  const out: PlayingRun[] = [];
+  const known = new Set<string>();
+  for (const r of o.recent) {
+    known.add(r.runId);
+    if (runPlaying(r)) out.push({ runId: r.runId, checkId: `${r.kind}:${r.target}`, name: r.name });
+  }
+  for (const it of o.queue.current?.items ?? []) {
+    if (!it.runId || known.has(it.runId) || it.endedAt) continue;
+    if (it.state === "running" || it.state === "needs_you") out.push({ runId: it.runId, checkId: `${it.check.kind}:${it.check.target}`, name: it.name });
+  }
+  return out;
+}
+
+/** The run playing now that one of these checks made, or null. */
+export function playingFor(o: Pick<HubOverview, "recent" | "queue" | "editor">, checkIds: Iterable<string>): PlayingRun | null {
+  const ids = new Set(checkIds);
+  return playingRuns(o).find((r) => ids.has(r.checkId)) ?? null;
+}
+
+/** Where the viewport is drawn: a panel that explains why it cannot stream (Run, Inbox), a tile (Check, Goal), a thumbnail (Overview). */
+export type HubLiveVariant = "panel" | "tile" | "thumb";
+/**
+ * What a placement draws: nothing, a short notice (the gate or the stream's
+ * state), the video, the last frame held while the stream reconnects
+ * mid-run, or the last frame after the run ended.
+ */
+export type HubLiveView = "hidden" | "notice" | "video" | "held" | "ended";
+
+export interface HubLiveInput {
+  /** The thing on screen is involved in a run playing now. */
+  playing: boolean;
+  /** A last frame is held from the run that just ended. */
+  endedFrame: boolean;
+  /** This run was already live here and a frame of it is kept. */
+  seenFrame?: boolean;
+  /** GET /viewport has answered. */
+  statusKnown: boolean;
+  /** Something stops watching (viewportGate). */
+  gated: boolean;
+  phase: ViewerPhase["phase"];
+  variant: HubLiveVariant;
+}
+
+/**
+ * What a placement draws. The video only while it is live; a panel says why
+ * it is not, once, where a person needs to know; tiles and thumbnails stay
+ * out of the way until there is a picture. A stream that drops back to
+ * waiting or connecting during a run it already showed (PIE restarting, or
+ * stopping a moment before the run reports its end) keeps its last frame
+ * instead of flashing a notice.
+ */
+export function hubLiveView(i: HubLiveInput): HubLiveView {
+  if (!i.playing) return i.endedFrame ? "ended" : "hidden";
+  if (!i.statusKnown) return "hidden";
+  if (!i.gated && i.phase === "live") return "video";
+  if (!i.gated && i.seenFrame && (i.phase === "waiting" || i.phase === "connecting" || i.phase === "joining")) return "held";
+  return i.variant === "panel" ? "notice" : "hidden";
+}
+
+/** The step a playing run is on: the running one, else the first waiting for a person, else the next to start. */
+export function playingStep<T extends Pick<RunStepSpan, "status">>(steps: readonly T[]): T | null {
+  return steps.find((s) => s.status === "running") ?? steps.find((s) => s.status === "awaiting_verdict") ?? steps.find((s) => s.status === "pending") ?? null;
+}
+
+/** How long the hub keeps its viewer after the last placement lets go, so moving between screens or runs does not reconnect. */
+export const HUB_LIVE_LINGER_MS = 15_000;
+/** How long the last frame stays, dimmed, after a run ends. */
+export const HUB_LIVE_ENDED_MS = 4_000;
+
+export const HUB_LIVE_COPY = {
+  live: "Live",
+  ended: "Run ended",
+  /** Names the dialog it opens, titled "Play In Editor". */
+  expand: "Open Play In Editor",
+  stepOf: (n: number, total: number) => `Step ${n} of ${total}`,
+  /** A step that has not started, while the run plays. */
+  next: "Up next",
+  starting: "Starting Play In Editor",
+} as const;

@@ -37,6 +37,9 @@ import { CheckScreen } from "./Check";
 import { RunScreen } from "./Run";
 import { QueueScreen } from "./Queue";
 import { CheckPicker, GoalDialog, GoalPicker } from "./dialogs";
+import { HubLiveProvider } from "./live";
+import type { DaemonState } from "../../state";
+import type { SettingsSection } from "../settings/sections";
 import "./hub.css";
 
 type Overlay =
@@ -64,13 +67,17 @@ function useHubRoute(): [HubRoute, (r: HubRoute) => void] {
   return [route, go];
 }
 
-export function HubView({ data, narrow, onOpenChat, onChat }: {
+export function HubView({ data, narrow, onOpenChat, onChat, daemon, onSettings }: {
   data: HubData;
   narrow: boolean;
   /** Open a session, and a playtest's card in it. */
   onOpenChat: (sessionId: string, runId?: string) => void;
   /** Go to the Chat tab, where a playtest is asked for. */
   onChat?: () => void;
+  /** The event stream, which the live viewport follows for the editor coming and going. */
+  daemon?: Pick<DaemonState, "events">;
+  /** Open Settings, from a way forward the live viewport offers. */
+  onSettings?: (s: SettingsSection) => void;
 }) {
   const [route, go] = useHubRoute();
   const [overlay, setOverlay] = useState<Overlay | null>(null);
@@ -115,6 +122,8 @@ export function HubView({ data, narrow, onOpenChat, onChat }: {
       const { overlay: open, go: goTo } = latest.current;
       const palette = (e.ctrlKey || e.metaKey) && !e.altKey && e.key.toLowerCase() === "k";
       if (open && !palette) return;
+      // A modal over the hub (the full live viewer) has the keys: p must not pass a verdict behind it.
+      if (document.querySelector('[role="dialog"][aria-modal="true"]')) return;
       const t = e.target as HTMLElement | null;
       if (!palette && typingTarget(t)) return;
       // Enter and Space on a focused control press it; they are not the hub's.
@@ -173,6 +182,7 @@ export function HubView({ data, narrow, onOpenChat, onChat }: {
 
   return (
     <HubContext.Provider value={ctx}>
+      <HubLiveProvider daemon={daemon} onSettings={onSettings}>
       <div className={`playhub ${narrow ? "narrow" : "wide"}`}>
         {narrow ? <HubBar onPalette={() => setOverlay({ kind: "palette" })} /> : <HubRail onPalette={() => setOverlay({ kind: "palette" })} onShortcuts={() => setOverlay({ kind: "shortcuts" })} />}
         <div className="hub-main">
@@ -186,6 +196,7 @@ export function HubView({ data, narrow, onOpenChat, onChat }: {
         {overlay?.kind === "addChecks" && <CheckPicker goalId={overlay.goalId} onClose={() => setOverlay(null)} />}
         {overlay?.kind === "addToGoal" && <GoalPicker checkIds={overlay.checkIds} onClose={() => setOverlay(null)} />}
       </div>
+      </HubLiveProvider>
     </HubContext.Provider>
   );
 }

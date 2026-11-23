@@ -329,8 +329,69 @@ a.hub-group-head:hover .hub-group-title { color: var(--accent-hi); }
 .hub-toast { position: fixed; left: 50%; bottom: 18px; z-index: 55; transform: translateX(-50%); display: flex; align-items: center; gap: 8px; max-width: calc(100% - 32px); padding: 7px 6px 7px 14px; border: 1px solid var(--line-strong); border-radius: 8px; background: var(--panel-3); box-shadow: 0 12px 30px rgba(0, 0, 0, 0.4); font-size: 12.5px; }
 .hub-toast.bad { border-color: var(--bad); }
 
+/* The live viewport (live.tsx): a picture only while there is one; the video is 16:9 at every size. */
+.hub-live { margin: 0; min-width: 0; }
+.hub-live-stage { position: relative; aspect-ratio: 16 / 9; border-radius: var(--radius-lg); overflow: hidden; background: #000; border: 1px solid var(--line); }
+@supports not (aspect-ratio: 16 / 9) { .hub-live-stage { height: 0; padding-top: 56.25%; } }
+.hub-live-video, .hub-live-frame { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: contain; display: block; }
+.hub-live-frame.blank { background: var(--panel-2); }
+.hub-live.view-ended .hub-live-frame, .hub-live.view-held .hub-live-frame { filter: grayscale(0.6) brightness(0.45); }
+.hub-live-badge { position: absolute; top: 8px; left: 8px; display: inline-flex; align-items: center; gap: 6px; padding: 2px 8px 2px 6px; border-radius: 999px; background: rgba(0, 0, 0, 0.6); color: #fff; font: 600 11px/1.6 var(--sans); letter-spacing: 0.02em; pointer-events: none; }
+.hub-live-badge .pie-dot { width: 7px; height: 7px; box-shadow: none; }
+.hub-live-ended { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; color: #fff; font: 600 14px/1.3 var(--sans); text-shadow: 0 1px 3px rgba(0, 0, 0, 0.8); pointer-events: none; }
+.hub-live-ended .spinner { border-color: rgba(255, 255, 255, 0.3); border-top-color: #fff; }
+.hub-live-overlay { position: absolute; left: 0; right: 0; bottom: 0; padding: 26px 12px 10px; background: linear-gradient(to top, rgba(0, 0, 0, 0.82), rgba(0, 0, 0, 0)); color: #fff; display: flex; flex-direction: column; gap: 3px; pointer-events: none; font-size: 12.5px; }
+.hub-live-step-top { display: flex; align-items: center; gap: 6px; color: rgba(255, 255, 255, 0.78); font-size: 11.5px; }
+.hub-live-step-top .hub-mark.tone-run { color: #fff; }
+.hub-live-step-text { font-weight: 600; font-size: 13.5px; line-height: 1.35; }
+.hub-live-step-expect { font-size: 11.5px; color: rgba(255, 255, 255, 0.82); }
+.playhub button.hub-live-hit { position: absolute; inset: 0; display: block; width: 100%; height: 100%; padding: 0; margin: 0; border: 0; border-radius: 0; background: transparent; cursor: zoom-in; }
+.hub-live-expand { position: absolute; top: 8px; right: 8px; display: inline-flex; padding: 5px; border-radius: 6px; background: rgba(0, 0, 0, 0.55); color: #fff; opacity: 0.8; }
+.hub-live-hit:hover .hub-live-expand, .hub-live-hit:focus-visible .hub-live-expand { opacity: 1; }
+.hub-live-thumb .hub-live-stage { border-radius: var(--radius); }
+.hub-live-thumb .hub-live-badge { top: 5px; left: 5px; font-size: 10px; padding: 1px 6px 1px 5px; }
+.hub-live-thumb .hub-live-expand { top: 5px; right: 5px; padding: 3px; }
+.hub-live-thumb .hub-live-ended { font-size: 12px; }
+.hub-live-caption { display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap; margin-top: 6px; font-size: 12.5px; }
+.hub-live-caption a { color: var(--text); font-weight: 600; }
+.hub-live-caption a:hover { color: var(--accent-hi); }
+.hub-live-caption-label { color: var(--dim); }
+.hub-live-row { display: flex; align-items: flex-end; gap: 12px; flex-wrap: wrap; }
+.hub-live-row .hub-live-stage { width: 320px; max-width: 100%; }
+.hub-live-row .hub-live-caption { margin: 0 0 2px; flex-direction: column; gap: 2px; }
+.hub-live-notice { display: flex; flex-direction: column; gap: 6px; padding: 10px 12px; border: 1px solid var(--line); border-radius: var(--radius-lg); background: var(--panel); }
+.hub-live-notice.tone-warn { border-color: var(--warn); }
+.hub-live-notice.tone-bad { border-color: var(--bad); }
+.hub-live-notice p { margin: 0; }
+.hub-live-notice-title { display: flex; align-items: center; gap: 8px; font-size: 13px; }
+.hub-live-actions { display: flex; gap: 6px; flex-wrap: wrap; }
+.playhub button.hub-viewport-button .pie-dot { width: 7px; height: 7px; box-shadow: none; }
+
+/* Run screen: the viewport large beside the steps, kept in view while they scroll; stacked above them when narrow. */
+.hub-run-stage { display: flex; align-items: flex-start; gap: 18px; min-width: 0; }
+.hub-run-col { flex: 1 1 0; min-width: 0; display: flex; flex-direction: column; gap: 14px; }
+.hub-run-stage > .hub-run-live { flex: 1.3 1 0; position: sticky; top: 0; z-index: 1; }
+.hub-run-stage.with-live .hub-series { grid-template-columns: minmax(0, 1fr); }
+
+/* Inbox: the viewport beside the verdict whose run plays, under its instruction when narrow. */
+.hub-inbox-item.has-live { display: grid; grid-template-columns: minmax(0, 1fr) minmax(240px, 44%); column-gap: 16px; row-gap: 0; align-content: start; }
+.hub-inbox-item.has-live > * { grid-column: 1; }
+.hub-inbox-item.has-live > * + *:not(.hub-inbox-top) { margin-top: 7px; }
+.hub-inbox-item.has-live > .hub-inbox-live { grid-column: 2; grid-row: 1 / span 6; margin-top: 0; align-self: start; }
+
+@media (max-width: 900px) {
+  .hub-run-stage { flex-direction: column; align-items: stretch; }
+  .hub-run-stage > .hub-run-live { flex: none; position: static; }
+}
+
 /* Narrow: the same screens, stacked; numbers that need width step aside. */
 @media (max-width: 760px) {
+  .hub-inbox-item.has-live { display: flex; }
+  .hub-inbox-item.has-live > * { order: 3; }
+  .hub-inbox-item.has-live > .hub-inbox-top { order: 0; }
+  .hub-inbox-item.has-live > .hub-ask { order: 1; }
+  .hub-inbox-item.has-live > .hub-inbox-live { order: 2; align-self: stretch; width: 100%; }
+  .hub-live-row .hub-live-stage { width: 100%; }
   .hub-row-spark, .hub-row-num, .hub-kind, .hub-check-row .hub-row-when { display: none; }
   .hub-row { padding: 6px 8px; gap: 8px; }
   .hub-goal-row .hub-progress-track { width: 40px; }
@@ -348,5 +409,6 @@ a.hub-group-head:hover .hub-group-title { color: var(--accent-hi); }
 }
 @media (prefers-reduced-motion: reduce) {
   .hub-mark.glyph-running, .hub-live-dot, .hub-placeholder-row { animation: none; }
+  .hub-live-ended .spinner { animation: none; }
   .hub-progress-fill, .hub-plan-toggle svg { transition: none; }
 }

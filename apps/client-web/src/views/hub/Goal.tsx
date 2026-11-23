@@ -13,6 +13,7 @@ import {
   acceptanceText,
   dueText,
   hubHash,
+  playingFor,
   progressText,
   shortAgo,
   sortChecks,
@@ -23,6 +24,8 @@ import { api } from "../../api";
 import { useCursor, useHub } from "./state";
 import { Empty, HubIcon, HubLink, Progress, ScreenHead, StatusPill } from "./parts";
 import { CheckRow, GoalRow } from "./rows";
+import { LiveTile } from "./Check";
+import { ViewportButton, useHubLive } from "./live";
 
 export function GoalScreen({ goalId }: { goalId: string }) {
   const hub = useHub();
@@ -37,6 +40,10 @@ export function GoalScreen({ goalId }: { goalId: string }) {
   const [writing, setWriting] = useState(false);
 
   const failing = checks.filter((c) => c.health === "failing").length;
+  // A run of one of this goal's checks, or of its goals' checks for a milestone, playing now.
+  const ids = [...checks.map((c) => c.id), ...children.flatMap((c) => c.checks.map((x) => x.id))];
+  const nowRun = playingFor(o, ids);
+  const tile = useHubLive(nowRun !== null, "tile");
   const runGoal = () => g && void hub.runPlan({ scope: { kind: "goal", goalId: g.goal.id } }, g.goal.title);
   const assignFailing = async () => {
     if (!g) return;
@@ -146,6 +153,7 @@ export function GoalScreen({ goalId }: { goalId: string }) {
         </>}
       />
       <Progress met={g.progress.met} total={g.progress.total} label={progressText(g.progress)} />
+      <LiveTile live={tile} run={nowRun} />
       <dl className="hub-facts">
         <div><dt>Owner</dt><dd>{goal.owner || <span className="dim">Nobody</span>}</dd></div>
         <div><dt>Priority</dt><dd>{goal.priority ? <span className={`hub-prio ${goal.priority}`}>{PRIORITY_LABEL[goal.priority]}</span> : <span className="dim">None</span>}</dd></div>
@@ -200,6 +208,7 @@ export function GoalScreen({ goalId }: { goalId: string }) {
           <div className="hub-list" ref={list}>
             {checks.map((c, i) => (
               <CheckRow key={c.id} c={c} on={i === at} onPoint={() => setAt(i)} showGoals={false} actions={<>
+                {nowRun?.checkId === c.id && <ViewportButton relevant compact />}
                 <span className="hub-kind small dim">{CHECK_KIND_LABEL[c.check.kind]}</span>
                 <button className="ghost icon-button" aria-label={`Run ${c.name}`} title="Run" onClick={() => void hub.runCheck(c.id, c.name)}><HubIcon name="play" size={12} /></button>
                 {c.health === "failing" && c.last && <button className="ghost icon-button" aria-label={`Assign ${c.name} to a subagent`} title="Assign to a subagent" onClick={() => void assignOne(c.last!.runId)}><HubIcon name="assign" size={12} /></button>}

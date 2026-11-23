@@ -31,8 +31,15 @@ import {
   sortInbox,
   sparkBars,
   typingTarget,
+  hubLiveView,
+  playingStep,
+  playingFor,
+  playingRuns,
+  runPlaying,
+  type HubLiveInput,
   type HubRoute,
 } from "./hub.js";
+import type { RunRecord } from "@ue-mcp-studio/shared";
 
 const goal = (id: string, over: Partial<Goal> = {}): Goal => ({
   schema: 1, id, kind: "goal", title: id, acceptance: DEFAULT_ACCEPTANCE, checks: [], createdAt: "", updatedAt: "", ...over,
@@ -261,5 +268,58 @@ describe("the hub API", () => {
       ["POST", "/v1/ext/studio/hub/plans/p1/move", { to: 2 }],
       ["POST", "/v1/ext/studio/qa/runs/r%201/verdict", { step: 3, verdict: "fail", note: "fell through" }],
     ]);
+  });
+});
+
+describe("the live viewport in the hub", () => {
+  const rec = (runId: string, name: string, outcome: RunRecord["outcome"], endedAt: string | null = null): RunRecord => ({
+    runId, kind: "script", target: `/Game/T/${name}`, name, outcome, startedAt: "2026-11-23T10:00:00Z", endedAt, source: "plan",
+  });
+  const idle: QueueState = { paused: false, current: null, queued: [], recent: [], schedules: [], editor: { connected: true } };
+  const over = (recent: RunRecord[], queue: QueueState = idle, connected = true) => ({ recent, queue, editor: { connected } });
+
+  it("counts a run as playing until it ends, including one waiting on a person mid-run", () => {
+    expect(runPlaying(rec("a", "A", "running"))).toBe(true);
+    expect(runPlaying(rec("a", "A", "needs_you"))).toBe(true);
+    // A verdict deferred past the end of its run: nothing left to watch.
+    expect(runPlaying(rec("a", "A", "needs_you", "2026-11-23T10:01:00Z"))).toBe(false);
+    expect(runPlaying(rec("a", "A", "passed", "2026-11-23T10:01:00Z"))).toBe(false);
+  });
+
+  it("finds what plays from the run list, then the queue, and nothing while the editor is away", () => {
+    const plan = { id: "p", title: "Run goal", state: "running", items: [
+      { check: { kind: "script", target: "/Game/T/B" }, name: "B", state: "running", runId: "b" },
+      { check: { kind: "script", target: "/Game/T/A" }, name: "A", state: "running", runId: "a" },
+    ] } as unknown as PlanRun;
+    const o = over([rec("a", "A", "passed", "2026-11-23T10:01:00Z")], { ...idle, current: plan });
+    // The run list says a ended, whatever the plan still says; b is not listed yet, so the plan decides.
+    expect(playingRuns(o)).toEqual([{ runId: "b", checkId: "script:/Game/T/B", name: "B" }]);
+    expect(playingFor(o, ["script:/Game/T/B"])?.runId).toBe("b");
+    expect(playingFor(o, ["script:/Game/T/A"])).toBeNull();
+    expect(playingRuns(over([rec("c", "C", "running")], idle, false))).toEqual([]);
+  });
+
+  it("draws the video only while live, a notice only on a panel, and the last frame only after the run", () => {
+    const base: HubLiveInput = { playing: true, endedFrame: false, statusKnown: true, gated: false, phase: "live", variant: "panel" };
+    expect(hubLiveView(base)).toBe("video");
+    expect(hubLiveView({ ...base, variant: "thumb" })).toBe("video");
+    expect(hubLiveView({ ...base, phase: "connecting" })).toBe("notice");
+    expect(hubLiveView({ ...base, phase: "connecting", variant: "tile" })).toBe("hidden");
+    expect(hubLiveView({ ...base, gated: true })).toBe("notice");
+    expect(hubLiveView({ ...base, gated: true, variant: "thumb" })).toBe("hidden");
+    expect(hubLiveView({ ...base, statusKnown: false })).toBe("hidden");
+    expect(hubLiveView({ ...base, playing: false })).toBe("hidden");
+    expect(hubLiveView({ ...base, playing: false, endedFrame: true, variant: "tile" })).toBe("ended");
+    // Already shown during this run: a stream that drops back keeps its last frame, on every placement.
+    expect(hubLiveView({ ...base, phase: "waiting", seenFrame: true, variant: "thumb" })).toBe("held");
+    expect(hubLiveView({ ...base, phase: "failed", seenFrame: true })).toBe("notice");
+    expect(hubLiveView({ ...base, phase: "waiting", seenFrame: true, gated: true })).toBe("notice");
+  });
+
+  it("follows the running step, then the one waiting for a verdict, then the next to start", () => {
+    expect(playingStep([{ status: "passed" }, { status: "awaiting_verdict" }, { status: "running" }])).toEqual({ status: "running" });
+    expect(playingStep([{ status: "passed" }, { status: "awaiting_verdict" }, { status: "pending" }])).toEqual({ status: "awaiting_verdict" });
+    expect(playingStep([{ status: "passed" }, { status: "pending", n: 1 }, { status: "pending", n: 2 }])).toEqual({ status: "pending", n: 1 });
+    expect(playingStep([{ status: "passed" }, { status: "failed" }])).toBeNull();
   });
 });

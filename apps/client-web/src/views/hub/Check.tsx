@@ -16,6 +16,7 @@ import {
   hubHash,
   judgeLabel,
   passRateText,
+  playingFor,
   runLength,
   shortAgo,
 } from "@ue-mcp-studio/client-core";
@@ -23,6 +24,24 @@ import { api } from "../../api";
 import { QaCard, QaContext, savedScriptActions, type QaLive } from "../../chat/Qa";
 import { useCursor, useHub } from "./state";
 import { Empty, HubIcon, HubLink, Placeholder, ScreenHead, StatusMark, StatusPill, WinLoss } from "./parts";
+import { HubLive, ViewportButton, useHubLive, type HubLiveState } from "./live";
+import type { PlayingRun } from "@ue-mcp-studio/client-core";
+
+/** The tile a check or goal shows while one of its checks plays, with a link to that run. */
+export function LiveTile({ live, run }: { live: HubLiveState; run: PlayingRun | null }) {
+  const { go } = useHub();
+  const last = useRef<PlayingRun | null>(null);
+  if (run) last.current = run;
+  const shown = run ?? last.current;
+  if (live.view === "hidden" || !shown) return null;
+  const route = { screen: "run" as const, runId: shown.runId };
+  return (
+    <HubLive live={live} className="hub-live-row" caption={<>
+      <span className="hub-live-caption-label">{run ? "Playing now" : "Last run"}</span>
+      <HubLink href={hubHash(route)} onGo={() => go(route)}>{shown.name}</HubLink>
+    </>} />
+  );
+}
 
 const PAGE = 30;
 
@@ -70,6 +89,8 @@ export function CheckScreen({ checkId }: { checkId: string }) {
   });
 
   const live: QaLive = useMemo(() => ({ events: [], streaming: true, forms: [], sessionId: null }), []);
+  const nowRun = playingFor(o, [checkId]);
+  const tile = useHubLive(nowRun !== null, "tile");
 
   if (!state) {
     return (
@@ -94,12 +115,14 @@ export function CheckScreen({ checkId }: { checkId: string }) {
         title={state.name}
         sub={<><StatusPill look={look} /><span className="mono small dim hub-path">{state.check.target}</span></>}
         actions={<>
+          <ViewportButton relevant={nowRun !== null} />
           <button className="primary" onClick={() => void hub.runCheck(checkId, state.name)} disabled={state.missing} title="Run (r)"><HubIcon name="play" size={12} /> Run</button>
           <button onClick={() => hub.addToGoal([checkId])}><HubIcon name="goal" size={12} /> {HUB_COPY.addToGoal}</button>
           {script && state.check.kind === "script" && <button className="ghost" aria-expanded={editing} onClick={() => setEditing((e) => !e)}><HubIcon name="edit" size={12} /> {editing ? "Done editing" : "Edit steps"}</button>}
         </>}
       />
       {state.missing && <div className="banner bad small">The script no longer resolves in the project. Goals keep it listed until it is removed or relinked.</div>}
+      <LiveTile live={tile} run={nowRun} />
       <div className="hub-stats">
         <div className="hub-stat"><span className="hub-stat-value">{passRateText(state.passRate)}</span><span className="hub-stat-label">Pass rate</span></div>
         <div className="hub-stat"><span className="hub-stat-value">{flipCount}</span><span className="hub-stat-label">{flipCount === 1 ? "Flip" : "Flips"} in {state.recent.length} runs</span></div>

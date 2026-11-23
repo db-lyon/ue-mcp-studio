@@ -7,11 +7,12 @@
  */
 import { useMemo, useRef, useState } from "react";
 import type { InboxItem, QaVerdict } from "@ue-mcp-studio/shared";
-import { GOAL_STATUS_LOOK, HUB_COPY, INBOX_KIND_LABEL, hubHash, inboxTarget, settlesInline, shortAgo, sortInbox } from "@ue-mcp-studio/client-core";
+import { GOAL_STATUS_LOOK, HUB_COPY, INBOX_KIND_LABEL, hubHash, inboxTarget, playingRuns, settlesInline, shortAgo, sortInbox } from "@ue-mcp-studio/client-core";
 import { api } from "../../api";
 import { FailNote } from "../../chat/Qa";
 import { useCursor, useHub } from "./state";
 import { Empty, HubIcon, HubLink, Kbd, ScreenHead, StatusMark } from "./parts";
+import { HubLive, ViewportButton, useHubLive } from "./live";
 
 export function InboxScreen() {
   const hub = useHub();
@@ -22,6 +23,14 @@ export function InboxScreen() {
   const items = useMemo(() => sortInbox(o.inbox).filter((i) => !gone.has(i.id)), [o.inbox, gone]);
   const list = useRef<HTMLDivElement>(null);
   const [at, setAt, move] = useCursor(items.length, list);
+  // A verdict whose run still plays: the editor's viewport beside it, so the step is judged by watching.
+  // One run plays at a time, so at most one item has it; the last one keeps the ended frame.
+  const playing = useMemo(() => new Set(playingRuns(o).map((r) => r.runId)), [o]);
+  const liveItem = items.find((i) => i.kind === "verdict" && i.runId && playing.has(i.runId)) ?? null;
+  const lastLive = useRef<string | null>(null);
+  if (liveItem) lastLive.current = liveItem.id;
+  const live = useHubLive(liveItem !== null, "panel");
+  const liveAt = live.view === "hidden" ? null : liveItem?.id ?? lastLive.current;
 
   const settle = async (item: InboxItem, verdict: QaVerdict, note?: string) => {
     if (!settlesInline(item)) return;
@@ -86,7 +95,8 @@ export function InboxScreen() {
             const target = inboxTarget(it);
             const goals = it.goalIds.map((id) => o.goals.find((g) => g.goal.id === id)).filter(Boolean);
             return (
-              <article key={it.id} className={`hub-inbox-item kind-${it.kind} ${i === at ? "on" : ""}`} data-row="" role="listitem" aria-current={i === at || undefined} onMouseDown={() => setAt(i)}>
+              <article key={it.id} className={`hub-inbox-item kind-${it.kind} ${i === at ? "on" : ""} ${liveAt === it.id ? "has-live" : ""}`} data-row="" role="listitem" aria-current={i === at || undefined} onMouseDown={() => setAt(i)}>
+                {liveAt === it.id && <HubLive live={live} className="hub-inbox-live" />}
                 <div className="hub-inbox-top">
                   <span className="hub-inbox-kind">{INBOX_KIND_LABEL[it.kind]}</span>
                   <HubLink className="hub-inbox-title" href={hubHash(target)} onGo={() => go(target)}>{it.title}</HubLink>
@@ -102,6 +112,8 @@ export function InboxScreen() {
                     </HubLink>
                   ))}
                   <span className="spacer" />
+                  {/* Only beside the run that plays: every waiting verdict would otherwise carry it while any PIE runs. */}
+                  {it.kind === "verdict" && it.runId && playing.has(it.runId) && <ViewportButton relevant compact />}
                   {settlesInline(it) ? (
                     <span className="hub-verdict" role="group" aria-label="Verdict">
                       <button className="verdict-pass" onClick={() => void settle(it, "pass")} title="Pass (p)">Pass</button>

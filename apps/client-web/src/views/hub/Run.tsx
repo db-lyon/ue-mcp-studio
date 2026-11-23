@@ -8,12 +8,16 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { QaStep, QaVerdict, RunDetail } from "@ue-mcp-studio/shared";
 import {
+  HUB_LIVE_COPY,
   RUN_OUTCOME_LOOK,
   RUN_SOURCE_LABEL,
   STEP_LOOK,
   evidenceText,
+  expectLine,
   judgeLabel,
+  playingStep,
   runLength,
+  runPlaying,
   runTimeline,
   seriesPath,
   shortAgo,
@@ -22,6 +26,7 @@ import { api } from "../../api";
 import { FailNote } from "../../chat/Qa";
 import { useHub } from "./state";
 import { Empty, HubIcon, HubLink, Placeholder, ScreenHead, StatusMark, StatusPill } from "./parts";
+import { HubLive, ViewportButton, useHubLive } from "./live";
 
 export function RunScreen({ runId }: { runId: string }) {
   const hub = useHub();
@@ -57,6 +62,8 @@ export function RunScreen({ runId }: { runId: string }) {
   }, [focus]);
 
   const tl = useMemo(() => (d ? runTimeline(d.steps) : null), [d]);
+  // The editor's viewport while this run plays, the last frame for a moment after.
+  const live = useHubLive(!!record && runPlaying(record) && hub.o.editor.connected, "panel");
 
   if (!d || !record) {
     return <div className="hub-screen">{error ? <Empty title="This run is not known" actions={<button onClick={() => go({ screen: "overview" })}>Go to Overview</button>}>{error}</Empty> : <Placeholder rows={5} />}</div>;
@@ -78,6 +85,19 @@ export function RunScreen({ runId }: { runId: string }) {
   };
   const errors = (d.log ?? []).filter((l) => l.level === "error").length;
   const warnings = (d.log ?? []).length - errors;
+  const now = playingStep(d.steps);
+  const nowQa = now ? qaSteps.get(now.index) : undefined;
+  const nowExpect = nowQa ? expectLine(nowQa) : "";
+  const overlay = now ? (
+    <>
+      <div className="hub-live-step-top">
+        <span className="mono">{HUB_LIVE_COPY.stepOf(now.index + 1, d.steps.length)}</span>
+        {now.status === "pending" ? <span>{HUB_LIVE_COPY.next}</span> : <><StatusMark look={STEP_LOOK[now.status]} size={12} /><span>{STEP_LOOK[now.status].label}</span></>}
+      </div>
+      <div className="hub-live-step-text">{now.instruction}</div>
+      {nowExpect && <div className="hub-live-step-expect mono">Expect {nowExpect}</div>}
+    </>
+  ) : null;
 
   return (
     <div className="hub-screen hub-run">
@@ -93,6 +113,7 @@ export function RunScreen({ runId }: { runId: string }) {
           {record.map && <span className="mono small dim">{record.map.split("/").pop()}</span>}
         </>}
         actions={<>
+          <ViewportButton relevant={runPlaying(record) && hub.o.editor.connected} />
           {checkId && <button className="primary" onClick={() => void hub.runCheck(checkId, record.name)} title="Run again (r)"><HubIcon name="play" size={12} /> Run again</button>}
           {record.outcome === "failed" && <button onClick={() => void api.hub.assign(runId).then(() => hub.notify("Assigned to a subagent"), (e: Error) => hub.notify(e.message, "bad"))}><HubIcon name="assign" size={12} /> Assign</button>}
           {record.sessionId && <button className="ghost" onClick={() => hub.openChat(record.sessionId!, runId)} title="The playtest's card in its session"><HubIcon name="external" size={12} /> Open in chat</button>}
@@ -108,6 +129,9 @@ export function RunScreen({ runId }: { runId: string }) {
         <div className="hub-compare small">Replay of <HubLink href={`#/playtests/runs/${encodeURIComponent(record.replayOf)}`} onGo={() => go({ screen: "run", runId: record.replayOf! })}>an earlier run</HubLink>{d.run?.summary.regressions ? `, ${d.run.summary.regressions} regressed` : ""}</div>
       )}
 
+      <div className={`hub-run-stage ${live.view !== "hidden" ? "with-live" : ""}`}>
+      <HubLive live={live} overlay={overlay} className="hub-run-live" />
+      <div className="hub-run-col">
       {tl && d.steps.length > 0 && (
         <section className="hub-section">
           <div className="hub-section-head"><h2>Timeline</h2><span className="spacer" /><span className="mono small dim">{runLength(tl.totalMs)}</span></div>
@@ -176,6 +200,8 @@ export function RunScreen({ runId }: { runId: string }) {
           })}
         </ol>
       </section>
+      </div>
+      </div>
 
       {d.log && d.log.length > 0 && (
         <section className="hub-section">
