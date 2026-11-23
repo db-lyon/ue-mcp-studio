@@ -30,8 +30,12 @@ export const SESSIONS_SLOW = "Studio is not answering yet. Your sessions are saf
 export const sessionLoadFailed = (error: string): string => `This session could not be loaded: ${error}`;
 export const SESSION_TRY_AGAIN = "Try again";
 export const SESSION_TRY_AGAIN_LABEL = "Load the session again";
-/** The Queue button's tooltip or hint. */
-export const QUEUE_HINT = "Send when the turn ends";
+/**
+ * The Queue button's tooltip or hint. On the durable runtime the message goes
+ * into the running reply at once; elsewhere, and for a /command, it waits for
+ * the turn's end. Either way the turn goes on, which is what the hint says.
+ */
+export const QUEUE_HINT = "Send without stopping the turn";
 
 /** The line under a session's title: what it is doing, its running subagents, or when it last changed. */
 export function sessionLine(s: SessionSummary): string {

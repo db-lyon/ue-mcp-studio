@@ -82,7 +82,7 @@ export const subagentsShownValue = (shown: boolean): string => (shown ? "shown" 
 
 /** Send's and Stop's tooltips, where the keyboard's keys are told: the bar shows no words. */
 export const SEND_KEYS = "Send (Enter). Shift+Enter for a new line";
-export const STOP_KEYS = "Stop the turn. Enter queues the message, Ctrl+Enter stops the turn and sends it now";
+export const STOP_KEYS = "Stop the turn. Enter sends the message without stopping it, Ctrl+Enter stops the turn and sends it now";
 
 /** The overflow button the utilities fold into. */
 export const UTILITY_MORE_LABEL = "More controls";

@@ -12,8 +12,10 @@ export { MAX_LINES, MIN_HEIGHT, MIN_TRANSCRIPT, NUDGE, NUDGE_SAVE_MS, clampHeigh
 /**
  * Where the user writes: the text, the files added to it (dropped, pasted or
  * picked), and the bar with the model picker and Send or Stop. Enter sends,
- * Shift+Enter starts a new line. While a turn runs, Enter queues the message
- * behind it, and Ctrl+Enter stops the turn and sends the message now.
+ * Shift+Enter starts a new line. While a turn runs, Enter sends the message
+ * without stopping it (on the durable runtime it goes into the running reply,
+ * elsewhere it waits for the turn's end), and Ctrl+Enter stops the turn and
+ * sends the message now.
  *
  * The text box sizes itself to what is written. The divider above it drags the
  * box taller or shorter against `stage`, the transcript that gives up the room;
