@@ -52,6 +52,7 @@ import {
   type AttentionItem,
   type AttentionKind,
   type PlanItemState,
+  type PlanPlacement,
   type PlanRequest,
   type PlanRun,
   type PlanScope,
@@ -64,6 +65,9 @@ import {
   type RunRecord,
   type RunSource,
   type RunStepSpan,
+  type Schedule,
+  type ScheduleDraft,
+  planOptionsFor,
   type SignOff,
   type SignOffLapse,
   type SignOffState,
@@ -126,12 +130,18 @@ export function hubApi(request: HubRequest) {
     addRunLink: (runId: string, link: TrackerLink) => request<{ record: RunRecord }>("POST", `${HUB_BASE}/runs/${enc(runId)}/links`, { link }),
     removeRunLink: (runId: string, url: string) => request<{ record: RunRecord }>("DELETE", `${HUB_BASE}/runs/${enc(runId)}/links${pageQuery({ url })}`),
     queue: () => request<QueueState>("GET", `${HUB_BASE}/queue`),
-    plan: (req: PlanRequest) => request<{ plan: PlanRun }>("POST", `${HUB_BASE}/plans`, req),
+    /** A person's Run: it resumes a paused queue; `placement` says where it went (absent from an older daemon). */
+    plan: (req: PlanRequest) => request<{ plan: PlanRun; placement?: PlanPlacement }>("POST", `${HUB_BASE}/plans`, req),
     cancelPlan: (id: string) => request<{ plan: PlanRun }>("POST", `${HUB_BASE}/plans/${enc(id)}/cancel`, {}),
+    /** Move a queued plan to `to`, 0 for next. */
+    movePlan: (id: string, to: number) => request<QueueState>("POST", `${HUB_BASE}/plans/${enc(id)}/move`, { to }),
     pause: (paused: boolean) => request<QueueState>("PUT", `${HUB_BASE}/queue/paused`, { paused }),
+    createSchedule: (s: ScheduleDraft) => request<{ schedule: Schedule }>("POST", `${HUB_BASE}/schedules`, s),
+    updateSchedule: (id: string, s: Partial<ScheduleDraft>) => request<{ schedule: Schedule }>("PUT", `${HUB_BASE}/schedules/${enc(id)}`, s),
+    deleteSchedule: (id: string) => request<void>("DELETE", `${HUB_BASE}/schedules/${enc(id)}`),
     /** Fix with an agent: a fix plan, each check in a chat session of its own. */
     fix: (req: FixRequest = {}) => request<{ queued: number; plan: PlanRun | null }>("POST", `${HUB_BASE}/fix`, req),
-    runCheck: (checkId: string, replay?: boolean) => request<{ plan: PlanRun }>("POST", `${HUB_BASE}/checks/${enc(checkId)}/run`, replay ? { replay } : {}),
+    runCheck: (checkId: string, replay?: boolean) => request<{ plan: PlanRun; placement?: PlanPlacement }>("POST", `${HUB_BASE}/checks/${enc(checkId)}/run`, replay ? { replay } : {}),
     /** A manual step's verdict: the existing playtest route, so the card in chat settles too. */
     verdict: (runId: string, step: number, verdict: QaVerdict, note?: string) =>
       request<{ run: QaRun }>("POST", `${QA_BASE}/runs/${enc(runId)}/verdict`, note ? { step, verdict, note } : { step, verdict }),
@@ -146,9 +156,11 @@ export const hubApiOver = (transport: Transport): HubApi =>
 
 // ---------- Routes inside #/playtests ----------
 
-export type HubScreen = "overview" | "milestones" | "goals" | "goal" | "library" | "check" | "run" | "draft";
+export type HubScreen = "overview" | "milestones" | "goals" | "goal" | "library" | "check" | "run" | "draft" | "queue";
 export type HubRoute =
   | { screen: "overview" }
+  /** The queue: what runs now, what waits, schedules and what finished. */
+  | { screen: "queue" }
   /** Every milestone. */
   | { screen: "milestones" }
   /** Every goal. */
@@ -173,8 +185,8 @@ const decode = (s: string): string | null => {
  * The hub's screen from what follows #/playtests/ (still encoded):
  * goals, goals/<id>, checks (the Playtests screen; its address predates the
  * name, so old links work), checks/<checkId>, runs/<runId>, and the editor at
- * checks/new, checks/<checkId>/edit and goals/<id>/new. Anything else is the
- * overview.
+ * checks/new, checks/<checkId>/edit and goals/<id>/new, and queue. Anything
+ * else is the overview.
  */
 export function parseHubPath(sub: string | null | undefined): HubRoute {
   const parts = (sub ?? "").split("/").filter(Boolean);
@@ -186,6 +198,7 @@ export function parseHubPath(sub: string | null | undefined): HubRoute {
       if (value && then === "edit") return { screen: "draft", checkId: value };
       return value ? { screen: "check", checkId: value } : { screen: "library" };
     case "milestones": return { screen: "milestones" };
+    case "queue": return { screen: "queue" };
     case "goals":
       if (value && then === "new") return { screen: "draft", goalId: value };
       return value ? { screen: "goal", goalId: value } : { screen: "goals" };
@@ -200,6 +213,7 @@ export function hubPath(r: HubRoute): string {
     case "overview": return "";
     case "library": return "checks";
     case "milestones": return "milestones";
+    case "queue": return "queue";
     case "goals": return "goals";
     case "goal": return `goals/${enc(r.goalId)}`;
     case "check": return `checks/${enc(r.checkId)}`;
@@ -215,7 +229,8 @@ export const hubHash = (r: HubRoute): string => {
 };
 
 /** Which rail entry a screen sits under. */
-export function hubSection(r: HubRoute): "overview" | "milestones" | "goals" | "library" {
+export function hubSection(r: HubRoute): "overview" | "milestones" | "goals" | "library" | "queue" {
+  if (r.screen === "queue") return "queue";
   if (r.screen === "milestones") return "milestones";
   if (r.screen === "goals") return "goals";
   if (r.screen === "library" || r.screen === "check") return "library";
@@ -405,6 +420,21 @@ export const HUB_COPY = {
   noGoalsMatch: "No goals match.",
   nowRunning: "Now running",
   finished: "Finished",
+  queue: "Queue",
+  queueEmpty: "Nothing queued.",
+  openQueue: "Open queue",
+  runNext: "Run next",
+  schedules: "Schedules",
+  newSchedule: "New schedule",
+  noSchedules: "A schedule runs playtests on the days and at the time you pick, when the editor is free and nobody is at the computer.",
+  /** Shown where schedules would be, by a daemon that has none. */
+  schedulesUnavailable: "Update ue-mcp to use schedules.",
+  attended: "Someone is there to judge manual steps",
+  attendedHelp: "Without someone there, playtests with manual steps are skipped.",
+  stopOnFailure: "Stop at the first failure",
+  /** A schedule that came due and has not started yet. */
+  scheduleWaiting: (why: string) => `Due, waiting: ${why}`,
+  scheduleSkipped: (why: string) => `Skipped: ${why}`,
   newGoal: "New goal",
   editGoal: "Edit goal",
   groupIntoGoal: "Group into a goal",
@@ -488,6 +518,40 @@ export const runsDone = (done: number, total: number): string => `${done} of ${t
 /** Why the queue is paused, in the words of whoever paused it. */
 export const queuePausedText = (q: Pick<QueueState, "pausedBy">): string =>
   q.pausedBy === "release" ? HUB_COPY.pausedByRelease : q.pausedBy === "reconnect" ? HUB_COPY.pausedByReconnect : HUB_COPY.paused;
+
+/** What a person is told after Run, and what they can do next: move it to the front, or open the queue. */
+export interface RunFeedback {
+  text: string;
+  tone: "ok" | "bad";
+  runNext?: boolean;
+  openQueue?: boolean;
+}
+
+const sentence = (s: string): string => (s ? s[0].toUpperCase() + s.slice(1) : s);
+/** A reason as a sentence of its own, ended once. */
+const ended = (s: string): string => `${sentence(s.trim().replace(/[.!?:;,]+$/, ""))}.`;
+
+/**
+ * The line after a person's Run, from where the daemon put the plan. Without
+ * a placement (a daemon that predates it) it says only that it was queued.
+ * The count is left out when the title already says playtests.
+ */
+export function runFeedback(title: string, placement: PlanPlacement | undefined, count?: number): RunFeedback {
+  const what = count === undefined || /playtest/i.test(title) ? title : `${title} (${count} ${count === 1 ? "playtest" : "playtests"})`;
+  if (!placement) return { text: `Queued ${what}`, tone: "ok", openQueue: true };
+  switch (placement.state) {
+    case "started":
+      return { text: `Running ${what}`, tone: "ok" };
+    case "waiting":
+      return placement.reason
+        ? { text: `${sentence(title)} is next. ${ended(placement.reason)}`, tone: "bad", openQueue: true }
+        : { text: `${sentence(title)} starts next`, tone: "ok", openQueue: true };
+    case "queued":
+      return placement.reason
+        ? { text: `Queued ${what}. ${ended(placement.reason)}`, tone: "bad", openQueue: true }
+        : { text: `Queued ${what}, ${placement.ahead} ${placement.ahead === 1 ? "run" : "runs"} ahead`, tone: "ok", runNext: placement.position > 1, openQueue: true };
+  }
+}
 
 // ---------- Sign-off ----------
 
@@ -1002,6 +1066,52 @@ export function scopeText(scope: PlanScope, goals: readonly GoalState[] = []): s
   }
 }
 
+/** The queue with a plan moved, as the server will order it, for an optimistic reorder. */
+export function moveQueued(q: QueueState, id: string, to: number): QueueState {
+  const from = q.queued.findIndex((p) => p.id === id);
+  if (from < 0) return q;
+  const next = q.queued.slice();
+  const [p] = next.splice(from, 1);
+  next.splice(Math.max(0, Math.min(next.length, to)), 0, p);
+  return { ...q, queued: next };
+}
+
+// ---------- Schedules ----------
+
+export const DAY_SHORT = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"] as const;
+const WEEKDAYS = [1, 2, 3, 4, 5];
+
+/** When a schedule runs: "Every day at 02:00", "Weekdays at 02:00", "Mon, Thu at 18:30". */
+export function scheduleText(s: Pick<Schedule, "days" | "at">): string {
+  const days = [...new Set(s.days)].filter((d) => d >= 0 && d <= 6).sort();
+  const when = days.length === 7 ? "Every day"
+    : days.length === 5 && WEEKDAYS.every((d) => days.includes(d)) ? "Weekdays"
+    : days.length === 2 && days.includes(0) && days.includes(6) ? "Weekends"
+    : days.length === 0 ? "Never"
+    : days.map((d) => DAY_SHORT[d]).join(", ");
+  return `${when} at ${s.at}`;
+}
+
+const TIME = /^([01]\d|2[0-3]):[0-5]\d$/;
+
+export function scheduleErrors(s: Pick<ScheduleDraft, "title" | "at" | "days" | "scope">): Partial<Record<"title" | "at" | "days" | "scope", string>> {
+  const e: Partial<Record<"title" | "at" | "days" | "scope", string>> = {};
+  if (!s.title.trim()) e.title = "Give the schedule a name.";
+  if (!TIME.test(s.at)) e.at = "Use a 24-hour time, such as 02:00.";
+  if (s.days.length === 0) e.days = "Pick at least one day.";
+  if (s.scope.kind === "goal" && !s.scope.goalId) e.scope = "Pick a goal.";
+  return e;
+}
+
+export const blankSchedule = (): ScheduleDraft => ({
+  title: "Nightly",
+  scope: { kind: "all" },
+  options: planOptionsFor("schedule"),
+  at: "02:00",
+  days: [0, 1, 2, 3, 4, 5, 6],
+  enabled: true,
+});
+
 // ---------- The goal form ----------
 
 /** The goal form as its inputs hold it: strings, so a half-typed number is kept as typed. */
@@ -1189,7 +1299,7 @@ export function attentionTarget(item: AttentionItem): HubRoute {
 // ---------- Keyboard ----------
 
 export type HubKeyAction =
-  | { type: "go"; to: "overview" | "milestones" | "library" }
+  | { type: "go"; to: "overview" | "milestones" | "library" | "queue" }
   | { type: "next" } | { type: "prev" } | { type: "open" }
   | { type: "run" } | { type: "fix" } | { type: "select" }
   | { type: "filter" } | { type: "help" } | { type: "palette" } | { type: "newGoal" };
@@ -1208,6 +1318,7 @@ export const HUB_SHORTCUTS: ReadonlyArray<{ keys: string[]; label: string; group
   { keys: ["g", "o"], label: "Overview", group: "Go to" },
   { keys: ["g", "m"], label: "Milestones", group: "Go to" },
   { keys: ["g", "l"], label: "Playtests", group: "Go to" },
+  { keys: ["g", "q"], label: "Queue", group: "Go to" },
   { keys: ["j"], label: "Next row", group: "Move" },
   { keys: ["k"], label: "Previous row", group: "Move" },
   { keys: ["Enter"], label: "Open the row", group: "Move" },
@@ -1235,6 +1346,7 @@ const AFTER_G: Record<string, HubKeyAction> = {
   o: { type: "go", to: "overview" }, g: { type: "go", to: "overview" },
   m: { type: "go", to: "milestones" },
   l: { type: "go", to: "library" },
+  q: { type: "go", to: "queue" },
 };
 /** A `g` waits this long for its second key. */
 export const CHORD_MS = 1200;
@@ -1303,6 +1415,7 @@ export function paletteEntries(o: Pick<HubOverview, "goals" | "checks" | "recent
     { id: "screen:overview", kind: "screen", label: "Go to Overview", route: { screen: "overview" }, hint: "g o" },
     { id: "screen:milestones", kind: "screen", label: "Go to Milestones", route: { screen: "milestones" }, hint: "g m" },
     { id: "screen:library", kind: "screen", label: "Go to Playtests", route: { screen: "library" }, hint: "g l" },
+    { id: "screen:queue", kind: "screen", label: "Go to Queue", route: { screen: "queue" }, hint: "g q" },
     { id: "cmd:shortcuts", kind: "command", label: HUB_COPY.shortcuts, command: "shortcuts", hint: "?" },
   ];
   for (const g of sortGoals(o.goals.filter((g) => !g.goal.archived))) {

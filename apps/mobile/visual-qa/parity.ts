@@ -348,6 +348,7 @@ export const PARITY: Record<string, ParityEntry> = {
   "hub-library": {notOnPhone: HUB},
   "hub-check": {notOnPhone: HUB},
   "hub-run": {notOnPhone: HUB},
+  "hub-queue": {notOnPhone: HUB},
   "hub-editor-offline": {notOnPhone: HUB},
   "hub-draft-new": {notOnPhone: HUB},
   "hub-draft-picker": {notOnPhone: HUB},

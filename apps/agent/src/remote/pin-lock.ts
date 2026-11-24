@@ -141,6 +141,15 @@ const ALWAYS_ROUTES: RegExp[] = [
   /^\/busy\/stop$/,
 ];
 
+/** The daemon's Playtest Hub routes that run playtests: a plan, one playtest, the /playtest flow for a goal, a fix, and a schedule that runs them later. */
+const HUB_RUN_ROUTES: RegExp[] = [
+  /^\/v1\/hub\/plans$/,
+  /^\/v1\/hub\/checks\/[^/]+\/run$/,
+  /^\/v1\/hub\/goals\/[^/]+\/write-playtests$/,
+  /^\/v1\/hub\/fix$/,
+  /^\/v1\/hub\/schedules(\/[^/]+)?$/,
+];
+
 /**
  * Whether `method pathname` (a daemon path a paired browser may reach, see
  * remotePath) needs the PIN under the sensitive-actions switch. Reads never do.
@@ -155,6 +164,8 @@ export function sensitiveRequest(method: string, pathname: string, risky: boolea
   // Approving a request lets a session stop, rebuild or patch the editor, the same as the editor routes.
   if (/^\/v1\/disruptions\/[^/]+\/approve$/.test(pathname)) return true;
   if (pathname === "/v1/flows" || pathname.startsWith("/v1/flows/")) return true;
+  // The Playtest Hub is ue-mcp's: its ways to run playtests, now or on a schedule, and to fix them with an agent.
+  if (HUB_RUN_ROUTES.some((r) => r.test(pathname)) && !(m === "DELETE" && pathname.startsWith("/v1/hub/schedules/"))) return true;
   if (!pathname.startsWith(`${STUDIO}/`)) return false;
   const rest = pathname.slice(STUDIO.length);
   if (rest === "/lock" || rest.startsWith("/lock/")) return false;

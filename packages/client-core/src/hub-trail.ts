@@ -59,6 +59,7 @@ export function hubRouteLabel(route: HubRoute, o: Pick<HubOverview, "goals" | "c
     case "milestones": return HUB_COPY.milestones;
     case "goals": return HUB_COPY.goals;
     case "library": return HUB_COPY.library;
+    case "queue": return HUB_COPY.queue;
     case "goal": return o?.goals.find((g) => g.goal.id === route.goalId)?.goal.title ?? (route.goalId);
     case "check": return o?.checks.find((c) => c.id === route.checkId)?.name ?? HUB_COPY.playtest;
     case "run": {

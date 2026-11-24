@@ -87,6 +87,7 @@ export const HUB_SCENARIOS: Record<string, Scenario> = {
   "hub-library": hub("The library: every playtest with its health, goals and pass rate", "#/playtests/checks", full),
   "hub-check": hub("A flaky playtest: its steps, its own links and every run, newest first", `#/playtests/checks/${enc(ledge)}`, full),
   "hub-run": hub("A failed run: the step timeline, the observed values, the log and the comparison with the last pass", `#/playtests/runs/${enc(staggerRun)}`, full),
+  "hub-queue": hub("The queue: a run on the editor, the runs waiting with Run next and the arrows, the schedules, one of them skipped, and the runs that finished", "#/playtests/queue", full),
   "hub-editor-offline": hub("The hub with the editor closed: Now running waits for it", "#/playtests", offline),
   "hub-draft-new": hub("New playtest: a name, the level it plays in, and a first step to fill in", "#/playtests/checks/new", full),
   "hub-draft-picker": hub("New playtest with the value picker open: the pawn's values, movement channels, actors, widgets and input actions, each with its type", "#/playtests/checks/new", full, { clicks: [".hub-draft-check .hub-draft-pick"] }),

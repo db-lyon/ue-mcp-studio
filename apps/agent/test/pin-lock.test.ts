@@ -59,6 +59,25 @@ describe("which requests the PIN guards", () => {
     ]) expect(sensitiveRequest(m, p, false), `${m} ${p}`).toBe(true);
   });
 
+  it("the daemon's Playtest Hub: running playtests now, on a schedule or with an agent; reordering, pausing and deleting a schedule never", () => {
+    for (const [m, p] of [
+      ["POST", "/v1/hub/plans"],
+      ["POST", `/v1/hub/checks/${encodeURIComponent("script:/Game/T/Door")}/run`],
+      ["POST", "/v1/hub/goals/doors/write-playtests"],
+      ["POST", "/v1/hub/fix"],
+      ["POST", "/v1/hub/schedules"],
+      ["PUT", "/v1/hub/schedules/schedule-1"],
+    ]) expect(sensitiveRequest(m, p, false), `${m} ${p}`).toBe(true);
+    for (const [m, p] of [
+      ["POST", "/v1/hub/plans/plan-1/move"],
+      ["POST", "/v1/hub/plans/plan-1/cancel"],
+      ["PUT", "/v1/hub/queue/paused"],
+      ["DELETE", "/v1/hub/schedules/schedule-1"],
+      ["POST", "/v1/hub/goals"],
+      ["GET", "/v1/hub"],
+    ]) expect(sensitiveRequest(m, p, false), `${m} ${p}`).toBe(false);
+  });
+
   it("approving another session's request to close the editor, as the editor routes; denying and listing them never", () => {
     expect(sensitiveRequest("POST", "/v1/disruptions/r-1a2b/approve", false)).toBe(true);
     expect(sensitiveRequest("POST", "/v1/disruptions/r-1a2b/deny", false)).toBe(false);

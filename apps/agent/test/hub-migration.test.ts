@@ -7,7 +7,7 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import { HUB_SCHEMA } from "@ue-mcp-studio/shared";
-import { HUB_MOVED_FILE, hubMoved, moveHubStore, readOldStore, startHubMove } from "../src/hub-migration.js";
+import { HUB_MOVED_FILE, SCHEDULES_MOVED_FILE, hubMoved, moveHubStore, moveSchedules, readOldStore, startHubMove } from "../src/hub-migration.js";
 
 let dir: string;
 const log = { warn: () => {} };
@@ -85,6 +85,50 @@ describe("moveHubStore", () => {
     seed();
     expect(await moveHubStore({ dataDir: dir, endpoint: end, log, fetchImpl: answer(400, { error: "nothing was imported: goal x: bad" }) })).toBe("refused");
     expect(JSON.parse(fs.readFileSync(path.join(dir, HUB_MOVED_FILE), "utf-8"))).toMatchObject({ refused: "nothing was imported: goal x: bad" });
+  });
+});
+
+describe("moveSchedules", () => {
+  const sched = (id: string, title: string, at = "02:00") => ({ id, title, scope: { kind: "all" }, options: { attended: false, stopOnFailure: false, replay: false }, at, days: [1, 2, 3], enabled: true, lastRunAt: null, lastSkipped: "x", nextRunAt: null });
+  const oldQueue = (schedules: unknown[]) => {
+    fs.mkdirSync(path.join(dir, "hub"), { recursive: true });
+    fs.writeFileSync(path.join(dir, "hub", "queue.json"), JSON.stringify({ schema: 1, paused: false, current: null, queued: [], recent: [], schedules }));
+  };
+  /** A daemon whose hub has `have` schedules: answers the queue read and records each schedule created. */
+  const daemon = (have: unknown[] | undefined, created: unknown[], createStatus = 200) => (async (url: string, init: { method?: string; body?: string }) => {
+    if (url.endsWith("/v1/hub/queue")) return new Response(JSON.stringify(have === undefined ? { queued: [] } : { queued: [], schedules: have }), { status: 200 });
+    created.push(JSON.parse(init.body!));
+    return new Response(JSON.stringify(createStatus === 200 ? { schedule: {} } : { error: "at must be a local time, HH:MM" }), { status: createStatus });
+  }) as unknown as typeof fetch;
+
+  it("creates the old queue file's schedules in ue-mcp's hub once, skipping ones it has, and leaves the file", async () => {
+    oldQueue([sched("a", "Nightly"), sched("b", "Lunch", "12:30"), { id: "broken" }]);
+    const created: unknown[] = [];
+    const fetchImpl = daemon([{ ...sched("x", "Lunch", "12:30"), days: [3, 2, 1] }], created);
+    expect(await moveSchedules({ dataDir: dir, endpoint: end, log, fetchImpl })).toBe("moved");
+    expect(created).toEqual([{ title: "Nightly", scope: { kind: "all" }, options: { attended: false, stopOnFailure: false, replay: false }, at: "02:00", days: [1, 2, 3], enabled: true }]);
+    expect(JSON.parse(fs.readFileSync(path.join(dir, SCHEDULES_MOVED_FILE), "utf-8"))).toMatchObject({ found: 2, created: 1, existing: 1 });
+    expect(JSON.parse(fs.readFileSync(path.join(dir, "hub", "queue.json"), "utf-8")).schedules).toHaveLength(3);
+    expect(await moveSchedules({ dataDir: dir, endpoint: end, log, fetchImpl })).toBe("already");
+    expect(created).toHaveLength(1);
+  });
+
+  it("waits for a ue-mcp that has schedules, recording nothing", async () => {
+    oldQueue([sched("a", "Nightly")]);
+    const created: unknown[] = [];
+    expect(await moveSchedules({ dataDir: dir, endpoint: end, log, fetchImpl: daemon(undefined, created) })).toBe("later");
+    expect(await moveSchedules({ dataDir: dir, endpoint: () => null, log })).toBe("later");
+    expect(created).toEqual([]);
+    expect(fs.existsSync(path.join(dir, SCHEDULES_MOVED_FILE))).toBe(false);
+  });
+
+  it("records a schedule ue-mcp refuses, with why, and an empty move when there were none", async () => {
+    oldQueue([sched("a", "Nightly")]);
+    expect(await moveSchedules({ dataDir: dir, endpoint: end, log, fetchImpl: daemon([], [], 400) })).toBe("moved");
+    expect(JSON.parse(fs.readFileSync(path.join(dir, SCHEDULES_MOVED_FILE), "utf-8"))).toMatchObject({ created: 0, refused: ["Nightly: at must be a local time, HH:MM"] });
+    fs.rmSync(dir, { recursive: true, force: true });
+    fs.mkdirSync(dir);
+    expect(await moveSchedules({ dataDir: dir, endpoint: end, log, fetchImpl: answer(500, {}) })).toBe("empty");
   });
 });
 

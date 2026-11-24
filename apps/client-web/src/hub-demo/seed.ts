@@ -12,6 +12,7 @@ import {
   HUB_SCHEMA,
   checkId,
   itemStateOf,
+  planOptionsFor,
   qaScriptKey,
   type CheckMeta,
   type CurrentProvenance,
@@ -27,6 +28,7 @@ import {
   type RunProvenance,
   type RunRecord,
   type RunSource,
+  type Schedule,
   type SignOff,
 } from "@ue-mcp-studio/shared";
 
@@ -108,6 +110,8 @@ export interface DemoState {
   current: PlanRun | null;
   queued: PlanRun[];
   recent: PlanRun[];
+  /** Absent in a state saved while the hub had none: none then. */
+  schedules?: Schedule[];
   jobs: DemoJob[];
   /** Runs waiting for their fix loop: one loop at a time. */
   loopQueue: string[];
@@ -689,8 +693,26 @@ export function demoState(seed: DemoSeed, now = Date.now(), randomSeed = 7): Dem
       { check: ref("Coop", "PT_Coop_Lobby_Ready"), name: "PT_Coop_Lobby_Ready", state: "queued" },
     ] }),
   ];
+  // A nightly run of the slice, and a weekday co-op check that waited for the editor and gave up.
+  const schedules: Schedule[] = [
+    { id: "sched-nightly", title: "Nightly: Vertical Slice", scope: { kind: "goal", goalId: "vertical-slice" }, options: planOptionsFor("schedule"), at: "02:00", days: [0, 1, 2, 3, 4, 5, 6], enabled: true, lastRunAt: null, lastSkipped: null, waiting: null, nextRunAt: null },
+    { id: "sched-coop", title: "Co-op smoke test", scope: { kind: "goal", goalId: "coop-join" }, options: { ...planOptionsFor("schedule"), stopOnFailure: true }, at: "13:00", days: [1, 2, 3, 4, 5], enabled: true, lastRunAt: null, lastSkipped: "waited an hour while the editor is not connected", waiting: null, nextRunAt: null },
+  ];
+  for (const s of schedules) s.nextRunAt = demoNextRun(s, now);
   // The team's rule: a pass not run for two weeks is stale.
-  return { ...base, goals: goals(), checkMetas: checkMetas(), rules: { ...DEFAULT_HEALTH_RULE, staleAfterDays: 14 }, scripts, runs, qa, recent, queued };
+  return { ...base, goals: goals(), checkMetas: checkMetas(), rules: { ...DEFAULT_HEALTH_RULE, staleAfterDays: 14 }, scripts, runs, qa, recent, queued, schedules };
+}
+
+/** When a schedule next runs after `now`, in local time; null while it is off or names no day. */
+export function demoNextRun(s: Pick<Schedule, "at" | "days" | "enabled">, now: number): string | null {
+  const m = /^(\d{2}):(\d{2})$/.exec(s.at);
+  if (!s.enabled || !m || s.days.length === 0) return null;
+  const from = new Date(now);
+  for (let d = 0; d <= 7; d++) {
+    const t = new Date(from.getFullYear(), from.getMonth(), from.getDate() + d, Number(m[1]), Number(m[2]), 0, 0);
+    if (t.getTime() > now && s.days.includes(t.getDay())) return t.toISOString();
+  }
+  return null;
 }
 
 /** Steps for scripts an agent writes for a goal: a believable first draft. */

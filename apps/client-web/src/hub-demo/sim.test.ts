@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { checkId, type HubOverview, type PlanRun, type QueueState, type RunDetail } from "@ue-mcp-studio/shared";
+import { checkId, type HubOverview, type PlanPlacement, type PlanRun, type QueueState, type RunDetail } from "@ue-mcp-studio/shared";
 import { demoState } from "./seed";
 import { HubDemo } from "./sim";
 
@@ -115,13 +115,13 @@ describe("the hub demo's simulation", () => {
     call("PUT", "/hub/queue/paused", { paused: true });
     // Clear the seeded plans so only this one runs.
     for (const p of call<QueueState>("GET", "/hub/queue").queued) call("POST", `/hub/plans/${p.id}/cancel`);
-    const { plan } = call<{ plan: PlanRun }>("POST", "/hub/plans", { scope: { kind: "goal", goalId: "save-load" } });
+    // A person's Run resumes the paused queue and starts at once.
+    const { plan, placement } = call<{ plan: PlanRun; placement: PlanPlacement }>("POST", "/hub/plans", { scope: { kind: "goal", goalId: "save-load" } });
     expect(plan.items.map((i) => i.name)).toEqual(["PT_Save_Load_Checkpoint", "PT_Save_Slot_Overwrite"]);
-    run(2000);
-    expect(call<QueueState>("GET", "/hub/queue").current).toBeNull();
-    call("PUT", "/hub/queue/paused", { paused: false });
+    expect(placement).toEqual({ state: "started", position: 0, ahead: 0, resumed: true });
     run(1000);
     const q = call<QueueState>("GET", "/hub/queue");
+    expect(q.paused).toBe(false);
     expect(q.current?.id).toBe(plan.id);
     expect(q.current?.items[0].state).toBe("running");
     expect(events.some((e) => e.type === "script.run_started")).toBe(true);
@@ -218,6 +218,20 @@ describe("the hub demo's simulation", () => {
     expect(call<QueueState>("PUT", "/hub/queue/paused", { paused: true }).paused).toBe(true);
     call("DELETE", `/hub/goals/${goal.id}`);
     expect(call<HubOverview>("GET", "/hub").goals.some((g) => g.goal.id === goal.id)).toBe(false);
+  });
+
+  it("moves queued runs, and keeps schedules: create, edit, delete", () => {
+    const { call } = demo();
+    call("PUT", "/hub/queue/paused", { paused: true });
+    const q = call<QueueState>("GET", "/hub/queue");
+    const moved = call<QueueState>("POST", `/hub/plans/${q.queued[1].id}/move`, { to: 0 });
+    expect(moved.queued[0].id).toBe(q.queued[1].id);
+    expect(q.schedules?.map((s) => s.id)).toEqual(["sched-nightly", "sched-coop"]);
+    const { schedule } = call<{ schedule: { id: string; nextRunAt: string | null } }>("POST", "/hub/schedules", { title: "Lunch", scope: { kind: "all" }, options: { attended: false, stopOnFailure: false, replay: false }, at: "12:30", days: [1, 2, 3, 4, 5], enabled: true });
+    expect(schedule.nextRunAt).toBeTruthy();
+    expect(call<{ schedule: { enabled: boolean; nextRunAt: string | null } }>("PUT", `/hub/schedules/${schedule.id}`, { enabled: false }).schedule).toMatchObject({ enabled: false, nextRunAt: null });
+    call("DELETE", `/hub/schedules/${schedule.id}`);
+    expect(call<QueueState>("GET", "/hub/queue").schedules?.some((s) => s.id === schedule.id)).toBe(false);
   });
 
   it("seeds tracker links and answers the link routes as the agent does", () => {

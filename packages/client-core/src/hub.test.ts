@@ -33,6 +33,11 @@ import {
   parseRecent,
   type HubRecent,
   moveId,
+  moveQueued,
+  runFeedback,
+  blankSchedule,
+  scheduleErrors,
+  scheduleText,
   goalCheckIds,
   parentCandidates,
   parentGoals,
@@ -86,7 +91,7 @@ const check = (name: string, health: CheckState["health"], over: Partial<CheckSt
 describe("hub routes", () => {
   it("round-trips every screen through the hash, encoding ids", () => {
     const routes: HubRoute[] = [
-      { screen: "overview" }, { screen: "milestones" }, { screen: "goals" }, { screen: "library" },
+      { screen: "overview" }, { screen: "milestones" }, { screen: "goals" }, { screen: "library" }, { screen: "queue" },
       { screen: "goal", goalId: "tutorial" },
       { screen: "check", checkId: "script:/Game/Tests/Jump Test" },
       { screen: "run", runId: "run/42:a" },
@@ -331,6 +336,40 @@ describe("the goal form", () => {
   });
 });
 
+describe("schedules and the queue", () => {
+  it("says when a schedule runs and what is wrong with one", () => {
+    expect(scheduleText({ days: [0, 1, 2, 3, 4, 5, 6], at: "02:00" })).toBe("Every day at 02:00");
+    expect(scheduleText({ days: [5, 1, 2, 3, 4], at: "18:30" })).toBe("Weekdays at 18:30");
+    expect(scheduleText({ days: [4, 1], at: "09:00" })).toBe("Mon, Thu at 09:00");
+    expect(Object.keys(scheduleErrors({ title: "", at: "25:00", days: [], scope: { kind: "all" } })).sort()).toEqual(["at", "days", "title"]);
+    expect(blankSchedule().options.attended).toBe(false);
+  });
+
+  it("moves a queued plan", () => {
+    const plan = (id: string): PlanRun => ({ id, title: id, scope: { kind: "all" }, options: { attended: true, stopOnFailure: false, replay: false }, state: "queued", items: [], trigger: "person", createdAt: "" });
+    const q: QueueState = { paused: false, current: null, queued: [plan("a"), plan("b"), plan("c")], recent: [], schedules: [], editor: { connected: true } };
+    expect(moveQueued(q, "c", 0).queued.map((p) => p.id)).toEqual(["c", "a", "b"]);
+    expect(moveQueued(q, "a", 99).queued.map((p) => p.id)).toEqual(["b", "c", "a"]);
+    expect(moveQueued(q, "nope", 0)).toBe(q);
+  });
+
+  it("says where a person's Run went, and offers Run next only behind other queued runs", () => {
+    expect(runFeedback("Tutorial completes", { state: "started", position: 0, ahead: 0, resumed: true }, 3)).toEqual({ text: "Running Tutorial completes (3 playtests)", tone: "ok" });
+    expect(runFeedback("every playtest", { state: "started", position: 0, ahead: 0 }, 3).text).toBe("Running every playtest");
+    expect(runFeedback("Jump", { state: "waiting", position: 1, ahead: 0, reason: "Play In Editor is in use" })).toEqual({ text: "Jump is next. Play In Editor is in use.", tone: "bad", openQueue: true });
+    expect(runFeedback("Jump", { state: "waiting", position: 1, ahead: 0, reason: "Claude Code holds the editor: is this safe?" }).text).toBe("Jump is next. Claude Code holds the editor: is this safe.");
+    expect(runFeedback("Jump", { state: "queued", position: 1, ahead: 1 })).toEqual({ text: "Queued Jump, 1 run ahead", tone: "ok", runNext: false, openQueue: true });
+    expect(runFeedback("Jump", { state: "queued", position: 3, ahead: 3 })).toMatchObject({ text: "Queued Jump, 3 runs ahead", runNext: true });
+    // A daemon that predates placements.
+    expect(runFeedback("Jump", undefined)).toEqual({ text: "Queued Jump", tone: "ok", openQueue: true });
+  });
+
+  it("the Queue screen sits under its own rail entry", () => {
+    expect(hubSection({ screen: "queue" })).toBe("queue");
+    expect(searchPalette(paletteEntries({ goals: [], checks: [], recent: [] }), "queue")[0]).toMatchObject({ route: { screen: "queue" } });
+  });
+});
+
 describe("runs in the queue", () => {
   it("counts a run's progress", () => {
     const p = planProgress({ items: [
@@ -349,6 +388,8 @@ describe("keys", () => {
     expect(k.press({ key: "g" })).toBeNull();
     expect(k.pending()).toBe(true);
     expect(k.press({ key: "l" })).toEqual({ type: "go", to: "library" });
+    k.press({ key: "g" });
+    expect(k.press({ key: "q" })).toEqual({ type: "go", to: "queue" });
     k.press({ key: "g" });
     t = 5000;
     expect(k.press({ key: "l" })).toBeNull();
@@ -396,12 +437,20 @@ describe("the hub API", () => {
     await api.removeRequire("m", "a b");
     await api.orderRequires("m", ["a", "b"]);
     await api.orderChecks("g", ["script:/Game/B", "script:/Game/A"]);
+    await api.movePlan("p 1", 2);
+    await api.createSchedule(blankSchedule());
+    await api.updateSchedule("s 1", { enabled: false });
+    await api.deleteSchedule("s 1");
     expect(calls.slice(6)).toEqual([
       ["POST", "/v1/hub/goals/m/requires", { goal: "a b" }],
       ["POST", "/v1/hub/goals/m/requires", { goal: "a", required: false }],
       ["DELETE", "/v1/hub/goals/m/requires/a%20b", undefined],
       ["PUT", "/v1/hub/goals/m/requires", { order: ["a", "b"] }],
       ["PUT", "/v1/hub/goals/g/checks/order", { order: ["script:/Game/B", "script:/Game/A"] }],
+      ["POST", "/v1/hub/plans/p%201/move", { to: 2 }],
+      ["POST", "/v1/hub/schedules", blankSchedule()],
+      ["PUT", "/v1/hub/schedules/s%201", { enabled: false }],
+      ["DELETE", "/v1/hub/schedules/s%201", undefined],
     ]);
     expect(calls.slice(0, 6)).toEqual([
       ["GET", "/v1/hub", undefined],
