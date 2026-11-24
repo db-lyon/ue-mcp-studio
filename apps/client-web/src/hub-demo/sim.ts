@@ -857,7 +857,7 @@ export class HubDemo {
 
   /** POST /hub/store: merged by id, as the agent does; what is here and differs stays. */
   private importStore(b: Record<string, unknown>): DemoAnswer {
-    if (b.format !== HUB_EXPORT_FORMAT || !Array.isArray(b.records)) return refuse(400, `this is not a goals file exported from Studio (format ${HUB_EXPORT_FORMAT})`);
+    if (b.format !== HUB_EXPORT_FORMAT || !Array.isArray(b.records)) return refuse(400, `this is not an exported goals file (format ${HUB_EXPORT_FORMAT})`);
     const report: HubImportReport = { added: 0, unchanged: 0, conflicts: [] };
     const same = (a: unknown, c: unknown) => JSON.stringify(a) === JSON.stringify(c);
     for (const r of b.records as AnyHubRecord[]) {

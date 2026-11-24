@@ -207,7 +207,7 @@ describe("overview models", () => {
   it("says what moving goals between computers did", () => {
     expect(importReportText({ added: 4, unchanged: 2, conflicts: [{ type: "goal", id: "j", title: "Jump" }] })).toBe("Added 4. 2 were already here. 1 differs here and was kept as it is: Jump.");
     expect(importReportText({ added: 0, unchanged: 1, conflicts: [] })).toBe("Added nothing. 1 was already here.");
-    expect(isGoalsFile({ format: "ue-mcp-studio.goals" })).toBe(true);
+    expect(isGoalsFile({ format: "ue-mcp.goals" })).toBe(true);
     expect(isGoalsFile({ title: "x" })).toBe(false);
     expect(importedText(null)).toBeNull();
     expect(importedText({ from: "QA/Goals", at: "2026-11-23T10:00:00.000Z", goals: ["a", "b"], problems: [] })).toContain("2 goals were brought in from QA/Goals on 2026-11-23");
