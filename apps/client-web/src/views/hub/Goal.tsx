@@ -29,7 +29,7 @@ import { needsSignOff, type TrackerLink } from "@ue-mcp-studio/shared";
 import { HubLinks } from "./links";
 import { api } from "../../api";
 import { useCursor, useHub } from "./state";
-import { Empty, EvidenceScope, HubIcon, HubLink, Progress, ScreenHead, StatusMark, StatusPill } from "./parts";
+import { Empty,HubIcon, HubLink, Progress, ScreenHead, StatusMark, StatusPill } from "./parts";
 import { CheckRow, GoalRow } from "./rows";
 
 /** Up and down for one row of an ordered list; each is disabled at its end. */
@@ -182,7 +182,7 @@ export function GoalScreen({ goalId }: { goalId: string }) {
         back={back ? { label: back.goal.title, route: { screen: "goal", goalId: back.goal.id } } : { label: HUB_COPY.overview, route: { screen: "overview" } }}
         eyebrow={goal.kind === "milestone" ? "Milestone" : "Goal"}
         title={goal.title}
-        sub={<><StatusPill look={look} /><span className="dim">{progressText(g.progress)}</span><EvidenceScope /></>}
+        sub={<><StatusPill look={look} /><span className="dim">{progressText(g.progress)}</span></>}
         actions={<>
           <button className="primary" onClick={runGoal} disabled={runnable === 0} title="Run every playtest in order, the required goals' first (r)"><HubIcon name="play" size={12} /> {HUB_COPY.runGoal}</button>
           {failing > 0 && <button onClick={() => void fix({ goalId: goal.id })} title="An agent fixes each failing playtest in its own chat session, one at a time (a)"><HubIcon name="assign" size={12} /> {HUB_COPY.fixFailing}</button>}
