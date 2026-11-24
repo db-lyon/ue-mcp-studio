@@ -9,6 +9,7 @@
 import { useMemo, useRef, useState } from "react";
 import {
   CHECK_HEALTH_LOOK,
+  DRAFT_COPY,
   GOAL_STATUS_LOOK,
   HUB_COPY,
   PRIORITY_LABEL,
@@ -257,11 +258,13 @@ export function GoalScreen({ goalId }: { goalId: string }) {
         <div className="hub-section-head">
           <h2>{HUB_COPY.playtests} <span className="dim">{checks.length}</span></h2>
           <span className="spacer" />
+          <button className="ghost" onClick={() => hub.go({ screen: "draft", goalId: goal.id })} title="Write a playtest here, added to this goal"><HubIcon name="edit" size={12} /> {DRAFT_COPY.newPlaytest}</button>
           <button className="ghost" onClick={() => hub.addChecks(goal.id)}><HubIcon name="plus" size={12} /> {HUB_COPY.addPlaytests}</button>
           <button className="ghost" disabled={writing} onClick={() => void writePlaytests()} title="An agent writes playtests for this goal in a new chat session, and adds them here"><HubIcon name="sparkle" size={12} /> {HUB_COPY.writePlaytests}</button>
         </div>
         {checks.length === 0 ? (
           <Empty title="No playtests yet" actions={<>
+            <button onClick={() => hub.go({ screen: "draft", goalId: goal.id })}>{DRAFT_COPY.newPlaytest}</button>
             <button onClick={() => hub.addChecks(goal.id)}>{HUB_COPY.addPlaytests}</button>
             <button onClick={() => void writePlaytests()} disabled={writing}>{HUB_COPY.writePlaytests}</button>
           </>}>{HUB_COPY.noPlaytestsInGoal}</Empty>

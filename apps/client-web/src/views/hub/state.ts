@@ -127,8 +127,17 @@ export interface HubContextValue {
   addToGoal: (checkIds: string[]) => void;
   /** Confirm, then delete these playtests' script assets; `onDone` gets the ids that were deleted. */
   deleteChecks: (checkIds: string[], onDone?: (deleted: string[]) => void) => void;
+  /** Draft with an agent: describe a playtest, and the /playtest flow writes it in a chat session. */
+  describePlaytest: () => void;
   /** The screen on show takes the keys the hub does not handle itself, set on each render; return true when one was used. */
   onKeys: (handler: (a: HubKeyAction) => boolean) => void;
+  /** A screen with unsaved changes (the playtest editor): leaving it asks first, and Discard calls `discard`. Null when it closes. */
+  guardLeave: (guard: LeaveGuard | null) => void;
+}
+
+export interface LeaveGuard {
+  dirty: () => boolean;
+  discard: () => void;
 }
 
 export const HubContext = createContext<HubContextValue | null>(null);

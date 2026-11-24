@@ -4,7 +4,7 @@
  * runs as one batch or joins a goal.
  */
 import { useMemo, useRef, useState } from "react";
-import { HEALTH_FILTERS, HUB_COPY, filterChecks, healthCounts, sortGoals, type HealthFilter } from "@ue-mcp-studio/client-core";
+import { DRAFT_COPY, HEALTH_FILTERS, HUB_COPY, filterChecks, healthCounts, sortGoals, type HealthFilter } from "@ue-mcp-studio/client-core";
 import { useCursor, useHub } from "./state";
 import { Empty,HubIcon, Kbd, ScreenHead } from "./parts";
 import { CheckRow } from "./rows";
@@ -52,7 +52,14 @@ export function LibraryScreen() {
 
   return (
     <div className="hub-screen hub-library">
-      <ScreenHead title={HUB_COPY.library} sub={<><span>{o.checks.length} {o.checks.length === 1 ? "playtest" : "playtests"}</span></>} />
+      <ScreenHead
+        title={HUB_COPY.library}
+        sub={<><span>{o.checks.length} {o.checks.length === 1 ? "playtest" : "playtests"}</span></>}
+        actions={<>
+          <button className="primary" onClick={() => go({ screen: "draft" })}><HubIcon name="plus" size={12} /> {DRAFT_COPY.newPlaytest}</button>
+          <button onClick={hub.describePlaytest} title={DRAFT_COPY.draftWithAgentLead}><HubIcon name="sparkle" size={12} /> {DRAFT_COPY.draftWithAgent}</button>
+        </>}
+      />
       <div className="hub-filters">
         <div className="hub-search">
           <HubIcon name="search" />
@@ -92,7 +99,7 @@ export function LibraryScreen() {
           <button className="ghost" onClick={() => setPicked(new Set())}>Clear</button>
         </div>
       )}
-      {rows.length === 0 ? <Empty title={o.checks.length ? HUB_COPY.libraryEmpty : HUB_COPY.noChecksTitle}>{o.checks.length ? null : HUB_COPY.noChecksLead}</Empty> : (
+      {rows.length === 0 ? <Empty title={o.checks.length ? HUB_COPY.libraryEmpty : HUB_COPY.noChecksTitle}>{o.checks.length ? null : DRAFT_COPY.emptyHint}</Empty> : (
         <>
           <label className="hub-select-all small">
             <input type="checkbox" checked={allShown} onChange={() => setPicked(allShown ? new Set() : new Set(rows.map((c) => c.id)))} />
