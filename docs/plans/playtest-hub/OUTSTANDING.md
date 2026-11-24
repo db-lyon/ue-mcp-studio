@@ -55,6 +55,7 @@ To ship it:
 
 ## Post-MVP (revisit later)
 
+- **A rejected sign-in shows the Remote upsell:** when the gateway answers 401 for the stored account token, `RemotePlanCheck` (`apps/agent/src/remote/plan.ts`) returns false and Studio shows "needs the Remote plan". It should report an expired sign-in and ask the person to sign in again.
 - **Dev build numbering:** `STUDIO_DEV_BASE` dev installs sort above real releases (`dev` sorts after `beta`), so Studio's "newer version installed" notice offered a stale dev build as an upgrade. Fix: Studio ignores `-dev.` builds when looking for newer installed versions, or dev builds sort below the release they are built from.
 
 Nothing below blocks the MVP.
