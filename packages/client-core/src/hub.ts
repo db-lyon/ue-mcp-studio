@@ -400,7 +400,7 @@ export const HUB_COPY = {
   fixFailing: "Fix failing with an agent",
   fix: "Fix with an agent",
   /** After a fix is asked for: what was queued, and where the work happens. */
-  fixesQueued: (n: number) => (n ? `Queued ${n === 1 ? "a fix" : `${n} fixes`}. Each runs in its own chat session.` : "Nothing is failing to fix."),
+  fixesQueued: (n: number) => (n ? `Queued ${n === 1 ? "a fix" : `${n} fixes`}. Each runs in its own chat session.` : "Nothing is failing."),
   /** A fix item's line: the chat session its agent works in. */
   fixChat: "Open chat",
   writePlaytests: "Write playtests for this goal",
@@ -432,7 +432,7 @@ export const HUB_COPY = {
   pausedByRelease: "Paused because you released the editor. Resume when Studio may use it again.",
   pausedByReconnect: "Paused because the editor reconnected. Resume when Studio may use it again.",
   waiting: (why: string) => `Waiting: ${why}`,
-  editorDown: "The editor is not connected. When it is back, resume to go on.",
+  editorDown: "The editor is not connected. Resume once it is back.",
   filterPlaceholder: "Filter by name, map or goal",
   palettePlaceholder: "Jump to a goal, playtest or run, or type a command",
   paletteEmpty: "No matches.",

@@ -20,7 +20,7 @@ export function leaseOfEvent(e: { type: string; data?: unknown }): { lease: Edit
 export const LEASE_COPY = {
   holding: "Studio is running a playtest",
   release: "Release the editor",
-  releaseHelp: "Stop the playtest or fix Studio started, end the Play In Editor session it started, and pause Studio's queue",
+  releaseHelp: "Stop the playtest or fix Studio started, end its Play In Editor session and pause the queue",
 } as const;
 
 /** The event that carries the whole list whenever it changes. */

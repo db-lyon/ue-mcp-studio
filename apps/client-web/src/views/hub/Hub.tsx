@@ -139,7 +139,7 @@ export function HubView({ data, narrow, onOpenChat, onChat }: {
   if (!o) {
     return (
       <div className="hub-root hub-loading">
-        {data.error ? <div className="banner bad" role="alert">The hub did not load: {data.error} <button className="small-button" onClick={data.reload}>Try again</button></div> : <Placeholder rows={6} />}
+        {data.error ? <div className="banner bad" role="alert">Playtests did not load: {data.error} <button className="small-button" onClick={data.reload}>Try again</button></div> : <Placeholder rows={6} />}
       </div>
     );
   }

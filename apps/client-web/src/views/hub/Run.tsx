@@ -71,7 +71,7 @@ export function RunScreen({ runId }: { runId: string }) {
   const viewer = useHubViewer(playing && record ? { runId: record.runId, checkId: `${record.kind}:${record.target}`, name: record.name } : null);
 
   if (!d || !record) {
-    return <div className="hub-screen">{error ? <Empty title="This run is not known" actions={<button onClick={() => go({ screen: "overview" })}>Go to Overview</button>}>{error}</Empty> : <Placeholder rows={5} />}</div>;
+    return <div className="hub-screen">{error ? <Empty title="Run not found" actions={<button onClick={() => go({ screen: "overview" })}>Go to Overview</button>}>{error}</Empty> : <Placeholder rows={5} />}</div>;
   }
 
   const look = RUN_OUTCOME_LOOK[record.outcome];
