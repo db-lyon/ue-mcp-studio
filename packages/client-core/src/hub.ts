@@ -706,6 +706,15 @@ export function goalCheckIds(goalId: string, all: readonly GoalState[]): string[
   return goalChecksDeep(all.map((g) => g.goal), goalId).map(checkIdOf);
 }
 
+/**
+ * A goal's run button. A goal's run covers its required goals' playtests
+ * too (goalCheckIds), so on a milestone, which is mostly required goals, it
+ * says so with the count: "Run all (12)". A goal keeps "Run goal".
+ */
+export function runGoalLabel(goal: Pick<Goal, "kind">, playtests: number): string {
+  return goal.kind === "milestone" ? `${HUB_COPY.runAll} (${playtests})` : HUB_COPY.runGoal;
+}
+
 /** The goals this goal can be made to require: live, not itself, not required already, and none that would make a loop. */
 export function requireCandidates(goalId: string, all: readonly GoalState[]): GoalState[] {
   const goals = all.map((g) => g.goal);
@@ -1273,7 +1282,7 @@ export function paletteEntries(o: Pick<HubOverview, "goals" | "checks" | "recent
   for (const g of sortGoals(o.goals.filter((g) => !g.goal.archived))) {
     const look = GOAL_STATUS_LOOK[g.status];
     out.push({ id: `goal:${g.goal.id}`, kind: "goal", label: g.goal.title, hint: g.goal.kind === "milestone" ? "Milestone" : "Goal", route: { screen: "goal", goalId: g.goal.id }, look });
-    out.push({ id: `run-goal:${g.goal.id}`, kind: "command", label: `Run ${g.goal.title}`, hint: "Run goal", command: { runGoal: g.goal.id }, look });
+    out.push({ id: `run-goal:${g.goal.id}`, kind: "command", label: `Run ${g.goal.title}`, hint: runGoalLabel(g.goal, goalCheckIds(g.goal.id, o.goals).length), command: { runGoal: g.goal.id }, look });
   }
   for (const c of sortChecks(o.checks)) {
     const look = CHECK_HEALTH_LOOK[c.health];

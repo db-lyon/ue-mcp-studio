@@ -6,9 +6,18 @@ import { localImagePath } from "@ue-mcp-studio/shared";
 import { ReplyImage } from "./ReplyImage";
 import { AssetToken, ExactAssetLink } from "./AssetLink";
 import { FileLink } from "./FileLink";
+import { HubAnchor, HubRecordLink, useHubRecord } from "./HubRecordLink";
+import type { ReactNode } from "react";
 import { breakable } from "./breakable";
 
-type Marks = { "data-asset"?: string; "data-asset-path"?: string; "data-asset-label"?: string; "data-file-path"?: string; "data-file-line"?: string };
+type Marks = { "data-asset"?: string; "data-asset-path"?: string; "data-asset-label"?: string; "data-file-path"?: string; "data-file-line"?: string; "data-hub-address"?: string };
+
+/** A link to a bare name: a goal, run or playtest id the hub knows opens there; anything else is a project file. */
+function FileOrRecordLink({ path, line, children }: { path: string; line?: number; children: ReactNode }) {
+  const record = useHubRecord(line ? null : path);
+  if (record) return <HubAnchor route={record.route} open={record.open}>{children}</HubAnchor>;
+  return <FileLink path={path} line={line}>{children}</FileLink>;
+}
 
 /**
  * Each link as remarkReplyLinks classified it: web pages open outside Studio,
@@ -25,7 +34,8 @@ const REPLY_COMPONENTS: Components = {
   span: ({ node: _node, children, ...props }) => {
     const m = props as Marks;
     if (m["data-asset-path"]) return <ExactAssetLink path={m["data-asset-path"]} label={m["data-asset-label"] ?? ""} />;
-    if (m["data-file-path"]) return <FileLink path={m["data-file-path"]} line={m["data-file-line"] ? Number(m["data-file-line"]) : undefined}>{children}</FileLink>;
+    if (m["data-hub-address"]) return <HubRecordLink address={m["data-hub-address"]}>{children}</HubRecordLink>;
+    if (m["data-file-path"]) return <FileOrRecordLink path={m["data-file-path"]} line={m["data-file-line"] ? Number(m["data-file-line"]) : undefined}>{children}</FileOrRecordLink>;
     return m["data-asset"] ? <AssetToken token={m["data-asset"]} code={false} /> : <span {...props}>{children}</span>;
   },
   // An image in the project (a playtest's capture, a screenshot) loads through Studio, full size on a click.

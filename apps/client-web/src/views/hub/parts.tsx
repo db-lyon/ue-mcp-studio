@@ -5,7 +5,7 @@
  */
 import type { AnchorHTMLAttributes, ReactNode } from "react";
 import type { RunOutcome } from "@ue-mcp-studio/shared";
-import { HUB_COPY, hubHash, sparkBars, sparkLabel, type HubRoute, type StatusGlyph, type StatusLook } from "@ue-mcp-studio/client-core";
+import { HUB_COPY, HUB_TRAIL_COPY, hubHash, sparkBars, sparkLabel, trailCrumbs, trailHasBack, type HubCrumb, type HubRoute, type StatusGlyph, type StatusLook } from "@ue-mcp-studio/client-core";
 import { useHub } from "./state";
 
 const SHAPES: Record<StatusGlyph, ReactNode> = {
@@ -164,18 +164,45 @@ export function HubField({ id, label, error, children }: {
 }
 
 /** A screen's head: a way back, title, a line under it, and its actions at the end. */
+/**
+ * A screen's head. Above the title, the way the user came (breadcrumbs, each
+ * going back to that screen); a screen reached fresh shows `back`, its parent
+ * in the hub's map, instead.
+ */
 export function ScreenHead({ title, eyebrow, sub, actions, back }: { title: ReactNode; eyebrow?: ReactNode; sub?: ReactNode; actions?: ReactNode; back?: { label: string; route: HubRoute } }) {
-  const { go } = useHub();
+  const { go, trail } = useHub();
   return (
     <header className="hub-head">
       <div className="hub-head-text">
-        {back && <HubLink className="hub-back small" href={hubHash(back.route)} onGo={() => go(back.route)}><HubIcon name="back" size={12} />{back.label}</HubLink>}
+        {trailHasBack(trail) ? <Crumbs /> : back && <HubLink className="hub-back small" href={hubHash(back.route)} onGo={() => go(back.route)}><HubIcon name="back" size={12} />{back.label}</HubLink>}
         {eyebrow && <div className="hub-eyebrow">{eyebrow}</div>}
         <h1 className="hub-title">{title}</h1>
         {sub && <div className="hub-sub">{sub}</div>}
       </div>
       {actions && <div className="hub-head-actions">{actions}</div>}
     </header>
+  );
+}
+
+/** The trail as breadcrumbs: back to the screen before, then every screen on the way, the one on show last. */
+function Crumbs() {
+  const { o, trail, goBack } = useHub();
+  const { crumbs, folded } = trailCrumbs(trail, o);
+  const prev = crumbs[crumbs.length - 2];
+  const href = (c: HubCrumb) => (c.route ? hubHash(c.route) : `#/${c.label.toLowerCase()}`);
+  return (
+    <nav className="hub-crumbs small" aria-label={HUB_TRAIL_COPY.trail}>
+      {prev && <HubLink className="hub-back" href={href(prev)} onGo={() => goBack(1)} aria-label={`${HUB_TRAIL_COPY.back}: ${prev.label}`} title={`${HUB_TRAIL_COPY.back}: ${prev.label}`}><HubIcon name="back" size={12} /></HubLink>}
+      {folded > 0 && <span className="hub-crumb-fold dim" aria-hidden="true">…</span>}
+      {crumbs.map((c, i) => (
+        <span key={`${c.steps}`} className="hub-crumb">
+          {(i > 0 || folded > 0) && <span className="hub-crumb-sep dim" aria-hidden="true">/</span>}
+          {c.steps === 0
+            ? <span aria-current="page">{c.label}</span>
+            : <HubLink href={href(c)} onGo={() => goBack(c.steps)}>{c.label}</HubLink>}
+        </span>
+      ))}
+    </nav>
   );
 }
 

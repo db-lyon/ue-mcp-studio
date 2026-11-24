@@ -16,6 +16,7 @@ import {
   acceptanceText,
   dueText,
   goalCheckIds,
+  runGoalLabel,
   hubHash,
   moveId,
   parentGoals,
@@ -185,7 +186,7 @@ export function GoalScreen({ goalId }: { goalId: string }) {
         title={goal.title}
         sub={<><StatusPill look={look} /><span className="dim">{progressText(g.progress)}</span></>}
         actions={<>
-          <button className="primary" onClick={runGoal} disabled={runnable === 0} title="Run every playtest in order, the required goals' first (r)"><HubIcon name="play" size={12} /> {HUB_COPY.runGoal}</button>
+          <button className="primary" onClick={runGoal} disabled={runnable === 0} title="Run every playtest in order, the required goals' first (r)"><HubIcon name="play" size={12} /> {runGoalLabel(g.goal, runnable)}</button>
           {failing > 0 && <button onClick={() => void fix({ goalId: goal.id })} title="An agent fixes each failing playtest in its own chat session, one at a time (a)"><HubIcon name="assign" size={12} /> {HUB_COPY.fixFailing}</button>}
           <button className="ghost" onClick={() => hub.editGoal(goal.id)} title={HUB_COPY.editGoal}><HubIcon name="edit" size={12} /> Edit</button>
         </>}

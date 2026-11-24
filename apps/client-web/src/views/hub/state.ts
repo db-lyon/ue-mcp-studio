@@ -5,7 +5,7 @@
  */
 import { createContext, useContext, useEffect, useRef, useState, type RefObject } from "react";
 import type { HubOverview, PlanRequest, StudioExperiments } from "@ue-mcp-studio/shared";
-import { HUB_RELOAD_MS, hubReloadsOn, type HubKeyAction, type HubRoute } from "@ue-mcp-studio/client-core";
+import { HUB_RELOAD_MS, hubReloadsOn, type HubKeyAction, type HubRoute, type HubTrail } from "@ue-mcp-studio/client-core";
 import { api } from "../../api";
 import type { DaemonState } from "../../state";
 
@@ -133,6 +133,10 @@ export interface HubContextValue {
   onKeys: (handler: (a: HubKeyAction) => boolean) => void;
   /** A screen with unsaved changes (the playtest editor): leaving it asks first, and Discard calls `discard`. Null when it closes. */
   guardLeave: (guard: LeaveGuard | null) => void;
+  /** The way the user came to this screen; back and the breadcrumbs follow it. */
+  trail: HubTrail;
+  /** Go back this many screens along the trail (past its first, to the tab it came from). */
+  goBack: (steps: number) => void;
 }
 
 export interface LeaveGuard {

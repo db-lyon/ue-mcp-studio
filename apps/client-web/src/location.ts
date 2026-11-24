@@ -26,12 +26,19 @@ export function writeLocation(change: Partial<PanelLocation>): void {
 /**
  * Move to a location as a navigation: a history entry, so Back returns, and a
  * hashchange, which every listener follows. The hub moves between its screens this way.
+ * `state` goes with the new entry (the hub's trail), so Back and Forward bring it back.
  */
-export function pushLocation(change: Partial<PanelLocation>): void {
+export function pushLocation(change: Partial<PanelLocation>, state?: Record<string, unknown>): void {
   if (typeof window === "undefined") return;
   const next = formatLocation({ ...readLocation(), ...change });
-  if (next !== window.location.hash) window.location.hash = next;
+  if (next === window.location.hash) return;
+  window.location.hash = next;
+  // Setting the hash made the entry; its state is written before the hashchange is handled.
+  if (state) window.history.replaceState({ ...(window.history.state ?? {}), ...state }, "", next);
 }
+
+/** The state of the history entry on show. */
+export const historyState = (): unknown => (typeof window === "undefined" ? null : window.history.state);
 
 /** Fired on window when writeLocation changes the hash. */
 export const LOCATION_EVENT = "studio:location";

@@ -4,7 +4,7 @@ import type { Transport } from "@ue-mcp-studio/client-core";
 import type { PendingForm, PlaytestEntry, QaRun } from "@ue-mcp-studio/shared";
 import { RUNS, run } from "../../client-web/src/visual-qa/fixtures";
 import { QaCard } from "../src/screens/playtests/QaCard";
-import { FILTER_KEY, PlaytestsScreen } from "../src/screens/playtests/Playtests";
+import { FILTER_KEY, PlaytestsScreen, PlaytestsView } from "../src/screens/playtests/Playtests";
 import { QaContext, lhOf } from "../src/screens/playtests/live";
 import { AssetLinks } from "@ue-mcp-studio/client-core";
 import { AssetLinksContext } from "../src/chat/asset-links";
@@ -241,6 +241,18 @@ describe("PlaytestsScreen", () => {
     await settle();
     press("Open the card in Door playtest");
     expect(open).toHaveBeenCalledWith("qa-session", RUNS.waiting.runId);
+  });
+
+  it("shows a playtest a link asked for under All and marks its card, whatever filter was picked", async () => {
+    store.set(FILTER_KEY, "failing");
+    const index = { index: { playtests: PROJECT, listed: true }, error: null, reload: () => undefined };
+    renderInProject(<PlaytestsView daemon={{ events: [], streaming: false }} index={index} onOpenSession={() => undefined} focus={{ script: "/Game/PIEStudio/Scripts/PT_Crouch", n: 1 }} />);
+    await settle();
+    expect(screen.getByLabelText("All 4").getAttribute("aria-pressed")).toBe("true");
+    expect(screen.getByTestId("playtest-linked").textContent).toContain("PT_Crouch");
+    // Picking a filter again ends it.
+    press("Failing 1");
+    expect(screen.queryByTestId("playtest-linked")).toBeNull();
   });
 
   it("makes a card in a session for a script that has none on its first Start", async () => {

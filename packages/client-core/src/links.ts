@@ -1,14 +1,19 @@
 /**
  * What a markdown link in a reply points at, decided once for every client:
  * a web page opens outside Studio, an object path opens the asset, a project
- * file opens in Studio's file viewer, and anything else is plain text, so
- * no client ever draws a link that goes nowhere.
+ * file opens in Studio's file viewer, a Playtest Hub address opens that
+ * record on the Playtests tab, and anything else is plain text, so no client
+ * ever draws a link that goes nowhere.
  */
 import { OBJECT_PATH_IN_TEXT, assetLinkTarget, classifyAssetToken } from "@ue-mcp-studio/shared";
+import { hubHash, type HubRoute } from "./hub.js";
+import { hubAddressRoute } from "./hub-records.js";
 
 export type LinkTarget =
   | { kind: "web"; url: string }
   | { kind: "asset"; path: string }
+  /** #/playtests/...: a Playtest Hub screen, such as a goal or a run. */
+  | { kind: "hub"; route: HubRoute }
   /** path: as written, with forward slashes; line: from a #L12 or :12 suffix. */
   | { kind: "file"; path: string; line?: number }
   | { kind: "none" };
@@ -24,6 +29,8 @@ export function classifyLink(raw: string | null | undefined): LinkTarget {
   const url = (raw ?? "").trim();
   if (!url) return NONE;
   if (WEB.test(url)) return { kind: "web", url };
+  const hub = hubAddressRoute(url);
+  if (hub) return { kind: "hub", route: hub };
   if (/^file:/i.test(url)) return fileTarget(fileUrlPath(url));
   const slashed = url.replace(/\\/g, "/");
   // Another scheme (javascript:, vscode:) or a network path is never followed. Door.cpp:12 is a line, not a scheme.
@@ -128,6 +135,8 @@ function classified(node: MdNode): MdNode[] | null {
       const label = textOf(node).trim() || target.path.slice(target.path.lastIndexOf(".") + 1);
       return [{ type: "assetLink", data: { hName: "span", hProperties: { "data-asset-path": target.path, "data-asset-label": label } }, children: [{ type: "text", value: label }] }];
     }
+    case "hub":
+      return [{ type: "hubLink", data: { hName: "span", hProperties: { "data-hub-address": hubHash(target.route) } }, children: node.children ?? [] }];
     case "file": {
       const props = { "data-file-path": target.path, ...(target.line ? { "data-file-line": String(target.line) } : {}) };
       return [{ type: "fileLink", data: { hName: "span", hProperties: props }, children: node.children ?? [] }];

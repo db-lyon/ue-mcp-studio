@@ -24,14 +24,17 @@ import {
   parseRecent,
   rememberRecent,
   searchPalette,
+  trailOf,
+  trailPush,
   typingTarget,
+  type HubTrail,
   type HubKeyAction,
   type HubRecent,
   type HubRoute,
   type PaletteEntry,
 } from "@ue-mcp-studio/client-core";
 import { api } from "../../api";
-import { pushLocation, readLocation, writeLocation } from "../../location";
+import { historyState, pushLocation, readLocation, writeLocation } from "../../location";
 import { HubContext, useHub, type HubContextValue, type HubData, type LeaveGuard } from "./state";
 import { HubIcon, HubLink, Kbd, Placeholder, StatusMark, type HubIconName } from "./parts";
 import { OverviewScreen } from "./Overview";
@@ -61,32 +64,42 @@ type Overlay =
  * Forward, a pasted link). While a screen has unsaved changes (`guard`), a
  * hashchange away puts the hash back and asks through `onBlocked` instead.
  */
-function useHubRoute(guard: MutableRefObject<LeaveGuard | null>, onBlocked: (r: HubRoute) => void): [HubRoute, (r: HubRoute) => void] {
-  const [route, setRoute] = useState<HubRoute>(() => parseHubPath(readLocation().sub));
-  const current = useRef(route);
+function useHubRoute(guard: MutableRefObject<LeaveGuard | null>, onBlocked: (r: HubRoute) => void): [HubRoute, (r: HubRoute) => void, HubTrail] {
+  const [{ route, trail }, setAt] = useState<{ route: HubRoute; trail: HubTrail }>(() => {
+    const r = parseHubPath(readLocation().sub);
+    return { route: r, trail: trailOf(historyState(), r) };
+  });
+  const current = useRef({ route, trail });
+  current.current = { route, trail };
   useEffect(() => {
+    // Back, Forward, a crumb or a pasted link: the entry's own trail comes with it, or a fresh one.
     const follow = () => {
       const at = readLocation();
       if (at.tab !== "Playtests") return;
       const next = parseHubPath(at.sub);
-      if (hubPath(next) === hubPath(current.current)) return;
+      const nextTrail = trailOf(historyState(), next);
+      if (hubPath(next) === hubPath(current.current.route)) {
+        if (nextTrail.routes.length !== current.current.trail.routes.length) setAt({ route: current.current.route, trail: nextTrail });
+        return;
+      }
       if (guard.current?.dirty()) {
-        writeLocation({ tab: "Playtests", sub: hubPath(current.current) || null });
+        writeLocation({ tab: "Playtests", sub: hubPath(current.current.route) || null });
         onBlocked(next);
         return;
       }
-      current.current = next;
-      setRoute(next);
+      current.current = { route: next, trail: nextTrail };
+      setAt(current.current);
     };
     window.addEventListener("hashchange", follow);
     return () => window.removeEventListener("hashchange", follow);
   }, []);
   const go = (r: HubRoute) => {
-    current.current = r;
-    setRoute(r);
-    pushLocation({ tab: "Playtests", sub: hubPath(r) || null });
+    const t = trailPush(current.current.trail, r);
+    current.current = { route: r, trail: t };
+    setAt(current.current);
+    pushLocation({ tab: "Playtests", sub: hubPath(r) || null }, { hubTrail: t });
   };
-  return [route, go];
+  return [route, go, trail];
 }
 
 export function HubView({ data, narrow, onOpenChat, onChat }: {
@@ -99,11 +112,23 @@ export function HubView({ data, narrow, onOpenChat, onChat }: {
 }) {
   const guard = useRef<LeaveGuard | null>(null);
   const [leaving, setLeaving] = useState<HubRoute | null>(null);
-  const [route, moveTo] = useHubRoute(guard, setLeaving);
+  const [route, moveTo, trail] = useHubRoute(guard, setLeaving);
   // Every way to another screen asks first while the editor has unsaved changes.
+  // A new screen opens at its top, so a record reached from a link or a row is the first thing shown;
+  // one returned to by Back opens where it was left, kept in its history entry.
+  const main = useRef<HTMLDivElement>(null);
+  const keepScroll = () => {
+    if (main.current) window.history.replaceState({ ...(window.history.state ?? {}), hubScroll: main.current.scrollTop }, "");
+  };
+  const at = hubPath(route);
+  useEffect(() => {
+    const kept = (historyState() as { hubScroll?: unknown } | null)?.hubScroll;
+    if (main.current) main.current.scrollTop = typeof kept === "number" ? kept : 0;
+  }, [at]);
   const go = (r: HubRoute) => {
-    if (guard.current?.dirty() && hubPath(r) !== hubPath(route)) setLeaving(r);
-    else moveTo(r);
+    if (guard.current?.dirty() && hubPath(r) !== hubPath(route)) return setLeaving(r);
+    keepScroll();
+    moveTo(r);
   };
   const [overlay, setOverlay] = useState<Overlay | null>(null);
   const [toast, setToast] = useState<{ text: string; tone: "ok" | "bad"; n: number } | null>(null);
@@ -197,6 +222,12 @@ export function HubView({ data, narrow, onOpenChat, onChat }: {
     guardLeave: (g) => {
       guard.current = g;
     },
+    trail,
+    // The browser's own history: the entry there holds the screen and its trail, and the leave guard still asks.
+    goBack: (steps) => {
+      keepScroll();
+      window.history.go(-steps);
+    },
   };
 
   const screen = (() => {
@@ -216,7 +247,7 @@ export function HubView({ data, narrow, onOpenChat, onChat }: {
     <HubContext.Provider value={ctx}>
       <div className={`hub-root ${narrow ? "narrow" : "wide"}`}>
         {narrow ? <HubBar onPalette={() => setOverlay({ kind: "palette" })} /> : <HubRail onPalette={() => setOverlay({ kind: "palette" })} onShortcuts={() => setOverlay({ kind: "shortcuts" })} />}
-        <div className="hub-main">
+        <div className="hub-main" ref={main}>
           {data.error && <div className="banner warn small" role="alert">Could not refresh: {data.error}</div>}
           {screen}
         </div>

@@ -77,7 +77,14 @@ export function PlaytestsScreen({ onOpenSession, onChat }: { onOpenSession: (ses
 }
 
 /** The page over the index the app keeps, which also counts what needs the user on the tab (web: PlaytestsView). */
-export function PlaytestsView({ daemon, index: source, onOpenSession, onChat }: { daemon: Daemonish; index: ReturnType<typeof usePlaytestIndex>; onOpenSession: (sessionId: string, runId: string) => void; onChat?: () => void }) {
+export function PlaytestsView({ daemon, index: source, onOpenSession, onChat, focus }: {
+  daemon: Daemonish;
+  index: ReturnType<typeof usePlaytestIndex>;
+  onOpenSession: (sessionId: string, runId: string) => void;
+  onChat?: () => void;
+  /** A playtest a link asked for, by script: the page shows All and scrolls to its card. `n` tells requests apart. */
+  focus?: { script: string; n: number } | null;
+}) {
   const t = useTheme();
   const s = useStyles(styles);
   const insets = useSheetInsets();
@@ -98,8 +105,15 @@ export function PlaytestsView({ daemon, index: source, onOpenSession, onChat }: 
   useEffect(() => {
     SecureStore.getItemAsync(FILTER_KEY).then((v) => setPicked((cur) => cur ?? playtestFilterOf(v)), () => undefined);
   }, []);
-  const filter = picked ?? defaultPlaytestFilter(counts);
+  // A linked playtest shows under All, whatever the filter was; picking a filter again ends that.
+  const [focusOn, setFocusOn] = useState(!!focus);
+  useEffect(() => {
+    if (focus) setFocusOn(true);
+  }, [focus?.n, focus?.script]);
+  const focusScript = focusOn && focus ? focus.script.toLowerCase() : null;
+  const filter = focusScript ? "all" : picked ?? defaultPlaytestFilter(counts);
   const pick = (f: PlaytestFilter) => {
+    setFocusOn(false);
     setPicked(f);
     void SecureStore.setItemAsync(FILTER_KEY, f).catch(() => undefined);
   };
@@ -120,6 +134,18 @@ export function PlaytestsView({ daemon, index: source, onOpenSession, onChat }: 
     if (a && b) go(a.top - b.top);
     else node.measureLayout(content.current, (_x, y) => go(y), () => undefined);
   }, []);
+  // The linked card comes to the top once it is drawn; each request scrolls once.
+  const focusRow = useRef<Measurable | null>(null);
+  const scrolledFor = useRef<string | null>(null);
+  const focusKey = focusScript && focus ? `${focus.n}:${focusScript}` : null;
+  const focusShown = !!focusScript && rows.some((e) => e.script.toLowerCase() === focusScript);
+  useEffect(() => {
+    if (!focusKey || !focusShown || scrolledFor.current === focusKey) return;
+    scrolledFor.current = focusKey;
+    // After the frame that lays the card out.
+    const id = setTimeout(() => reveal(focusRow.current), 0);
+    return () => clearTimeout(id);
+  }, [focusKey, focusShown, reveal]);
   const pulled = useRef(false);
   useEffect(() => {
     if (pulled.current && index) setPulling(false);
@@ -191,9 +217,12 @@ export function PlaytestsView({ daemon, index: source, onOpenSession, onChat }: 
         <AssetLinksContext.Provider value={assetLinks}>
           <RevealContext.Provider value={reveal}>
           <View style={s.list}>
-            {rows.map((e) => (
-              <PlaytestRow key={e.script} entry={e} offline={index?.listed === false} onOpenSession={onOpenSession} onChanged={() => reload(true)} />
-            ))}
+            {rows.map((e) => {
+              const row = <PlaytestRow key={e.script} entry={e} offline={index?.listed === false} onOpenSession={onOpenSession} onChanged={() => reload(true)} />;
+              return e.script.toLowerCase() === focusScript
+                ? <View key={e.script} ref={focusRow as never} testID="playtest-linked">{row}</View>
+                : row;
+            })}
           </View>
           </RevealContext.Provider>
         </AssetLinksContext.Provider>
