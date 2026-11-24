@@ -26,7 +26,7 @@ The packages pin one exact published `ue-mcp` version, the same in `apps/agent` 
 
 UI bundles are Ed25519-signed (`signBundle` from `ue-mcp/daemon`). The daemon serves only bundles signed by a key the agent trusts.
 
-- `npm run keys:dev` makes a dev key pair: the private key goes to `~/.ue-mcp-studio/keys/dev-ui-signing.key.pem`, never into the repo; the public key to `keys/dev-ui-signing.pub.pem`.
+- `npm run keys:dev` makes a dev key pair: both halves go to `~/.ue-mcp-studio/keys/` (`dev-ui-signing.key.pem` and `dev-ui-signing.pub.pem`), per machine, never into the repo. Dev builds of the agent trust that public key when present; a release build never does.
 - The release key's public half is `keys/release-ui-signing.pub.pem`; a release agent trusts it alone. Its private half lives only on the machine that publishes, at `~/.ue-mcp-studio/keys/release-ui-signing.key.pem`, never in the repo; `npm run release` refuses to run without it.
 
 ## Development
