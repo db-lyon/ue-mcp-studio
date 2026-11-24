@@ -233,9 +233,9 @@ describe("timeline", () => {
 
 describe("the goal form", () => {
   it("needs a title and checks every number and date", () => {
-    const f = { ...goalFormOf(), title: " ", stableRuns: "0", due: "2026-02-30" };
+    const f = { ...goalFormOf(), title: " ", due: "2026-02-30" };
     const e = goalFormErrors(f);
-    expect(Object.keys(e).sort()).toEqual(["due", "stableRuns", "title"]);
+    expect(Object.keys(e).sort()).toEqual(["due", "title"]);
   });
 
   it("takes any goals as parents, but not itself, an unknown one, or one it requires", () => {
@@ -250,8 +250,9 @@ describe("the goal form", () => {
   });
 
   it("makes a draft from what was typed", () => {
-    const d = goalDraftOf({ ...goalFormOf(), title: "  Four players join ", owner: " Ama ", due: "2026-12-05", stableRuns: "3", signOff: true, priority: "p1" });
-    expect(d).toMatchObject({ title: "Four players join", owner: "Ama", due: "2026-12-05", priority: "p1", acceptance: { stableRuns: 3, signOff: true } });
+    const d = goalDraftOf({ ...goalFormOf(), title: "  Four players join ", owner: " Ama ", due: "2026-12-05", signOff: true, priority: "p1" });
+    expect(d).toMatchObject({ title: "Four players join", owner: "Ama", due: "2026-12-05", priority: "p1", acceptance: { stableRuns: 1, signOff: true } });
+    expect(goalUpdateOf({ ...goalFormOf(), title: "x", signOff: true }).acceptance).toEqual({ signOff: true });
     // Cleared on an edit, they are cleared on the goal.
     expect(goalUpdateOf({ ...goalFormOf({ owner: "Ama", priority: "p1", due: "2026-12-05" }), title: "x", owner: "", priority: "", due: "" })).toMatchObject({ owner: null, priority: null, due: null });
   });

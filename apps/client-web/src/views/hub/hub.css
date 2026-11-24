@@ -311,6 +311,10 @@ a.hub-group-head:hover .hub-group-title { color: var(--accent-hi); }
 .hub-fieldset { display: flex; flex-direction: column; gap: 8px; margin: 0; padding: 8px 12px 12px; border: 1px solid var(--line); border-radius: var(--radius); }
 .hub-fieldset legend { padding: 0 4px; font: var(--label-font); text-transform: var(--label-case); letter-spacing: var(--label-spacing); color: var(--label-color); }
 .hub-root label.hub-check-label { margin: 0; color: var(--text); }
+.hub-root label.hub-radio-row { display: flex; align-items: flex-start; gap: 8px; margin: 0; color: var(--text); cursor: pointer; }
+.hub-radio-row input { margin-top: 3px; }
+.hub-radio-row .hub-radio-title, .hub-radio-row .hub-radio-note { display: block; }
+.hub-radio-row .hub-radio-note { color: var(--dim); font-size: 0.9em; }
 .overlay-card.hub-delete { width: min(520px, 100%); max-height: min(80vh, 100%); }
 .hub-delete-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px; max-height: 40vh; overflow-y: auto; min-height: 0; word-break: break-all; }
 .hub-form-actions { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
