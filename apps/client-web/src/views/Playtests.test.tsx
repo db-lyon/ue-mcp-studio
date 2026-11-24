@@ -138,7 +138,7 @@ describe("the Playtests page", () => {
   it("opens the full card in place from a step's bar", () => {
     page();
     fireEvent.click(screen.getByRole("button", { name: "All 4" }));
-    fireEvent.click(within(row("Jump")).getByRole("button", { name: "Step 1, observer, Failed" }));
+    fireEvent.click(within(row("Jump")).getByRole("button", { name: "Step 1, checks a value, Failed" }));
     expect(within(row("Jump")).getByText("Jump 1")).toBeTruthy();
   });
 
@@ -178,7 +178,7 @@ describe("the Playtests page", () => {
     const legend = screen.getByRole("group", { name: "What the step marks mean" });
     expect(legend.textContent).toContain("Passed");
     expect(legend.textContent).not.toContain("Not run");
-    expect(legend.textContent).toContain("Judged by a person");
+    expect(legend.textContent).toContain("Watched by a person");
   });
 
   it("with no playtests at all, says how to make one and goes to Chat", () => {

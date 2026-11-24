@@ -92,7 +92,7 @@ export function StepPath({ steps, onStep, ended = false }: { steps: QaStep[]; on
           <T style={s.captionNum}>{on.index + 1}</T>
           <T style={s.captionText}>{stepPlain(on.instruction)}</T>
           <T style={s.captionState}>
-            {on.judge === "auto" ? "Checked by the observer" : "Judged by a person"}: {statusLabel(on, ended)}
+            {on.judge === "auto" ? "Checks a value" : "Watched by a person"}: {statusLabel(on, ended)}
           </T>
         </View>
       ) : null}
@@ -119,7 +119,7 @@ export function PathLegend({ runs }: { runs: QaRun[] }) {
           <View style={[s.legendMark, { backgroundColor: t.c.lineStrong }]}>
             <View style={s.legendPip} />
           </View>
-          <T style={s.legendText}>Judged by a person</T>
+          <T style={s.legendText}>Watched by a person</T>
         </View>
       ) : null}
     </View>

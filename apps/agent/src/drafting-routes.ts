@@ -50,6 +50,32 @@ function assetRows(r: ActionResult | null): Array<{ path: string; name: string }
   return rows.flatMap((a) => (typeof a?.path === "string" ? [{ path: a.path, name: typeof a.name === "string" ? a.name : a.path.split("/").pop()! }] : []));
 }
 
+/** An asset's package path: the object path's ".Name" tail dropped. */
+const packageOf = (p: string): string => p.split(".")[0] ?? p;
+
+/** The package paths of one kind in a list_input_assets answer, from any content root, plugins included. */
+function inputAssets(r: ActionResult | null, kind: "inputActions" | "inputMappingContexts"): string[] {
+  const b = r ? answerOf(r) : null;
+  const rows = b && Array.isArray(b[kind]) ? (b[kind] as unknown[]) : [];
+  return rows.flatMap((a) => {
+    const p = typeof a === "string" ? a : a && typeof a === "object" ? ((a as Record<string, unknown>).path ?? (a as Record<string, unknown>).objectPath) : null;
+    return typeof p === "string" && p ? [packageOf(p)] : [];
+  });
+}
+
+/** The Input Actions a read_imc answer maps, in its order. */
+function mappedActions(r: ActionResult | null): string[] {
+  const b = r ? answerOf(r) : null;
+  const rows = b && Array.isArray(b.mappings) ? (b.mappings as unknown[]) : [];
+  const seen = new Set<string>();
+  for (const m of rows) {
+    const a = m && typeof m === "object" ? (m as Record<string, unknown>).inputAction : null;
+    const p = typeof a === "string" ? a : a && typeof a === "object" ? ((a as Record<string, unknown>).path ?? (a as Record<string, unknown>).objectPath) : null;
+    if (typeof p === "string" && p.startsWith("/")) seen.add(packageOf(p));
+  }
+  return [...seen];
+}
+
 export class Drafting {
   constructor(private readonly o: { host: DraftingHost; players?: DraftingPlayers; created?: () => void }) {}
 
@@ -67,17 +93,26 @@ export class Drafting {
       call("asset", "list", { directory: "/Game", classPaths: ["/Script/Engine.World"], limit: LIST_LIMIT }),
       call("level", "get_current", {}),
     ]);
+    // list_input_assets reads every content root, so plugin content is in it; the /Game listing covers an older bridge.
+    const all = await call("gameplay", "list_input_assets", { limit: 2000 });
+    const actions = [...new Set([...inputAssets(all, "inputActions"), ...assetRows(inputs).map((a) => packageOf(a.path))])];
+    const contexts = await Promise.all(inputAssets(all, "inputMappingContexts").map(async (path) => ({
+      path,
+      name: path.split("/").pop() ?? path,
+      actions: mappedActions(await call("gameplay", "read_imc", { imcPath: path })),
+    })));
     const gaps: string[] = [];
     const v = values ? answerOf(values) : null;
     if (!v) gaps.push(`values: ${values ? failureOf(values) ?? "no answer" : "no answer"}`);
-    if (!inputs || !answerOf(inputs)) gaps.push("inputActions");
+    if ((!inputs || !answerOf(inputs)) && actions.length === 0) gaps.push("inputActions");
     if (!levels || !answerOf(levels)) gaps.push("levels");
     const c = current ? answerOf(current) : null;
     const currentLevel = c && typeof c.mapPackagePath === "string" ? c.mapPackagePath : null;
     return {
       body: {
         values: v,
-        inputActions: assetRows(inputs).map((a) => a.path),
+        inputActions: actions,
+        inputContexts: contexts.filter((c) => c.actions.length > 0),
         levels: assetRows(levels),
         currentLevel,
         gaps,

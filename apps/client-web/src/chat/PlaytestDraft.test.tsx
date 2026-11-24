@@ -85,10 +85,10 @@ describe("a draft Playtest card", () => {
     expect(screen.queryByRole("status")).toBeNull();
     expect(screen.getByText(PATH)).toBeTruthy();
     expect(within(step(0)).getByText("host")).toBeTruthy();
-    expect(within(step(0)).getByText("Observer")).toBeTruthy();
+    expect(within(step(0)).getByText("Checks a value")).toBeTruthy();
     expect(step(0).textContent).toContain("PlayerState.SigilAttributes.Sigil.CurrentValue eq 100, within 5000 ms");
     expect(within(step(1)).getByText("client 1")).toBeTruthy();
-    expect(within(step(1)).getByText("Person")).toBeTruthy();
+    expect(within(step(1)).getByText("Watched by a person or an agent")).toBeTruthy();
     // Unrun: the auto step waits for Start playtest, the manual step takes its verdict now.
     expect(within(step(0)).queryByText("To come")).toBeNull();
     expect(within(step(0)).getByText("Checked when the playtest runs")).toBeTruthy();

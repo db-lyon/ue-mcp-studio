@@ -95,6 +95,20 @@ describe("the catalog", () => {
     expect(CAT.pawnClass).toBe("/Game/Chars/BP_Hero.BP_Hero_C");
   });
 
+  it("groups Input Actions by the mapping context that maps them, plugin content included, the rest last", () => {
+    const cat = draftCatalogOf({
+      inputActions: ["/Game/Input/IA_Jump", "/Game/Input/IA_Orphan", "/Hero/Input/IA_Dash"],
+      inputContexts: [
+        { path: "/Game/Input/IMC_Default", name: "IMC_Default", actions: ["/Game/Input/IA_Jump", "/Hero/Input/IA_Dash"] },
+        { path: "/Hero/Input/IMC_Hero", name: "IMC_Hero", actions: ["/Hero/Input/IA_Dash"] },
+      ],
+    });
+    expect(cat.inputActions.map((s) => [s.section, s.path])).toEqual([
+      ["IMC_Default", "/Game/Input/IA_Jump"], ["IMC_Default", "/Hero/Input/IA_Dash"], ["IMC_Hero", "/Hero/Input/IA_Dash"], ["Not in any mapping context", "/Game/Input/IA_Orphan"],
+    ]);
+    expect(searchSubjects(cat.inputActions, "dash").map((s) => s.section)).toEqual(["IMC_Default", "IMC_Hero"]);
+  });
+
   it("is empty, not broken, for an answer it cannot read", () => {
     expect(draftCatalogOf(null)).toEqual(EMPTY_CATALOG);
     expect(draftCatalogOf({ values: { values: [{ kind: "number" }] } }).subjects).toEqual([]);
@@ -203,7 +217,7 @@ describe("a step reads as a sentence", () => {
 
   it("reads a person's step as what they judge", () => {
     const s: DraftStep = { ...draftStep("manual"), instruction: "The door opens without a pop", agentJudgeable: false };
-    expect(text(s)).toBe("A person judges: The door opens without a pop (a person only)");
+    expect(text(s)).toBe("A person watches: The door opens without a pop");
   });
 
   it("marks what is not chosen yet", () => {

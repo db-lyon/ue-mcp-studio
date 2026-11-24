@@ -492,7 +492,6 @@ export function QaCard({ run: saved, form: own, onDismiss, actions: outside, met
                       <View style={s.tags}>
                         {step.player ? <T style={s.player}>{step.player}</T> : null}
                         <T style={[s.judge, step.judge === "manual" && { color: t.c.text }]}>{judgeLabel(step)}</T>
-                        {step.judge === "manual" && !qaAgentMayJudge(step) ? <T style={s.judge}>Person only</T> : null}
                         {byAgent ? <T style={s.badge} accessibilityLabel={`Judged by the agent. ${why.replace(/\n/g, ". ")}`}>Agent</T> : null}
                         {unchecked ? (
                           // .qa-status comes after .dim in styles.css, so its muted wins.

@@ -84,6 +84,10 @@ export function demoCatalog(): Record<string, unknown> {
       widgets: WIDGETS,
     },
     inputActions: DEMO_INPUTS,
+    inputContexts: [
+      { path: `${INPUT}/IMC_Default`, name: "IMC_Default", actions: ["IA_Jump", "IA_Dodge", "IA_Attack", "IA_Sprint", "IA_Interact", "IA_Move", "IA_Look", "IA_Crouch"].map((n) => `${INPUT}/${n}`) },
+      { path: `${INPUT}/IMC_Menu`, name: "IMC_Menu", actions: ["IA_Pause", "IA_Ready"].map((n) => `${INPUT}/${n}`) },
+    ],
     levels: DEMO_LEVELS,
     currentLevel: DEMO_CURRENT_LEVEL,
     gaps: [],
@@ -186,7 +190,7 @@ export function demoValidate(steps: unknown, map: string, manualOnly: boolean): 
     if (!NUMERIC.has(op)) return;
     const known = DEMO_VALUES.find((v) => v.path === value || v.path.split(".").pop() === value);
     if (!known && !numeric.includes(value)) {
-      if (!pie) out.push({ step: i, field: "expect.value", message: `${at}.expect.value: '${value}' cannot be read: ${PAWN} has no property or component named ${value} (the observer reads it from the player pawn, ${PAWN}, the DefaultPawnClass of BP_EmberGameMode). If it only exists once PIE is running, set resolve_in_pie: true on the step.`, candidates: closest(value, numeric) });
+      if (!pie) out.push({ step: i, field: "expect.value", message: `${at}.expect.value: '${value}' cannot be read: ${PAWN} has no property or component named ${value} (ue-mcp reads it from the player pawn, ${PAWN}, the DefaultPawnClass of BP_EmberGameMode). If it only exists once PIE is running, set resolve_in_pie: true on the step.`, candidates: closest(value, numeric) });
       return;
     }
     if (known?.kind === "boolean" && !(op === "eq" && typeof e.target === "boolean")) {

@@ -29,6 +29,8 @@ export interface Subject {
   label: string;
   kind: SubjectKind;
   group: SubjectGroup;
+  /** A heading inside the group: the Input Mapping Context that maps an Input Action. */
+  section?: string;
   /** The type in Unreal's words (float, int32, bool, EMovementMode), or the group's word. */
   type: string;
   enumValues?: EnumValue[];
@@ -114,11 +116,25 @@ export function draftCatalogOf(raw: unknown): DraftCatalog {
   for (const c of strs(v.spawned_classes)) add({ path: c, label: c, kind: "actor", group: "actor", type: "spawned" });
   for (const w of strs(v.widgets)) add({ path: w, label: w, kind: "widget", group: "widget", type: "widget" });
   const inputActions: Subject[] = [];
-  for (const p of strs(r.inputActions)) {
-    const s: Subject = { path: qaScriptKey(p), label: inputLabel(p), kind: "input", group: "input", type: "input" };
+  const everyInput = strs(r.inputActions).map(qaScriptKey);
+  const mapped = new Set<string>();
+  const input = (path: string, section?: string) => {
+    const s: Subject = { path, label: inputLabel(path), kind: "input", group: "input", type: "input", ...(section ? { section } : {}) };
     inputActions.push(s);
     add(s);
+  };
+  // An action in several contexts is listed under each; one in none is listed last.
+  for (const c of Array.isArray(r.inputContexts) ? r.inputContexts : []) {
+    const o = rec(c);
+    if (!o || typeof o.path !== "string") continue;
+    const name = typeof o.name === "string" && o.name ? o.name : levelName(o.path);
+    for (const p of strs(o.actions).map(qaScriptKey)) {
+      if (!everyInput.includes(p)) everyInput.push(p);
+      mapped.add(p);
+      input(p, name);
+    }
   }
+  for (const p of everyInput) if (!mapped.has(p)) input(p, mapped.size ? DRAFT_COPY.unmappedInputs : undefined);
   const levels = (Array.isArray(r.levels) ? r.levels : []).flatMap((l) => {
     const o = rec(l);
     return o && typeof o.path === "string" ? [{ path: qaScriptKey(o.path), name: typeof o.name === "string" ? o.name : levelName(o.path) }] : [];
@@ -149,7 +165,10 @@ export function findSubject(catalog: DraftCatalog, path: string, op?: string): S
 export function searchSubjects(subjects: readonly Subject[], query: string, max = 200): Subject[] {
   const q = query.trim().toLowerCase();
   const order = (s: Subject) => SUBJECT_GROUPS.findIndex((g) => g.id === s.group);
-  if (!q) return [...subjects].sort((a, b) => order(a) - order(b)).slice(0, max);
+  // Sections keep the order they were listed in, so a heading appears once.
+  const sections = [...new Set(subjects.map((s) => s.section ?? ""))];
+  const section = (s: Subject) => sections.indexOf(s.section ?? "");
+  if (!q) return [...subjects].sort((a, b) => order(a) - order(b) || section(a) - section(b)).slice(0, max);
   const scored = subjects.flatMap((s) => {
     const hay = `${s.label} ${s.path}`.toLowerCase();
     const at = hay.indexOf(q);
@@ -159,7 +178,7 @@ export function searchSubjects(subjects: readonly Subject[], query: string, max 
     for (const ch of hay) if (ch === q[i]) i++;
     return i === q.length ? [{ s, score: 2 }] : [];
   });
-  return scored.sort((a, b) => order(a.s) - order(b.s) || a.score - b.score).slice(0, max).map((x) => x.s);
+  return scored.sort((a, b) => order(a.s) - order(b.s) || section(a.s) - section(b.s) || a.score - b.score).slice(0, max).map((x) => x.s);
 }
 
 // ---------- Operators ----------
@@ -439,7 +458,7 @@ export function draftOfStored(v: unknown): Draft | null {
 export const removeDraftStep =(d: Draft, id: string): Draft => ({ ...d, steps: d.steps.filter((s) => s.id !== id) });
 export const updateDraftStep = (d: Draft, id: string, f: (s: DraftStep) => DraftStep): Draft => ({ ...d, steps: d.steps.map((s) => (s.id === id ? f(s) : s)) });
 
-/** A step switched between the observer and a person, keeping what it had for the other. */
+/** A step switched between checking a value and checking the viewport, keeping what it had for the other. */
 export function withJudge(step: DraftStep, judge: "auto" | "manual"): DraftStep {
   return { ...step, judge };
 }
@@ -507,8 +526,7 @@ export function stepSentence(step: DraftStep, catalog: DraftCatalog, defaultWith
   });
   if (out.length) out.push({ text: ", then " });
   if (step.judge === "manual") {
-    out.push({ text: "a person judges: " }, step.instruction.trim() ? T(step.instruction.trim(), "instruction") : T("what to check", "instruction", true));
-    if (!step.agentJudgeable) out.push({ text: " (a person only)" });
+    out.push({ text: step.agentJudgeable ? "a person or an agent watches: " : "a person watches: " }, step.instruction.trim() ? T(step.instruction.trim(), "instruction") : T("what to check", "instruction", true));
   } else {
     const subject = findSubject(catalog, step.value, step.op);
     const kind = subject?.kind ?? null;
@@ -535,7 +553,7 @@ export function stepSentence(step: DraftStep, catalog: DraftCatalog, defaultWith
 export const sentenceText = (parts: readonly SentencePart[]): string => parts.map((p) => ("text" in p ? p.text : p.token)).join("");
 
 /**
- * A saved draft with each observer step's instruction cleared where it is
+ * A saved draft with each value-check step's instruction cleared where it is
  * only the step's sentence, as this editor saves an empty one: the sentence
  * then follows the step as it changes instead of keeping its old words.
  */
@@ -811,16 +829,16 @@ export const DRAFT_COPY = {
   valuesFrom: (level: string) => `Values are listed from ${level}, the level open in the editor.`,
   steps: "Steps",
   addCheck: "Check a value",
-  addAsk: "Ask a person",
+  addAsk: "Check the viewport",
   addAction: "Add an action",
-  judgedBy: "Judged by",
-  observer: "Observer",
-  person: "Person",
+  judgeKind: "How this step is checked",
+  whoJudges: "Who can judge",
+  personOnly: "A person only",
+  personOrAgent: "A person or an agent",
   doLabel: "First",
   checkLabel: "Then check",
-  askLabel: "Then ask",
+  askLabel: "What to look for",
   askPlaceholder: "The door swings open without a visible pop",
-  agentMay: "An agent may judge it from a capture",
   playerNote: "Tell the player",
   playerNotePlaceholder: "Optional. Empty shows the step's sentence.",
   within: "within",
@@ -831,6 +849,7 @@ export const DRAFT_COPY = {
   useTyped: (v: string) => `Use "${v}"`,
   useTypedNote: "Not listed for the open level",
   noValues: "No match in the open level.",
+  unmappedInputs: "Not in any mapping context",
   inPie: "It exists only in PIE",
   inPieOn: "Exists only in PIE: not checked until it runs.",
   moveUp: "Move up",
@@ -865,7 +884,7 @@ export const DRAFT_COPY = {
   needsSeconds: "Enter seconds, such as 1.5",
   needsActor: "Choose an actor",
   needsCommand: "Enter a console command",
-  needsInstruction: "Say what a person checks",
+  needsInstruction: "Say what to look for",
   needsValue: "Choose a value to check",
   needsOp: "Choose how it is checked",
   needsNumber: "Enter a number",
@@ -876,7 +895,7 @@ export const DRAFT_COPY = {
   otherKept: "Kept as written",
   addsToGoal: (title: string) => `Adds to ${title}`,
   noEditor: "The editor is not connected. Values, levels and checks need it; you can still write the steps.",
-  emptyHint: "A playtest is steps played in order. An observer step checks a value in PIE; a person step asks for a verdict.",
+  emptyHint: "A playtest is steps played in order. A step either checks a value in PIE or has someone watch the viewport and decide.",
   verbs: { press: "Press", hold: "Hold", wait: "Wait", place: "Place player at", console: "Run command" } as Record<ActVerb, string>,
   holdFor: "for",
   holdValue: "value",

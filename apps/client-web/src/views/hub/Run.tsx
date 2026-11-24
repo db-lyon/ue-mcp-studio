@@ -1,7 +1,7 @@
 /**
  * One run as evidence: its steps as bars on the run's own clock, each step's
- * expectation, what the observer saw and what the arrange and act did, the
- * values the observer tracked drawn as lines, the warnings and errors PIE
+ * expectation, what ue-mcp read and what the arrange and act did, the
+ * values ue-mcp tracked drawn as lines, the warnings and errors PIE
  * logged, and what changed since the check last passed. A step that waits
  * for a person is judged here too.
  */
@@ -184,7 +184,7 @@ export function RunScreen({ runId }: { runId: string }) {
                   <span className="hub-step-text">{s.instruction}</span>
                   {changed.has(s.index) && <span className="pill warn" title="Its result differs from the last pass">Changed</span>}
                   <span className="spacer" />
-                  <span className="small dim">{judgeLabel(s)}{q?.verdictSource === "agent" ? ", by an agent" : ""}</span>
+                  <span className="small dim">{q?.verdictSource === "agent" ? "Watched by an agent" : judgeLabel(s)}</span>
                   {s.startMs !== null && <span className="mono small dim">{runLength(s.startMs)}</span>}
                 </div>
                 {ev && <pre className="hub-evidence small">{ev}</pre>}

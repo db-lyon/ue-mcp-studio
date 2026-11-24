@@ -137,7 +137,7 @@ function transcript(runs: QaRun[]): TranscriptEntry[] {
     entries.push({ kind: "assistant", text: "Which level should it run in? L_Playtest is open now.", at: ago(11) });
     return entries;
   }
-  entries.push({ kind: "assistant", text: "I saved it as a script. The observer checks the jump, the door angle and the sprint speed; you judge the jump arc and how the door opens.", at: ago(11) });
+  entries.push({ kind: "assistant", text: "I saved it as a script. ue-mcp checks the jump, the door angle and the sprint speed; you watch the jump arc and how the door opens.", at: ago(11) });
   for (const r of runs) entries.push({ kind: "qa", run: r });
   const text = runs.some(qaNeedsYou) ? "It needs you now: the card below has what it is waiting on."
     : runs.every((r) => r.state === "armed") ? "It is starting. I will read the results when it ends."
@@ -1172,7 +1172,7 @@ export const SCENARIOS: Record<string, Scenario> = {
   "strip-several": inSession("Several live in one conversation", "Door playtest", [RUNS.failed, RUNS.running, RUNS.waiting, RUNS.loopRunning, RUNS.loopNeedsYou]),
   "new-messages": (() => {
     const s = inSession("New messages arrive while the reader is scrolled up: the pill takes its own row, over no line", "Door playtest", [RUNS.armed]);
-    const talk: TranscriptEntry[] = Array.from({ length: 6 }, (_, i) => ({ kind: i % 2 ? "assistant" as const : "user" as const, text: i % 2 ? "The observer reads the door angle every frame; the run ends when every step has a result." : "How does it decide the door opened?", at: ago(20 - i) }));
+    const talk: TranscriptEntry[] = Array.from({ length: 6 }, (_, i) => ({ kind: i % 2 ? "assistant" as const : "user" as const, text: i % 2 ? "ue-mcp reads the door angle every frame; the run ends when every step has a result." : "How does it decide the door opened?", at: ago(20 - i) }));
     return { ...s, session: { ...s.session!, transcript: [...talk, ...s.session!.transcript] }, arrives: { kind: "assistant", text: "PIE is up; the first step is running.", at: ago(0) } };
   })(),
   "page-needs-you": { title: "Playtests page, Needs you", hash: "#/playtests", index: { playtests: PROJECT, listed: true }, filter: "needs-you" },

@@ -148,12 +148,12 @@ describe("a new playtest", () => {
     window.location.hash = "#/playtests/checks/new";
     render(<Harness start={hubFixture()} />);
     await screen.findByRole("textbox", { name: "Name" });
-    fireEvent.click(screen.getByRole("button", { name: /Ask a person/ }));
-    fireEvent.change(screen.getByRole("textbox", { name: "Then ask" }), { target: { value: "Looks right" } });
+    fireEvent.click(screen.getByRole("button", { name: /Check the viewport/ }));
+    fireEvent.change(screen.getByRole("textbox", { name: "What to look for" }), { target: { value: "Looks right" } });
     const sentences = () => [...document.querySelectorAll(".hub-draft-sentence")].map((s) => s.textContent);
-    expect(sentences()[1]).toBe("A person judges: Looks right");
+    expect(sentences()[1]).toBe("A person or an agent watches: Looks right");
     fireEvent.keyDown(screen.getAllByRole("button", { expanded: true })[0], { key: "ArrowUp", altKey: true });
-    expect(sentences()[0]).toBe("A person judges: Looks right");
+    expect(sentences()[0]).toBe("A person or an agent watches: Looks right");
     expect(screen.getByText("Moved to step 1")).toBeTruthy();
   });
 
