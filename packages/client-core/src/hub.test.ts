@@ -17,8 +17,14 @@ import {
   hubKeymap,
   hubPath,
   milestoneGroups,
-  goalsByMilestone,
-  filterGoalGroups,
+  NO_MILESTONE,
+  filterGoals,
+  filterMilestones,
+  hubSection,
+  milestoneCounts,
+  milestoneList,
+  milestoneProgress,
+  milestoneProgressText,
   rememberRecent,
   parseRecent,
   type HubRecent,
@@ -76,7 +82,7 @@ const check = (name: string, health: CheckState["health"], over: Partial<CheckSt
 describe("hub routes", () => {
   it("round-trips every screen through the hash, encoding ids", () => {
     const routes: HubRoute[] = [
-      { screen: "overview" }, { screen: "goals" }, { screen: "library" },
+      { screen: "overview" }, { screen: "milestones" }, { screen: "goals" }, { screen: "library" },
       { screen: "goal", goalId: "tutorial" },
       { screen: "check", checkId: "script:/Game/Tests/Jump Test" },
       { screen: "run", runId: "run/42:a" },
@@ -148,7 +154,7 @@ describe("overview models", () => {
     expect(groups[2].goals.map((g) => g.goal.id)).toEqual(["g3"]);
   });
 
-  it("lists every goal under its milestones, nested ones too, and the rest under none", () => {
+  it("lists every goal once, filtered by milestone, and milestones apart", () => {
     const all = graph(
       gs("m1", "failing", { kind: "milestone", requires: [{ goal: "g1" }, { goal: "shared" }] }),
       gs("m2", "met", { kind: "milestone", requires: [{ goal: "shared" }] }),
@@ -158,14 +164,35 @@ describe("overview models", () => {
       gs("alone", "met"),
       gs("old", "met", { archived: true }),
     );
-    const groups = goalsByMilestone(all);
-    expect(groups.map((g) => g.milestone?.goal.id ?? null)).toEqual(["m1", "m2", null]);
-    expect(groups[0].goals.map((g) => g.goal.id)).toEqual(["g1", "shared", "deep"]);
-    expect(groups[1].goals.map((g) => g.goal.id)).toEqual(["shared"]);
-    expect(groups[2].goals.map((g) => g.goal.id)).toEqual(["alone"]);
-    const f = filterGoalGroups(groups, { status: "failing", text: "SHA" });
-    expect(f.map((g) => g.milestone?.goal.id)).toEqual(["m1", "m2"]);
-    expect(filterGoalGroups(groups, { status: null, text: "alo" }).map((g) => g.milestone)).toEqual([null]);
+    const ids = (l: GoalState[]) => l.map((g) => g.goal.id).sort();
+    const none = { status: null, text: "" };
+    expect(ids(filterGoals(all, { ...none, milestone: null }))).toEqual(["alone", "deep", "g1", "shared"]);
+    expect(ids(filterGoals(all, { ...none, milestone: "m1" }))).toEqual(["deep", "g1", "shared"]);
+    expect(ids(filterGoals(all, { ...none, milestone: "m2" }))).toEqual(["shared"]);
+    expect(ids(filterGoals(all, { ...none, milestone: NO_MILESTONE }))).toEqual(["alone"]);
+    expect(ids(filterGoals(all, { status: "failing", text: "SHA", milestone: "m1" }))).toEqual(["shared"]);
+    expect(milestoneList(all).map((g) => g.goal.id)).toEqual(["m1", "m2"]);
+    expect(ids(filterMilestones(all, { status: "met", text: "" }))).toEqual(["m2"]);
+    expect(milestoneCounts(all).failing).toBe(1);
+  });
+
+  it("counts the required goals a milestone has met", () => {
+    const m: GoalState = { ...gs("m", "failing", { kind: "milestone" }), requires: [
+      { goal: "a", required: true, status: "met" },
+      { goal: "b", required: true, status: "failing" },
+      { goal: "c", required: false, status: "failing" },
+    ] };
+    expect(milestoneProgress(m)).toEqual({ met: 1, total: 2 });
+    expect(milestoneProgressText(m)).toBe("1 of 2 goals met");
+    expect(milestoneProgressText(gs("e", "met", { kind: "milestone" }))).toBe("No goals yet");
+  });
+
+  it("opens Milestones by address and with g then m", () => {
+    expect(parseHubPath("milestones")).toEqual({ screen: "milestones" });
+    expect(hubSection({ screen: "milestones" })).toBe("milestones");
+    const k = hubKeymap();
+    k.press({ key: "g" });
+    expect(k.press({ key: "m" })).toEqual({ type: "go", to: "milestones" });
   });
 
   it("keeps the five goals and playtests opened last, and survives bad storage", () => {
