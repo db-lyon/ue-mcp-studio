@@ -146,10 +146,12 @@ export const hubApiOver = (transport: Transport): HubApi =>
 
 // ---------- Routes inside #/playtests ----------
 
-export type HubScreen = "overview" | "goals" | "goal" | "library" | "check" | "run" | "draft";
+export type HubScreen = "overview" | "milestones" | "goals" | "goal" | "library" | "check" | "run" | "draft";
 export type HubRoute =
   | { screen: "overview" }
-  /** Every goal under its milestones. */
+  /** Every milestone. */
+  | { screen: "milestones" }
+  /** Every goal. */
   | { screen: "goals" }
   | { screen: "goal"; goalId: string }
   | { screen: "library" }
@@ -183,6 +185,7 @@ export function parseHubPath(sub: string | null | undefined): HubRoute {
       if (id === "new") return { screen: "draft" };
       if (value && then === "edit") return { screen: "draft", checkId: value };
       return value ? { screen: "check", checkId: value } : { screen: "library" };
+    case "milestones": return { screen: "milestones" };
     case "goals":
       if (value && then === "new") return { screen: "draft", goalId: value };
       return value ? { screen: "goal", goalId: value } : { screen: "goals" };
@@ -196,6 +199,7 @@ export function hubPath(r: HubRoute): string {
   switch (r.screen) {
     case "overview": return "";
     case "library": return "checks";
+    case "milestones": return "milestones";
     case "goals": return "goals";
     case "goal": return `goals/${enc(r.goalId)}`;
     case "check": return `checks/${enc(r.checkId)}`;
@@ -211,7 +215,8 @@ export const hubHash = (r: HubRoute): string => {
 };
 
 /** Which rail entry a screen sits under. */
-export function hubSection(r: HubRoute): "overview" | "goals" | "library" {
+export function hubSection(r: HubRoute): "overview" | "milestones" | "goals" | "library" {
+  if (r.screen === "milestones") return "milestones";
   if (r.screen === "goals") return "goals";
   if (r.screen === "library" || r.screen === "check") return "library";
   if (r.screen === "draft") return r.goalId ? "overview" : "library";
@@ -382,6 +387,7 @@ export const HUB_COPY = {
   overview: "Overview",
   attention: "Needs attention",
   goals: "Goals",
+  milestones: "Milestones",
   playtests: "Playtests",
   /** What a check is called wherever a person reads it. */
   playtest: "Playtest",
@@ -389,6 +395,13 @@ export const HUB_COPY = {
   library: "Playtests",
   recent: "Recent",
   searchGoals: "Search goals",
+  searchMilestones: "Search milestones",
+  noMilestonesMatch: "No milestones match.",
+  noMilestonesYet: "A milestone is a set of goals that must all be met, such as a release.",
+  newMilestone: "New milestone",
+  milestone: "Milestone",
+  allMilestones: "All milestones",
+  milestoneFilter: "Milestone",
   noGoalsMatch: "No goals match.",
   nowRunning: "Now running",
   finished: "Finished",
@@ -570,46 +583,74 @@ export function milestoneGroups(all: readonly GoalState[]): MilestoneGroup[] {
   return groups;
 }
 
-/**
- * Every goal under its milestones, for the Goals screen: milestones as in
- * `milestoneGroups`, each with the goals it requires, directly or through
- * other goals (its own order first, then the deeper ones by title). A goal
- * under several milestones is in each group. Goals under no milestone come
- * last, with a null milestone. Archived goals are left out.
- */
-export function goalsByMilestone(all: readonly GoalState[]): MilestoneGroup[] {
-  const live = all.filter((g) => !g.goal.archived);
-  const byId = new Map(live.map((g) => [g.goal.id, g]));
-  const inside = new Set<string>();
-  const groups: MilestoneGroup[] = sortGoals(live.filter((g) => g.goal.kind === "milestone")).map((m) => {
-    const seen = new Set<string>([m.goal.id]);
-    const found: GoalState[] = [];
-    const walk = (g: GoalState) => {
-      for (const r of requiredGoals(g, byId)) {
-        if (seen.has(r.goal.id)) continue;
-        seen.add(r.goal.id);
-        if (r.goal.kind !== "milestone") found.push(r);
-        walk(r);
-      }
-    };
-    walk(m);
-    const direct = new Set(requiredGoals(m, byId).map((g) => g.goal.id));
-    const goals = [...found.filter((g) => direct.has(g.goal.id)), ...sortGoals(found.filter((g) => !direct.has(g.goal.id)))];
-    for (const g of goals) inside.add(g.goal.id);
-    return { milestone: m, goals };
-  });
-  const loose = live.filter((g) => g.goal.kind !== "milestone" && !inside.has(g.goal.id));
-  if (loose.length) groups.push({ milestone: null, goals: sortGoals(loose) });
-  return groups;
+/** The Goals screen's milestone filter value for goals that no milestone requires. */
+export const NO_MILESTONE = "none";
+
+/** Every milestone (not archived), worst first. */
+export function milestoneList(all: readonly GoalState[]): GoalState[] {
+  return sortGoals(all.filter((g) => !g.goal.archived && g.goal.kind === "milestone"));
 }
 
-/** The Goals screen's filter: a status (null for all) and a title search, empty groups dropped unless nothing is filtered. */
-export function filterGoalGroups(groups: readonly MilestoneGroup[], f: { status: GoalStatus | null; text: string }): MilestoneGroup[] {
+/** The ids of the milestones a goal is under, directly or through other goals. */
+export function milestoneIdsOf(g: GoalState, all: readonly GoalState[]): Set<string> {
+  const byId = new Map(all.map((x) => [x.goal.id, x]));
+  const out = new Set<string>();
+  const seen = new Set<string>([g.goal.id]);
+  const walk = (x: GoalState) => {
+    for (const id of x.parents ?? []) {
+      if (seen.has(id)) continue;
+      seen.add(id);
+      const p = byId.get(id);
+      if (!p) continue;
+      if (p.goal.kind === "milestone") out.add(id);
+      walk(p);
+    }
+  };
+  walk(g);
+  return out;
+}
+
+const matches = (g: GoalState, f: { status: GoalStatus | null; text: string }): boolean => {
   const q = f.text.trim().toLowerCase();
-  const filtered = !!f.status || !!q;
-  return groups
-    .map((gr) => ({ ...gr, goals: gr.goals.filter((g) => (!f.status || g.status === f.status) && (!q || g.goal.title.toLowerCase().includes(q))) }))
-    .filter((gr) => gr.goals.length > 0 || (!filtered && !!gr.milestone));
+  return (!f.status || g.status === f.status) && (!q || g.goal.title.toLowerCase().includes(q));
+};
+
+/**
+ * The Goals screen's list: every goal once (milestones are their own screen),
+ * worst first, filtered by status, title and milestone: null for all, a
+ * milestone's id, or NO_MILESTONE for goals no milestone requires.
+ */
+export function filterGoals(all: readonly GoalState[], f: { status: GoalStatus | null; text: string; milestone: string | null }): GoalState[] {
+  return sortGoals(all.filter((g) => {
+    if (g.goal.archived || g.goal.kind === "milestone" || !matches(g, f)) return false;
+    if (f.milestone === null) return true;
+    const ids = milestoneIdsOf(g, all);
+    return f.milestone === NO_MILESTONE ? ids.size === 0 : ids.has(f.milestone);
+  }));
+}
+
+/** The Milestones screen's list: milestones worst first, filtered by status and title. */
+export function filterMilestones(all: readonly GoalState[], f: { status: GoalStatus | null; text: string }): GoalState[] {
+  return milestoneList(all).filter((g) => matches(g, f));
+}
+
+/** How many milestones are in each status. */
+export function milestoneCounts(all: readonly GoalState[]): Record<GoalStatus, number> {
+  const out = Object.fromEntries(GOAL_STATUS_ORDER.map((s) => [s, 0])) as Record<GoalStatus, number>;
+  for (const g of milestoneList(all)) out[g.status]++;
+  return out;
+}
+
+/** A milestone's required goals, met and in all: the count its progress line and bar show. */
+export function milestoneProgress(g: Pick<GoalState, "requires">): { met: number; total: number } {
+  const req = g.requires.filter((r) => r.required && r.status !== null);
+  return { met: req.filter((r) => r.status === "met").length, total: req.length };
+}
+
+/** A milestone's progress in words: "7 of 9 goals met". */
+export function milestoneProgressText(g: Pick<GoalState, "requires">): string {
+  const p = milestoneProgress(g);
+  return p.total === 0 ? "No goals yet" : `${p.met} of ${p.total} ${p.total === 1 ? "goal" : "goals"} met`;
 }
 
 // ---------- Recent ----------
@@ -1118,7 +1159,7 @@ export function attentionTarget(item: AttentionItem): HubRoute {
 // ---------- Keyboard ----------
 
 export type HubKeyAction =
-  | { type: "go"; to: "overview" | "library" }
+  | { type: "go"; to: "overview" | "milestones" | "library" }
   | { type: "next" } | { type: "prev" } | { type: "open" }
   | { type: "run" } | { type: "fix" } | { type: "select" }
   | { type: "filter" } | { type: "help" } | { type: "palette" } | { type: "newGoal" };
@@ -1135,6 +1176,7 @@ export interface HubKey {
 export const HUB_SHORTCUTS: ReadonlyArray<{ keys: string[]; label: string; group: "Move" | "Act" | "Go to" }> = [
   { keys: ["Ctrl K"], label: "Command palette", group: "Go to" },
   { keys: ["g", "o"], label: "Overview", group: "Go to" },
+  { keys: ["g", "m"], label: "Milestones", group: "Go to" },
   { keys: ["g", "l"], label: "Playtests", group: "Go to" },
   { keys: ["j"], label: "Next row", group: "Move" },
   { keys: ["k"], label: "Previous row", group: "Move" },
@@ -1156,6 +1198,7 @@ const SINGLE: Record<string, HubKeyAction> = {
 };
 const AFTER_G: Record<string, HubKeyAction> = {
   o: { type: "go", to: "overview" }, g: { type: "go", to: "overview" },
+  m: { type: "go", to: "milestones" },
   l: { type: "go", to: "library" },
 };
 /** A `g` waits this long for its second key. */
@@ -1223,6 +1266,7 @@ export function paletteEntries(o: Pick<HubOverview, "goals" | "checks" | "recent
     { id: "cmd:run-failing", kind: "command", label: HUB_COPY.runFailing, command: "runFailing" },
     { id: "cmd:run-all", kind: "command", label: HUB_COPY.runAll, command: "runAll" },
     { id: "screen:overview", kind: "screen", label: "Go to Overview", route: { screen: "overview" }, hint: "g o" },
+    { id: "screen:milestones", kind: "screen", label: "Go to Milestones", route: { screen: "milestones" }, hint: "g m" },
     { id: "screen:library", kind: "screen", label: "Go to Playtests", route: { screen: "library" }, hint: "g l" },
     { id: "cmd:shortcuts", kind: "command", label: HUB_COPY.shortcuts, command: "shortcuts", hint: "?" },
   ];

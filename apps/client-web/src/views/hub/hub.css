@@ -146,6 +146,7 @@ a.hub-goal-chip:hover { color: var(--text); border-color: var(--line-strong); }
 .hub-root button.filter-chip { gap: 5px; }
 .hub-filters { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
 .hub-search { flex: 1 1 260px; display: flex; align-items: center; gap: 6px; padding: 0 8px; border: 1px solid var(--line-strong); border-radius: var(--radius); background: var(--panel-2); color: var(--dim); }
+.hub-milestone-filter { flex: 0 1 220px; min-width: 0; }
 .hub-search:focus-within { border-color: var(--accent-line); box-shadow: 0 0 0 3px var(--accent-wash); }
 .hub-search input { flex: 1; min-width: 0; border: 0; background: transparent; padding: 7px 0; box-shadow: none; }
 .hub-search input:focus { box-shadow: none; }

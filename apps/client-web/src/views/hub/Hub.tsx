@@ -37,6 +37,7 @@ import { HubIcon, HubLink, Kbd, Placeholder, StatusMark, type HubIconName } from
 import { OverviewScreen } from "./Overview";
 import { GoalScreen } from "./Goal";
 import { GoalsScreen } from "./Goals";
+import { MilestonesScreen } from "./Milestones";
 import { LibraryScreen } from "./Library";
 import { CheckScreen } from "./Check";
 import { RunScreen } from "./Run";
@@ -201,6 +202,7 @@ export function HubView({ data, narrow, onOpenChat, onChat }: {
   const screen = (() => {
     switch (route.screen) {
       case "overview": return <OverviewScreen onChat={onChat} />;
+      case "milestones": return <MilestonesScreen />;
       case "goals": return <GoalsScreen />;
       case "goal": return <GoalScreen key={route.goalId} goalId={route.goalId} />;
       case "library": return <LibraryScreen />;
@@ -245,9 +247,10 @@ export function HubView({ data, narrow, onOpenChat, onChat }: {
   );
 }
 
-type SectionId = "overview" | "goals" | "library";
+type SectionId = "overview" | "milestones" | "goals" | "library";
 const SECTIONS: ReadonlyArray<{ id: SectionId; label: string; icon: HubIconName; keys?: string }> = [
   { id: "overview", label: HUB_COPY.overview, icon: "overview", keys: "g o" },
+  { id: "milestones", label: HUB_COPY.milestones, icon: "milestone", keys: "g m" },
   { id: "goals", label: HUB_COPY.goals, icon: "goal" },
   { id: "library", label: HUB_COPY.library, icon: "library", keys: "g l" },
 ];
@@ -280,14 +283,15 @@ function sectionCount(id: string, ctx: Pick<HubContextValue, "o">): ReactNode {
   const { o } = ctx;
   if (id === "overview" && o.attention.length) return <span className="tab-count warn" aria-label={`${o.attention.length} need attention`}>{o.attention.length}</span>;
   if (id === "overview" && o.queue.current) return <span className="hub-live-dot" aria-label={HUB_COPY.nowRunning} title={HUB_COPY.nowRunning} />;
-  if (id === "goals") return <span className="hub-rail-count">{o.goals.filter((g) => !g.goal.archived).length}</span>;
+  if (id === "milestones") return <span className="hub-rail-count">{o.goals.filter((g) => !g.goal.archived && g.goal.kind === "milestone").length}</span>;
+  if (id === "goals") return <span className="hub-rail-count">{o.goals.filter((g) => !g.goal.archived && g.goal.kind !== "milestone").length}</span>;
   if (id === "library") return <span className="hub-rail-count">{o.checks.length}</span>;
   return null;
 }
 
 const sectionRoute = (id: SectionId): HubRoute => ({ screen: id });
 
-/** The wide hub's rail: the three screens, then the goals and playtests opened last. */
+/** The wide hub's rail: the four screens, then the goals and playtests opened last. */
 function HubRail({ onPalette, onShortcuts }: { onPalette: () => void; onShortcuts: () => void }) {
   const ctx = useHub();
   const { o, route, go } = ctx;

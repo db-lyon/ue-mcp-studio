@@ -90,6 +90,24 @@ describe("hub routes", () => {
     expect(rows()).toEqual([]);
   });
 
+  it("lists milestones apart from goals, and filters goals by milestone", () => {
+    window.location.hash = "#/playtests/milestones";
+    render(<Harness start={hubFixture()} />);
+    expect(heading()).toBe("Milestones");
+    const rows = () => Array.from(document.querySelectorAll(".hub-goal-row .hub-row-title")).map((e) => e.textContent);
+    expect(rows()).toEqual(["Alpha"]);
+    expect(screen.getByRole("button", { name: /New milestone/ })).toBeTruthy();
+    fireEvent.change(screen.getByLabelText("Search milestones"), { target: { value: "zzzz" } });
+    expect(rows()).toEqual([]);
+    fireEvent.click(within(screen.getByRole("navigation", { name: "Playtests" })).getByText("Goals"));
+    expect(rows()).not.toContain("Alpha");
+    const pick = screen.getByLabelText("Milestone");
+    fireEvent.change(pick, { target: { value: "alpha" } });
+    expect(rows()).toHaveLength(2);
+    fireEvent.change(pick, { target: { value: "none" } });
+    expect(rows()).toEqual([]);
+  });
+
   it("encodes a check's id in its URL and opens it", async () => {
     m.hub.check.mockResolvedValue({ state: hubFixture().checks[0], runs: [], more: false, script: null });
     window.location.hash = "#/playtests/checks/" + encodeURIComponent("script:/Game/Tests/Jump");
@@ -102,7 +120,7 @@ describe("hub routes", () => {
     render(<Harness start={hubFixture()} narrow />);
     const bar = screen.getByRole("navigation", { name: "Playtests" });
     expect(bar.classList.contains("hub-seg")).toBe(true);
-    expect(["Overview", "Goals", "Playtests"].every((t) => within(bar).getByText(t))).toBe(true);
+    expect(["Overview", "Milestones", "Goals", "Playtests"].every((t) => within(bar).getByText(t))).toBe(true);
     expect(within(bar).getByText("Overview").closest("a")?.querySelector(".tab-count")?.textContent).toBe("2");
   });
 });

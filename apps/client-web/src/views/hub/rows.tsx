@@ -12,6 +12,8 @@ import {
   PRIORITY_SHORT,
   RUN_OUTCOME_LOOK,
   dueText,
+  milestoneProgress,
+  milestoneProgressText,
   hubHash,
   passRateText,
   progressText,
@@ -21,7 +23,8 @@ import { useHub } from "./state";
 import { HubLink, Progress, StatusMark, WinLoss } from "./parts";
 import { HubLinkChips } from "./links";
 
-export function GoalRow({ g, on, onPoint }: { g: GoalState; on?: boolean; onPoint?: () => void }) {
+/** A goal, or with `milestone` a milestone: its progress counts the goals it requires. */
+export function GoalRow({ g, on, onPoint, milestone }: { g: GoalState; on?: boolean; onPoint?: () => void; milestone?: boolean }) {
   const { go } = useHub();
   const look = GOAL_STATUS_LOOK[g.status];
   const due = dueText(g.goal.due);
@@ -35,11 +38,14 @@ export function GoalRow({ g, on, onPoint }: { g: GoalState; on?: boolean; onPoin
             <span className="hub-status-word">{look.label}</span>
             {g.goal.owner && <span>{g.goal.owner}</span>}
             {due && <span className={due.overdue ? "hub-overdue" : ""}>{due.text}</span>}
-            {g.unused && <span className="hub-unused">{HUB_COPY.notInMilestone}</span>}
+            {milestone && <span>{milestoneProgressText(g)}</span>}
+            {g.unused && !milestone && <span className="hub-unused">{HUB_COPY.notInMilestone}</span>}
           </span>
         </span>
         {g.goal.priority && <span className={`hub-prio ${g.goal.priority}`} title={`Priority ${PRIORITY_SHORT[g.goal.priority]}`}>{PRIORITY_SHORT[g.goal.priority]}</span>}
-        <Progress met={g.progress.met} total={g.progress.total} label={progressText(g.progress)} />
+        {milestone
+          ? <Progress met={milestoneProgress(g).met} total={milestoneProgress(g).total} label={milestoneProgressText(g)} />
+          : <Progress met={g.progress.met} total={g.progress.total} label={progressText(g.progress)} />}
     </HubLink>
   );
 }
