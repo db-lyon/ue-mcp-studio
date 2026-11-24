@@ -8,7 +8,7 @@ import { EditorConsent } from "./EditorConsent";
 import { onRemotePage } from "../connection";
 import { native } from "../native";
 import { api } from "../api";
-import { HOLD_EXPIRED, PENDING_COPY, STUDIO_REQUESTER, UPDATE_RETRY_ON_COMPUTER, holdOf, waitingWho, type UpdateHold } from "@ue-mcp-studio/client-core";
+import { HOLD_EXPIRED, PENDING_COPY, holdCopy, STUDIO_REQUESTER, UPDATE_RETRY_ON_COMPUTER, holdOf, waitingWho, type UpdateHold } from "@ue-mcp-studio/client-core";
 
 let current: UpdateRun | null = null;
 const listeners = new Set<() => void>();
@@ -215,9 +215,14 @@ export function UpdateHeld({ hold, approve = (id: string) => api.approveDisrupti
     setError(null);
     void act(hold.request.id).catch((e: Error) => setError(e.message || PENDING_COPY.notSent));
   };
+  const copy = holdCopy(hold);
+  // Studio's own subagents: stopping them is Studio's answer to the request, not the override.
+  const stop = (id: string) => fetch("/v1/ext/studio/updates/consent/subagents", { method: "POST", credentials: "same-origin", headers: { "content-type": "application/json" }, body: JSON.stringify({ requestId: id }) }).then((r) => {
+    if (!r.ok) throw new Error(PENDING_COPY.notSent);
+  });
   return (
     <div className="update-held">
-      <EditorConsent ask={{ op: "update", request: hold.request }} onApprove={answer(approve)} onCancel={answer(deny)} />
+      <EditorConsent ask={{ op: "update", request: hold.request }} copy={copy} onApprove={answer(copy.stopsSubagents ? stop : approve)} onCancel={answer(deny)} />
       {error && <div className="banner bad small" role="alert">{error}</div>}
     </div>
   );

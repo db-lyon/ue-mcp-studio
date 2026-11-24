@@ -2810,6 +2810,11 @@ ${result}`);
     });
   }
 
+  /** Every subagent running now, in every conversation. */
+  runningSubagents(): Array<{ sessionId: string; callId: string; description: string }> {
+    return this.o.store.all().flatMap((s) => this.runsOf(s.id, true).map((r) => ({ sessionId: s.id, callId: r.callId, description: r.description })));
+  }
+
   /** The sessions with a turn running or waiting. */
   activeSessions(): string[] {
     return this.o.store.all().filter((s) => s.status === "running" || s.status === "waiting").map((s) => s.id);

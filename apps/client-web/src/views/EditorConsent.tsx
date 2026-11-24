@@ -8,13 +8,14 @@ import { STUDIO_REQUESTER, consentAskOf, consentCopy, consentHolders, type AskKi
 import { api } from "../api";
 
 /** `ask.op` is a button's operation, or "update" for an Update that closes the editor. */
-export function EditorConsent({ ask, onApprove, onCancel }: { ask: { op: AskKind; request: EditorDisruptionRequest }; onApprove: () => void; onCancel: () => void }) {
-  const copy = consentCopy(ask.op);
+export function EditorConsent({ ask, onApprove, onCancel, copy: given }: { ask: { op: AskKind; request: EditorDisruptionRequest }; onApprove: () => void; onCancel: () => void; copy?: { title: string; lead: string; approve: string; cancel: string; note?: string | null } }) {
+  const copy = given ?? consentCopy(ask.op);
   const holders = consentHolders(ask.request);
   return (
     <div className="banner warn small" role="alert" data-testid="editor-consent">
       <strong>{copy.title}</strong>
       <p>{copy.lead}</p>
+      {given?.note ? <p className="muted">{given.note}</p> : null}
       {holders.length > 0 && (
         <ul className="consent-holders">
           {holders.map((h) => (

@@ -254,6 +254,17 @@ export class ConsentLedger {
     return this.send("POST", `/v1/editor/${op}`, body, { timeoutMs: 3_600_000, accept: [409] });
   }
 
+  /** The requesting participant says its own subagents are none or paused. */
+  confirm(requestId: string, participant: string, subagents: "none" | "paused"): Promise<DisruptionView> {
+    return this.send("POST", `/v1/disruptions/${encodeURIComponent(requestId)}/confirm`, { participant, subagents });
+  }
+
+  /** One request by id, or null when the daemon does not list it. */
+  async find(requestId: string): Promise<DisruptionView | null> {
+    const list = await this.send<{ requests?: DisruptionView[] }>("GET", "/v1/disruptions");
+    return list.requests?.find((r) => r.id === requestId) ?? null;
+  }
+
   report(id: string, state: { label: string; busy: string[]; parent?: string }): Promise<unknown> {
     return this.send("PUT", `/v1/disruptions/participants/${encodeURIComponent(id)}`, state);
   }

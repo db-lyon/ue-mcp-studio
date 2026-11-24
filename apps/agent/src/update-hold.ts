@@ -30,6 +30,8 @@ export type HoldDecision = "approve" | "deny" | "expired";
 export interface UpdateHoldState {
   request: DisruptionView;
   source: HoldSource;
+  /** Studio's own subagents the request waits for the person to stop. */
+  subagents?: Array<{ sessionId: string; callId: string; description: string }>;
 }
 
 /** What an Update step carries for the gate: the person's override. */
@@ -75,8 +77,8 @@ export class UpdateHold {
   }
 
   /** Hold the Update on a request the gate has not approved. */
-  set(request: DisruptionView, source: HoldSource): void {
-    this.hold = { request, source };
+  set(request: DisruptionView, source: HoldSource, subagents?: UpdateHoldState["subagents"]): void {
+    this.hold = { request, source, ...(subagents?.length && request.state === "confirm" ? { subagents } : {}) };
     this.o.publish("update.consent", { hold: this.hold });
   }
 
@@ -94,7 +96,7 @@ export class UpdateHold {
     if (!r || r.id !== this.hold.request.id) return;
     const decision = DECIDED[r.state];
     if (!decision) {
-      this.set(r, this.hold.source);
+      this.set(r, this.hold.source, this.hold.subagents);
       return;
     }
     const { source } = this.hold;
@@ -102,4 +104,10 @@ export class UpdateHold {
     this.o.publish("update.consent", { hold: null, decided: decision });
     this.o.decided?.(source, decision);
   }
+}
+
+/** Studio's own running subagents a refused editor operation says it waits on, or undefined. */
+export function subagentsOf(result: Record<string, unknown>): UpdateHoldState["subagents"] {
+  const list = result.subagents;
+  return Array.isArray(list) && list.length > 0 ? (list as NonNullable<UpdateHoldState["subagents"]>) : undefined;
 }

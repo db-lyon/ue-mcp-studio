@@ -44,7 +44,8 @@ import { registerVersionNotice } from "./version-notice.js";
 import { registerWhatsNew } from "./whats-new.js";
 import { WriteLease, readDiscovery, type DaemonExtensionApi } from "ue-mcp/daemon";
 import { CONSENT_FEATURE, ConsentLedger, type DisruptionView } from "./consent.js";
-import { UPDATE_REASON, UPDATE_REQUESTER, UpdateHold, consentOf, updateOp } from "./update-hold.js";
+import { UPDATE_REASON, UPDATE_REQUESTER, UpdateHold, consentOf, updateOp, type UpdateHoldState } from "./update-hold.js";
+import { runPersonOperation, stopOwnSubagents, type DisruptionDeps } from "./editor-disruption.js";
 import { registerQueueRoutes } from "./queue-routes.js";
 import { registerVideoRoutes } from "./video-routes.js";
 import { PlaytestFlow } from "./playtest-flow.js";
@@ -473,9 +474,14 @@ export function registerChat(api: DaemonExtensionApi, agentVersion = "0.0.0", pa
   // A Studio update or restart that fails in the background stops the panel's run with what npm said.
   const updater = new Updater(api, agentVersion, (type, data) => api.events.publish(type, data), fetch, () => readChannel(), (step, error) => updates.fail(step, error));
   // An Update closes the editor as the person who clicked it, so it carries their override past the consent gate.
-  updater.usePersonOps((op, consent) => consentOn()
-    ? ledger.editorOperation(op, { requester: UPDATE_REQUESTER, reason: UPDATE_REASON, ...(consent.force ? { force: true } : {}) })
-    : api.editorOperation(op));
+  const disruptionDeps: DisruptionDeps = {
+    consentOn,
+    ledger,
+    api: (op, opts) => (api.editorOperation as (op: string, o?: Record<string, unknown>) => Promise<Record<string, unknown>>)(op, opts),
+    subagents: () => runner.runningSubagents(),
+    stop: (s) => runner.stopSubagent(s.sessionId, s.callId),
+  };
+  updater.usePersonOps((op, consent) => runPersonOperation(disruptionDeps, op, { ...(consent.force ? { force: true } : {}) }));
   // An Update the gate held, shown on every client until the request is decided; the queue goes on from a waiting step's answer.
   const hold = new UpdateHold({
     publish: (type, data) => api.events.publish(type, data),
@@ -505,7 +511,7 @@ export function registerChat(api: DaemonExtensionApi, agentVersion = "0.0.0", pa
       if (!r.started) fs.rmSync(path.join(api.dataDir, RESTART_CAUSE_FILE), { force: true });
       return { ok: r.started, started: r.started, error: r.error };
     },
-    held: (request) => hold.set(request, "queue"),
+    held: (request, subagents) => hold.set(request, "queue", subagents),
     publish: (type, data) => api.events.publish(type, data),
   });
   const stepBody = (body: unknown): { now?: boolean; then?: DeferredStep[]; force?: boolean } => {
@@ -513,9 +519,9 @@ export function registerChat(api: DaemonExtensionApi, agentVersion = "0.0.0", pa
     return { now: b.now === true, then: Array.isArray(b.then) ? b.then.filter((s): s is DeferredStep => (DEFERRED_STEPS as readonly unknown[]).includes(s)) : [], ...consentOf(body) };
   };
   /** A step the panel ran that the gate held: every client is asked, and the panel goes on from the answer. */
-  const heldStep = (request: DisruptionView, error: string | undefined) => {
-    hold.set(request, "panel");
-    return { status: 409, body: { ok: false, error, request } };
+  const heldStep = (request: DisruptionView, error: string | undefined, subagents?: UpdateHoldState["subagents"]) => {
+    hold.set(request, "panel", subagents);
+    return { status: 409, body: { ok: false, error, request, ...(subagents ? { subagents } : {}) } };
   };
   registerAgentSettings(api, () => updates.request("restart", {}), playtests);
   registerEndpointRoutes(api, {
@@ -576,7 +582,7 @@ export function registerChat(api: DaemonExtensionApi, agentVersion = "0.0.0", pa
   const stepRoute = async (step: DeferredStep, body: unknown) => {
     const r = await updates.request(step, stepBody(body));
     if (r.deferred) return { status: 202, body: { ok: true, deferred: r.deferred } };
-    if (!r.ok && r.request) return heldStep(r.request, r.error);
+    if (!r.ok && r.request) return heldStep(r.request, r.error, r.subagents);
     if (!r.ok) return { status: 500, body: { error: r.error } };
     return { status: r.started ? 202 : 200, body: r };
   };
@@ -602,6 +608,18 @@ export function registerChat(api: DaemonExtensionApi, agentVersion = "0.0.0", pa
     if (!request || request.state === "approved") return { body: { request: null } };
     hold.set(request, "panel");
     return { body: { request } };
+  });
+  // The person agreed to stop Studio's own running subagents so the held request can go on: they are stopped and the request confirmed paused.
+  api.route("POST", "/updates/consent/subagents", async (req) => {
+    const held = hold.current();
+    const id = (req.body as { requestId?: unknown } | undefined)?.requestId;
+    if (!held || held.request.id !== id) return { status: 404, body: { error: "that request is not waiting on subagents" } };
+    try {
+      await stopOwnSubagents(disruptionDeps, held.request);
+    } catch (e) {
+      return { status: 502, body: { error: e instanceof Error ? e.message : String(e) } };
+    }
+    return { body: { ok: true } };
   });
   // Stable or beta, for every project: Update follows it for Studio and the editor plugin.
   api.route("PUT", "/updates/channel", (req) => {
@@ -660,7 +678,7 @@ export function registerChat(api: DaemonExtensionApi, agentVersion = "0.0.0", pa
   api.route("POST", "/updates/ueMcp", async (req) => {
     const version = String((req.body as { version?: unknown } | undefined)?.version ?? "");
     const r = await updater.updateUeMcp(version, consentOf(req.body));
-    if (r.request) return heldStep(r.request, r.error);
+    if (r.request) return heldStep(r.request, r.error, r.subagents);
     return r.ok ? { body: { ok: true } } : { status: 500, body: { ok: false, error: r.error } };
   });
   // Restart now: end the turns in progress and run the waiting steps.
