@@ -2,6 +2,20 @@
 
 The branch is `feat/playtest-hub`. It is local only and the full suite passes. The final design is the top section of [review.md](review.md).
 
+## Status 2026-11-24: the port to ue-mcp is done, locally
+
+- **Both repos are on branch `feat/playtest-hub`,** local only. All tests pass in both.
+- **ue-mcp holds the hub's machinery:** the `ue-mcp/hub` (browser-safe) and `ue-mcp/daemon` exports, `/v1/hub/*` routes, the `hub` MCP tools, and its data folder `~/.ue-mcp/data/<project>/hub/`.
+- **Studio is the frontend,** wiring its chat-specific pieces through `api.hub.configure`.
+- **Not committed:** Studio's `package.json` and `package-lock.json` pin `ue-mcp` to a local tarball. Never commit that, or `keys/dev-ui-signing.pub.pem`.
+
+To ship:
+
+1. Publish the ue-mcp beta from its `feat/playtest-hub` branch. This is the owner's step.
+2. Pin Studio to that published version, in `apps/agent` and `apps/client-web`, and bump `ueMcpExtension.ueMcp`.
+3. Verify on HubPlayground with the new ue-mcp: run a goal of automated playtests, and check that the hub, the one-time import of the old store, and the agent's `hub` tools all work.
+4. Grade the copy against PROSE_EVAL, push both branches, and open both pull requests.
+
 ## Boundary correction (user, 2026-11-23): the hub's machinery belongs in ue-mcp
 
 Studio is a frontend, plus what that frontend directly needs. The hub's data model and machinery are core capabilities and move to ue-mcp (`db-lyon/ue-mcp`), per CLAUDE.md's rule about ue-mcp. That covers:
