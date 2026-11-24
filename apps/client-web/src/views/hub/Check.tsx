@@ -123,6 +123,7 @@ export function CheckScreen({ checkId }: { checkId: string }) {
           <button className="primary" onClick={() => void hub.runCheck(checkId, state.name)} disabled={state.missing} title="Run (r)"><HubIcon name="play" size={12} /> Run</button>
           {state.health === "failing" && <button onClick={() => void fix()} title="An agent fixes it in a chat session of its own"><HubIcon name="assign" size={12} /> {HUB_COPY.fix}</button>}
           <button onClick={() => hub.addToGoal([checkId])}><HubIcon name="goal" size={12} /> {HUB_COPY.addToGoal}</button>
+          <button className="danger-button" disabled={state.missing} title={state.missing ? "Not on this checkout" : "Delete the script asset"} onClick={() => hub.deleteChecks([checkId], () => go({ screen: "library" }))}><HubIcon name="close" size={12} /> {HUB_COPY.delete}</button>
           {script && <button className="ghost" aria-expanded={editing} onClick={() => setEditing((e) => !e)}><HubIcon name="edit" size={12} /> {editing ? "Done editing" : "Edit steps"}</button>}
         </>}
       />

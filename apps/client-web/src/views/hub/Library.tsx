@@ -87,6 +87,7 @@ export function LibraryScreen() {
           <strong>{chosen.length} selected</strong>
           <button className="primary" onClick={runChosen}><HubIcon name="play" size={12} /> {HUB_COPY.runSelected}</button>
           <button onClick={() => hub.addToGoal(chosen.map((c) => c.id))}><HubIcon name="goal" size={12} /> {HUB_COPY.addToGoal}</button>
+          <button className="danger-button" onClick={() => hub.deleteChecks(chosen.map((c) => c.id), (gone) => setPicked((p) => new Set([...p].filter((id) => !gone.includes(id)))))}><HubIcon name="close" size={12} /> {HUB_COPY.delete}</button>
           <span className="spacer" />
           <button className="ghost" onClick={() => setPicked(new Set())}>Clear</button>
         </div>

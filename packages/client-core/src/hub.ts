@@ -381,6 +381,13 @@ export const HUB_COPY = {
   runSelected: "Run selected",
   addToGoal: "Add to goal",
   addPlaytests: "Add playtests",
+  delete: "Delete",
+  /** The delete dialog's question: one playtest, or the count. */
+  deleteTitle: (n: number) => (n === 1 ? "Delete this playtest?" : `Delete ${n} playtests?`),
+  deleteLead: (n: number) => `This deletes ${n === 1 ? "its asset" : "their assets"} from the project. Goals that list ${n === 1 ? "it" : "them"} keep ${n === 1 ? "it" : "them"} and show ${n === 1 ? "it" : "them"} as not on this checkout.`,
+  deleting: (done: number, total: number) => `Deleting ${done + 1} of ${total}`,
+  deleted: (n: number) => (n === 1 ? "Deleted the playtest" : `Deleted ${n} playtests`),
+  deleteFailedTitle: (failed: number, total: number) => `${failed} of ${total} could not be deleted`,
   fixFailing: "Fix failing with an agent",
   fix: "Fix with an agent",
   /** After a fix is asked for: what was queued, and where the work happens. */

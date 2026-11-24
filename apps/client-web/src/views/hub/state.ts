@@ -125,6 +125,8 @@ export interface HubContextValue {
   requireGoal: (goalId: string) => void;
   /** Ask which goal to add these checks to. */
   addToGoal: (checkIds: string[]) => void;
+  /** Confirm, then delete these playtests' script assets; `onDone` gets the ids that were deleted. */
+  deleteChecks: (checkIds: string[], onDone?: (deleted: string[]) => void) => void;
   /** The screen on show takes the keys the hub does not handle itself, set on each render; return true when one was used. */
   onKeys: (handler: (a: HubKeyAction) => boolean) => void;
 }
