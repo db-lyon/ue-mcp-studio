@@ -146,9 +146,11 @@ export const hubApiOver = (transport: Transport): HubApi =>
 
 // ---------- Routes inside #/playtests ----------
 
-export type HubScreen = "overview" | "goal" | "library" | "check" | "run" | "draft";
+export type HubScreen = "overview" | "goals" | "goal" | "library" | "check" | "run" | "draft";
 export type HubRoute =
   | { screen: "overview" }
+  /** Every goal under its milestones. */
+  | { screen: "goals" }
   | { screen: "goal"; goalId: string }
   | { screen: "library" }
   | { screen: "check"; checkId: string }
@@ -167,7 +169,8 @@ const decode = (s: string): string | null => {
 
 /**
  * The hub's screen from what follows #/playtests/ (still encoded):
- * goals/<id>, checks, checks/<checkId>, runs/<runId>, and the editor at
+ * goals, goals/<id>, checks (the Playtests screen; its address predates the
+ * name, so old links work), checks/<checkId>, runs/<runId>, and the editor at
  * checks/new, checks/<checkId>/edit and goals/<id>/new. Anything else is the
  * overview.
  */
@@ -182,7 +185,7 @@ export function parseHubPath(sub: string | null | undefined): HubRoute {
       return value ? { screen: "check", checkId: value } : { screen: "library" };
     case "goals":
       if (value && then === "new") return { screen: "draft", goalId: value };
-      return value ? { screen: "goal", goalId: value } : { screen: "overview" };
+      return value ? { screen: "goal", goalId: value } : { screen: "goals" };
     case "runs": return value ? { screen: "run", runId: value } : { screen: "overview" };
     default: return { screen: "overview" };
   }
@@ -193,6 +196,7 @@ export function hubPath(r: HubRoute): string {
   switch (r.screen) {
     case "overview": return "";
     case "library": return "checks";
+    case "goals": return "goals";
     case "goal": return `goals/${enc(r.goalId)}`;
     case "check": return `checks/${enc(r.checkId)}`;
     case "run": return `runs/${enc(r.runId)}`;
@@ -207,7 +211,8 @@ export const hubHash = (r: HubRoute): string => {
 };
 
 /** Which rail entry a screen sits under. */
-export function hubSection(r: HubRoute): "overview" | "library" {
+export function hubSection(r: HubRoute): "overview" | "goals" | "library" {
+  if (r.screen === "goals") return "goals";
   if (r.screen === "library" || r.screen === "check") return "library";
   if (r.screen === "draft") return r.goalId ? "overview" : "library";
   return "overview";
@@ -380,7 +385,11 @@ export const HUB_COPY = {
   playtests: "Playtests",
   /** What a check is called wherever a person reads it. */
   playtest: "Playtest",
-  library: "Library",
+  /** The screen of every playtest the project has (its route is still "library"). */
+  library: "Playtests",
+  recent: "Recent",
+  searchGoals: "Search goals",
+  noGoalsMatch: "No goals match.",
   nowRunning: "Now running",
   finished: "Finished",
   newGoal: "New goal",
@@ -559,6 +568,76 @@ export function milestoneGroups(all: readonly GoalState[]): MilestoneGroup[] {
   const loose = live.filter((g) => g.goal.kind !== "milestone" && g.parents.length === 0);
   if (loose.length) groups.push({ milestone: null, goals: sortGoals(loose) });
   return groups;
+}
+
+/**
+ * Every goal under its milestones, for the Goals screen: milestones as in
+ * `milestoneGroups`, each with the goals it requires, directly or through
+ * other goals (its own order first, then the deeper ones by title). A goal
+ * under several milestones is in each group. Goals under no milestone come
+ * last, with a null milestone. Archived goals are left out.
+ */
+export function goalsByMilestone(all: readonly GoalState[]): MilestoneGroup[] {
+  const live = all.filter((g) => !g.goal.archived);
+  const byId = new Map(live.map((g) => [g.goal.id, g]));
+  const inside = new Set<string>();
+  const groups: MilestoneGroup[] = sortGoals(live.filter((g) => g.goal.kind === "milestone")).map((m) => {
+    const seen = new Set<string>([m.goal.id]);
+    const found: GoalState[] = [];
+    const walk = (g: GoalState) => {
+      for (const r of requiredGoals(g, byId)) {
+        if (seen.has(r.goal.id)) continue;
+        seen.add(r.goal.id);
+        if (r.goal.kind !== "milestone") found.push(r);
+        walk(r);
+      }
+    };
+    walk(m);
+    const direct = new Set(requiredGoals(m, byId).map((g) => g.goal.id));
+    const goals = [...found.filter((g) => direct.has(g.goal.id)), ...sortGoals(found.filter((g) => !direct.has(g.goal.id)))];
+    for (const g of goals) inside.add(g.goal.id);
+    return { milestone: m, goals };
+  });
+  const loose = live.filter((g) => g.goal.kind !== "milestone" && !inside.has(g.goal.id));
+  if (loose.length) groups.push({ milestone: null, goals: sortGoals(loose) });
+  return groups;
+}
+
+/** The Goals screen's filter: a status (null for all) and a title search, empty groups dropped unless nothing is filtered. */
+export function filterGoalGroups(groups: readonly MilestoneGroup[], f: { status: GoalStatus | null; text: string }): MilestoneGroup[] {
+  const q = f.text.trim().toLowerCase();
+  const filtered = !!f.status || !!q;
+  return groups
+    .map((gr) => ({ ...gr, goals: gr.goals.filter((g) => (!f.status || g.status === f.status) && (!q || g.goal.title.toLowerCase().includes(q))) }))
+    .filter((gr) => gr.goals.length > 0 || (!filtered && !!gr.milestone));
+}
+
+// ---------- Recent ----------
+
+/** A goal or playtest the person opened. */
+export interface HubRecent {
+  kind: "goal" | "check";
+  id: string;
+}
+export const HUB_RECENT_KEY = "ue-mcp-studio.hub.recent";
+export const HUB_RECENT_MAX = 5;
+
+/** The list after opening `item`: it moves to the front, the list keeps the newest five. */
+export function rememberRecent(list: readonly HubRecent[], item: HubRecent): HubRecent[] {
+  return [item, ...list.filter((r) => !(r.kind === item.kind && r.id === item.id))].slice(0, HUB_RECENT_MAX);
+}
+
+/** The stored list, read back; anything malformed is an empty list. */
+export function parseRecent(raw: string | null | undefined): HubRecent[] {
+  try {
+    const v: unknown = JSON.parse(raw ?? "[]");
+    if (!Array.isArray(v)) return [];
+    return v
+      .filter((r): r is HubRecent => !!r && (r.kind === "goal" || r.kind === "check") && typeof r.id === "string" && r.id !== "")
+      .slice(0, HUB_RECENT_MAX);
+  } catch {
+    return [];
+  }
 }
 
 /** The goals a goal requires, in its order, as states; goals not in the list are left out. */
@@ -1056,7 +1135,7 @@ export interface HubKey {
 export const HUB_SHORTCUTS: ReadonlyArray<{ keys: string[]; label: string; group: "Move" | "Act" | "Go to" }> = [
   { keys: ["Ctrl K"], label: "Command palette", group: "Go to" },
   { keys: ["g", "o"], label: "Overview", group: "Go to" },
-  { keys: ["g", "l"], label: "Library", group: "Go to" },
+  { keys: ["g", "l"], label: "Playtests", group: "Go to" },
   { keys: ["j"], label: "Next row", group: "Move" },
   { keys: ["k"], label: "Previous row", group: "Move" },
   { keys: ["Enter"], label: "Open the row", group: "Move" },
@@ -1144,7 +1223,7 @@ export function paletteEntries(o: Pick<HubOverview, "goals" | "checks" | "recent
     { id: "cmd:run-failing", kind: "command", label: HUB_COPY.runFailing, command: "runFailing" },
     { id: "cmd:run-all", kind: "command", label: HUB_COPY.runAll, command: "runAll" },
     { id: "screen:overview", kind: "screen", label: "Go to Overview", route: { screen: "overview" }, hint: "g o" },
-    { id: "screen:library", kind: "screen", label: "Go to Library", route: { screen: "library" }, hint: "g l" },
+    { id: "screen:library", kind: "screen", label: "Go to Playtests", route: { screen: "library" }, hint: "g l" },
     { id: "cmd:shortcuts", kind: "command", label: HUB_COPY.shortcuts, command: "shortcuts", hint: "?" },
   ];
   for (const g of sortGoals(o.goals.filter((g) => !g.goal.archived))) {

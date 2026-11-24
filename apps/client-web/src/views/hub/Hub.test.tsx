@@ -52,20 +52,42 @@ describe("hub routes", () => {
     act(() => {
       window.location.hash = "#/playtests/checks";
     });
-    await waitFor(() => expect(heading()).toBe("Library"));
+    await waitFor(() => expect(heading()).toBe("Playtests"));
   });
 
   it("moves between screens from the rail as links, each with its own URL", async () => {
     render(<Harness start={hubFixture()} />);
     expect(heading()).toBe("Overview");
     const rail = screen.getByRole("navigation", { name: "Playtests" });
-    const library = within(rail).getByText("Library").closest("a")!;
+    const library = within(rail).getByText("Playtests").closest("a")!;
     expect(library.getAttribute("href")).toBe("#/playtests/checks");
     fireEvent.click(library);
     expect(window.location.hash).toBe("#/playtests/checks");
-    expect(heading()).toBe("Library");
-    fireEvent.click(within(rail).getByText("Tutorial completes"));
+    expect(heading()).toBe("Playtests");
+    // The rail does not list goals; the Goals screen does.
+    expect(within(rail).queryByText("Tutorial completes")).toBeNull();
+    const goals = within(rail).getByText("Goals").closest("a")!;
+    expect(goals.getAttribute("href")).toBe("#/playtests/goals");
+    fireEvent.click(goals);
+    expect(heading()).toBe("Goals");
+    fireEvent.click(screen.getByText("Tutorial completes"));
     expect(window.location.hash).toBe("#/playtests/goals/tutorial");
+    // What was opened is now under Recent.
+    expect(within(rail).getByText("Recent")).toBeTruthy();
+    expect(within(rail).getByText("Tutorial completes").closest("a")?.getAttribute("href")).toBe("#/playtests/goals/tutorial");
+  });
+
+  it("searches and filters the Goals screen", () => {
+    window.location.hash = "#/playtests/goals";
+    render(<Harness start={hubFixture()} />);
+    expect(heading()).toBe("Goals");
+    const rows = () => Array.from(document.querySelectorAll(".hub-goal-row .hub-row-title")).map((e) => e.textContent);
+    const all = rows();
+    expect(all.length).toBeGreaterThan(1);
+    fireEvent.change(screen.getByLabelText("Search goals"), { target: { value: all[0]!.slice(0, 4).toUpperCase() } });
+    expect(rows()).toContain(all[0]);
+    fireEvent.change(screen.getByLabelText("Search goals"), { target: { value: "zzzz-no-goal" } });
+    expect(rows()).toEqual([]);
   });
 
   it("encodes a check's id in its URL and opens it", async () => {
@@ -80,6 +102,7 @@ describe("hub routes", () => {
     render(<Harness start={hubFixture()} narrow />);
     const bar = screen.getByRole("navigation", { name: "Playtests" });
     expect(bar.classList.contains("hub-seg")).toBe(true);
+    expect(["Overview", "Goals", "Playtests"].every((t) => within(bar).getByText(t))).toBe(true);
     expect(within(bar).getByText("Overview").closest("a")?.querySelector(".tab-count")?.textContent).toBe("2");
   });
 });
@@ -89,7 +112,7 @@ describe("the keyboard", () => {
     render(<Harness start={hubFixture()} />);
     key("g");
     key("l");
-    expect(heading()).toBe("Library");
+    expect(heading()).toBe("Playtests");
     key("g");
     key("o");
     expect(heading()).toBe("Overview");
@@ -118,7 +141,7 @@ describe("the keyboard", () => {
     expect(document.activeElement).toBe(box);
     fireEvent.keyDown(box, { key: "g" });
     fireEvent.keyDown(box, { key: "i" });
-    expect(heading()).toBe("Library");
+    expect(heading()).toBe("Playtests");
     (box as HTMLInputElement).blur();
     key("?");
     expect(screen.getByRole("dialog", { name: "Keyboard shortcuts" })).toBeTruthy();
@@ -343,7 +366,7 @@ describe("the library", () => {
 });
 
 describe("deleting playtests", () => {
-  it("confirms by asset path from a playtest, deletes it and returns to the Library", async () => {
+  it("confirms by asset path from a playtest, deletes it and returns to Playtests", async () => {
     m.del.mockResolvedValue({ script: "/Game/Tests/Menu" });
     m.hub.check.mockResolvedValue({ state: hubFixture().checks[2], runs: [], more: false, script: null });
     window.location.hash = "#/playtests/checks/" + encodeURIComponent("script:/Game/Tests/Menu");
@@ -353,7 +376,7 @@ describe("deleting playtests", () => {
     expect(within(dialog).getByText("/Game/Tests/Menu")).toBeTruthy();
     expect(m.del).not.toHaveBeenCalled();
     fireEvent.click(within(dialog).getByRole("button", { name: "Delete" }));
-    await waitFor(() => expect(heading()).toBe("Library"));
+    await waitFor(() => expect(heading()).toBe("Playtests"));
     expect(m.del).toHaveBeenCalledWith("/Game/Tests/Menu");
   });
 

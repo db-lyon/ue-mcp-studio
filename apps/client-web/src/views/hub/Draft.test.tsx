@@ -172,7 +172,7 @@ describe("a new playtest", () => {
     const again = await screen.findByRole("dialog", { name: "Discard your changes?" });
     expect(window.location.hash).toBe("#/playtests/checks/new");
     fireEvent.click(within(again).getByRole("button", { name: "Discard" }));
-    await waitFor(() => expect(heading().textContent).toBe("Library"));
+    await waitFor(() => expect(heading().textContent).toBe("Playtests"));
   });
 });
 
