@@ -45,7 +45,7 @@ import { LibraryScreen } from "./Library";
 import { CheckScreen } from "./Check";
 import { RunScreen } from "./Run";
 import { DraftScreen } from "./Draft";
-import { CheckPicker, DeleteDialog, DescribeDialog, GoalDialog, GoalPicker, LeaveDialog, RequirePicker } from "./dialogs";
+import { CheckPicker, DeleteDialog, DescribeDialog, GoalDeleteDialog, GoalDialog, GoalPicker, LeaveDialog, RequirePicker } from "./dialogs";
 import type { GoalPreset } from "./state";
 import "./hub.css";
 
@@ -57,6 +57,7 @@ type Overlay =
   | { kind: "require"; goalId: string }
   | { kind: "addToGoal"; checkIds: string[] }
   | { kind: "delete"; checkIds: string[]; onDone?: (deleted: string[]) => void }
+  | { kind: "deleteGoal"; goalId: string; onDone?: () => void }
   | { kind: "describe" };
 
 /**
@@ -102,9 +103,11 @@ function useHubRoute(guard: MutableRefObject<LeaveGuard | null>, onBlocked: (r: 
   return [route, go, trail];
 }
 
-export function HubView({ data, narrow, onOpenChat, onChat }: {
+export function HubView({ data, narrow, onOpenChat, onChat, canDeleteGoals = false }: {
   data: HubData;
   narrow: boolean;
+  /** The daemon offers deleting goals (canDeleteGoals of its health). */
+  canDeleteGoals?: boolean;
   /** Open a session, and a playtest's card in it. */
   onOpenChat: (sessionId: string, runId?: string) => void;
   /** Go to the Chat tab, where a playtest is asked for. */
@@ -215,6 +218,8 @@ export function HubView({ data, narrow, onOpenChat, onChat }: {
     requireGoal: (goalId) => setOverlay({ kind: "require", goalId }),
     addToGoal: (checkIds) => setOverlay({ kind: "addToGoal", checkIds }),
     deleteChecks: (checkIds, onDone) => setOverlay({ kind: "delete", checkIds, onDone }),
+    canDeleteGoals,
+    deleteGoal: (goalId, onDone) => setOverlay({ kind: "deleteGoal", goalId, onDone }),
     describePlaytest: () => setOverlay({ kind: "describe" }),
     onKeys: (h) => {
       screenKeys.current = h;
@@ -259,7 +264,8 @@ export function HubView({ data, narrow, onOpenChat, onChat }: {
         {overlay?.kind === "require" && <RequirePicker goalId={overlay.goalId} onClose={() => setOverlay(null)} />}
         {overlay?.kind === "addToGoal" && <GoalPicker checkIds={overlay.checkIds} onClose={() => setOverlay(null)} />}
         {overlay?.kind === "delete" && <DeleteDialog checkIds={overlay.checkIds} onDone={overlay.onDone} onClose={() => setOverlay(null)} />}
-        {overlay?.kind === "describe" && <DescribeDialog onClose={() => setOverlay(null)} />}
+        {overlay?.kind === "deleteGoal" && <GoalDeleteDialog goalId={overlay.goalId} onDone={overlay.onDone} onClose={() => setOverlay(null)} />}
+        {overlay?.kind === "describe" &&<DescribeDialog onClose={() => setOverlay(null)} />}
         {leaving && (
           <LeaveDialog
             isNew={route.screen === "draft" && !route.checkId}

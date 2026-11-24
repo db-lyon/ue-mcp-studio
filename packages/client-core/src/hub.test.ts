@@ -2,8 +2,10 @@ import { describe, expect, it } from "vitest";
 import { DEFAULT_ACCEPTANCE, type CheckState, type Goal, type GoalState, type AttentionItem, type QueueState, type PlanRun } from "@ue-mcp-studio/shared";
 import {
   CHECK_HEALTH_LOOK,
+  GOAL_DELETE_FEATURE,
   GOAL_STATUS_LOOK,
   HUB_SHORTCUTS,
+  canDeleteGoals,
   hubShortcuts,
   dueText,
   filterChecks,
@@ -532,5 +534,16 @@ describe("hubShortcuts", () => {
     expect(fix(hubShortcuts(false))).toBe(false);
     expect(fix(hubShortcuts(null))).toBe(false);
     expect(hubShortcuts(false)).toHaveLength(HUB_SHORTCUTS.length - 1);
+  });
+});
+
+describe("deleting goals", () => {
+  it("is offered only by a daemon whose health lists hub.goalDelete", () => {
+    expect(GOAL_DELETE_FEATURE).toBe("hub.goalDelete");
+    expect(canDeleteGoals({ features: ["hub", "hub.goalDelete"] })).toBe(true);
+    expect(canDeleteGoals({ features: ["hub"] })).toBe(false);
+    expect(canDeleteGoals({})).toBe(false);
+    expect(canDeleteGoals(null)).toBe(false);
+    expect(canDeleteGoals({ features: "hub.goalDelete" })).toBe(false);
   });
 });

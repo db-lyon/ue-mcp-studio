@@ -27,7 +27,7 @@ function snapshot(seed: DemoSeed, ms: number, editor = true): HubDemo {
 const health = (connected: boolean) => ({
   ok: true, pid: 4120, version: "1.4.11-beta.4", apiVersion: 1, projectRoot: "c:/users/dev/projects/emberhollow", startedAt: "2026-11-23T08:00:00Z",
   editors: [{ name: DEMO_PROJECT, connected, port: 9877, pid: connected ? 22816 : null, lastDisconnect: connected ? null : { cause: "closed", at: "2026-11-23T14:10:00Z" } }],
-  clients: 1, inflight: 0, lastEventId: 0, extensions: [{ name: "studio", version: "dev" }], ui: "dev", features: ["checkpoints"],
+  clients: 1, inflight: 0, lastEventId: 0, extensions: [{ name: "studio", version: "dev" }], ui: "dev", features: ["checkpoints", "hub", "hub.goalDelete"],
 });
 
 function hub(title: string, hash: string, d: HubDemo, extra: Partial<Scenario> = {}): Scenario {
@@ -83,6 +83,7 @@ export const HUB_SCENARIOS: Record<string, Scenario> = {
   "hub-goal": hub("A failing goal: its playtests with health and history, owner, priority and due date, Run goal, Fix with an agent and Write playtests", "#/playtests/goals/lantern-combat", full),
   "hub-goal-not-on-checkout": hub("A goal with a playtest that is not on this checkout: shown as such, the goal in progress rather than failing", "#/playtests/goals/coop-revive", full),
   "hub-goal-milestone": hub("A milestone: its goals' statuses rolled up, with progress", "#/playtests/goals/vertical-slice", full),
+  "hub-goal-delete": hub("Deleting a goal: its playtests stay in the library with their past runs, and the milestones and goals that required it are named", "#/playtests/goals/lantern-combat", full, { clicks: [".hub-delete-goal"] }),
   "hub-library": hub("The library: every playtest with its health, goals and pass rate", "#/playtests/checks", full),
   "hub-check": hub("A flaky playtest: its steps, its own links and every run, newest first", `#/playtests/checks/${enc(ledge)}`, full),
   "hub-run": hub("A failed run: the step timeline, the observed values, the log and the comparison with the last pass", `#/playtests/runs/${enc(staggerRun)}`, full),

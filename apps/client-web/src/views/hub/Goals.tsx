@@ -16,7 +16,7 @@ import {
 import { GOAL_STATUS_ORDER, type GoalStatus } from "@ue-mcp-studio/shared";
 import { useCursor, useHub } from "./state";
 import { Empty, HubIcon, Kbd, ScreenHead, StatusMark } from "./parts";
-import { GoalRow } from "./rows";
+import { GoalListRow } from "./rows";
 
 export function GoalsScreen() {
   const hub = useHub();
@@ -89,7 +89,7 @@ export function GoalsScreen() {
           </div>
           {shown.length === 0 ? <Empty title={HUB_COPY.noGoalsMatch} /> : (
             <div className="hub-list" ref={list}>
-              {shown.map((g, i) => <GoalRow key={g.goal.id} g={g} on={i === at} onPoint={() => setAt(i)} />)}
+              {shown.map((g, i) => <GoalListRow key={g.goal.id} g={g} on={i === at} onPoint={() => setAt(i)} />)}
             </div>
           )}
         </>

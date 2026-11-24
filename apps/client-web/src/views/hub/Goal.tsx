@@ -24,6 +24,7 @@ import {
   requiredRows,
   shortAgo,
   signOffText,
+  trailHasBack,
   withLink,
   withoutLink,
 } from "@ue-mcp-studio/client-core";
@@ -56,7 +57,6 @@ export function GoalScreen({ goalId }: { goalId: string }) {
   const runnable = useMemo(() => goalCheckIds(goalId, o.goals).length, [goalId, o.goals]);
   const list = useRef<HTMLDivElement>(null);
   const [at, setAt, move] = useCursor(checks.length, list);
-  const [confirmDelete, setConfirmDelete] = useState(false);
   const [note, setNote] = useState("");
   const signed = g?.signOff ? signOffText(g.signOff) : null;
   const [writing, setWriting] = useState(false);
@@ -168,16 +168,8 @@ export function GoalScreen({ goalId }: { goalId: string }) {
       hub.notify((e as Error).message, "bad");
     }
   };
-  const remove = async () => {
-    try {
-      await api.hub.deleteGoal(goal.id);
-      hub.notify(`Deleted ${goal.title}`);
-      go(back ? { screen: "goal", goalId: back.goal.id } : { screen: "overview" });
-      hub.data.reload();
-    } catch (e) {
-      hub.notify((e as Error).message, "bad");
-    }
-  };
+  // Once it is gone, back the way the user came; opened fresh, to the list of its kind.
+  const remove = () => hub.deleteGoal(goal.id, () => (trailHasBack(hub.trail) ? hub.goBack(1) : go({ screen: goal.kind === "milestone" ? "milestones" : "goals" })));
 
   return (
     <div className="hub-screen hub-goal">
@@ -191,6 +183,7 @@ export function GoalScreen({ goalId }: { goalId: string }) {
           {failing > 0 && fixes === false && <AgentFixesOff />}
           {failing > 0 && fixes && <button onClick={() => void fix({ goalId: goal.id })} title="An agent fixes each failing playtest in its own chat session, one at a time (a)"><HubIcon name="assign" size={12} /> {HUB_COPY.fixFailing}</button>}
           <button className="ghost" onClick={() => hub.editGoal(goal.id)} title={HUB_COPY.editGoal}><HubIcon name="edit" size={12} /> Edit</button>
+          {hub.canDeleteGoals && <button className="ghost hub-delete-goal" onClick={remove}><HubIcon name="trash" size={12} /> {HUB_COPY.delete}</button>}
         </>}
       />
       {parents.length > 0 ? (
@@ -297,16 +290,6 @@ export function GoalScreen({ goalId }: { goalId: string }) {
             </ul>
           </div>
         )}
-      </section>
-
-      <section className="hub-danger">
-        {confirmDelete ? (
-          <span className="hub-confirm">
-            <span className="small">Delete {goal.title}? Its playtests and their runs stay, and goals that required it stop requiring it.</span>
-            <button className="danger-button" onClick={() => void remove()}>Delete goal</button>
-            <button className="ghost" onClick={() => setConfirmDelete(false)}>Cancel</button>
-          </span>
-        ) : <button className="ghost small" onClick={() => setConfirmDelete(true)}><HubIcon name="trash" size={12} /> Delete goal</button>}
       </section>
     </div>
   );

@@ -35,7 +35,7 @@ import { replaceStaleWindow } from "./window-version";
 import { RefusalPending, RefusedScreen, useRefusal } from "./views/Refused";
 import { ErrorBoundary } from "./views/ErrorBoundary";
 import { onRemotePage } from "./connection";
-import { HUB_COPY, freshTrail, parseHubPath, trailOf, trailPush, hubRecordIndex, hubRecordLocation, playingRuns, projectListUrl, viewportAllowed } from "@ue-mcp-studio/client-core";
+import { HUB_COPY, canDeleteGoals, freshTrail,parseHubPath, trailOf, trailPush, hubRecordIndex, hubRecordLocation, playingRuns, projectListUrl, viewportAllowed } from "@ue-mcp-studio/client-core";
 import { HeldBar, LeaseBar, useHeld, useLease } from "./held";
 import { HeldContext } from "./held-context";
 import { BarProjectSwitch } from "./views/ProjectSwitch";
@@ -280,7 +280,7 @@ function Studio({ daemon }: { daemon: DaemonState }) {
             <main className={`view-${tab.toLowerCase()}${tab === "Playtests" && hubOn ? " hub-host" : ""}`}>
               <ErrorBoundary what={tab} resetKey={tab}>
                 {tab === "Playtests" && (hubOn
-                  ? <HubView data={hub} narrow={narrow} onOpenChat={openPlaytest} onChat={() => setTab("Chat")} />
+                  ? <HubView data={hub} narrow={narrow} onOpenChat={openPlaytest} onChat={() => setTab("Chat")} canDeleteGoals={canDeleteGoals(daemon.health)} />
                   // A hub link before the setting has been read waits for it rather than flashing the old page.
                   : experiments === null && readLocation().sub ? null
                   : <PlaytestsView daemon={daemon} index={playtests} onOpenSession={openPlaytest} onChat={() => setTab("Chat")} />)}

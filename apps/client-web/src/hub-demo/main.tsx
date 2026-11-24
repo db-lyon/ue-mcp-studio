@@ -16,6 +16,7 @@ import "@fontsource/roboto/latin-700.css";
 import "../styles.css";
 import "../settings.css";
 import type { StudioSettings, StudioSettingsUpdate, StudioTheme } from "@ue-mcp-studio/shared";
+import { GOAL_DELETE_FEATURE } from "@ue-mcp-studio/client-core";
 import { daemonFor } from "../visual-qa/daemon";
 import { DEMO_PROJECT, DEMO_PROJECT_DIR, DEMO_SEEDS, demoState, type DemoSeed, type DemoState } from "./seed";
 import { HubDemo } from "./sim";
@@ -134,6 +135,8 @@ function updateSettings(u: StudioSettingsUpdate): StudioSettings {
 
 const health = () => ({
   ...base.health,
+  // The demo daemon deletes goals as ue-mcp does (sim.ts), so Delete is offered.
+  features: [...((base.health as { features?: string[] }).features ?? []), "hub", GOAL_DELETE_FEATURE],
   projectRoot: DEMO_PROJECT_DIR.toLowerCase(),
   startedAt,
   lastEventId: eventId,

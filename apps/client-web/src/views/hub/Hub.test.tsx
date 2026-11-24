@@ -12,6 +12,7 @@ const m = vi.hoisted(() => ({
     overview: vi.fn(), verdict: vi.fn(), plan: vi.fn(), runCheck: vi.fn(), createGoal: vi.fn(), updateGoal: vi.fn(), check: vi.fn(), run: vi.fn(),
     runs: vi.fn(), addChecks: vi.fn(), removeCheck: vi.fn(), fix: vi.fn(), writePlaytests: vi.fn(), resultsUrl: (id: string) => `/r/${id}`,
     addRequire: vi.fn(), removeRequire: vi.fn(), orderRequires: vi.fn(), orderChecks: vi.fn(), cancelPlan: vi.fn(), pause: vi.fn(),
+    deleteGoal: vi.fn(),
   },
 }));
 vi.mock("../../api", () => ({ ApiError: class extends Error {}, api: { hub: m.hub, openAsset: m.open, qaCaptureUrl: () => "", qaPlaytestDelete: m.del, settings: () => new Promise(() => {}), agentSettings: () => m.agentSettings() } }));
@@ -19,10 +20,10 @@ import { HubView } from "./Hub";
 import type { HubData } from "./state";
 import { hubFixture } from "./test-data";
 
-function Harness({ start, narrow = false, onOpenChat = () => {} }: { start: HubOverview; narrow?: boolean; onOpenChat?: (s: string, r?: string) => void }) {
+function Harness({ start, narrow = false, onOpenChat = () => {}, canDeleteGoals = false }: { start: HubOverview; narrow?: boolean; onOpenChat?: (s: string, r?: string) => void; canDeleteGoals?: boolean }) {
   const [overview, setOverview] = useState<HubOverview | null>(start);
   const data: HubData = { overview, error: null, version: 0, reload: () => {}, patch: (f) => setOverview((o) => (o ? f(o) : o)) };
-  return <HubView data={data} narrow={narrow} onOpenChat={onOpenChat} />;
+  return <HubView data={data} narrow={narrow} onOpenChat={onOpenChat} canDeleteGoals={canDeleteGoals} />;
 }
 
 const key = (k: string, o: Partial<KeyboardEventInit> = {}) => fireEvent.keyDown(document.body, { key: k, ...o });
@@ -428,6 +429,73 @@ describe("deleting playtests", () => {
     expect(m.del.mock.calls.map((c) => c[0])).toEqual(["/Game/Tests/Jump", "/Game/Tests/Swim", "/Game/Tests/Menu"]);
     expect(within(screen.getByRole("dialog")).getByText("Swim")).toBeTruthy();
     expect(screen.getByText("Asset is referenced")).toBeTruthy();
+  });
+});
+
+describe("deleting goals and milestones", () => {
+  it("is hidden when the daemon does not offer it", () => {
+    window.location.hash = "#/playtests/goals/movement";
+    render(<Harness start={hubFixture()} />);
+    expect(screen.queryByRole("button", { name: "Delete" })).toBeNull();
+    window.location.hash = "#/playtests/goals";
+    cleanup();
+    render(<Harness start={hubFixture()} />);
+    expect(screen.queryByRole("button", { name: /^Delete / })).toBeNull();
+  });
+
+  it("confirms from the goal page, saying its playtests stay and naming the goals that required it, then goes back the way the user came", async () => {
+    m.hub.deleteGoal.mockResolvedValue(undefined);
+    window.location.hash = "#/playtests/goals/alpha";
+    render(<Harness start={hubFixture()} canDeleteGoals />);
+    fireEvent.click(within(screen.getByRole("region", { name: "Required goals" })).getByText("Movement feels right"));
+    expect(heading()).toBe("Movement feels right");
+    fireEvent.click(screen.getByRole("button", { name: "Delete" }));
+    const dialog = screen.getByRole("dialog", { name: 'Delete the goal "Movement feels right"?' });
+    expect(within(dialog).getByText("Its playtests stay in the library and keep their past runs.")).toBeTruthy();
+    expect(within(within(dialog).getByRole("list", { name: "These will no longer require it:" })).getByText("Alpha")).toBeTruthy();
+    expect(m.hub.deleteGoal).not.toHaveBeenCalled();
+    fireEvent.click(within(dialog).getByRole("button", { name: "Delete goal" }));
+    await waitFor(() => expect(heading()).toBe("Alpha"));
+    expect(m.hub.deleteGoal).toHaveBeenCalledWith("movement");
+    expect(screen.getByRole("status").textContent).toContain("Deleted Movement feels right");
+  });
+
+  it("goes to the Milestones list after deleting a milestone opened fresh", async () => {
+    m.hub.deleteGoal.mockResolvedValue(undefined);
+    window.history.replaceState(null, "", "#/playtests/goals/alpha");
+    render(<Harness start={hubFixture()} canDeleteGoals />);
+    fireEvent.click(screen.getByRole("button", { name: "Delete" }));
+    const dialog = screen.getByRole("dialog", { name: 'Delete the milestone "Alpha"?' });
+    expect(within(dialog).getByText("The goals it requires stay. Its playtests stay in the library and keep their past runs.")).toBeTruthy();
+    expect(within(dialog).queryByRole("list")).toBeNull();
+    fireEvent.click(within(dialog).getByRole("button", { name: "Delete milestone" }));
+    await waitFor(() => expect(heading()).toBe("Milestones"));
+    expect(m.hub.deleteGoal).toHaveBeenCalledWith("alpha");
+  });
+
+  it("deletes from the Goals list without leaving it, and shows a refusal in the dialog", async () => {
+    m.hub.deleteGoal.mockRejectedValueOnce(new Error('"Tutorial completes" can\'t be deleted while a run made for it is queued or running: "Run Tutorial completes". Cancel that run or let it finish, then try again.'));
+    m.hub.deleteGoal.mockResolvedValueOnce(undefined);
+    window.location.hash = "#/playtests/goals";
+    render(<Harness start={hubFixture()} canDeleteGoals />);
+    fireEvent.click(screen.getByRole("button", { name: "Delete Tutorial completes" }));
+    const dialog = screen.getByRole("dialog", { name: 'Delete the goal "Tutorial completes"?' });
+    fireEvent.click(within(dialog).getByRole("button", { name: "Delete goal" }));
+    expect((await within(dialog).findByRole("alert")).textContent).toContain("Cancel that run");
+    fireEvent.click(within(dialog).getByRole("button", { name: "Delete goal" }));
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+    expect(m.hub.deleteGoal).toHaveBeenCalledTimes(2);
+    expect(heading()).toBe("Goals");
+  });
+
+  it("offers Delete on each milestone in the Milestones list", () => {
+    window.location.hash = "#/playtests/milestones";
+    render(<Harness start={hubFixture()} canDeleteGoals />);
+    fireEvent.click(screen.getByRole("button", { name: "Delete Alpha" }));
+    expect(screen.getByRole("dialog", { name: 'Delete the milestone "Alpha"?' })).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
+    expect(screen.queryByRole("dialog")).toBeNull();
+    expect(m.hub.deleteGoal).not.toHaveBeenCalled();
   });
 });
 

@@ -344,6 +344,7 @@ export const PARITY: Record<string, ParityEntry> = {
   "hub-goal": {notOnPhone: HUB},
   "hub-goal-not-on-checkout": {notOnPhone: HUB},
   "hub-goal-milestone": {notOnPhone: HUB},
+  "hub-goal-delete": {notOnPhone: HUB},
   "hub-library": {notOnPhone: HUB},
   "hub-check": {notOnPhone: HUB},
   "hub-run": {notOnPhone: HUB},
