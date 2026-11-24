@@ -2,6 +2,21 @@
 
 The branch is `feat/playtest-hub`. It is local only and the full suite passes. The final design is the top section of [review.md](review.md).
 
+## Boundary correction (user, 2026-11-23): the hub's machinery belongs in ue-mcp
+
+Studio is a frontend, plus what that frontend directly needs. The hub's data model and machinery are core capabilities and move to ue-mcp (`db-lyon/ue-mcp`), per CLAUDE.md's rule about ue-mcp. That covers:
+
+- the goal and milestone store;
+- the status and health rules;
+- the plan queue;
+- run provenance and evidence;
+- the editor lease;
+- the agent tools.
+
+Studio keeps the hub screens and the client-core view models, and talks to ue-mcp's API. This also gives external MCP agents the hub natively, and lets the cloud product build on ue-mcp.
+
+Open decision: ship the hub tomorrow behind the experiment switch and move it later, with a one-time import of Studio's store into ue-mcp's; or hold the hub until the move. The recommendation is to hold it.
+
 ## MVP (ship 2026-11-24)
 
 The MVP is autonomous playtests on the Playtests tab, behind the Playtest Hub experiment, which is off by default:
