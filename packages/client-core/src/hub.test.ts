@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { DEFAULT_ACCEPTANCE, type CheckState, type EvidenceScope, type Goal, type GoalState, type AttentionItem, type QueueState, type PlanRun } from "@ue-mcp-studio/shared";
+import { DEFAULT_ACCEPTANCE, type CheckState, type Goal, type GoalState, type AttentionItem, type QueueState, type PlanRun } from "@ue-mcp-studio/shared";
 import {
   CHECK_HEALTH_LOOK,
   GOAL_STATUS_LOOK,
@@ -30,7 +30,6 @@ import {
   importReportText,
   importedText,
   isGoalsFile,
-  evidenceLabel,
   provenanceParts,
   revisionText,
   runMarks,
@@ -178,14 +177,6 @@ describe("overview models", () => {
       check("c", "passing", { change: { ...broke, kind: "fixed" } }),
     ]).map((c) => c.name)).toEqual(["a"]);
     expect(flips(["passed", "failed", "passed", "passed", "stopped", "failed"])).toBe(3);
-  });
-
-  it("says whose view the statuses are, at which revision", () => {
-    const at = (current: EvidenceScope["current"]): string => evidenceLabel({ store: "local", current });
-    expect(at({ vcs: "git", revision: "a1b2c3d4e5f6", dirty: 0 })).toBe("On this computer at a1b2c3d");
-    expect(at({ vcs: "perforce", revision: "1234", dirty: 3 })).toBe("On this computer at changelist 1234 with 3 changed files");
-    expect(at({ vcs: "git", revision: null, dirty: null })).toBe("On this computer, revision unknown");
-    expect(at({ vcs: "none", revision: null, dirty: null })).toBe("On this computer");
   });
 
   it("marks runs that do not count, and says what a run tested", () => {

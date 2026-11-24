@@ -35,7 +35,7 @@ import { GoalScreen } from "./Goal";
 import { LibraryScreen } from "./Library";
 import { CheckScreen } from "./Check";
 import { RunScreen } from "./Run";
-import { CheckPicker, GoalDialog, GoalPicker, RequirePicker } from "./dialogs";
+import { CheckPicker, DeleteDialog, GoalDialog, GoalPicker, RequirePicker } from "./dialogs";
 import type { GoalPreset } from "./state";
 import "./hub.css";
 
@@ -45,7 +45,8 @@ type Overlay =
   | { kind: "goal"; goalId: string | null; preset?: GoalPreset }
   | { kind: "addChecks"; goalId: string }
   | { kind: "require"; goalId: string }
-  | { kind: "addToGoal"; checkIds: string[] };
+  | { kind: "addToGoal"; checkIds: string[] }
+  | { kind: "delete"; checkIds: string[]; onDone?: (deleted: string[]) => void };
 
 /** The hub screen the hash names, read again on every hashchange (Back, Forward, a pasted link). */
 function useHubRoute(): [HubRoute, (r: HubRoute) => void] {
@@ -158,6 +159,7 @@ export function HubView({ data, narrow, onOpenChat, onChat }: {
     addChecks: (goalId) => setOverlay({ kind: "addChecks", goalId }),
     requireGoal: (goalId) => setOverlay({ kind: "require", goalId }),
     addToGoal: (checkIds) => setOverlay({ kind: "addToGoal", checkIds }),
+    deleteChecks: (checkIds, onDone) => setOverlay({ kind: "delete", checkIds, onDone }),
     onKeys: (h) => {
       screenKeys.current = h;
     },
@@ -188,6 +190,7 @@ export function HubView({ data, narrow, onOpenChat, onChat }: {
         {overlay?.kind === "addChecks" && <CheckPicker goalId={overlay.goalId} onClose={() => setOverlay(null)} />}
         {overlay?.kind === "require" && <RequirePicker goalId={overlay.goalId} onClose={() => setOverlay(null)} />}
         {overlay?.kind === "addToGoal" && <GoalPicker checkIds={overlay.checkIds} onClose={() => setOverlay(null)} />}
+        {overlay?.kind === "delete" && <DeleteDialog checkIds={overlay.checkIds} onDone={overlay.onDone} onClose={() => setOverlay(null)} />}
       </div>
     </HubContext.Provider>
   );

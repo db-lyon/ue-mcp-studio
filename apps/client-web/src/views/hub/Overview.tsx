@@ -37,7 +37,7 @@ import {
 } from "@ue-mcp-studio/client-core";
 import { api } from "../../api";
 import { useCursor, useHub } from "./state";
-import { Empty, EvidenceScope, HubIcon, HubLink, Progress, ScreenHead, StatusMark, StatusPill } from "./parts";
+import { Empty,HubIcon, HubLink, Progress, ScreenHead, StatusMark, StatusPill } from "./parts";
 import { CheckRow, GoalRow } from "./rows";
 
 export function OverviewScreen({ onChat }: { onChat?: () => void }) {
@@ -71,7 +71,7 @@ export function OverviewScreen({ onChat }: { onChat?: () => void }) {
     <div className="hub-screen hub-overview">
       <ScreenHead
         title={HUB_COPY.overview}
-        sub={<><span>{goalSummary(o.goals)}</span><EvidenceScope /></>}
+        sub={<><span>{goalSummary(o.goals)}</span></>}
         actions={<>
           {failing > 0 && <button onClick={() => void hub.runPlan({ scope: { kind: "failing" } }, "every failing playtest")}><HubIcon name="play" size={12} /> {HUB_COPY.runFailing} <span className="hub-btn-count">{failing}</span></button>}
           {runnable > 0 && <button onClick={() => void hub.runPlan({ scope: { kind: "all" } }, "every playtest")}><HubIcon name="play" size={12} /> {HUB_COPY.runAll}</button>}

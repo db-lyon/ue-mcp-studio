@@ -5,13 +5,14 @@ import { useState } from "react";
 import type { HubOverview } from "@ue-mcp-studio/shared";
 
 const m = vi.hoisted(() => ({
+  del: vi.fn(),
   hub: {
     overview: vi.fn(), verdict: vi.fn(), plan: vi.fn(), runCheck: vi.fn(), createGoal: vi.fn(), updateGoal: vi.fn(), check: vi.fn(), run: vi.fn(),
     runs: vi.fn(), addChecks: vi.fn(), removeCheck: vi.fn(), fix: vi.fn(), writePlaytests: vi.fn(), resultsUrl: (id: string) => `/r/${id}`,
     addRequire: vi.fn(), removeRequire: vi.fn(), orderRequires: vi.fn(), orderChecks: vi.fn(), cancelPlan: vi.fn(), pause: vi.fn(),
   },
 }));
-vi.mock("../../api", () => ({ api: { hub: m.hub, qaCaptureUrl: () => "", settings: () => new Promise(() => {}) } }));
+vi.mock("../../api", () => ({ api: { hub: m.hub, qaCaptureUrl: () => "", qaPlaytestDelete: m.del, settings: () => new Promise(() => {}) } }));
 import { HubView } from "./Hub";
 import type { HubData } from "./state";
 import { hubFixture } from "./test-data";
@@ -26,6 +27,7 @@ const key = (k: string, o: Partial<KeyboardEventInit> = {}) => fireEvent.keyDown
 const heading = () => screen.getByRole("heading", { level: 1 }).textContent;
 
 beforeEach(() => {
+  m.del.mockReset();
   window.location.hash = "#/playtests";
   for (const f of Object.values(m.hub)) if (typeof f === "function" && "mockReset" in f) (f as ReturnType<typeof vi.fn>).mockReset();
   m.hub.plan.mockResolvedValue({ plan: { id: "p1", title: "Movement feels right", items: [{}, {}] } });
@@ -331,6 +333,50 @@ describe("the library", () => {
     fireEvent.click(screen.getByRole("button", { name: /^Never run/ }));
     expect(document.querySelectorAll(".hub-check-row").length).toBe(1);
     expect(screen.getByText("Menu")).toBeTruthy();
+  });
+});
+
+describe("deleting playtests", () => {
+  it("confirms by asset path from a playtest, deletes it and returns to the Library", async () => {
+    m.del.mockResolvedValue({ script: "/Game/Tests/Menu" });
+    m.hub.check.mockResolvedValue({ state: hubFixture().checks[2], runs: [], more: false, script: null });
+    window.location.hash = "#/playtests/checks/" + encodeURIComponent("script:/Game/Tests/Menu");
+    render(<Harness start={hubFixture()} />);
+    fireEvent.click(screen.getByRole("button", { name: /^Delete/ }));
+    const dialog = screen.getByRole("dialog", { name: "Delete this playtest?" });
+    expect(within(dialog).getByText("/Game/Tests/Menu")).toBeTruthy();
+    expect(m.del).not.toHaveBeenCalled();
+    fireEvent.click(within(dialog).getByRole("button", { name: "Delete" }));
+    await waitFor(() => expect(heading()).toBe("Library"));
+    expect(m.del).toHaveBeenCalledWith("/Game/Tests/Menu");
+  });
+
+  it("cancels without deleting", () => {
+    m.hub.check.mockResolvedValue({ state: hubFixture().checks[2], runs: [], more: false, script: null });
+    window.location.hash = "#/playtests/checks/" + encodeURIComponent("script:/Game/Tests/Menu");
+    render(<Harness start={hubFixture()} />);
+    fireEvent.click(screen.getByRole("button", { name: /^Delete/ }));
+    fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
+    expect(screen.queryByRole("dialog")).toBeNull();
+    expect(m.del).not.toHaveBeenCalled();
+  });
+
+  it("deletes the selection in one pass and names the ones that failed", async () => {
+    m.del.mockImplementation(async (p: string) => {
+      if (p === "/Game/Tests/Swim") throw new Error("Asset is referenced");
+      return { script: p };
+    });
+    window.location.hash = "#/playtests/checks";
+    render(<Harness start={hubFixture()} />);
+    fireEvent.click(screen.getByLabelText("Select all 3"));
+    fireEvent.click(screen.getByRole("button", { name: /^Delete/ }));
+    const dialog = screen.getByRole("dialog", { name: "Delete 3 playtests?" });
+    for (const p of ["Jump", "Swim", "Menu"]) expect(within(dialog).getByText("/Game/Tests/" + p)).toBeTruthy();
+    fireEvent.click(within(dialog).getByRole("button", { name: "Delete" }));
+    await screen.findByRole("dialog", { name: "1 of 3 could not be deleted" });
+    expect(m.del.mock.calls.map((c) => c[0])).toEqual(["/Game/Tests/Jump", "/Game/Tests/Swim", "/Game/Tests/Menu"]);
+    expect(within(screen.getByRole("dialog")).getByText("Swim")).toBeTruthy();
+    expect(screen.getByText("Asset is referenced")).toBeTruthy();
   });
 });
 

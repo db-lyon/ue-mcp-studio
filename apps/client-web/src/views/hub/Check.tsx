@@ -28,7 +28,7 @@ import {
 import { api } from "../../api";
 import { QaCard, QaContext, savedScriptActions, type QaLive } from "../../chat/Qa";
 import { useCursor, useHub } from "./state";
-import { Empty, EvidenceScope, HubIcon, HubLink, Placeholder, ScreenHead, StatusMark, StatusPill, WinLoss } from "./parts";
+import { Empty,HubIcon, HubLink, Placeholder, ScreenHead, StatusMark, StatusPill, WinLoss } from "./parts";
 
 const PAGE = 30;
 
@@ -118,12 +118,12 @@ export function CheckScreen({ checkId }: { checkId: string }) {
           <StatusPill look={look} />
           {state.change && <StatusPill look={CHECK_CHANGE_LOOK[state.change.kind]} />}
           <span className="mono small dim hub-path">{state.check.target}</span>
-          <EvidenceScope />
         </>}
         actions={<>
           <button className="primary" onClick={() => void hub.runCheck(checkId, state.name)} disabled={state.missing} title="Run (r)"><HubIcon name="play" size={12} /> Run</button>
           {state.health === "failing" && <button onClick={() => void fix()} title="An agent fixes it in a chat session of its own"><HubIcon name="assign" size={12} /> {HUB_COPY.fix}</button>}
           <button onClick={() => hub.addToGoal([checkId])}><HubIcon name="goal" size={12} /> {HUB_COPY.addToGoal}</button>
+          <button className="danger-button" disabled={state.missing} title={state.missing ? "Not on this checkout" : "Delete the script asset"} onClick={() => hub.deleteChecks([checkId], () => go({ screen: "library" }))}><HubIcon name="close" size={12} /> {HUB_COPY.delete}</button>
           {script && <button className="ghost" aria-expanded={editing} onClick={() => setEditing((e) => !e)}><HubIcon name="edit" size={12} /> {editing ? "Done editing" : "Edit steps"}</button>}
         </>}
       />

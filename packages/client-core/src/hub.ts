@@ -28,8 +28,6 @@ import {
   type CheckDetail,
   type CheckMeta,
   type CheckMetaUpdate,
-  type CurrentProvenance,
-  type EvidenceScope,
   type FixRequest,
   type GoalCheckUpdate,
   type HealthRule,
@@ -329,20 +327,6 @@ export function revisionText(vcs: RunVcs | null, revision: string | null): strin
 
 const changedFiles = (n: number): string => `${n} changed ${n === 1 ? "file" : "files"}`;
 
-/**
- * Whose view every status is: "On this computer at a1b2c3d", with the
- * workspace's changed files when it has some, since runs over them do not
- * count toward acceptance.
- */
-export function evidenceLabel(e: EvidenceScope): string {
-  const c: CurrentProvenance = e.current;
-  const where = "On this computer";
-  if (c.vcs === "none") return where;
-  const rev = revisionText(c.vcs, c.revision);
-  const base = rev ? `${where} at ${rev}` : `${where}, revision unknown`;
-  return c.dirty ? `${base} with ${changedFiles(c.dirty)}` : base;
-}
-
 /** What tells a run apart in a list: why it does not count, and what it tested when that is not the plain case. */
 export interface RunMark {
   label: string;
@@ -397,6 +381,13 @@ export const HUB_COPY = {
   runSelected: "Run selected",
   addToGoal: "Add to goal",
   addPlaytests: "Add playtests",
+  delete: "Delete",
+  /** The delete dialog's question: one playtest, or the count. */
+  deleteTitle: (n: number) => (n === 1 ? "Delete this playtest?" : `Delete ${n} playtests?`),
+  deleteLead: (n: number) => `This deletes ${n === 1 ? "its asset" : "their assets"} from the project. Goals that list ${n === 1 ? "it" : "them"} keep ${n === 1 ? "it" : "them"} and show ${n === 1 ? "it" : "them"} as not on this checkout.`,
+  deleting: (done: number, total: number) => `Deleting ${done + 1} of ${total}`,
+  deleted: (n: number) => (n === 1 ? "Deleted the playtest" : `Deleted ${n} playtests`),
+  deleteFailedTitle: (failed: number, total: number) => `${failed} of ${total} could not be deleted`,
   fixFailing: "Fix failing with an agent",
   fix: "Fix with an agent",
   /** After a fix is asked for: what was queued, and where the work happens. */
@@ -438,7 +429,6 @@ export const HUB_COPY = {
   paletteEmpty: "No matches.",
   failNoteLabel: "What went wrong?",
   shortcuts: "Keyboard shortcuts",
-  evidenceLocal: "Status comes from the runs on this computer only, so a teammate may see another status for the same goal.",
   /** Beside the "Not on this checkout" status: why that is no failure. */
   notOnCheckout: "Goals keep it listed, since another branch may have it.",
   /** A goal names a script by the path it had before it moved. */

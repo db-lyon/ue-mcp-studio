@@ -1,7 +1,7 @@
 /**
  * The hub's dialogs: New and Edit goal, Add playtests to a goal, and Add to
- * goal for playtests picked in the library. Each closes on Escape or the
- * scrim.
+ * goal for playtests picked in the library, and Delete playtests. Each closes
+ * on Escape or the scrim.
  */
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { GOAL_PRIORITIES, type GoalPriority } from "@ue-mcp-studio/shared";
@@ -266,6 +266,77 @@ export function GoalPicker({ checkIds, onClose }: { checkIds: string[]; onClose:
         <button className="ghost" onClick={() => { onClose(); hub.editGoal(null); }}>{HUB_COPY.newGoal}</button>
         <span className="spacer" />
         <button className="ghost" onClick={onClose}>Cancel</button>
+      </div>
+    </Dialog>
+  );
+}
+
+/**
+ * Delete playtests: one confirmation naming every asset path, then the
+ * scripts go one at a time through the same call the card editor uses.
+ * Failures are listed by name; what was deleted stays deleted.
+ */
+export function DeleteDialog({ checkIds, onDone, onClose }: { checkIds: string[]; onDone?: (deleted: string[]) => void; onClose: () => void }) {
+  const hub = useHub();
+  const [items] = useState(() => hub.o.checks.filter((c) => checkIds.includes(c.id)).map((c) => ({ id: c.id, name: c.name, path: c.check.target })));
+  const [done, setDone] = useState(0);
+  const [running, setRunning] = useState(false);
+  const [failed, setFailed] = useState<Array<{ name: string; path: string; error: string }> | null>(null);
+  const busy = useRef(false);
+  const close = () => {
+    if (!busy.current) onClose();
+  };
+  const run = async () => {
+    if (busy.current) return;
+    busy.current = true;
+    setRunning(true);
+    const gone: string[] = [];
+    const bad: Array<{ name: string; path: string; error: string }> = [];
+    for (const it of items) {
+      try {
+        await api.qaPlaytestDelete(it.path);
+        gone.push(it.id);
+      } catch (e) {
+        bad.push({ name: it.name, path: it.path, error: (e as Error).message });
+      }
+      setDone((n) => n + 1);
+    }
+    hub.data.reload();
+    if (gone.length) onDone?.(gone);
+    busy.current = false;
+    setRunning(false);
+    if (bad.length === 0) {
+      hub.notify(HUB_COPY.deleted(gone.length));
+      onClose();
+    } else {
+      setFailed(bad);
+    }
+  };
+  const title = failed ? HUB_COPY.deleteFailedTitle(failed.length, items.length) : HUB_COPY.deleteTitle(items.length);
+  return (
+    <Dialog label={title} onClose={close} className="hub-delete">
+      <div className="overlay-head">{title}</div>
+      {failed ? (
+        <ul className="hub-delete-list" aria-label="Not deleted">
+          {failed.map((f) => <li key={f.path}><span className="hub-row-title">{f.name}</span> <span className="mono small dim">{f.path}</span><div className="small hub-bad-text">{f.error}</div></li>)}
+        </ul>
+      ) : (
+        <>
+          <p className="small">{HUB_COPY.deleteLead(items.length)}</p>
+          <ul className="hub-delete-list" aria-label="Assets to delete">
+            {items.map((it) => <li key={it.id} className="mono small">{it.path}</li>)}
+          </ul>
+        </>
+      )}
+      {running && <div className="small dim" role="status">{HUB_COPY.deleting(Math.min(done, items.length - 1), items.length)}</div>}
+      <div className="hub-form-actions">
+        <span className="spacer" />
+        {failed ? <button className="primary" autoFocus onClick={onClose}>Close</button> : (
+          <>
+            <button className="ghost" disabled={running} onClick={close}>Cancel</button>
+            <button className="danger-button" disabled={running || items.length === 0} onClick={() => void run()}>{HUB_COPY.delete}</button>
+          </>
+        )}
       </div>
     </Dialog>
   );
