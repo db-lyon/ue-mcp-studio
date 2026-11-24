@@ -305,7 +305,7 @@ export interface RunnerOptions {
   dialogs?: DialogBroker;
   /** Puts the PIE test script runs a session's calls start in the chat, as Playtest cards. */
   qa?: QaBroker;
-  /** A fix loop's write lease: refuses its session's saves of packages the person has unsaved changes in (write-lease.ts). */
+  /** A fix loop's write lease: refuses its session's saves of packages the person has unsaved changes in (ue-mcp's WriteLease). */
   writes?: { wrap(host: AgentHost, sessionId: string): AgentHost };
   /** The chat's form cards, which the main agent's ask_user raises; without it ask_user answers that it cannot ask here. */
   forms?: FormBroker;

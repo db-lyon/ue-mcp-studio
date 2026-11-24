@@ -332,7 +332,7 @@ export interface LoopOptions {
   /** A loop that stopped for the user, which this one goes on from: its first attempt fixes what still failed. */
   carry?: LoopCarry | null;
   /**
-   * The per-package write lease (write-lease.ts): taken before each
+   * The per-package write lease (ue-mcp's WriteLease): taken before each
    * attempt, so the attempt's agents never save a package the person has
    * unsaved changes in, and released when the attempt ends.
    */

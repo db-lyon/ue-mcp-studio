@@ -1,6 +1,6 @@
 /**
- * Runs holding at a manual step for the person's verdict (the agent's
- * verdict-hold.ts): the list, read once and then from studio.qa.held, and
+ * Runs holding at a manual step for the person's verdict (ue-mcp's
+ * VerdictHold, which the agent runs): the list, read once and then from studio.qa.held, and
  * the app's bar that says on every tab which step waits, with its countdown
  * and actions. The playtest card reads the same list (held-context.ts).
  * Beside it, the Playtest Hub's lease bar: while the hub holds the editor,

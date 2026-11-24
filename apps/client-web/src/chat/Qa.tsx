@@ -752,7 +752,7 @@ function Chevron({ open }: { open: boolean }) {
   );
 }
 
-/** Resume and watch, while the run holds at this step with Play In Editor paused (the agent's verdict-hold.ts). */
+/** Resume and watch, while the run holds at this step with Play In Editor paused (ue-mcp's VerdictHold, which the agent runs). */
 function ResumeWatch({ runId, step }: { runId: string; step: number }) {
   const h = useHeldRun(runId);
   const [busy, setBusy] = useState(false);

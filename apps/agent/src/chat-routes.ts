@@ -42,7 +42,7 @@
  */
 import { registerVersionNotice } from "./version-notice.js";
 import { registerWhatsNew } from "./whats-new.js";
-import { readDiscovery, type DaemonExtensionApi } from "ue-mcp/daemon";
+import { WriteLease, readDiscovery, type DaemonExtensionApi } from "ue-mcp/daemon";
 import { registerQueueRoutes } from "./queue-routes.js";
 import { registerVideoRoutes } from "./video-routes.js";
 import { PlaytestFlow } from "./playtest-flow.js";
@@ -85,7 +85,6 @@ import { registerForms } from "./forms.js";
 import { registerQa } from "./qa.js";
 import { configureHub, offersHub } from "./hub-bridge.js";
 import { startHubMove } from "./hub-migration.js";
-import { WriteLease } from "./write-lease.js";
 import type { PieWatch } from "./viewport/pie-watch.js";
 import type { Presence } from "./notify.js";
 import { PlaytestIndex, registerPlaytestIndex, type PlaytestIndexHost } from "./playtest-index.js";

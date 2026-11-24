@@ -10,7 +10,7 @@
  *   DELETE /qa/runs/:id/assign          cancel the loop
  *   POST   /qa/runs/:id/loop/revert     revert the loop's changes: { attempt? }, every attempt's when none is named
  *   POST   /qa/runs/:id/stop            Stop on a live card or the bar's Stop now: pie(script_stop), and PIE with a run held for a verdict
- *   GET    /qa/held                     runs holding at a step for a person's verdict, PIE paused (verdict-hold.ts)
+ *   GET    /qa/held                     runs holding at a step for a person's verdict, PIE paused (ue-mcp's VerdictHold)
  *   POST   /qa/runs/:id/resume          Resume and watch: PIE unpaused while the step still waits for its verdict
  *   POST   /qa/runs/:id/run             Start playtest on a draft's card: { startPie?, players?, listen?, record? }
  *   PUT    /qa/runs/:id/script          Edit on a draft's card: { steps }, saved with pie(script_update)
@@ -39,7 +39,7 @@
 import * as crypto from "node:crypto";
 import * as fs from "node:fs";
 import * as path from "node:path";
-import type { ActionResult, DaemonExtensionApi } from "ue-mcp/daemon";
+import { VerdictHold, type ActionResult, type DaemonExtensionApi } from "ue-mcp/daemon";
 import {
   qaActive,
   qaApplyStreamEvent,
@@ -65,7 +65,6 @@ import { type ElicitParams, type ElicitResult, type FormBroker } from "./forms.j
 import type { SessionStore } from "./sessions.js";
 import type { AgentHost, TurnCallOptions } from "./tools.js";
 import type { PlaytestStore } from "./playtest-store.js";
-import { VerdictHold } from "./verdict-hold.js";
 
 const CAPTURE_TYPES: Record<string, string> = { ".png": "image/png", ".jpg": "image/jpeg", ".jpeg": "image/jpeg", ".webp": "image/webp" };
 
@@ -107,7 +106,7 @@ export interface QaLoopSupport {
   blocked?: (sessionId: string) => string | null;
   /** A loop needs the user: the Windows notification and anything else beside the card. */
   notify?: (sessionId: string, loop: QaLoop, run: QaRun) => void;
-  /** The per-package write lease each attempt takes (write-lease.ts). */
+  /** The per-package write lease each attempt takes (ue-mcp's WriteLease). */
   writes?: LoopWrites;
   /** The loop's clock. */
   now?: () => number;
