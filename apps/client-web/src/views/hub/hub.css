@@ -393,7 +393,9 @@ input.hub-draft-name[aria-invalid="true"] { border-color: var(--bad); }
 .hub-draft-row { align-items: center; grid-template-columns: 92px auto auto; justify-content: start; }
 .hub-draft-block > .hub-draft-label { padding-top: 8px; }
 .hub-draft-block > :not(.hub-draft-label) { grid-column: 2; min-width: 0; }
-.hub-draft-row .seg button { display: inline-flex; align-items: center; gap: 6px; }
+.hub-draft-row .seg button { display: inline-flex; align-items: center; gap: 6px; white-space: nowrap; }
+/* The kind choice has no label beside it: it sits in the content column, in line with First and Then check, on one row. */
+.hub-draft-row > .seg { grid-column: 2; flex-wrap: nowrap; }
 .hub-draft-row .seg button .hub-draft-judge { color: inherit; }
 .hub-draft-acts { display: flex; flex-direction: column; gap: 6px; align-items: flex-start; }
 .hub-draft-acts > div { display: flex; flex-direction: column; gap: 4px; width: 100%; }
@@ -474,6 +476,7 @@ input.hub-draft-num-input { width: 74px; text-align: right; }
   .hub-draft-step-body { padding: 2px 10px 12px; }
   .hub-draft-step-peek { padding: 0 10px 10px; }
   .hub-draft-row, .hub-draft-block { grid-template-columns: minmax(0, 1fr); }
+  .hub-draft-row > .seg { grid-column: 1; }
   .hub-draft-block > :not(.hub-draft-label) { grid-column: 1; }
   .hub-draft-block > .hub-draft-label { padding-top: 0; }
   .hub-draft-row { grid-template-columns: auto auto; }
