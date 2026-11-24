@@ -13,8 +13,9 @@ import {
   type PlaytestRunsMode,
   type StudioSettings,
 } from "@ue-mcp-studio/shared";
-import { HELD_COPY, VERDICT_WAIT_OPTIONS } from "@ue-mcp-studio/client-core";
+import { AGENT_FIXES_COPY, HELD_COPY, VERDICT_WAIT_OPTIONS } from "@ue-mcp-studio/client-core";
 import { api } from "../../api";
+import { announceAgentFixes } from "../hub/state";
 import { Head } from "../SettingsHub";
 import { Card, NumberField, Opt, Row, Seg, Switch, useMessage } from "./controls";
 import { RemoteReadOnly } from "./RemoteReadOnly";
@@ -45,7 +46,7 @@ const PLAYTEST_STARTS: ReadonlyArray<{ id: PlaytestRunsMode; name: string; help:
   { id: "automatic", name: "Automatic", help: "Agents can also start playtests on their own." },
 ];
 
-type AgentUpdate = Partial<{ feedbackTool: boolean; feedbackMode: FeedbackMode; dialogMode: DialogMode; playtestRuns: PlaytestRunsMode; verdictWaitMinutes: number }>;
+type AgentUpdate = Partial<{ feedbackTool: boolean; feedbackMode: FeedbackMode; dialogMode: DialogMode; playtestRuns: PlaytestRunsMode; agentFixes: boolean; verdictWaitMinutes: number }>;
 
 /**
  * Approvals & review: what waits for the user before an agent acts, and what
@@ -64,6 +65,7 @@ export function ApprovalsSection() {
   const saveAgent = (u: AgentUpdate) =>
     api.saveAgentSettings(u).then((a) => {
       setAgent(a);
+      announceAgentFixes(a.agentFixes);
       if (a.restarting) msg.ok("Saved. ue-mcp restarts after the current turn.");
       else msg.clear();
     }, msg.fail);
@@ -84,6 +86,9 @@ export function ApprovalsSection() {
         </RemoteReadOnly>
         <Row title="Starting playtests" help={PLAYTEST_STARTS.find((p) => p.id === agent.playtestRuns)?.help}>
           <Seg label="Starting playtests" value={agent.playtestRuns} options={PLAYTEST_STARTS} onChange={(v) => void saveAgent({ playtestRuns: v })} />
+        </Row>
+        <Row inline title={AGENT_FIXES_COPY.setting} help={AGENT_FIXES_COPY.help}>
+          <Switch label={AGENT_FIXES_COPY.setting} on={agent.agentFixes} onChange={(v) => void saveAgent({ agentFixes: v })} />
         </Row>
         <Row title={HELD_COPY.verdictWait} help={HELD_COPY.verdictWaitHelp}>
           <Seg compact label={HELD_COPY.verdictWait} value={String(agent.verdictWaitMinutes)} options={VERDICT_WAIT_OPTIONS} onChange={(v) => void saveAgent({ verdictWaitMinutes: Number(v) })} />

@@ -36,7 +36,7 @@ import {
   sortChecks,
 } from "@ue-mcp-studio/client-core";
 import { api } from "../../api";
-import { useCursor, useHub } from "./state";
+import { useAgentFixes, useCursor, useHub } from "./state";
 import { Empty,HubIcon, HubLink, Progress, ScreenHead, StatusMark, StatusPill } from "./parts";
 import { CheckRow, GoalRow } from "./rows";
 
@@ -308,6 +308,7 @@ function NowRunning() {
 /** A batch of runs: its title and scope, progress, and each playtest's state; open by default while it runs. */
 function PlanCard({ plan, onCancel, live = false }: { plan: PlanRun; onCancel?: () => void; live?: boolean }) {
   const { o, go, openChat } = useHub();
+  const fixes = useAgentFixes();
   const p = planProgress(plan);
   const [open, setOpen] = useState(live);
   return (
@@ -322,7 +323,7 @@ function PlanCard({ plan, onCancel, live = false }: { plan: PlanRun; onCancel?: 
         {p.failed > 0 && <span className="pill bad">{p.failed} failed</span>}
         <span className="spacer" />
         {!live && plan.endedAt && <span className="small dim">{shortAgo(plan.endedAt)}</span>}
-        {live && p.current?.sessionId && <button className="ghost small-button" onClick={() => openChat(p.current!.sessionId!)}>{HUB_COPY.fixChat}</button>}
+        {fixes && live && p.current?.sessionId && <button className="ghost small-button" onClick={() => openChat(p.current!.sessionId!)}>{HUB_COPY.fixChat}</button>}
         {onCancel && <button className="ghost small-button" onClick={onCancel}>Stop</button>}
       </div>
       <Progress met={p.done} total={p.total} label={runsDone(p.done, p.total)} />
@@ -335,7 +336,7 @@ function PlanCard({ plan, onCancel, live = false }: { plan: PlanRun; onCancel?: 
                 <StatusMark look={look} label={look.label} />
                 {it.runId && plan.work !== "fix" ? <HubLink href={hubHash({ screen: "run", runId: it.runId })} onGo={() => go({ screen: "run", runId: it.runId! })}>{it.name}</HubLink> : <span>{it.name}</span>}
                 <span className="small dim">{look.label}{it.reason ? `: ${it.reason}` : ""}</span>
-                {it.sessionId && <button className="ghost small-button" onClick={() => openChat(it.sessionId!)}>{HUB_COPY.fixChat}</button>}
+                {fixes && it.sessionId && <button className="ghost small-button" onClick={() => openChat(it.sessionId!)}>{HUB_COPY.fixChat}</button>}
               </li>
             );
           })}

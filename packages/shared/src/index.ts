@@ -959,6 +959,11 @@ export interface AgentSettings {
   dialogMode: { mode: DialogMode | null; project: boolean };
   /** Playtest runs: who starts a playtest's run. */
   playtestRuns: PlaytestRunsMode;
+  /**
+   * Fix failing playtests with an agent, a setting per project and off by
+   * default: off, Studio gives the Playtest Hub no fixer, so no fix loop starts.
+   */
+  agentFixes: boolean;
   /** Wait for a verdict: minutes a run holds at a manual step before it stops (QA_VERDICT_WAIT_CHOICES). */
   verdictWaitMinutes: number;
   restarting?: boolean;

@@ -7,13 +7,14 @@ import type { HubOverview } from "@ue-mcp-studio/shared";
 const m = vi.hoisted(() => ({
   del: vi.fn(),
   open: vi.fn(async () => ({})),
+  agentSettings: vi.fn(),
   hub: {
     overview: vi.fn(), verdict: vi.fn(), plan: vi.fn(), runCheck: vi.fn(), createGoal: vi.fn(), updateGoal: vi.fn(), check: vi.fn(), run: vi.fn(),
     runs: vi.fn(), addChecks: vi.fn(), removeCheck: vi.fn(), fix: vi.fn(), writePlaytests: vi.fn(), resultsUrl: (id: string) => `/r/${id}`,
     addRequire: vi.fn(), removeRequire: vi.fn(), orderRequires: vi.fn(), orderChecks: vi.fn(), cancelPlan: vi.fn(), pause: vi.fn(),
   },
 }));
-vi.mock("../../api", () => ({ ApiError: class extends Error {}, api: { hub: m.hub, openAsset: m.open, qaCaptureUrl: () => "", qaPlaytestDelete: m.del, settings: () => new Promise(() => {}) } }));
+vi.mock("../../api", () => ({ ApiError: class extends Error {}, api: { hub: m.hub, openAsset: m.open, qaCaptureUrl: () => "", qaPlaytestDelete: m.del, settings: () => new Promise(() => {}), agentSettings: () => m.agentSettings() } }));
 import { HubView } from "./Hub";
 import type { HubData } from "./state";
 import { hubFixture } from "./test-data";
@@ -29,6 +30,8 @@ const heading = () => screen.getByRole("heading", { level: 1 }).textContent;
 
 beforeEach(() => {
   m.del.mockReset();
+  m.agentSettings.mockReset();
+  m.agentSettings.mockResolvedValue({ agentFixes: true });
   window.location.hash = "#/playtests";
   for (const f of Object.values(m.hub)) if (typeof f === "function" && "mockReset" in f) (f as ReturnType<typeof vi.fn>).mockReset();
   m.hub.plan.mockResolvedValue({ plan: { id: "p1", title: "Movement feels right", items: [{}, {}] } });
@@ -537,5 +540,33 @@ describe("a playtest's script", () => {
     render(<Harness start={hubFixture()} />);
     fireEvent.click(screen.getByRole("button", { name: "Open in Unreal" }));
     await waitFor(() => expect(m.open).toHaveBeenCalledWith("/Game/Tests/Jump.Jump"));
+  });
+});
+
+describe("Fix failing playtests with an agent", () => {
+  it("shows no Fix button while the setting is off, and leads to the setting instead", async () => {
+    m.agentSettings.mockResolvedValue({ agentFixes: false });
+    window.location.hash = "#/playtests/goals/movement";
+    render(<Harness start={hubFixture()} />);
+    const link = await screen.findByRole("link", { name: "Turn it on in Settings" });
+    expect(link.getAttribute("href")).toBe("#/settings/approvals");
+    expect(screen.getByText(/Fixing with an agent is off/)).toBeTruthy();
+    expect(screen.queryByRole("button", { name: /Fix failing with an agent/ })).toBeNull();
+    expect(screen.queryByRole("button", { name: /^Fix with an agent: / })).toBeNull();
+    // Its key does nothing either.
+    key("a");
+    expect(m.hub.fix).not.toHaveBeenCalled();
+    fireEvent.click(link);
+    expect(window.location.hash).toBe("#/settings/approvals");
+  });
+
+  it("offers Fix while it is on", async () => {
+    m.hub.fix.mockResolvedValue({ queued: 1, plan: null });
+    window.location.hash = "#/playtests/goals/movement";
+    render(<Harness start={hubFixture()} />);
+    expect(await screen.findByRole("button", { name: /Fix failing with an agent/ })).toBeTruthy();
+    expect(screen.queryByText(/Fixing with an agent is off/)).toBeNull();
+    key("a");
+    await waitFor(() => expect(m.hub.fix).toHaveBeenCalledWith({ goalId: "movement" }));
   });
 });

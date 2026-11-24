@@ -5,7 +5,8 @@
  */
 import type { AnchorHTMLAttributes, ReactNode } from "react";
 import type { RunOutcome } from "@ue-mcp-studio/shared";
-import { HUB_COPY, HUB_TRAIL_COPY, hubHash, sparkBars, sparkLabel, trailCrumbs, trailHasBack, type HubCrumb, type HubRoute, type StatusGlyph, type StatusLook } from "@ue-mcp-studio/client-core";
+import { AGENT_FIXES_COPY, AGENT_FIXES_SECTION, HUB_COPY, HUB_TRAIL_COPY, hubHash, sparkBars, sparkLabel, trailCrumbs, trailHasBack, type HubCrumb, type HubRoute, type StatusGlyph, type StatusLook } from "@ue-mcp-studio/client-core";
+import { formatLocation, pushLocation, readLocation } from "../../location";
 import { useHub } from "./state";
 
 const SHAPES: Record<StatusGlyph, ReactNode> = {
@@ -130,6 +131,17 @@ export function HubLink({ href, onGo, children, ...rest }: { href: string; onGo:
     >
       {children}
     </a>
+  );
+}
+
+/** Where a Fix button would be while Fix failing playtests with an agent is off: one quiet line, and the way to the setting. */
+export function AgentFixesOff() {
+  const to = { tab: "Settings" as const, section: AGENT_FIXES_SECTION, sub: null };
+  return (
+    <span className="muted hub-fixes-off">
+      {AGENT_FIXES_COPY.off}{" "}
+      <HubLink href={formatLocation({ ...readLocation(), ...to, session: null })} onGo={() => pushLocation(to)}>{AGENT_FIXES_COPY.turnOn}</HubLink>
+    </span>
   );
 }
 

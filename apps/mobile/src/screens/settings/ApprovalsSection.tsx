@@ -2,13 +2,13 @@
  * Approvals & review as a paired browser shows it (client-web
  * views/settings/ApprovalsSection.tsx): the ask-first rules and the dialog
  * policy read only, since they decide what runs on the computer without
- * asking; playtest starts, the wait for a verdict, feedback reports, who
+ * asking; playtest starts, agent fixes, the wait for a verdict, feedback reports, who
  * answers editor dialogs and turn review still change.
  */
 import { useEffect, useState } from "react";
 import { View } from "react-native";
 import { APPROVAL_ROWS, DESTRUCTIVE_HOLD_SECONDS, PROJECT_SCOPED_KINDS, type AgentSettings, type ApprovalKind, type ApprovalRule, type DialogMode, type DialogPolicy, type FeedbackMode, type PlaytestRunsMode, type StudioSettings } from "@ue-mcp-studio/shared";
-import { HELD_COPY, VERDICT_WAIT_OPTIONS } from "@ue-mcp-studio/client-core";
+import { AGENT_FIXES_COPY, HELD_COPY, VERDICT_WAIT_OPTIONS } from "@ue-mcp-studio/client-core";
 import { Card, font, T, useTheme } from "../../ui";
 import { CardLabel, Head, Opt, Radio, Seg, SettingRow, Switch, Txt, useMessage } from "./controls";
 import { Message } from "./GeneralSection";
@@ -45,7 +45,7 @@ const POLICIES: ReadonlyArray<{ id: DialogPolicy["kind"]; name: string }> = [
   { id: "safe", name: "Press Cancel or Keep" },
 ];
 
-type AgentUpdate = Partial<{ feedbackTool: boolean; feedbackMode: FeedbackMode; dialogMode: DialogMode; playtestRuns: PlaytestRunsMode; verdictWaitMinutes: number }>;
+type AgentUpdate = Partial<{ feedbackTool: boolean; feedbackMode: FeedbackMode; dialogMode: DialogMode; playtestRuns: PlaytestRunsMode; agentFixes: boolean; verdictWaitMinutes: number }>;
 
 export function ApprovalsSection() {
   const api = useSettingsApi();
@@ -84,6 +84,9 @@ export function ApprovalsSection() {
         </RemoteReadOnly>
         <SettingRow title="Starting playtests" help={PLAYTEST_STARTS.find((p) => p.id === agent.playtestRuns)?.help}>
           <Seg label="Starting playtests" value={agent.playtestRuns} options={PLAYTEST_STARTS} onChange={(v) => void saveAgent({ playtestRuns: v })} />
+        </SettingRow>
+        <SettingRow inline title={AGENT_FIXES_COPY.setting} help={AGENT_FIXES_COPY.help}>
+          <Switch label={AGENT_FIXES_COPY.setting} on={agent.agentFixes} onChange={(v) => void saveAgent({ agentFixes: v })} />
         </SettingRow>
         <SettingRow title={HELD_COPY.verdictWait} help={HELD_COPY.verdictWaitHelp}>
           <Seg compact label={HELD_COPY.verdictWait} value={String(agent.verdictWaitMinutes)} options={VERDICT_WAIT_OPTIONS} onChange={(v) => void saveAgent({ verdictWaitMinutes: Number(v) })} />

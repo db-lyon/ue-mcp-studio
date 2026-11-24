@@ -299,7 +299,7 @@ export const api = {
     call<void>("POST", `/v1/ext/studio/sessions/${encodeURIComponent(id)}/approvals/${encodeURIComponent(approvalId)}`, { decision }),
   busy: () => call<BusyState>("GET", "/v1/ext/studio/busy"),
   agentSettings: () => call<unknown>("GET", "/v1/ext/studio/agent-settings").then(agentSettingsOf),
-  saveAgentSettings: (u: Partial<{ feedbackTool: boolean; feedbackMode: FeedbackMode; dialogMode: DialogMode; playtestRuns: PlaytestRunsMode; verdictWaitMinutes: number }>) => call<unknown>("PUT", "/v1/ext/studio/agent-settings", u).then(agentSettingsOf),
+  saveAgentSettings: (u: Partial<{ feedbackTool: boolean; feedbackMode: FeedbackMode; dialogMode: DialogMode; playtestRuns: PlaytestRunsMode; agentFixes: boolean; verdictWaitMinutes: number }>) => call<unknown>("PUT", "/v1/ext/studio/agent-settings", u).then(agentSettingsOf),
   forms: (sessionId: string) => call<{ forms: PendingForm[] }>("GET", `/v1/ext/studio/forms?session=${encodeURIComponent(sessionId)}`),
   answerForm: (id: string, answer: { action: "accept"; content: Record<string, unknown> } | { action: "decline" | "cancel" }) =>
     call<void>("POST", `/v1/ext/studio/forms/${encodeURIComponent(id)}`, answer),

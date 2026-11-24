@@ -3595,6 +3595,8 @@ ${result}`);
     // The original's Claude conversations stay the original's: deleting the fork must not take them with it.
     copy.sdkPast = [];
     copy.archived = false;
+    // A fork is the user's own session, never one the Playtest Hub picks for its work.
+    delete copy.hubKey;
     if (index < s.transcript.length - 1) copy.notes.push(REWOUND_NOTE);
     this.files.copy(s.id, copy.id);
     this.o.store.save(copy);
