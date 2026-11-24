@@ -81,6 +81,12 @@ export interface StoredSession {
   crashed: boolean;
   /** Hidden from the session list until restored. */
   archived?: boolean;
+  /**
+   * The Playtest Hub's key for a session it made for its own work (a plan, one
+   * fix item of a plan, a replay, written playtests). Absent on a session the
+   * user made, which the hub never picks for its work.
+   */
+  hubKey?: string;
   /** The Agent SDK session a Claude subscription turn continues. */
   sdkSession?: string | null;
   /** Earlier Agent SDK sessions of this conversation, removed with it. */
