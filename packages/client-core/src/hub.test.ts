@@ -34,6 +34,7 @@ import {
   type HubRecent,
   moveId,
   moveQueued,
+  runFeedback,
   blankSchedule,
   scheduleErrors,
   scheduleText,
@@ -350,6 +351,15 @@ describe("schedules and the queue", () => {
     expect(moveQueued(q, "c", 0).queued.map((p) => p.id)).toEqual(["c", "a", "b"]);
     expect(moveQueued(q, "a", 99).queued.map((p) => p.id)).toEqual(["b", "c", "a"]);
     expect(moveQueued(q, "nope", 0)).toBe(q);
+  });
+
+  it("says where a person's Run went, and offers Run next only behind other queued runs", () => {
+    expect(runFeedback("Run Tutorial", { state: "started", position: 0, ahead: 0, resumed: true }, 3)).toEqual({ text: "Running Run Tutorial: 3 playtests", tone: "ok" });
+    expect(runFeedback("Jump", { state: "waiting", position: 1, ahead: 0, reason: "Play In Editor is in use" })).toEqual({ text: "Jump is next. Play In Editor is in use.", tone: "bad", openQueue: true });
+    expect(runFeedback("Jump", { state: "queued", position: 1, ahead: 1 })).toEqual({ text: "Queued Jump, 1 run ahead", tone: "ok", runNext: false, openQueue: true });
+    expect(runFeedback("Jump", { state: "queued", position: 3, ahead: 3 })).toMatchObject({ text: "Queued Jump, 3 runs ahead", runNext: true });
+    // A daemon that predates placements.
+    expect(runFeedback("Jump", undefined)).toEqual({ text: "Queued Jump", tone: "ok", openQueue: true });
   });
 
   it("the Queue screen sits under its own rail entry", () => {

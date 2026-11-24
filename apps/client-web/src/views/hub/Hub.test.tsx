@@ -373,6 +373,44 @@ describe("now running", () => {
   });
 });
 
+describe("a person's Run", () => {
+  const runAll = () => fireEvent.click(screen.getByRole("button", { name: "Run all" }));
+  const toast = () => screen.getByRole("status");
+
+  it("on an idle or paused queue starts at once and says so", async () => {
+    m.hub.plan.mockResolvedValue({ plan: { id: "p1", title: "Run all playtests", items: [{}, {}, {}] }, placement: { state: "started", position: 0, ahead: 0, resumed: true } });
+    const o = hubFixture();
+    o.queue = { ...o.queue, paused: true, pausedBy: "release" };
+    render(<Harness start={o} />);
+    runAll();
+    await waitFor(() => expect(toast().textContent).toContain("Running every playtest: 3 playtests"));
+    expect(within(toast()).queryByRole("button", { name: "Run next" })).toBeNull();
+  });
+
+  it("behind other runs queues, saying how many are ahead, with Run next and Open queue", async () => {
+    m.hub.plan.mockResolvedValue({ plan: { id: "p9", title: "Run all playtests", items: [{}] }, placement: { state: "queued", position: 2, ahead: 2 } });
+    m.hub.movePlan.mockResolvedValue(hubFixture().queue);
+    render(<Harness start={hubFixture()} />);
+    runAll();
+    await waitFor(() => expect(toast().textContent).toContain("Queued every playtest: 1 playtest, 2 runs ahead"));
+    fireEvent.click(within(toast()).getByRole("button", { name: "Run next" }));
+    await waitFor(() => expect(m.hub.movePlan).toHaveBeenCalledWith("p9", 0));
+    runAll();
+    await waitFor(() => within(toast()).getByRole("button", { name: "Open queue" }));
+    fireEvent.click(within(toast()).getByRole("button", { name: "Open queue" }));
+    await waitFor(() => expect(heading()).toBe("Queue"));
+  });
+
+  it("on a busy editor names what holds it", async () => {
+    m.hub.runCheck.mockResolvedValue({ plan: { id: "p2", title: "Run Jump", items: [{}] }, placement: { state: "waiting", position: 1, ahead: 0, reason: "Claude Code holds the editor: refactoring" } });
+    window.location.hash = "#/playtests/goals/movement";
+    render(<Harness start={hubFixture()} />);
+    fireEvent.click(screen.getByRole("button", { name: "Run Jump" }));
+    await waitFor(() => expect(toast().textContent).toMatch(/^Jump is next\. Claude Code holds the editor: refactoring\./));
+    expect(toast().classList.contains("bad")).toBe(true);
+  });
+});
+
 describe("the queue", () => {
   const item = (name: string) => ({ check: { kind: "script" as const, target: `/Game/Tests/${name}` }, name, state: "queued" as const });
   const plan = (id: string, title: string, trigger: "person" | "schedule" | "agent" = "person") => ({ id, title, scope: { kind: "all" as const }, options: { attended: true, stopOnFailure: false, replay: false }, state: "queued" as const, items: [item("Jump")], trigger, createdAt: "2026-11-22T10:00:00Z" });

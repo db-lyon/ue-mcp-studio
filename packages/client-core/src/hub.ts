@@ -519,6 +519,37 @@ export const runsDone = (done: number, total: number): string => `${done} of ${t
 export const queuePausedText = (q: Pick<QueueState, "pausedBy">): string =>
   q.pausedBy === "release" ? HUB_COPY.pausedByRelease : q.pausedBy === "reconnect" ? HUB_COPY.pausedByReconnect : HUB_COPY.paused;
 
+/** What a person is told after Run, and what they can do next: move it to the front, or open the queue. */
+export interface RunFeedback {
+  text: string;
+  tone: "ok" | "bad";
+  runNext?: boolean;
+  openQueue?: boolean;
+}
+
+const sentence = (s: string): string => (s ? s[0].toUpperCase() + s.slice(1) : s);
+
+/**
+ * The line after a person's Run, from where the daemon put the plan. Without
+ * a placement (a daemon that predates it) it says only that it was queued.
+ */
+export function runFeedback(title: string, placement: PlanPlacement | undefined, count?: number): RunFeedback {
+  const what = count === undefined ? title : `${title}: ${count} ${count === 1 ? "playtest" : "playtests"}`;
+  if (!placement) return { text: `Queued ${what}`, tone: "ok", openQueue: true };
+  switch (placement.state) {
+    case "started":
+      return { text: `Running ${what}`, tone: "ok" };
+    case "waiting":
+      return placement.reason
+        ? { text: `${sentence(title)} is next. ${sentence(placement.reason)}.`, tone: "bad", openQueue: true }
+        : { text: `${sentence(title)} starts next`, tone: "ok", openQueue: true };
+    case "queued":
+      return placement.reason
+        ? { text: `Queued ${what}. ${sentence(placement.reason)}.`, tone: "bad", openQueue: true }
+        : { text: `Queued ${what}, ${placement.ahead} ${placement.ahead === 1 ? "run" : "runs"} ahead`, tone: "ok", runNext: placement.position > 1, openQueue: true };
+  }
+}
+
 // ---------- Sign-off ----------
 
 const LAPSE_TEXT: Record<SignOffLapse, string> = {

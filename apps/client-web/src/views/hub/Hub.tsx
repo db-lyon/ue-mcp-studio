@@ -2,14 +2,15 @@
  * The Playtest Hub on the Playtests tab: goals the game must meet, the
  * playtests that prove them, and their runs; what runs now is a strip on the
  * Overview, and the Queue screen holds what waits, its order and schedules.
- * A rail on wide
+ * After a person's Run the toast says where the plan went, with Run next and
+ * Open queue when it waits behind other work. A rail on wide
  * screens and a segmented bar on narrow ones move between the screens; each
  * screen has its own URL under #/playtests, so Back works and every goal,
  * check and run can be linked. Keyboard first: j and k move, Enter opens,
  * r runs, g then a letter jumps, Ctrl+K finds anything, ? lists the keys.
  */
 import { useEffect, useMemo, useRef, useState, type MutableRefObject, type ReactNode } from "react";
-import type { PlanRequest } from "@ue-mcp-studio/shared";
+import type { PlanRequest, PlanRun } from "@ue-mcp-studio/shared";
 import {
   CHECK_HEALTH_LOOK,
   GOAL_STATUS_LOOK,
@@ -24,6 +25,7 @@ import {
   parseHubPath,
   parseRecent,
   rememberRecent,
+  runFeedback,
   searchPalette,
   trailOf,
   trailPush,
@@ -33,6 +35,7 @@ import {
   type HubRecent,
   type HubRoute,
   type PaletteEntry,
+  type RunFeedback,
 } from "@ue-mcp-studio/client-core";
 import { api } from "../../api";
 import { historyState, pushLocation, readLocation, writeLocation } from "../../location";
@@ -136,22 +139,41 @@ export function HubView({ data, narrow, onOpenChat, onChat, canDeleteGoals = fal
     moveTo(r);
   };
   const [overlay, setOverlay] = useState<Overlay | null>(null);
-  const [toast, setToast] = useState<{ text: string; tone: "ok" | "bad"; n: number } | null>(null);
+  const [toast, setToast] = useState<{ text: string; tone: "ok" | "bad"; n: number; actions?: ToastAction[] } | null>(null);
   const screenKeys = useRef<((a: HubKeyAction) => boolean) | null>(null);
   screenKeys.current = null;
 
   useEffect(() => {
     if (!toast) return;
-    const t = setTimeout(() => setToast(null), toast.tone === "bad" ? 8000 : 4000);
+    const t = setTimeout(() => setToast(null), toast.tone === "bad" || toast.actions?.length ? 8000 : 4000);
     return () => clearTimeout(t);
   }, [toast?.n]);
-  const notify = (text: string, tone: "ok" | "bad" = "ok") => setToast((t) => ({ text, tone, n: (t?.n ?? 0) + 1 }));
+  const notify = (text: string, tone: "ok" | "bad" = "ok", actions?: ToastAction[]) => setToast((t) => ({ text, tone, n: (t?.n ?? 0) + 1, ...(actions?.length ? { actions } : {}) }));
 
+  /** After a person's Run: where the plan went, with Run next and Open queue when it waits behind other work. */
+  const ranFeedback = (plan: PlanRun, f: RunFeedback) => {
+    const actions: ToastAction[] = [];
+    if (f.runNext) {
+      actions.push({
+        label: HUB_COPY.runNext,
+        run: async () => {
+          try {
+            await api.hub.movePlan(plan.id, 0);
+            notify(`${plan.title} runs next`);
+          } catch (e) {
+            notify((e as Error).message, "bad");
+          }
+          data.reload();
+        },
+      });
+    }
+    if (f.openQueue) actions.push({ label: HUB_COPY.openQueue, run: () => go({ screen: "queue" }) });
+    notify(f.text, f.tone, actions);
+  };
   const runPlan = async (req: PlanRequest, what?: string) => {
     try {
-      const { plan } = await api.hub.plan(req);
-      const n = plan.items.length;
-      notify(`Queued ${what ?? plan.title}: ${n} ${n === 1 ? "playtest" : "playtests"}`);
+      const { plan, placement } = await api.hub.plan(req);
+      ranFeedback(plan, runFeedback(what ?? plan.title, placement, plan.items.length));
       data.reload();
     } catch (e) {
       notify((e as Error).message, "bad");
@@ -159,8 +181,8 @@ export function HubView({ data, narrow, onOpenChat, onChat, canDeleteGoals = fal
   };
   const runCheck = async (checkId: string, name?: string) => {
     try {
-      await api.hub.runCheck(checkId);
-      notify(`Queued ${name ?? "the playtest"}`);
+      const { plan, placement } = await api.hub.runCheck(checkId);
+      ranFeedback(plan, runFeedback(name ?? "the playtest", placement));
       data.reload();
     } catch (e) {
       notify((e as Error).message, "bad");
@@ -259,7 +281,13 @@ export function HubView({ data, narrow, onOpenChat, onChat, canDeleteGoals = fal
           {data.error && <div className="banner warn small" role="alert">Could not refresh: {data.error}</div>}
           {screen}
         </div>
-        {toast && <div className={`hub-toast ${toast.tone}`} role="status">{toast.text}<button className="ghost small-button" aria-label="Dismiss" onClick={() => setToast(null)}><HubIcon name="close" size={12} /></button></div>}
+        {toast && (
+          <div className={`hub-toast ${toast.tone}`} role="status">
+            {toast.text}
+            {toast.actions?.map((a) => <button key={a.label} className="small-button" onClick={() => { setToast(null); void a.run(); }}>{a.label}</button>)}
+            <button className="ghost small-button" aria-label="Dismiss" onClick={() => setToast(null)}><HubIcon name="close" size={12} /></button>
+          </div>
+        )}
         {overlay?.kind === "palette" && <Palette onClose={() => setOverlay(null)} onShortcuts={() => setOverlay({ kind: "shortcuts" })} onNewGoal={() => setOverlay({ kind: "goal", goalId: null })} />}
         {overlay?.kind === "shortcuts" && <Shortcuts onClose={() => setOverlay(null)} />}
         {overlay?.kind === "goal" && <GoalDialog goalId={overlay.goalId} preset={overlay.preset} onClose={() => setOverlay(null)} />}
@@ -295,6 +323,12 @@ const SECTIONS: ReadonlyArray<{ id: SectionId; label: string; icon: HubIconName;
   { id: "library", label: HUB_COPY.library, icon: "library", keys: "g l" },
   { id: "queue", label: HUB_COPY.queue, icon: "queue", keys: "g q" },
 ];
+
+/** A button on the hub's toast. */
+interface ToastAction {
+  label: string;
+  run: () => void | Promise<void>;
+}
 
 /** The last five goals and playtests opened, newest first, kept in this browser. */
 function useRecent(route: HubRoute): HubRecent[] {

@@ -523,7 +523,7 @@ input.hub-draft-num-input { width: 74px; text-align: right; }
 }
 
 /* Toast */
-.hub-toast { position: fixed; left: 50%; bottom: 18px; z-index: 55; transform: translateX(-50%); display: flex; align-items: center; gap: 8px; max-width: calc(100% - 32px); padding: 7px 6px 7px 14px; border: 1px solid var(--line-strong); border-radius: 8px; background: var(--panel-3); box-shadow: 0 12px 30px rgba(0, 0, 0, 0.4); font-size: 12.5px; }
+.hub-toast { position: fixed; left: 50%; bottom: 18px; z-index: 55; transform: translateX(-50%); display: flex; flex-wrap: wrap; align-items: center; gap: 8px; max-width: calc(100% - 32px); padding: 7px 6px 7px 14px; border: 1px solid var(--line-strong); border-radius: 8px; background: var(--panel-3); box-shadow: 0 12px 30px rgba(0, 0, 0, 0.4); font-size: 12.5px; }
 .hub-toast.bad { border-color: var(--bad); }
 
 /* The Viewport card (live.tsx): one line at rest; expanded, the picture at 16:9 or the viewer's notice. */
