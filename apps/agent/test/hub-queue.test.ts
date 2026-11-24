@@ -230,15 +230,13 @@ describe("PlanQueue", () => {
   });
 
   it("a crash during an item's run is that item's outcome, once: crashed, with the reason, never retried", async () => {
-    const crashed: string[] = [];
-    const q = new PlanQueue({ dataDir: root, runner: runner(), now: () => "2026-11-23T01:00:00.000Z", crashed: (runId) => void crashed.push(runId) });
+    const q = make();
     q.enqueue(plan(["/Game/A", "/Game/B"]));
     await settle();
     connected = false;
     q.editorLost("crashed");
     expect(q.state().current!.items[0]).toMatchObject({ state: "crashed", reason: "The editor crashed during this run", runId: "run0" });
     expect(q.state().lease).toBeNull();
-    expect(crashed).toEqual(["run0"]);
     connected = true;
     q.reconnected();
     q.setPaused(false);
@@ -320,5 +318,13 @@ describe("PlanQueue", () => {
     fs.writeFileSync(file, JSON.stringify(stored));
     const q3 = make();
     expect(q3.state().current!.items[0]).toMatchObject({ state: "queued", runId: null, reason: "queued again after Studio restarted" });
+  });
+
+  it("reads a plan an earlier Studio saved, with its schedules and manualSteps, as a person's plan", () => {
+    const old = plan(["/Game/A"]);
+    const file = path.join(root, "hub", "queue.json");
+    fs.mkdirSync(path.dirname(file), { recursive: true });
+    fs.writeFileSync(file, JSON.stringify({ schema: 1, paused: true, current: null, queued: [{ ...old, options: { manualSteps: "skip", stopOnFailure: true } }], recent: [], schedules: [{ id: "nightly" }] }));
+    expect(make().state().queued[0].options).toEqual({ ...DEFAULT_PLAN_OPTIONS, attended: true, stopOnFailure: true });
   });
 });

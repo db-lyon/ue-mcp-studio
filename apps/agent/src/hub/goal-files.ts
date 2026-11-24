@@ -9,7 +9,7 @@
  *   checks/<check id>.json  what a check says about itself
  *   signoffs/<id>.json      a sign-off
  *   rules/health.json       the project's health rule
- *   imports/qa-goals.json   the one-time import of QA/Goals
+ *   imports/<id>.json       a one-time import: QA/Goals, sign-offs.json
  *
  * Each file holds one HubRecord: the record's newest version, with its
  * schema, rev, time and origin. A change writes the next version over it; a
@@ -32,7 +32,7 @@ const TYPES = Object.keys(FOLDERS) as HubRecordType[];
 
 const fileName = (id: string): string => `${encodeURIComponent(id)}.json`;
 
-/** A record's envelope as read from a file, or why it is not one. The data's own shape is the reader's to check (records.ts). */
+/** A record's envelope as read from a file, or why it is not one. The data's own shape is the reader's to check (goals.ts recordDataOf). */
 function envelopeOf(v: unknown, type: HubRecordType, id: string): AnyHubRecord | string {
   if (!v || typeof v !== "object" || Array.isArray(v)) return "it is not a JSON object";
   const r = v as Partial<HubRecord>;

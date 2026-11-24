@@ -46,7 +46,7 @@ import type {
   DialogMode,
   FeedbackMode,
   PendingForm,
-  HubLeaseEvent, HubRunnerEvent, QaHeld, QaRun, QaScriptStep, PlaytestRunsMode, PlaytestIndexAnswer,
+  HubLeaseEvent, QaHeld, QaRun, QaScriptStep, PlaytestRunsMode, PlaytestIndexAnswer,
   QaVerdict,
   CheckpointChange,
   RestoreOutcome,
@@ -319,9 +319,6 @@ export const api = {
   hubLease: () => call<HubLeaseEvent>("GET", "/v1/ext/studio/hub/lease"),
   /** Release the editor: what the hub holds stops, and its queue pauses. */
   hubRelease: () => call<unknown>("POST", "/v1/ext/studio/hub/release", {}),
-  /** The runner editor unattended plans play in, and whether this ue-mcp can run one. */
-  hubRunner: () => call<HubRunnerEvent>("GET", "/v1/ext/studio/hub/runner"),
-  hubStopRunner: () => call<HubRunnerEvent>("POST", "/v1/ext/studio/hub/runner/stop", {}),
   qaRun: (runId: string, options: { startPie: boolean; players: number; listen: boolean; record: boolean }) =>
     call<{ run: QaRun }>("POST", `/v1/ext/studio/qa/runs/${encodeURIComponent(runId)}/run`, options),
   qaSaveScript: (runId: string, steps: QaScriptStep[], map?: string) => call<{ run: QaRun }>("PUT", `/v1/ext/studio/qa/runs/${encodeURIComponent(runId)}/script`, { steps, ...(map !== undefined ? { map } : {}) }),

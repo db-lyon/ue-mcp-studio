@@ -93,3 +93,13 @@ export function checkOfId(id: string): CheckRef | null {
 }
 
 export const isObject = (v: unknown): v is Record<string, unknown> => !!v && typeof v === "object" && !Array.isArray(v);
+
+/** JSON with every object's keys sorted, so the same value always gives the same text: a script's version, two records' content compared. */
+export function canonical(v: unknown): string {
+  if (Array.isArray(v)) return `[${v.map((x) => canonical(x === undefined ? null : x)).join(",")}]`;
+  if (v && typeof v === "object") {
+    const o = v as Record<string, unknown>;
+    return `{${Object.keys(o).filter((k) => o[k] !== undefined).sort().map((k) => `${JSON.stringify(k)}:${canonical(o[k])}`).join(",")}}`;
+  }
+  return JSON.stringify(v) ?? "null";
+}

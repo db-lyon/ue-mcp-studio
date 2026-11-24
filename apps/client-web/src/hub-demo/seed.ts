@@ -11,6 +11,7 @@ import {
   DEFAULT_HEALTH_RULE,
   HUB_SCHEMA,
   checkId,
+  itemStateOf,
   qaScriptKey,
   type CheckMeta,
   type CurrentProvenance,
@@ -630,7 +631,7 @@ function plan(p: Partial<PlanRun> & Pick<PlanRun, "id" | "title" | "scope" | "it
 const itemFrom = (r: RunRecord): PlanItem => ({
   check: { kind: "script", target: r.target },
   name: r.name,
-  state: r.outcome === "passed" ? "passed" : r.outcome === "failed" ? "failed" : r.outcome === "needs_you" ? "needs_you" : "error",
+  state: r.outcome === "needs_you" || r.outcome === "running" ? r.outcome : itemStateOf(r.outcome),
   runId: r.runId,
   startedAt: r.startedAt,
   endedAt: r.endedAt ?? null,

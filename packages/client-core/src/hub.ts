@@ -9,15 +9,11 @@ import {
   CHECK_HEALTH_ORDER,
   DEFAULT_ACCEPTANCE,
   FAILING_ITEM_STATES,
-  FLAKY_WINDOW_MAX,
-  FLAKY_WINDOW_MIN,
   GOAL_DUE,
   GOAL_PRIORITIES,
   GOAL_STATUS_ORDER,
   HUB_EXPORT_FORMAT,
-  ATTENTION_ORDER,
   HUB_CHANGED,
-  STALE_DAYS_MAX,
   TRACKER_LINKS_MAX,
   TRACKER_LINK_RELS,
   checkId as checkIdOf,
@@ -285,7 +281,6 @@ const rank = <T>(order: readonly T[]) => (v: T): number => {
 };
 export const healthRank = rank(CHECK_HEALTH_ORDER);
 export const goalStatusRank = rank(GOAL_STATUS_ORDER);
-export const attentionRank = rank(ATTENTION_ORDER);
 
 // ---------- Labels ----------
 
@@ -466,9 +461,9 @@ export const queuePausedText = (q: Pick<QueueState, "pausedBy">): string =>
 // ---------- Sign-off ----------
 
 const LAPSE_TEXT: Record<SignOffLapse, string> = {
-  failed: "A required check failed after it.",
+  failed: "A required playtest failed after it.",
   requirements: "The goal's requirements changed after it.",
-  revision: "The project moved to another revision, and a required check's script or map changed or has not run there yet.",
+  revision: "The project moved to another revision, and a required playtest's script or map changed or has not run there yet.",
 };
 
 /** A sign-off in words: who gave it and from where, or, once it lapsed, why it no longer counts. */
@@ -538,11 +533,6 @@ export function sortChecks(checks: readonly CheckState[]): CheckState[] {
     healthRank(a.health) - healthRank(b.health)
     || byText(b.last?.startedAt ?? "", a.last?.startedAt ?? "")
     || byText(a.name, b.name));
-}
-
-/** Needs attention in ATTENTION_ORDER, oldest first within a kind, so the longest wait comes first. */
-export function sortAttention(items: readonly AttentionItem[]): AttentionItem[] {
-  return [...items].sort((a, b) => attentionRank(a.kind) - attentionRank(b.kind) || byText(a.at, b.at) || byText(a.id, b.id));
 }
 
 export interface MilestoneGroup {
@@ -669,43 +659,6 @@ export function acceptanceText(goal: Pick<Goal, "acceptance">): string {
   const runs = a.stableRuns <= 1 ? "passes its latest run" : `passes its last ${a.stableRuns} runs`;
   return `Each required playtest ${runs}${a.signOff ? ", then a person signs it off" : ""}.`;
 }
-
-// ---------- The health rule ----------
-
-/** The project's health rule in a sentence. */
-export function healthRuleText(r: HealthRule): string {
-  const stale = r.staleAfterDays === null ? "never by age" : `after ${r.staleAfterDays} ${r.staleAfterDays === 1 ? "day" : "days"} without a run`;
-  return `Flaky when the last ${r.flakyWindow} results on the same revision are mixed. Stale ${stale}.`;
-}
-
-/** The health rule as its inputs hold it. Empty days: never stale by age. */
-export interface HealthRuleForm {
-  staleAfterDays: string;
-  flakyWindow: string;
-}
-
-export const healthRuleFormOf = (r: HealthRule): HealthRuleForm => ({ staleAfterDays: r.staleAfterDays === null ? "" : String(r.staleAfterDays), flakyWindow: String(r.flakyWindow) });
-
-export function healthRuleErrors(f: HealthRuleForm): Partial<Record<keyof HealthRuleForm, string>> {
-  const e: Partial<Record<keyof HealthRuleForm, string>> = {};
-  const days = f.staleAfterDays.trim();
-  if (days && (!/^\d+$/.test(days) || Number(days) < 1 || Number(days) > STALE_DAYS_MAX)) e.staleAfterDays = `From 1 to ${STALE_DAYS_MAX} days, or empty for never.`;
-  const w = f.flakyWindow.trim();
-  if (!/^\d+$/.test(w) || Number(w) < FLAKY_WINDOW_MIN || Number(w) > FLAKY_WINDOW_MAX) e.flakyWindow = `From ${FLAKY_WINDOW_MIN} to ${FLAKY_WINDOW_MAX} runs.`;
-  return e;
-}
-
-export const healthRuleOf = (f: HealthRuleForm): HealthRule => ({ staleAfterDays: f.staleAfterDays.trim() ? Number(f.staleAfterDays) : null, flakyWindow: Number(f.flakyWindow) });
-
-export const HEALTH_RULE_COPY = {
-  title: "Health rule",
-  edit: "Change",
-  flakyLabel: "Results to compare for flaky",
-  staleLabel: "Stale after days without a run",
-  stalePlaceholder: "Never",
-  save: "Save",
-  cancel: "Cancel",
-} as const;
 
 // ---------- Moving goals between computers ----------
 
@@ -1266,12 +1219,12 @@ export function checksNotIn(goal: Goal, all: readonly CheckState[]): CheckState[
 // ---------- The live viewport ----------
 
 /**
- * The Goal (and Milestone), Check and Run screens each carry a Viewport
- * card. It never connects on its own: collapsed, it says in one line
- * what the editor and Play In Editor are doing, and that one of the screen's
- * checks is running now; expanded, it joins the hub's one viewer and draws the
- * picture, or the viewer's notice with its ways forward. These rules say what
- * plays, what the line says and what an expanded card draws.
+ * The Run screen carries a Viewport card (on remote clients only). It never
+ * connects on its own: collapsed, it says in one line what the editor and
+ * Play In Editor are doing, and that the run is playing now; expanded, it
+ * joins the hub's one viewer and draws the picture, or the viewer's notice
+ * with its ways forward. These rules say what plays, what the line says and
+ * what an expanded card draws. The Now running strip uses playingRuns too.
  */
 
 /** A run playing on the editor now. */
@@ -1302,12 +1255,6 @@ export function playingRuns(o: Pick<HubOverview, "recent" | "queue" | "editor">)
     if (it.state === "running" || it.state === "needs_you") out.push({ runId: it.runId, checkId: `${it.check.kind}:${it.check.target}`, name: it.name });
   }
   return out;
-}
-
-/** The run playing now that one of these checks made, or null. */
-export function playingFor(o: Pick<HubOverview, "recent" | "queue" | "editor">, checkIds: Iterable<string>): PlayingRun | null {
-  const ids = new Set(checkIds);
-  return playingRuns(o).find((r) => ids.has(r.checkId)) ?? null;
 }
 
 /**

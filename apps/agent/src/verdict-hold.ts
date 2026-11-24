@@ -39,6 +39,7 @@
  */
 import type { ActionResult } from "ue-mcp/daemon";
 import { QA_NO_VERDICT, qaWaitingForPerson, type QaHeld, type QaRun } from "@ue-mcp-studio/shared";
+import { failureOf } from "./hub/util.js";
 
 export interface VerdictHoldOptions {
   callAction(category: string, action: string, args?: Record<string, unknown>): Promise<ActionResult>;
@@ -55,19 +56,6 @@ interface Hold extends QaHeld {
   timer: ReturnType<typeof setTimeout>;
   /** The run started the PIE session it plays in: pausing and stopping it is Studio's to do. */
   ownsPie: boolean;
-}
-
-/** The answer's error, or null when the call worked. */
-function failureOf(r: ActionResult): string | null {
-  const text = r.content.map((c) => c.text ?? "").join("\n");
-  if (r.isError) return text || "the call failed";
-  try {
-    const b = JSON.parse(text) as { success?: unknown; error?: unknown };
-    if (b && b.success === false) return typeof b.error === "string" ? b.error : "the call failed";
-  } catch {
-    // Not JSON: a plain success.
-  }
-  return null;
 }
 
 export class VerdictHold {

@@ -2,7 +2,9 @@
 
 Decision 15 in the [plan](README.md). Review C asked whether unattended runs should play in a dedicated runner editor: a second, offscreen editor of the same project that plays only saved content, so the hub never competes with the developer's editor. The owner approved it (review.md, "Decided").
 
-**Which case applies: ue-mcp cannot do it cleanly yet, in either the pinned 1.4.11 or the 1.4.16-beta.1 checkout.** The daemon drives several editors, but only one per project root. Studio therefore implements its side behind a feature check, writes asks 13 and 14 in [ue-mcp-asks.md](ue-mcp-asks.md), and keeps unattended plans under the workspace editor's lease (decision 14) until a daemon offers both features.
+**Which case applies: ue-mcp cannot do it cleanly yet, in either the pinned 1.4.11 or the 1.4.16-beta.1 checkout.** The daemon drives several editors, but only one per project root. Studio therefore writes asks 13 and 14 in [ue-mcp-asks.md](ue-mcp-asks.md) and keeps unattended plans under the workspace editor's lease (decision 14) until a daemon offers both features.
+
+**Studio's side is not built yet** (pragmatism review, [review-pragmatism.md](review-pragmatism.md)). A first version was built against a fake daemon behind a feature check and then removed: it guessed the shape of an API ue-mcp has not designed, and carried a setting, routes, an event and a status line that could never run. The design below is what to build once ue-mcp ships asks 13 and 14, against what it actually ships. The seam that stays is the lease: `EditorLease` names its editor, so the runner holds one of its own.
 
 ## What ue-mcp offers today
 
@@ -36,9 +38,7 @@ Unreal does not lock a project, and running two editors of one project is a norm
 - **Cost.** A second editor roughly doubles memory, and an offscreen editor with the background throttle off uses CPU and GPU while it plays. The runner starts only for unattended work and stops after 10 minutes idle.
 - **Saved content only.** A fresh editor loads packages from disk, so it plays only saved content. It does not see changes saved after it started, so the runner restarts before its next item when project files changed (ProjectWatch).
 
-## Design
-
-Studio's side is built and tested against a fake daemon. It is inert on every ue-mcp so far: `runnerHostOf` returns null without both features, and everything below falls back to today's behavior.
+## Design (to build once ue-mcp ships asks 13 and 14)
 
 - **`apps/agent/src/hub/runner.ts`, `RunnerEditor`.**
   - Takes only unattended run plans (`attended: false`, `work: "run"`). Attended plans need a person at the workspace editor; fix plans edit the project, which the runner never does.
@@ -50,14 +50,14 @@ Studio's side is built and tested against a fake daemon. It is inert on every ue
 - **Routing.** `QaRun.editor` records the `editor` routing argument a run started with, and `QaBroker` passes it on every later call about that run (status, results, verdict, stop, PIE stop). The hub starts a runner item with `editor: "studio-runner"`. A run on the runner never counts against the workspace editor's occupancy, and PieWatch ignores events from an instance.
 - **Routes and events.** `GET /hub/runner` and `POST /hub/runner/stop`, and `studio.hub.runner`, carry `{ supported, runner }` (`packages/shared/src/hub-runner.ts`). Stop runner returns an item playing there to the front of the queue and pauses the queue, as Release the editor does, then stops the editor.
 - **Setting.** `runnerEditor` (on unless turned off). Settings > General shows the switch under Playtest Hub only when the daemon supports a runner.
-- **UI.** `apps/client-web/src/views/hub/RunnerStatus.tsx`: one line with the runner's state and Stop runner. It draws nothing while there is no runner. It belongs in the Overview's Now running strip, which is being built in parallel; until the strip lands it is not placed.
+- **UI.** One line in the Overview's Now running strip with the runner's state and Stop runner, drawing nothing while there is no runner.
 
 ## Until ue-mcp ships asks 13 and 14
 
 Unattended plans run on the workspace editor under its lease and occupancy (decision 14), including the 5 minutes of no input on this computer. Nothing in the UI mentions the runner.
 
-When a daemon offers `editors.instances` and `editors.readOnly`:
+When a daemon offers both:
 
-1. Move the pin, and check the shapes in `runner.ts` (`InstancesApi`) and the event names against what ue-mcp shipped.
-2. Place `RunnerStatus` in the Now running strip, add a visual QA scenario for it with its phone parity entry, and have the copy graded against PROSE_EVAL.md.
+1. Move the pin and build the design above against the API ue-mcp shipped.
+2. Add a visual QA scenario for the runner's line with its phone parity entry, and have the copy graded against PROSE_EVAL.md.
 3. Run an unattended plan against the StudioE2E editor with `npm run visual-qa:live` (an editor run, so only when the owner asks).

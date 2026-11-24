@@ -136,12 +136,9 @@ export class PieWatch {
    * The daemon's events: its pie.* events where it has them, which see a
    * session the user started with the editor's Play button; otherwise the
    * editor coming, other clients' calls and PIE test scripts, each a reason to
-   * ask the editor. The editor going always means no PIE. An event from
-   * another editor instance of the project (ask 13's `instance`, the hub's
-   * runner) says nothing about this one.
+   * ask the editor. The editor going always means no PIE.
    */
   observe(e: { type: string; data: Record<string, unknown> }): void {
-    if (e.data?.instance !== undefined) return;
     const pushed = pieFromEvent(e.type);
     if (pushed !== null) this.set(pushed);
     else if (e.type === "editor.disconnected") this.set(false);

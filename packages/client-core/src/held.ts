@@ -4,7 +4,7 @@
  * agent set, and the words. The agent owns the list and the deadline
  * (GET /qa/held, studio.qa.held); clients only draw them.
  */
-import { HUB_LEASE, HUB_RUNNER, QA_VERDICT_WAIT_CHOICES, type EditorLease, type HubRunnerEvent, type QaHeld, type RunnerView } from "@ue-mcp-studio/shared";
+import { HUB_LEASE, QA_VERDICT_WAIT_CHOICES, type EditorLease, type QaHeld } from "@ue-mcp-studio/shared";
 
 /**
  * The hub's hold on the editor (GET /hub/lease, studio.hub.lease), which
@@ -22,36 +22,6 @@ export const LEASE_COPY = {
   release: "Release the editor",
   releaseHelp: "Stop the playtest or fix Studio started, end the Play In Editor session it started, and pause Studio's queue",
 } as const;
-
-/**
- * The runner editor (GET /hub/runner, studio.hub.runner): the second editor
- * unattended plans play in. It holds a lease of its own, so it never shows
- * the bar above; the hub's Now running strip shows it instead.
- */
-export function runnerOfEvent(e: { type: string; data?: unknown }): HubRunnerEvent | null {
-  if (e.type !== HUB_RUNNER) return null;
-  const d = (e.data ?? {}) as Partial<HubRunnerEvent>;
-  return { supported: d.supported === true, runner: d.runner && typeof d.runner === "object" ? d.runner : null };
-}
-
-export const RUNNER_COPY = {
-  name: "Runner editor",
-  stop: "Stop runner",
-  stopHelp: "Stop the runner editor. A playtest playing there goes back to the front of the queue, and the queue pauses.",
-  setting: "Run unattended plans in a runner editor",
-  settingHelp: "Run all and Run failing play in a second, hidden editor that saves nothing, so they never use your editor.",
-} as const;
-
-/** The strip's line for the runner: "Starting", "Running Run all: Door opens". */
-export function runnerLine(v: RunnerView): string {
-  switch (v.state) {
-    case "starting": return "Starting";
-    case "ready": return "Ready";
-    case "running": return v.purpose ? `Running ${v.purpose}` : "Running";
-    case "stopping": return "Stopping";
-    case "stopped": return v.error ? `Did not start: ${v.error}` : "Stopped";
-  }
-}
 
 /** The event that carries the whole list whenever it changes. */
 export const HELD_EVENT = "studio.qa.held";

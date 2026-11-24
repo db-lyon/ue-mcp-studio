@@ -74,9 +74,6 @@ export function registerHub(api: DaemonExtensionApi, o: Omit<HubOptions, "host">
   route("PUT", "/hub/queue/paused", (req) => ({ body: hub.setPaused(req.body) }));
   route("GET", "/hub/lease", () => ({ body: hub.leaseView() }));
   route("POST", "/hub/release", async () => ({ body: await hub.release() }));
-  // The runner editor (HUB_RUNNER_ROUTES in packages/shared/src/hub-runner.ts).
-  route("GET", "/hub/runner", () => ({ body: hub.runnerView() }));
-  route("POST", "/hub/runner/stop", async () => ({ body: await hub.stopRunner() }));
   route("POST", "/hub/plans", async (req) => ({ body: { plan: await hub.plan(req.body, "person") } }));
   route("POST", "/hub/plans/:id/cancel", async (req) => ({ body: { plan: await hub.cancelPlan(req.params.id) } }));
   route("POST", "/hub/fix", async (req) => ({ body: await hub.fix(req.body) }));

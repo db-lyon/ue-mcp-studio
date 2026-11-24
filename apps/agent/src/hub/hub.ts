@@ -21,6 +21,7 @@
  * one a session holds, else a draft card in one session made for the plan)
  * with QaBroker.runScript.
  */
+import * as path from "node:path";
 import type { ActionResult } from "ue-mcp/daemon";
 import {
   DEFAULT_PLAN_OPTIONS,
@@ -48,7 +49,6 @@ import {
   type HubChanged,
   type HubChangedWhat,
   type HubOverview,
-  type HubRunnerEvent,
   type PlanItem,
   type PlanRun,
   type PlanScope,
@@ -72,9 +72,8 @@ import type { GoalStore } from "./goal-store.js";
 import type { EvidenceStore } from "./evidence-store.js";
 import { RunIndex } from "./run-index.js";
 import { PlanQueue, newId, type ItemStart } from "./queue.js";
-import { EditorLease, ON_EDITOR, WORKSPACE, occupancyOf, type OccupancySignals } from "./lease.js";
+import { EditorLease, ON_EDITOR, occupancyOf, type OccupancySignals } from "./lease.js";
 import { ProjectWatch } from "./project-watch.js";
-import { RUNNER, RUNNER_INSTANCE, RunnerEditor, type RunnerHost } from "./runner.js";
 import { readResults, readResultsFile, readSeries } from "./evidence.js";
 import { provenanceAtStart, scriptHashOf, ueMcpProvenance, withUeMcp, workspaceNow } from "./provenance.js";
 import { planOptionsOf, scopeOf } from "./scope.js";
@@ -121,10 +120,6 @@ export interface HubOptions {
   };
   /** Watches project files during runs, for tainted runs; one of the project's own otherwise. */
   watch?: ProjectWatch;
-  /** The runner editor through the daemon (runner.ts runnerHostOf): null or absent while this ue-mcp cannot run one. */
-  runnerHost?: RunnerHost | null;
-  /** The runnerEditor setting. Default on. */
-  runnerEnabled?: () => boolean;
   index: Pick<PlaytestIndex, "listScripts" | "recorded">;
   store: Pick<SessionStore, "create" | "get" | "all">;
   /** The Playtest runs setting: an agent's plan runs only under Automatic. */
@@ -183,8 +178,6 @@ export class Hub {
   private readonly planSessions = new Map<string, string>();
   /** The developer's editor's lease: the hub's hold on it while an item runs (lease.ts). */
   readonly lease: EditorLease;
-  /** The second editor unattended plans play in, with its own lease (runner.ts). It never starts while ue-mcp cannot run one. */
-  readonly runner: RunnerEditor;
   /** Project files changed during a run: the run is tainted. */
   private readonly watch: ProjectWatch;
   /** Runs the editor no longer knows (a status read answered idle): they hold nothing. */
@@ -205,37 +198,23 @@ export class Hub {
   constructor(private readonly o: HubOptions) {
     this.now = o.now ?? Date.now;
     const iso = () => new Date(this.now()).toISOString();
-    this.goals = new Goals({ store: o.goalStore ?? new GoalFiles(o.host.dataDir, iso), projectDir: o.host.projectDir, now: iso, changed: (goalId) => this.changed(["goals", "checks", "attention"], { goalId }) });
+    this.goals = new Goals({ store: o.goalStore ?? new GoalFiles(o.host.dataDir, iso), projectDir: o.host.projectDir, legacySignOffs: path.join(o.host.dataDir, "hub", "sign-offs.json"), now: iso, changed: (goalId) => this.changed(["goals", "checks", "attention"], { goalId }) });
     this.runs = new RunIndex({ dataDir: o.host.dataDir, now: iso, changed: (runId) => this.changed(["runs", "checks", "goals", "attention"], { runId }), log: o.host.log });
     this.watch = o.watch ?? new ProjectWatch(o.host.projectDir, o.host.log);
-    this.lease = new EditorLease(WORKSPACE, (lease) => this.leaseChanged(lease));
-    this.runner = new RunnerEditor({
-      host: o.runnerHost ?? null,
-      enabled: () => this.o.enabled() && (o.runnerEnabled?.() ?? true),
-      watch: this.watch,
-      changed: (event) => {
-        // The daemon names an extension's events after it: this reaches clients as studio.hub.runner (HUB_RUNNER).
-        this.o.host.events.publish("hub.runner", event as unknown as Record<string, unknown>);
-        // Started, stopped or let go: the queue may go on.
-        if (this.o.enabled()) void this.queue.pump();
-      },
-      log: o.host.log,
-    });
+    this.lease = new EditorLease(undefined, (lease) => this.leaseChanged(lease));
     this.queue = new PlanQueue({
       dataDir: o.host.dataDir,
       now: iso,
       lease: this.lease,
       runner: {
-        connected: (editor) => (editor === RUNNER ? this.runner.available() : this.connected()),
-        // An unattended plan waits only on the runner; anything else on the workspace editor's occupancy.
-        occupied: (plan) => (this.runner.takes(plan) ? this.runner.prepare() : this.occupancy(!plan.options.attended)[0]?.text ?? null),
-        leaseFor: (plan) => (this.runner.takes(plan) ? this.runner.lease : this.lease),
+        connected: () => this.connected(),
+        occupied: (plan) => this.occupancy(!plan.options.attended)[0]?.text ?? null,
         start: (item, plan) => (plan.work === "fix" ? this.startFix(item, plan) : this.startItem(item, plan)),
         run: (runId) => o.broker.get(runId),
         stop: (runId, reason) => this.stopRun(runId, reason),
         refresh: async (runId) => void (await o.broker.status(runId)),
         stopFix: async (item) => this.stopFix(item),
-        endPie: (editor) => this.endPie(editor),
+        endPie: () => this.endPie(),
       },
       changed: (planRunId) => this.changed(["queue"], { planRunId }),
       finished: (plan) => {
@@ -260,14 +239,8 @@ export class Hub {
       } else if (e.type === "editor.disconnected") {
         const cause = typeof e.data.cause === "string" ? e.data.cause : undefined;
         // Every run on a crashed editor ended with it, though no event will say so.
-        if (cause === "crashed") for (const r of o.broker.all()) if (ON_EDITOR.has(r.state) && !r.editor) this.gone.add(r.runId);
-        this.queue.editorLost(cause, WORKSPACE);
-      } else if (e.type === "instance.disconnected" && e.data.instance === RUNNER_INSTANCE) {
-        // The runner went (ask 13's event): its item crashed with it or goes back in the queue, as on the workspace editor.
-        const cause = typeof e.data.cause === "string" ? e.data.cause : undefined;
-        if (cause === "crashed") for (const r of o.broker.all()) if (ON_EDITOR.has(r.state) && r.editor === RUNNER_INSTANCE) this.gone.add(r.runId);
-        this.runner.lost();
-        this.queue.editorLost(cause, RUNNER);
+        if (cause === "crashed") for (const r of o.broker.all()) if (ON_EDITOR.has(r.state)) this.gone.add(r.runId);
+        this.queue.editorLost(cause);
       } else if (e.type === "studio.busy.changed" || e.type === "studio.dialog.changed") {
         // An operation, a call or a dialog ended: the queue may be free to go on.
         void this.queue.pump();
@@ -298,7 +271,6 @@ export class Hub {
     this.timer = null;
     this.publishTimer = null;
     this.watch.stop();
-    this.runner.dispose();
   }
 
   private connected(): boolean {
@@ -321,8 +293,7 @@ export class Hub {
       pie: () => e?.pie() ?? false,
       dialogs: () => e?.dialogs() ?? 0,
       busy: () => e?.busy() ?? { now: this.now(), calls: [] },
-      // A run on another editor (the runner) does not hold this one.
-      runs: () => this.o.broker.all().filter((r) => !this.gone.has(r.runId) && !r.editor),
+      runs: () => this.o.broker.all().filter((r) => !this.gone.has(r.runId)),
       inputAgeMs: () => e?.inputAgeMs() ?? null,
     };
     return occupancyOf(signals, this.lease.held(), { unattended });
@@ -334,9 +305,9 @@ export class Hub {
    * one the editor answers idle for is gone.
    */
   private async refreshOthers(): Promise<void> {
-    const mine = new Set([this.lease.held().runId, this.runner.lease.held().runId]);
+    const mine = this.lease.held().runId;
     for (const r of this.o.broker.all()) {
-      if (mine.has(r.runId) || this.gone.has(r.runId) || r.manual || !ON_EDITOR.has(r.state)) continue;
+      if (r.runId === mine || this.gone.has(r.runId) || r.manual || !ON_EDITOR.has(r.state)) continue;
       const read = await this.o.broker.status(r.runId).catch(() => null);
       if (read && "answer" in read && read.answer.state === "idle") this.gone.add(r.runId);
     }
@@ -367,35 +338,16 @@ export class Hub {
    */
   async release(): Promise<QueueState> {
     await this.queue.release();
-    return this.queueState();
+    return this.queueView();
   }
 
-  /** End Play In Editor on an editor (by its lease's name), only while the hub's run started the session running there now. */
-  private async endPie(editor: string = WORKSPACE): Promise<void> {
-    const runner = editor === RUNNER;
-    const lease = runner ? this.runner.lease : this.lease;
-    // PieWatch follows the workspace editor; on the runner, only the hub plays.
-    if (!lease.held().pie || (!runner && !(this.o.editor?.pie() ?? true))) return;
-    const r = await this.o.host.callAction("editor", "play_in_editor", { pieAction: "stop", ...(runner ? { editor: RUNNER_INSTANCE } : {}) });
+  /** End Play In Editor, only while the hub's run started the session running now. */
+  private async endPie(): Promise<void> {
+    if (!this.lease.held().pie || !(this.o.editor?.pie() ?? true)) return;
+    const r = await this.o.host.callAction("editor", "play_in_editor", { pieAction: "stop" });
     const error = failureOf(r);
     if (error && !/already/i.test(error)) throw new Error(error);
-    lease.update({ pie: false });
-  }
-
-  /** GET /hub/runner. */
-  runnerView(): HubRunnerEvent {
-    return this.runner.event();
-  }
-
-  /**
-   * Stop runner: a playtest playing there goes back to the front of the
-   * queue, which pauses as after Release the editor, then the runner editor
-   * stops. The workspace editor's item, if any, is left alone.
-   */
-  async stopRunner(): Promise<HubRunnerEvent> {
-    if (this.queue.heldBy() === RUNNER) await this.queue.release();
-    await this.runner.stop();
-    return this.runner.event();
+    this.lease.update({ pie: false });
   }
 
   private note(text: string): void {
@@ -473,8 +425,6 @@ export class Hub {
   /** The periodic look: the queue, runs Studio may have missed the end of, backfill. */
   async tick(): Promise<void> {
     try {
-      // A runner that went without a word lets its item go; one no longer wanted stops once idle.
-      if (this.runner.tick()) this.queue.editorLost(undefined, RUNNER);
       // Off: no plan starts and the editor is not asked.
       if (!this.o.enabled()) {
         this.watch.stop();
@@ -684,7 +634,7 @@ export class Hub {
       goals,
       checks,
       attention: buildAttention({ runs: this.o.broker.all(), goals, checks, plans: this.queue.state().recent, now: this.now() }),
-      queue: this.queueState(),
+      queue: this.queueView(),
       recent: this.runs.all().slice(0, 30),
       evidence: { store: this.runs.scope, current: cat.current },
       rules: this.goals.rules(),
@@ -865,12 +815,8 @@ export class Hub {
 
   // ── Plans ─────────────────────────────────────────────────────────
 
-  private queueState(): QueueState {
-    return this.queue.state();
-  }
-
   queueView(): QueueState {
-    return this.queueState();
+    return this.queue.state();
   }
 
   /** The checks a scope stands for, in order, each once. */
@@ -975,7 +921,7 @@ export class Hub {
     const paused = isObject(body) ? body.paused : undefined;
     if (typeof paused !== "boolean") throw bad("body must be { paused: boolean }");
     this.queue.setPaused(paused);
-    return this.queueState();
+    return this.queueView();
   }
 
   /** Start one plan item on the editor: its script's card run, or a replay of its last recording. */
@@ -992,17 +938,15 @@ export class Hub {
     const card = await this.cardFor(script, plan.id, plan.title);
     if ("error" in card) return card;
     const tag = { source: "plan" as const, planRunId: plan.id };
-    // The queue took the runner's lease for this item: it plays there, through ue-mcp's `editor` routing parameter.
-    const on = this.queue.heldBy() === RUNNER ? { editor: RUNNER_INSTANCE } : {};
     const src = plan.options.replay && this.o.replay ? this.runs.byCheck(checkId(item.check)).find((r) => r.recordingId && r.outcome !== "running" && r.outcome !== "needs_you") : undefined;
     if (src && this.o.replay && card.sessionId) {
-      const r = await this.o.replay(card.sessionId, { run_id: src.recordingId ?? src.runId, ...on });
+      const r = await this.o.replay(card.sessionId, { run_id: src.recordingId ?? src.runId });
       const body = answerOf(r);
       if (!body || typeof body.run_id !== "string") return { error: `the replay did not start: ${failureOf(r) ?? "ue-mcp started no run"}` };
       this.runs.tag(body.run_id, tag);
       return { runId: body.run_id };
     }
-    const r = await this.o.broker.runScript(card.runId, { startPie: true }, on);
+    const r = await this.o.broker.runScript(card.runId, { startPie: true });
     if ("error" in r) return { error: r.error };
     this.runs.tag(r.run.runId, tag);
     return { runId: r.run.runId };
@@ -1082,9 +1026,9 @@ export class Hub {
    * The item follows the loop until it passes, stops for the person, or ends.
    */
   private async startFix(item: PlanItem, plan: PlanRun): Promise<ItemStart> {
-    const card = item.sessionId && this.o.store.get(item.sessionId)
-      ? this.o.broker.all().find((r) => r.sessionId === item.sessionId && qaScriptKey(r.script) === item.check.target && !r.deleted) ?? await this.cardFor(item.check.target, `${plan.id}:${item.check.target}`, `Fix ${item.name}`)
-      : await this.cardFor(item.check.target, `${plan.id}:${item.check.target}`, `Fix ${item.name}`);
+    // An item put back by a release keeps the session it had.
+    const own = item.sessionId && this.o.store.get(item.sessionId) ? this.o.broker.all().find((r) => r.sessionId === item.sessionId && qaScriptKey(r.script) === item.check.target && !r.deleted) : undefined;
+    const card = own ?? await this.cardFor(item.check.target, `${plan.id}:${item.check.target}`, `Fix ${item.name}`);
     if ("error" in card) return card;
     if (!card.sessionId) return { error: "the playtest's card has no chat session" };
     const r = await this.o.broker.assign(card.runId, {});

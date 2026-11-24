@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import type { StudioSettings, StudioTheme } from "@ue-mcp-studio/shared";
-import { RUNNER_COPY, THEME_CHOICES } from "@ue-mcp-studio/client-core";
+import { THEME_CHOICES } from "@ue-mcp-studio/client-core";
 import { api } from "../../api";
 import { UpdatesCard } from "../Updates";
 import { Head } from "../SettingsHub";
@@ -29,19 +29,6 @@ export function GeneralSection({ onTheme }: { onTheme: (t: StudioTheme) => void 
       announceExperiments(s.experiments ?? { playtestHub });
     }, msg.fail);
   };
-  // The runner editor's switch shows only where ue-mcp can run one; an older agent has no route.
-  const hubOn = settings?.experiments?.playtestHub === true;
-  const [runnerSupported, setRunnerSupported] = useState(false);
-  useEffect(() => {
-    if (!hubOn) {
-      setRunnerSupported(false);
-      return;
-    }
-    api.hubRunner().then((r) => setRunnerSupported(r?.supported === true), () => setRunnerSupported(false));
-  }, [hubOn]);
-  const setRunner = (runnerEditor: boolean) => {
-    api.saveSettings({ runnerEditor }).then(setSettings, msg.fail);
-  };
   return (
     <>
       <Head title="General" lead="Your ue-mcp account, theme, and updates for Studio and the editor plugin." />
@@ -62,11 +49,6 @@ export function GeneralSection({ onTheme }: { onTheme: (t: StudioTheme) => void 
         <Row title="Playtest Hub" help="Adds a Playtests tab for goals, the playtests that prove them and their runs. Studio keeps goals on this computer, not in the project.">
           <Switch on={settings?.experiments?.playtestHub === true} onChange={setHub} label="Playtest Hub" disabled={!settings} />
         </Row>
-        {runnerSupported && (
-          <Row title={RUNNER_COPY.setting} help={RUNNER_COPY.settingHelp}>
-            <Switch on={settings?.runnerEditor !== false} onChange={setRunner} label={RUNNER_COPY.setting} disabled={!settings} />
-          </Row>
-        )}
       </Card>
       <AccountCard />
     </>

@@ -20,6 +20,7 @@
  */
 import type { ActionResult } from "ue-mcp/daemon";
 import type { AgentHost, TurnCallOptions } from "../tools.js";
+import { answerOf } from "./util.js";
 
 type Call = (category: string, action: string, args?: Record<string, unknown>) => Promise<ActionResult>;
 
@@ -27,15 +28,6 @@ type Call = (category: string, action: string, args?: Record<string, unknown>) =
 export const packageOf = (p: string): string => p.trim().replace(/\.[^/]*$/, "");
 
 const PACKAGE = /^\/[A-Za-z0-9_]+\/\S+/;
-
-function body(r: ActionResult): Record<string, unknown> | null {
-  try {
-    const v = JSON.parse(r.content.map((c) => c.text ?? "").join("\n")) as unknown;
-    return v && typeof v === "object" && !Array.isArray(v) ? (v as Record<string, unknown>) : null;
-  } catch {
-    return null;
-  }
-}
 
 /** The package names editor(list_dirty_packages) lists under these keys, as { package } entries. */
 function packagesIn(b: Record<string, unknown> | null, keys: string[]): string[] {
@@ -74,10 +66,8 @@ export class WriteLease {
   /** The packages dirty in the editor now. Null when the editor does not answer. */
   async dirty(): Promise<string[] | null> {
     try {
-      const r = await this.call("editor", "list_dirty_packages", {});
-      const b = body(r);
-      if (r.isError || !b || b.success === false) return null;
-      return packagesIn(b, ["content", "maps"]);
+      const b = answerOf(await this.call("editor", "list_dirty_packages", {}));
+      return b ? packagesIn(b, ["content", "maps"]) : null;
     } catch {
       return null;
     }
@@ -111,8 +101,7 @@ export class WriteLease {
       return still.length ? why(still) : null;
     }
     if (category === "level" && action === "save") {
-      const r = await this.call("editor", "get_world_state", {}).catch(() => null);
-      const b = r && !r.isError ? body(r) : null;
+      const b = answerOf(await this.call("editor", "get_world_state", {}).catch(() => null));
       const level = typeof b?.persistentLevelPackage === "string" ? packageOf(b.persistentLevelPackage) : null;
       // Not knowing which level it saves, the save may be the person's: refuse.
       if (!level) return why([...theirs]);

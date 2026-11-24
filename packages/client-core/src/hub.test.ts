@@ -38,13 +38,11 @@ import {
   searchPalette,
   sortChecks,
   sortGoals,
-  sortAttention,
   sparkBars,
   typingTarget,
   hubLiveView,
   hubViewerLine,
   playingStep,
-  playingFor,
   playingRuns,
   runPlaying,
   type HubLiveInput,
@@ -98,7 +96,7 @@ describe("sign-off", () => {
     expect(signOffText({ record, lapsed: null })).toEqual({ title: "Signed off by octocat" });
     expect(signOffText({ record: { ...record, via: "Ama's phone" }, lapsed: null }).title).toBe("Signed off by octocat from Ama's phone");
     expect(signOffText({ record, lapsed: "revision" })).toMatchObject({ title: "Signed off on an earlier revision" });
-    expect(signOffText({ record, lapsed: "failed" }).detail).toBe("A required check failed after it.");
+    expect(signOffText({ record, lapsed: "failed" }).detail).toBe("A required playtest failed after it.");
   });
 });
 
@@ -122,11 +120,6 @@ describe("the status ladder", () => {
     const newer = { ...older, runId: "2", startedAt: "2026-02-01T00:00:00Z" };
     const sorted = sortChecks([check("p", "passing"), check("m", "missing"), check("f1", "failing", { last: older }), check("f2", "failing", { last: newer }), check("r", "running")]);
     expect(sorted.map((c) => c.name)).toEqual(["f2", "f1", "r", "m", "p"]);
-  });
-
-  it("puts blocked loops first in Needs attention, oldest first within a kind", () => {
-    const item = (id: string, kind: AttentionItem["kind"], at: string): AttentionItem => ({ id, kind, at, title: id, goalIds: [] });
-    expect(sortAttention([item("r", "regression", "1"), item("l2", "loop_blocked", "3"), item("l1", "loop_blocked", "2")]).map((i) => i.id)).toEqual(["l1", "l2", "r"]);
   });
 });
 
@@ -385,8 +378,6 @@ describe("the live viewport in the hub", () => {
     const o = over([rec("a", "A", "passed", "2026-11-23T10:01:00Z")], { ...idle, current: plan });
     // The run list says a ended, whatever the plan still says; b is not listed yet, so the plan decides.
     expect(playingRuns(o)).toEqual([{ runId: "b", checkId: "script:/Game/T/B", name: "B" }]);
-    expect(playingFor(o, ["script:/Game/T/B"])?.runId).toBe("b");
-    expect(playingFor(o, ["script:/Game/T/A"])).toBeNull();
     expect(playingRuns(over([rec("c", "C", "running")], idle, false))).toEqual([]);
   });
 

@@ -84,7 +84,6 @@ import { registerDialogs } from "./dialog-routes.js";
 import { registerForms } from "./forms.js";
 import { registerQa } from "./qa.js";
 import { registerHub } from "./hub/routes.js";
-import { runnerHostOf, type InstancesApi } from "./hub/runner.js";
 import { WriteLease } from "./hub/write-lease.js";
 import type { PieWatch } from "./viewport/pie-watch.js";
 import type { Presence } from "./notify.js";
@@ -427,7 +426,7 @@ export function registerChat(api: DaemonExtensionApi, agentVersion = "0.0.0", pa
     },
     writes,
   });
-  // The Playtest Hub (/hub, hub/routes.ts): goals, run history, the plan queue and schedules, over the cards above.
+  // The Playtest Hub (/hub, hub/routes.ts): goals, run history and the plan queue, over the cards above.
   const hub = registerHub(api, {
     broker: qa,
     index: playtestIndex,
@@ -438,9 +437,6 @@ export function registerChat(api: DaemonExtensionApi, agentVersion = "0.0.0", pa
     writePlaytests: (sid, text) => runner.playtest(sid, { text }),
     signer: () => (settings.accountToken() ? settings.accountLogin() : null) ?? account.registryLogin()?.login ?? null,
     enabled: () => settings.experiments().playtestHub,
-    // Unattended plans play in a second editor when ue-mcp can run one (asks 13 and 14); null on every ue-mcp so far.
-    runnerHost: runnerHostOf(api as unknown as InstancesApi),
-    runnerEnabled: () => settings.runnerEditor(),
     // What else holds the editor, for the hub's occupancy answer.
     editor: {
       pie: () => pie?.get() ?? false,

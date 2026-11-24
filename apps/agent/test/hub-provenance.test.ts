@@ -7,7 +7,8 @@ import { describe, expect, it } from "vitest";
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
-import { canonical, provenanceAtStart, scriptHashOf, ueMcpProvenance, withUeMcp, workspaceNow } from "../src/hub/provenance.js";
+import { provenanceAtStart, scriptHashOf, ueMcpProvenance, withUeMcp, workspaceNow } from "../src/hub/provenance.js";
+import { canonical } from "../src/hub/util.js";
 import type { Run } from "../src/vcs.js";
 
 describe("the script's version", () => {

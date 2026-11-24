@@ -33,14 +33,12 @@ import {
   runsDone,
   scopeText,
   shortAgo,
-  sortAttention,
   sortChecks,
 } from "@ue-mcp-studio/client-core";
 import { api } from "../../api";
 import { useCursor, useHub } from "./state";
 import { Empty, EvidenceScope, HubIcon, HubLink, Progress, ScreenHead, StatusMark, StatusPill } from "./parts";
 import { CheckRow, GoalRow } from "./rows";
-import { RunnerStatus } from "./RunnerStatus";
 
 export function OverviewScreen({ onChat }: { onChat?: () => void }) {
   const hub = useHub();
@@ -223,8 +221,8 @@ function GoalsMenu() {
 }
 
 /**
- * Now running: the run on the editor and how far its batch is, the runner
- * editor, why the queue waits or is paused, then the runs waiting and the
+ * Now running: the run on the editor and how far its batch is, why the queue
+ * waits or is paused, then the runs waiting and the
  * ones that finished. Release the editor is the app's bar (held.tsx LeaseBar).
  */
 function NowRunning() {
@@ -271,7 +269,6 @@ function NowRunning() {
           </button>
         )}
       </div>
-      <RunnerStatus />
       {q.paused && <div className="dim small">{queuePausedText(q)}</div>}
       {q.waiting && <div className="dim small">{HUB_COPY.waiting(q.waiting)}</div>}
       {solo && (
@@ -351,7 +348,8 @@ function PlanCard({ plan, onCancel, live = false }: { plan: PlanRun; onCancel?: 
 /** What waits for a person and does not need the game playing: each item links to where it is dealt with; a stopped fix opens its chat. */
 function AttentionCard() {
   const { o, go, openChat } = useHub();
-  const items = useMemo(() => sortAttention(o.attention), [o.attention]);
+  // In order already: buildAttention sorts by ATTENTION_ORDER, oldest first.
+  const items = o.attention;
   return (
     <section className="hub-card" aria-label={HUB_COPY.attention}>
       <div className="hub-card-head">

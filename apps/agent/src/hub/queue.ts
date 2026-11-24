@@ -11,8 +11,6 @@
  *   otherwise the queue waits and says why (QueueState.waiting).
  * - The lease is taken before the item starts and released when it settles.
  *   Play In Editor the item's run started is ended then, and never any other.
- *   An unattended item takes the runner editor's lease while there is a
- *   runner (runner.ts), and the workspace editor's otherwise.
  * - release() is Release the editor: it pauses the queue, stops the item's
  *   run or fix loop (a loop stops at its next checkpoint), ends PIE the item
  *   started, and puts the item back at the front for when a person resumes.
@@ -35,12 +33,15 @@ import * as crypto from "node:crypto";
 import * as fs from "node:fs";
 import * as path from "node:path";
 import {
+  DEFAULT_PLAN_OPTIONS,
   FAILING_ITEM_STATES,
+  itemStateOf,
   outcomeOf,
   qaEnded,
   qaScriptKey,
   type PlanItem,
   type PlanItemState,
+  type PlanOptions,
   type PlanRun,
   type QaRun,
   type QueuePause,
@@ -48,6 +49,7 @@ import {
 } from "@ue-mcp-studio/shared";
 import { writeFileAtomic } from "../atomic-write.js";
 import { EditorLease } from "./lease.js";
+import { planOptionsOf } from "./scope.js";
 import { conflict, notFound } from "./util.js";
 
 /** The most finished plans kept. */
@@ -61,16 +63,10 @@ export const CRASHED = "The editor crashed during this run";
 export type ItemStart = { runId: string; sessionId?: string } | { skipped: string } | { error: string };
 
 export interface QueueRunner {
-  /**
-   * Whether an editor, by its lease's name, can take work: the workspace
-   * editor when connected, the runner editor when it runs or can be started.
-   * The workspace editor when none is named.
-   */
-  connected(editor?: string): boolean;
+  /** Whether the editor is connected. */
+  connected(): boolean;
   /** Why the editor is not free for this plan's next item, or null when it is (occupancyOf). */
   occupied(plan: PlanRun): string | null;
-  /** The lease of the editor a plan's next item runs on: the runner editor's for an unattended plan while there is one (runner.ts). The workspace lease when absent. */
-  leaseFor?(plan: PlanRun): EditorLease;
   start(item: PlanItem, plan: PlanRun): Promise<ItemStart>;
   /** The run as Studio has it now. */
   run(runId: string): QaRun | undefined;
@@ -80,8 +76,8 @@ export interface QueueRunner {
   refresh(runId: string): Promise<void>;
   /** Stop a fix item's loop: the running attempt stops and is checkpointed. */
   stopFix(item: PlanItem): Promise<void>;
-  /** End the Play In Editor session the hub's item started on that editor (its lease's editor). */
-  endPie(editor: string): Promise<void>;
+  /** End the Play In Editor session the hub's item started. */
+  endPie(): Promise<void>;
 }
 
 interface Stored {
@@ -102,8 +98,6 @@ export interface QueueOptions {
   changed?: (planRunId?: string) => void;
   /** A plan finished: done, failed or cancelled. */
   finished?: (plan: PlanRun) => void;
-  /** An item's run ended in an editor crash. */
-  crashed?: (runId: string, reason: string) => void;
   /** The Playtest Hub is on: nothing new starts while it is off. Default on. */
   enabled?: () => boolean;
   log?: { warn(message: string, detail?: unknown): void };
@@ -121,10 +115,8 @@ export class PlanQueue {
   private s: Stored = { schema: 1, paused: false, pausedBy: null, current: null, queued: [], recent: [] };
   private readonly file: string;
   private readonly now: () => string;
-  /** The workspace editor's lease. */
+  /** The editor's lease, held while an item runs and until its PIE has ended. */
   readonly lease: EditorLease;
-  /** The lease the current item holds: the workspace editor's or the runner editor's. */
-  private held: EditorLease | null = null;
   private pumping = false;
   /** Why the next item waits although nothing is paused. */
   private waiting: string | null = null;
@@ -150,6 +142,8 @@ export class PlanQueue {
     } catch {
       // None yet, or unreadable: an empty queue.
     }
+    // A plan saved by an earlier Studio has other options (manualSteps, no attended): read again as a person's plan.
+    for (const p of [this.s.current, ...this.s.queued]) if (p) p.options = storedOptions(p.options);
     const cur = this.s.current;
     if (cur) {
       // The item that was live when Studio stopped: followed again, under the lease, while Studio has its run; else queued again.
@@ -160,17 +154,11 @@ export class PlanQueue {
           Object.assign(item, { state: "queued", runId: null, startedAt: null, reason: "queued again after Studio restarted" });
           return;
         }
-        const lease = this.leaseOf(cur);
-        lease.take({ purpose: purposeOf(cur, item), planRunId: cur.id, item: at, work: workOf(cur), runId: item.runId, sessionId: item.sessionId ?? null, pie: run.pieStarted === true, ...(item.startedAt ? { since: item.startedAt } : {}) });
-        this.held = lease;
+        this.lease.take({ purpose: purposeOf(cur, item), planRunId: cur.id, item: at, work: workOf(cur), runId: item.runId, sessionId: item.sessionId ?? null, pie: run.pieStarted === true, ...(item.startedAt ? { since: item.startedAt } : {}) });
       });
     }
     // Studio restarted with work waiting: it waits for a person, as after an editor reconnect.
     this.reconnected(false);
-  }
-
-  private leaseOf(plan: PlanRun): EditorLease {
-    return this.o.runner.leaseFor?.(plan) ?? this.lease;
   }
 
   private save(planRunId?: string): void {
@@ -197,11 +185,6 @@ export class PlanQueue {
     };
   }
 
-  /** Nothing running or waiting. */
-  idle(): boolean {
-    return !this.s.current && this.s.queued.length === 0;
-  }
-
   paused(): boolean {
     return this.s.paused;
   }
@@ -215,16 +198,6 @@ export class PlanQueue {
   /** The running plan, when one of its items ran this run. */
   planOf(runId: string): PlanRun | undefined {
     return this.s.current?.items.some((i) => i.runId === runId) ? this.s.current : undefined;
-  }
-
-  /** An item holds the editor: its run or loop is on it, or is being started. */
-  holding(): boolean {
-    return !!this.s.current?.items.some(live);
-  }
-
-  /** The editor whose lease the current item holds (lease.ts WORKSPACE, runner.ts RUNNER), or null. */
-  heldBy(): string | null {
-    return this.held?.editor ?? null;
   }
 
   find(id: string): PlanRun | undefined {
@@ -314,15 +287,10 @@ export class PlanQueue {
 
   /** The item settled or stopped: PIE its run started ends, and the lease is released. */
   private async free(): Promise<void> {
-    const lease = this.held;
-    const l = lease?.get();
-    if (!lease || !l) {
-      this.held = null;
-      return;
-    }
-    if (l.pie) await this.o.runner.endPie(lease.editor).catch((e: unknown) => this.o.log?.warn("hub: Play In Editor could not be ended after the hub's run", e));
-    lease.release();
-    this.held = null;
+    const l = this.lease.get();
+    if (!l) return;
+    if (l.pie) await this.o.runner.endPie().catch((e: unknown) => this.o.log?.warn("hub: Play In Editor could not be ended after the hub's run", e));
+    this.lease.release();
   }
 
   /** End a plan: every item not finished takes `rest`, and the plan goes to the recent list. */
@@ -365,7 +333,7 @@ export class PlanQueue {
 
   private evaluateRun(plan: PlanRun, item: PlanItem, run: QaRun): boolean {
     if (!qaEnded(run.state)) {
-      if (run.pieStarted) this.held?.update({ pie: true });
+      if (run.pieStarted) this.lease.update({ pie: true });
       const waiting = run.steps.some((s) => s.status === "awaiting_verdict");
       if (waiting && item.state !== "needs_you") {
         item.state = "needs_you";
@@ -379,8 +347,7 @@ export class PlanQueue {
       }
       return false;
     }
-    const outcome = outcomeOf(run);
-    const state: PlanItemState = outcome === "passed" || outcome === "failed" || outcome === "unjudged" ? outcome : outcome === "stopped" ? "cancelled" : "error";
+    const state = itemStateOf(outcomeOf(run));
     // A run that did not get through its steps says why it ended: "no verdict", "PIE ended" and the like.
     const reason = state === "passed" || state === "failed" ? null : run.stopReason ?? (state === "unjudged" ? "no verdict" : state === "cancelled" ? "the run was stopped" : "the run ended before every step settled");
     this.end(plan, item, state, reason);
@@ -420,25 +387,19 @@ export class PlanQueue {
    * The editor went away. A run item that was on it crashed with it, once and
    * for good, when the editor crashed; otherwise it goes back in the queue. A
    * fix loop deals with crashes itself (playtest-loop.ts), so its item stays.
-   * `editor` names the editor that went (a lease's editor); another editor's
-   * item is left alone.
    */
-  editorLost(cause?: string, editor?: string): void {
+  editorLost(cause?: string): void {
     const cur = this.s.current;
     const item = cur?.items.find(live);
     if (!cur || !item || workOf(cur) === "fix") return;
-    if (editor !== undefined && this.held?.editor !== editor) return;
-    const runId = item.runId;
     if (cause === "crashed") {
       this.end(cur, item, "crashed", CRASHED);
-      if (runId) this.o.crashed?.(runId, CRASHED);
     } else {
       Object.assign(item, { state: "queued", runId: null, startedAt: null, reason: "queued again: the editor disconnected" });
       this.save(cur.id);
     }
     // PIE went with the editor: nothing is left to end.
-    this.held?.release();
-    this.held = null;
+    this.lease.release();
   }
 
   /**
@@ -450,7 +411,7 @@ export class PlanQueue {
     const cur = this.s.current;
     const item = cur?.items.find(live);
     if (cur && item) {
-      if (!this.o.runner.connected((this.held ?? this.leaseOf(cur)).editor)) {
+      if (!this.o.runner.connected()) {
         this.editorLost();
       } else if (item.runId && workOf(cur) === "run") {
         const run = this.o.runner.run(item.runId);
@@ -489,9 +450,9 @@ export class PlanQueue {
         if (this.s.paused || this.o.enabled?.() === false) return this.setWaiting(null);
         let cur = this.s.current;
         // An item on an editor, or one whose lease is being let go (its PIE ending): the next waits for it.
-        if (cur?.items.some(live) || this.held) return this.setWaiting(null);
+        if (cur?.items.some(live) || this.lease.get()) return this.setWaiting(null);
         const next = cur ?? this.s.queued[0];
-        if (!next || !this.o.runner.connected(this.leaseOf(next).editor)) return this.setWaiting(null);
+        if (!next || !this.o.runner.connected()) return this.setWaiting(null);
         const why = this.o.runner.occupied(next);
         if (why) return this.setWaiting(why);
         this.setWaiting(null);
@@ -505,9 +466,7 @@ export class PlanQueue {
         const at = cur.items.findIndex((i) => i.state === "queued");
         const item = cur.items[at];
         Object.assign(item, { state: "running", startedAt: this.now(), reason: null, runId: null });
-        const lease = this.leaseOf(cur);
-        lease.take({ purpose: purposeOf(cur, item), planRunId: cur.id, item: at, work: workOf(cur), sessionId: item.sessionId ?? null, since: item.startedAt! });
-        this.held = lease;
+        this.lease.take({ purpose: purposeOf(cur, item), planRunId: cur.id, item: at, work: workOf(cur), sessionId: item.sessionId ?? null, since: item.startedAt! });
         this.save(cur.id);
         let r: ItemStart;
         try {
@@ -531,7 +490,7 @@ export class PlanQueue {
           item.runId = r.runId;
           if (r.sessionId) item.sessionId = r.sessionId;
           const run = this.o.runner.run(r.runId);
-          lease.update({ runId: r.runId, sessionId: item.sessionId ?? null, pie: run?.pieStarted === true });
+          this.lease.update({ runId: r.runId, sessionId: item.sessionId ?? null, pie: run?.pieStarted === true });
           this.save(cur.id);
           // A run that ended at once moves the plan on here; one still going does so from its events.
           if (run && (workOf(cur) === "run" || run.assignment) && this.evaluate(cur, item, run)) await this.free();
@@ -544,6 +503,15 @@ export class PlanQueue {
     } finally {
       this.pumping = false;
     }
+  }
+}
+
+/** A saved plan's options: the ones this Studio knows, each valid, over the defaults. */
+function storedOptions(v: unknown): PlanOptions {
+  try {
+    return planOptionsOf(v ?? undefined, DEFAULT_PLAN_OPTIONS);
+  } catch {
+    return { ...DEFAULT_PLAN_OPTIONS };
   }
 }
 

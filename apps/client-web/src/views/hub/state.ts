@@ -4,8 +4,8 @@
  * the context every hub screen draws from.
  */
 import { createContext, useContext, useEffect, useRef, useState, type RefObject } from "react";
-import type { HubOverview, HubRunnerEvent, PlanRequest, StudioExperiments } from "@ue-mcp-studio/shared";
-import { HUB_RELOAD_MS, hubReloadsOn, runnerOfEvent, type HubKeyAction, type HubRoute } from "@ue-mcp-studio/client-core";
+import type { HubOverview, PlanRequest, StudioExperiments } from "@ue-mcp-studio/shared";
+import { HUB_RELOAD_MS, hubReloadsOn, type HubKeyAction, type HubRoute } from "@ue-mcp-studio/client-core";
 import { api } from "../../api";
 import type { DaemonState } from "../../state";
 
@@ -50,24 +50,6 @@ export interface HubData {
   reload: () => void;
   /** Change the overview in place ahead of the daemon's answer; the next read replaces it. */
   patch: (f: (o: HubOverview) => HubOverview) => void;
-  /** The runner editor (GET /hub/runner, studio.hub.runner); absent or null runner while there is none. */
-  runner?: HubRunnerEvent | null;
-}
-
-/** The runner editor while the hub is on: read when the stream is up, then replaced by each studio.hub.runner. */
-function useRunner(daemon: Pick<DaemonState, "events" | "streaming">, on: boolean): HubRunnerEvent | null {
-  const [runner, setRunner] = useState<HubRunnerEvent | null>(null);
-  useEffect(() => {
-    if (!on || !daemon.streaming) return setRunner(null);
-    // An agent without the runner has no route: there is none then.
-    api.hubRunner().then((r) => setRunner(r ?? null), () => setRunner(null));
-  }, [on, daemon.streaming]);
-  const last = [...daemon.events].reverse().find((e) => runnerOfEvent(e) !== null);
-  useEffect(() => {
-    const next = on && last ? runnerOfEvent(last) : null;
-    if (next) setRunner(next);
-  }, [last?.id, on]);
-  return runner;
 }
 
 /**
@@ -116,8 +98,7 @@ export function useHubOverview(daemon: Pick<DaemonState, "events" | "streaming">
   useEffect(() => () => {
     if (timer.current) clearTimeout(timer.current);
   }, []);
-  const runner = useRunner(daemon, on);
-  return { overview, error, version, reload, patch: (f) => setOverview((o) => (o ? f(o) : o)), runner };
+  return { overview, error, version, reload, patch: (f) => setOverview((o) => (o ? f(o) : o)) };
 }
 
 /** What a new goal starts with: the goals it is part of, and its kind. */

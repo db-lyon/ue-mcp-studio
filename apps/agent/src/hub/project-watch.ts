@@ -58,7 +58,7 @@ export class ProjectWatch {
     this.started.clear();
   }
 
-  /** A change seen now, for tests and for writes Studio knows of itself. */
+  /** A change seen now, for tests. */
   touched(): void {
     this.seq++;
   }
@@ -74,20 +74,5 @@ export class ProjectWatch {
     if (at === undefined) return null;
     this.started.delete(runId);
     return this.seq > at;
-  }
-
-  /** Whether a run is being followed. */
-  following(runId: string): boolean {
-    return this.started.has(runId);
-  }
-
-  /** The changes seen so far, to compare with later (changedSince). */
-  mark(): number {
-    return this.seq;
-  }
-
-  /** Whether project files changed after `mark` was taken. */
-  changedSince(mark: number): boolean {
-    return this.seq > mark;
   }
 }

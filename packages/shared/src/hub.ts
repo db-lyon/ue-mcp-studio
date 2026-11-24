@@ -1044,6 +1044,11 @@ export interface PlanItem {
 /** Plan item states that count as failing. */
 export const FAILING_ITEM_STATES: readonly PlanItemState[] = ["failed", "error", "crashed"];
 
+/** A plan item's state once its run ended: a stopped run is a cancelled item; one that ended before its steps settled is an error. */
+export function itemStateOf(outcome: RunOutcome): PlanItemState {
+  return outcome === "passed" || outcome === "failed" || outcome === "unjudged" ? outcome : outcome === "stopped" ? "cancelled" : "error";
+}
+
 export type PlanState = "queued" | "running" | "paused" | "done" | "cancelled" | "failed";
 export type PlanTrigger = "person" | "agent";
 

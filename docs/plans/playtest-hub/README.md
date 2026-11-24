@@ -2,6 +2,8 @@
 
 Status: draft plan, 2026-11-22. Branch `feat/playtest-hub`. Experimental: ships behind a setting, off by default.
 
+The sections above **Decisions** are the first draft. Where they differ from a decision, the decision holds: goals live in a local store, not the repo (decision 0); there is no Inbox (decision 12), no Queue screen and no schedules (decision 0).
+
 The Playtest Hub is the place in Studio where a team says what the game must do, sees whether it does, and puts agents to work on the gap. It manages goals, the playtests and other checks that prove them, the runs that produce evidence, and the queue that schedules those runs on the editor.
 
 ## Design review (2026-11-23, in progress)
@@ -72,7 +74,8 @@ The Playtests tab returns as **Playtests** when the experimental setting is on. 
 | `#/playtests/checks` | **Library**: every script and other check, filterable by goal, status, tag, map and author, with bulk select. Grows from today's hidden page. |
 | `#/playtests/checks/<script>` | **Check**: definition, history (every run, newest first), flakiness, edit. |
 | `#/playtests/runs/<runId>` | **Run**: the timeline described under Evidence below. |
-| `#/playtests/queue` | **Queue**: what runs now, what is next, reorder, pause, plus schedules. |
+
+The Queue screen is folded into the Overview's Now running strip (decision 0).
 
 ### Interaction standards
 
@@ -104,7 +107,6 @@ The run screen shows:
 
 - **Plan runs:** run a goal, run the selected checks, run what is failing, run what is stale.
 - **The queue** is persisted and survives a daemon restart. After the editor reconnects, or Studio restarts, with work waiting, it pauses until a person resumes it (decision 14). Before a run that needs it, the queue checks for unsaved levels, since ue-mcp refuses to open a map over unsaved changes.
-- **Schedules:** "nightly at 02:00", or "after every N agent turns that change gameplay assets". A schedule runs only when the editor is up and idle, and is skipped and recorded otherwise.
 - **Manual steps inside a plan** hold the plan, with PIE paused, until the verdict or the wait runs out; an unattended plan skips checks that have them (decision 12).
 - **Agent work:**
   - **Assign failing** sends each failing check to today's fix loop, one at a time.
@@ -122,13 +124,13 @@ The run screen shows:
 ### Agent
 
 - **New `hub/` module in `apps/agent/src`:**
-  - `goals.ts`: goals, checks and acceptance rules, with CRUD and status computation.
-  - `run-index.ts`: durable run history.
+  - `goals.ts` over `goal-store.ts` (kept by `goal-files.ts`): goals, milestones, checks' own records, sign-offs and the health rule (decision 0).
+  - `run-index.ts`: durable run history, the local `EvidenceStore`.
     - Studio's runs are recorded as they finish.
     - ue-mcp's `script_runs` and `results.json` are backfilled.
-    - Entries are keyed by runId, with script, goal ids, outcome, summary, timings, session and replayOf.
-    - Format: `<dataDir>/hub/runs.jsonl`, append-only and compacted on start.
-  - `queue.ts`: plan runs, the queue and schedules, persisted in `<dataDir>/hub/queue.json`. It runs checks through the existing `QaBroker.runScript` so cards, players and verdict routing keep working.
+    - Entries are keyed by runId, with script, outcome, summary, timings, session, replayOf and provenance.
+    - Format: `<dataDir>/hub/runs/runs-<seq>.jsonl`, append-only segments; the oldest is archived whole past the cap.
+  - `queue.ts`: plan runs and the queue, persisted in `<dataDir>/hub/queue.json`. It runs checks through the existing `QaBroker.runScript` so cards, players and verdict routing keep working.
   - Needs attention: derived from broker runs, loops and goal status (`packages/shared/src/hub-attention.ts`).
 - **Routes** under `/v1/ext/studio/hub/...`. They publish `studio.hub.changed` events in the existing style.
 - **Fix the durability gaps the hub depends on:**
@@ -198,10 +200,10 @@ Made 2026-11-23. The user handed the design over in full: decide, build, deliver
    - **The repo holds only the playtest scripts.** Goals name them by asset path. A script not on the current checkout shows as "Not on this checkout": the goal waits for it and never fails or forks because of it. A script that moved is followed through its redirector (`asset(fixup_redirectors)` with `dryRun`, which changes nothing), and the evidence store's alias map carries its history to the new path; the goal keeps the path it names.
    - **Records are shaped for a hosted store** implementing the same interface: each carries `schema`, `rev`, `at` and `origin` (the store's random id); goal ids are the title's slug and a random ending, sign-off ids are random; a removal is a version with `deleted`, never a lost id.
    - **Before a hosted store, goals move by export and import** of the whole store as one JSON file (`GET` and `POST /hub/store`, the Goals menu on the Overview). Import merges by id: what is missing is added as the file has it, the same content is left alone, other content keeps this store's version and is reported. A file with any record that does not read changes nothing.
-   - **An older Studio's `QA/Goals/*.json` are imported once,** into an empty store: read only, never changed or read again, `parent` turned into the parent's `requires`, a check's title and links into its own record, other check kinds kept as unsupported. The import is recorded and shown.
+   - **An older Studio's `QA/Goals/*.json` are imported once,** into an empty store: read only, never changed or read again, `parent` turned into the parent's `requires`, a check's title and links into its own record, other check kinds kept as unsupported. The import is recorded and shown. The per-machine `<dataDir>/hub/sign-offs.json` an earlier build kept is taken in the same way, once, as sign-off records for goals the store has.
    - **Layout on this computer,** under `<dataDir>/hub/` (`~/.ue-mcp/data/<project>/studio/hub/`). Plain JSON, not SQLite: ue-mcp runs on Node 20, which has no built-in SQLite, and a native module would need a build per platform.
      - `store.json`: the store's origin id, written once.
-     - `goals/<id>.json`, `checks/<check id>.json`, `signoffs/<id>.json`, `rules/health.json`, `imports/qa-goals.json`: one record per file, its newest version, written whole through a temporary file and a rename. Ids are URI-encoded into file names.
+     - `goals/<id>.json`, `checks/<check id>.json`, `signoffs/<id>.json`, `rules/health.json`, `imports/<id>.json` (`qa-goals`, `sign-offs`): one record per file, its newest version, written whole through a temporary file and a rename. Ids are URI-encoded into file names.
      - `runs/runs-<seq>.jsonl`: run evidence, an append-only log in time-ordered segments. A full segment is closed; past the cap the oldest is moved whole to `runs/archive/`, a linked run's record appended to the open segment first. No line is rewritten.
      - `aliases.json`: moved scripts, `{ "<old check id>": "<new check id>" }`.
      - `queue.json`: the plan queue.
@@ -295,5 +297,5 @@ Made 2026-11-23. The user handed the design over in full: decide, build, deliver
     - **Tainted runs.** A run that saw files under Content, Config, Source or Plugins, or the .uproject, change while it played is `tainted`.
 15. **The runner editor** (2026-11-23, review C, approved by the owner). Unattended run plans play in a second, offscreen editor of the project that saves nothing, so the hub never uses the developer's editor for them. Research, design and what remains: [runner-editor.md](runner-editor.md).
     - **ue-mcp cannot run one yet**, in 1.4.11 or 1.4.16-beta.1: the daemon keeps one session per project root. Asks 13 (editor instances of one project) and 14 (a read-only editor) in [ue-mcp-asks.md](ue-mcp-asks.md).
-    - **Studio's side is built behind those features** (`hub/runner.ts`): started on demand, restarted when project files changed, stopped after 10 minutes idle or by Stop runner, with a lease of its own. Runs on it carry `QaRun.editor`, ue-mcp's routing argument. The `runnerEditor` setting turns it off.
+    - **Studio's side waits for those features** (pragmatism review): building it against an API ue-mcp has not shipped would guess its shape and carry code, a setting and routes that can never run. The seam is the lease: each `EditorLease` names its editor, so the runner gets a lease of its own when it lands.
     - **Meanwhile** unattended plans run on the workspace editor under decision 14's lease and occupancy.

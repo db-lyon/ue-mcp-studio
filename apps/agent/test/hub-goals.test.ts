@@ -229,6 +229,21 @@ describe("the one-time import of QA/Goals", () => {
     writeLegacy("jump.json", { title: "Jump" });
     expect(goals().list().map((x) => x.id)).toEqual(["mine"]);
   });
+
+  it("takes in an earlier sign-offs.json once, for goals the store has, and leaves the file as it was", () => {
+    goals().create({ id: "jump", title: "Jump" });
+    const file = path.join(data, "hub", "sign-offs.json");
+    const text = JSON.stringify([signOff("jump"), signOff("gone"), { goalId: "bad" }]);
+    fs.writeFileSync(file, text);
+    const withFile = () => new Goals({ store: new GoalFiles(data, () => "2026-11-23T10:00:00.000Z"), projectDir: project, legacySignOffs: file, now: () => "2026-11-23T10:00:00.000Z" });
+    const g = withFile();
+    expect(g.signOffs().get("jump")).toEqual(signOff("jump"));
+    expect(g.signOffs().size).toBe(1);
+    expect(fs.readFileSync(file, "utf-8")).toBe(text);
+    g.clearSignOff("jump");
+    // Read once: a cleared sign-off does not come back from the file.
+    expect(withFile().signOffs().size).toBe(0);
+  });
 });
 
 describe("export and import", () => {
@@ -262,6 +277,16 @@ describe("export and import", () => {
     expect(report.conflicts).toEqual([{ type: "goal", id: "jump", title: "Jump, ours" }]);
     expect(report.added).toBe(3);
     expect(other.get("jump")?.title).toBe("Jump, ours");
+  });
+
+  it("never brings back a record removed here, and reports it", () => {
+    const file = exported();
+    const other = goals(path.join(root, "other"));
+    other.importAll(file);
+    other.delete("jump");
+    const report = other.importAll(file);
+    expect(report.conflicts).toContainEqual({ type: "goal", id: "jump", title: "Jump (removed here)" });
+    expect(other.get("jump")).toBeUndefined();
   });
 
   it("refuses a file with any record that does not read, and changes nothing", () => {

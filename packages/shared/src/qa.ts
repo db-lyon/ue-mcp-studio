@@ -129,12 +129,6 @@ export interface QaRun {
   pieStarted?: boolean;
   /** The players Studio set PIE to before starting the run; absent when Studio left PIE as it was. */
   pieSetup?: { players: number; netMode: "standalone" | "listen" };
-  /**
-   * The editor the run plays on, as ue-mcp's `editor` routing parameter named
-   * it when the run started. Every later call about the run carries it.
-   * Absent: the project's own editor.
-   */
-  editor?: string;
 }
 
 /** How long a run holds at a step waiting for a person's verdict before it is stopped, unless the "Wait for a verdict" setting says otherwise. */

@@ -28,6 +28,8 @@ import {
   leafName,
   loopIfRequired,
   needsPerson,
+  FAILING_ITEM_STATES,
+  itemStateOf,
   requirementsKey,
   requiresOf,
   rollUpGoals,
@@ -1140,12 +1142,13 @@ export class HubDemo {
     for (const p of [this.state.current, ...this.state.recent]) {
       const it = p?.items.find((i) => i.runId === runId);
       if (!p || !it || it.state === "cancelled" || it.state === "error") continue;
-      it.state = rec.outcome === "passed" || rec.outcome === "failed" || rec.outcome === "needs_you" || rec.outcome === "running" || rec.outcome === "unjudged" ? rec.outcome : "error";
+      // The agent's rules: shared itemStateOf and FAILING_ITEM_STATES, the queue's reason.
+      it.state = rec.outcome === "needs_you" || rec.outcome === "running" ? rec.outcome : itemStateOf(rec.outcome);
       if (rec.endedAt) it.endedAt = rec.endedAt;
-      if (it.state === "failed" && p === this.state.current && p.options.stopOnFailure) {
+      if (FAILING_ITEM_STATES.includes(it.state) && p === this.state.current && p.options.stopOnFailure) {
         for (const rest of p.items) if (rest.state === "queued") {
-          rest.state = "skipped";
-          rest.reason = "Skipped after a failure";
+          rest.state = "cancelled";
+          rest.reason = "the plan stopped at a failure";
         }
         p.state = "failed";
       }

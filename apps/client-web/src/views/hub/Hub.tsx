@@ -214,7 +214,7 @@ function HubRail({ onPalette, onShortcuts }: { onPalette: () => void; onShortcut
   const goals = useMemo(() => sortGoals(o.goals.filter((g) => !g.goal.archived)), [o.goals]);
   return (
     <nav className="hub-rail" aria-label="Playtests">
-      <button className="hub-find" onClick={onPalette} title="Find a goal, check or run (Ctrl+K)">
+      <button className="hub-find" onClick={onPalette} title="Find a goal, playtest or run (Ctrl+K)">
         <HubIcon name="search" />
         <span>Find or run</span>
         <span className="spacer" />
@@ -285,8 +285,8 @@ function Palette({ onClose, onShortcuts, onNewGoal }: { onClose: () => void; onS
     const c = e.command;
     if (c === "newGoal") onNewGoal();
     else if (c === "shortcuts") onShortcuts();
-    else if (c === "runFailing") void ctx.runPlan({ scope: { kind: "failing" } }, "every failing check");
-    else if (c === "runAll") void ctx.runPlan({ scope: { kind: "all" } }, "every check");
+    else if (c === "runFailing") void ctx.runPlan({ scope: { kind: "failing" } }, "every failing playtest");
+    else if (c === "runAll") void ctx.runPlan({ scope: { kind: "all" } }, "every playtest");
     else if (c && typeof c === "object" && "runGoal" in c) {
       const g = ctx.o.goals.find((x) => x.goal.id === c.runGoal);
       void ctx.runPlan({ scope: { kind: "goal", goalId: c.runGoal } }, g?.goal.title);

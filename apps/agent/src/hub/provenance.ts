@@ -8,19 +8,10 @@
 import * as crypto from "node:crypto";
 import type { CurrentProvenance, QaRun, RunProvenance, RunVcs } from "@ue-mcp-studio/shared";
 import { detectVcs, revisionOf, run as runTool, type Run } from "../vcs.js";
+import { canonical } from "./util.js";
 
 /** The fields of a script_read answer that decide what a run does; its path, name and prose do not. */
 const SCRIPT_FIELDS = ["profile", "map", "default_within_ms", "manual_only", "steps"] as const;
-
-/** JSON with every object's keys sorted, so the same value always gives the same text. */
-export function canonical(v: unknown): string {
-  if (Array.isArray(v)) return `[${v.map((x) => canonical(x === undefined ? null : x)).join(",")}]`;
-  if (v && typeof v === "object") {
-    const o = v as Record<string, unknown>;
-    return `{${Object.keys(o).filter((k) => o[k] !== undefined).sort().map((k) => `${JSON.stringify(k)}:${canonical(o[k])}`).join(",")}}`;
-  }
-  return JSON.stringify(v) ?? "null";
-}
 
 /** A script's version from its pie(script_read) answer: "sha256:<hex>" of its canonical definition, or null for an answer with no steps. */
 export function scriptHashOf(answer: Record<string, unknown> | null): string | null {

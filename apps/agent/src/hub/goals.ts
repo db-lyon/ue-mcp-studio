@@ -10,7 +10,9 @@
  * The files are read and never changed or read again, and the import is
  * recorded (GoalImport). A file's "parent" becomes an entry in the parent's
  * requires; a check's title and links become that check's own record; a
- * check of a kind this Studio cannot run is kept as unsupported.
+ * check of a kind this Studio cannot run is kept as unsupported. The
+ * sign-offs that Studio kept in <dataDir>/hub/sign-offs.json are taken in
+ * the same way, once.
  */
 import * as crypto from "node:crypto";
 import * as fs from "node:fs";
@@ -51,12 +53,14 @@ import {
   type UnsupportedCheck,
 } from "@ue-mcp-studio/shared";
 import type { GoalStore, GoalStoreChange } from "./goal-store.js";
-import { bad, checkRefOf, isObject, linksOf, notFound, readLinks } from "./util.js";
+import { bad, canonical, checkRefOf, isObject, linksOf, notFound, readLinks } from "./util.js";
 
 /** Where an older Studio kept goals in the project, one JSON file each. */
 export const LEGACY_GOALS_DIR = "QA/Goals";
 /** The import record's id, and the health rule's. */
 export const LEGACY_IMPORT_ID = "qa-goals";
+/** The record of taking in an older Studio's sign-offs.json. */
+export const LEGACY_SIGNOFFS_ID = "sign-offs";
 export const HEALTH_RULE_ID = "health";
 /** The longest title, description and note kept. */
 const MAX_TITLE = 200;
@@ -69,13 +73,6 @@ const EXPORTED: readonly HubRecordType[] = ["goal", "check", "signoff", "rules"]
 const loopText = (p: string[]): string => p.join(" > ");
 
 const str = (v: unknown, max = MAX_TEXT): string | undefined => (typeof v === "string" && v.trim() ? v.trim().slice(0, max) : undefined);
-
-/** JSON with keys in order, so two records with the same content compare equal however they were written. */
-function stable(v: unknown): string {
-  if (Array.isArray(v)) return `[${v.map(stable).join(",")}]`;
-  if (isObject(v)) return `{${Object.keys(v).sort().filter((k) => v[k] !== undefined).map((k) => `${JSON.stringify(k)}:${stable(v[k])}`).join(",")}}`;
-  return JSON.stringify(v);
-}
 
 function acceptanceOf(v: unknown, fallback: AcceptanceRule = DEFAULT_ACCEPTANCE): AcceptanceRule {
   const o = isObject(v) ? v : {};
@@ -232,6 +229,8 @@ export interface GoalsOptions {
   store: GoalStore;
   /** The project, for the one-time import of QA/Goals. */
   projectDir: string;
+  /** Where an older Studio kept this computer's sign-offs (sign-offs.json), taken in once. */
+  legacySignOffs?: string;
   /** Records changed here. */
   changed?: (goalId?: string) => void;
   now?: () => string;
@@ -242,11 +241,14 @@ export class Goals {
   private readonly now: () => string;
   /** Records in the store that did not read, each named once. */
   private readonly unreadable: string[] = [];
+  /** Each stored version as read (recordDataOf); a new version is a new object, so it is read again. */
+  private readonly checked = new WeakMap<AnyHubRecord, AnyHubRecord | string>();
 
   constructor(private readonly o: GoalsOptions) {
     this.store = o.store;
     this.now = o.now ?? (() => new Date().toISOString());
     this.importLegacy();
+    this.importLegacySignOffs();
   }
 
   // ── Reading ───────────────────────────────────────────────────────
@@ -255,7 +257,9 @@ export class Goals {
   private live<T extends HubRecordType>(type: T): Array<Extract<AnyHubRecord, { type: T }>> {
     const out: Array<Extract<AnyHubRecord, { type: T }>> = [];
     for (const r of this.store.list(type) as unknown as AnyHubRecord[]) {
-      const read = recordDataOf(r);
+      // Every read goes through here (a goal by id, each status): a version is checked once, not on every read.
+      let read = this.checked.get(r);
+      if (read === undefined) this.checked.set(r, (read = recordDataOf(r)));
       if (typeof read !== "string") {
         out.push(read as Extract<AnyHubRecord, { type: T }>);
         continue;
@@ -630,9 +634,9 @@ export class Goals {
 
   /**
    * Import an export, merged by id (HubImportReport): a record this store
-   * lacks is added as the file has it; the same content is left alone; other
-   * content keeps this store's version and is reported. A file with any
-   * record that does not read changes nothing.
+   * never held is added as the file has it; the same content is left alone;
+   * other content, or a record removed here, keeps this store's version and
+   * is reported. A file with any record that does not read changes nothing.
    */
   importAll(body: unknown): HubImportReport {
     if (!isObject(body) || body.format !== HUB_EXPORT_FORMAT) throw bad(`this is not a goals file exported from Studio (format ${HUB_EXPORT_FORMAT})`);
@@ -656,10 +660,12 @@ export class Goals {
     const adopt: AnyHubRecord[] = [];
     for (const r of records) {
       const here = this.store.get(r.type, r.id) as AnyHubRecord | undefined;
-      if (!here) {
+      // Removed here is this store's version too: an older export never brings the record back.
+      if (!here && this.store.held(r.type, r.id)) report.conflicts.push({ type: r.type, id: r.id, title: `${this.recordTitle(r)} (removed here)` });
+      else if (!here) {
         adopt.push(r);
         report.added++;
-      } else if (stable(here.data) === stable(r.data)) report.unchanged++;
+      } else if (canonical(here.data) === canonical(r.data)) report.unchanged++;
       else report.conflicts.push({ type: r.type, id: r.id, title: this.recordTitle(here) });
     }
     if (adopt.length) {
@@ -746,6 +752,34 @@ export class Goals {
       ...goals.map((g): GoalStoreChange => ({ type: "goal", id: g.id, data: clean(g) })),
       ...[...metas].map(([id, data]): GoalStoreChange => ({ type: "check", id, data })),
       { type: "import", id: LEGACY_IMPORT_ID, data: marker },
+    ]);
+  }
+
+  /**
+   * Sign-offs an older Studio kept in one file on this computer become
+   * sign-off records, once: the same shape, for goals the store has. The file
+   * is only read.
+   */
+  private importLegacySignOffs(): void {
+    const file = this.o.legacySignOffs;
+    if (!file || this.store.held("import", LEGACY_SIGNOFFS_ID)) return;
+    let saved: unknown;
+    try {
+      saved = JSON.parse(fs.readFileSync(file, "utf-8"));
+    } catch {
+      return;
+    }
+    const problems: string[] = [];
+    const taken: SignOff[] = [];
+    for (const s of Array.isArray(saved) ? saved : []) {
+      if (!isSignOff(s)) problems.push("an entry is not a sign-off");
+      else if (!this.get(s.goalId)) problems.push(`the sign-off of ${s.goalId} names no goal here`);
+      else if (!taken.some((t) => t.goalId === s.goalId)) taken.push(s);
+    }
+    const marker: GoalImport = { from: path.basename(file), at: this.now(), goals: taken.map((s) => s.goalId), problems };
+    this.store.write([
+      ...taken.map((data): GoalStoreChange => ({ type: "signoff", id: `signoff-${crypto.randomUUID()}`, data })),
+      { type: "import", id: LEGACY_SIGNOFFS_ID, data: marker },
     ]);
   }
 }
