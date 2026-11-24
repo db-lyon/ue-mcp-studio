@@ -54,7 +54,6 @@ import { NO_EFFECTS, SESSION_KEY, approvalKind, editorPreview, flowStepCall, flo
 import { AGENT_TOOL } from "./tools.js";
 import { AGENT_STOPPED, SUBAGENT_TOOLS, fromAgent, isFromAgent, isSubagentTool, runSubagentTool } from "./subagent-tools.js";
 import { NoticeLimit, USER_TOOLS, isUserTool, runUserTool } from "./user-tools.js";
-import { HUB_TOOLS, isHubTool, runHubTool, type HubToolTarget } from "./hub-tools.js";
 import type { FormBroker } from "./forms.js";
 import { SKILL_TOOL, agentTool, skillResult, skillsSection, type NativeHelper, type NativeRun } from "./native-runtime.js";
 import { DurableTurns } from "./durable/runtime.js";
@@ -266,8 +265,6 @@ const RESTART_CAUSE_TTL_MS = 10 * 60_000;
 
 export interface RunnerOptions {
   host: AgentHost;
-  /** The Playtest Hub for the main agent's hub tools (hub-tools.ts); null while its experiment is off, and then the agent has none. */
-  hub?: () => HubToolTarget | null;
   store: SessionStore;
   provider: () => ModelProvider;
   model: () => string;
@@ -308,7 +305,7 @@ export interface RunnerOptions {
   dialogs?: DialogBroker;
   /** Puts the PIE test script runs a session's calls start in the chat, as Playtest cards. */
   qa?: QaBroker;
-  /** A fix loop's write lease: refuses its session's saves of packages the person has unsaved changes in (hub/write-lease.ts). */
+  /** A fix loop's write lease: refuses its session's saves of packages the person has unsaved changes in (write-lease.ts). */
   writes?: { wrap(host: AgentHost, sessionId: string): AgentHost };
   /** The chat's form cards, which the main agent's ask_user raises; without it ask_user answers that it cannot ask here. */
   forms?: FormBroker;
@@ -699,7 +696,6 @@ export class AgentRunner {
   private execute(host: AgentHost, name: string, input: Record<string, unknown>, signal: AbortSignal, live?: { sessionId: string; callId: string }): Promise<ToolExecution> {
     if (isSubagentTool(name) && live) return this.subagentTool(live.sessionId, live.callId, name, input);
     if (isUserTool(name) && live) return this.userTool(live.sessionId, live.callId, name, input, signal);
-    if (isHubTool(name)) return this.hubTool(name, input);
     const pass = this.surface().passthrough(name);
     if (!pass) {
       if (!live) return executeTool(host, name, input, signal);
@@ -755,28 +751,12 @@ export class AgentRunner {
     return { text: r.text, isError: r.isError, outcome: r.isError ? "error" : "done", touched: [], saved: [] };
   }
 
-  /**
-   * The main agent's Playtest Hub tools, on every route: goals and links
-   * through the hub's own stores, so the hub shows each change at once.
-   */
-  private async hubTool(name: string, input: Record<string, unknown>): Promise<ToolExecution> {
-    const r = await runHubTool(this.o.hub?.() ?? null, name, input);
-    const wrote = !r.isError && !/^hub_(list|read)_/.test(name);
-    return { text: r.text, isError: r.isError, outcome: r.isError ? "error" : "done", touched: [], saved: [], ...(wrote ? { changed: true } : {}) };
-  }
-
-  /** Whether the main agent has the hub tools this turn: only while the Playtest Hub is on. */
-  private hubOn(): boolean {
-    return !!this.o.hub?.();
-  }
-
   private mainTools(surface = this.surface()) {
     const n = this.native();
     const tools = this.workTools(surface);
     const agent = this.agentDefinition();
     if (agent) tools.push(agent, ...(SUBAGENT_TOOLS as Anthropic.Beta.BetaToolUnion[]));
     tools.push(...(USER_TOOLS as Anthropic.Beta.BetaToolUnion[]));
-    if (this.hubOn()) tools.push(...(HUB_TOOLS as Anthropic.Beta.BetaToolUnion[]));
     if (n?.skills.length) tools.push(SKILL_TOOL);
     return tools;
   }
@@ -1966,7 +1946,6 @@ ${result}`);
         system: withSurface(system(this.o.host.projectDir, this.runsMode(), usage, this.sdkComposed()), surface),
         ...(agent ? { agentTool: { description: agent.description ?? "", inputSchema: agent.input_schema as Record<string, unknown> } } : {}),
         userTools: true,
-        ...(this.hubOn() ? { hubTools: true } : {}),
         ...this.sdkNative(),
         ...sdkEditor(surface),
         prompt,

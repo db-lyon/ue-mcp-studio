@@ -14,7 +14,6 @@ import type Anthropic from "@anthropic-ai/sdk";
 import type { ActionResult, EditorStatus } from "ue-mcp/daemon";
 import type { TouchedItem } from "@ue-mcp-studio/shared";
 import { CHANGING_TOOLS, isLocalTool, localToolDefinitions, runLocal, validateLocal, type LocalToolName } from "./local-tools.js";
-import { isHubTool, validateHub } from "./hub-tools.js";
 import { firstFailedStep, type OperationStep } from "./operation-result.js";
 import { WEB_SEARCH_NAME, validateSearch, webSearch } from "./web-search.js";
 import { IMAGE_EXTENSIONS, MAX_IMAGE_FILE_BYTES, prepareImage, sniffImage, type ToolImage } from "./images.js";
@@ -151,7 +150,6 @@ export function validateInput(name: string, input: unknown): string | null {
   const i = input as Record<string, unknown>;
   if (isLocalTool(name)) return validateLocal(name, i);
   if (name === WEB_SEARCH_NAME) return validateSearch(i);
-  if (isHubTool(name)) return validateHub(name, i);
   if (name === "editor_restart") {
     if (i.operation !== "restart" && i.operation !== "rebuild") return "operation must be restart or rebuild";
     return null;

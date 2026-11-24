@@ -70,8 +70,6 @@ export interface TurnSpec {
   agentTool?: { description: string; inputSchema: Record<string, unknown> };
   /** The main agent's conversation: it has ask_user and notify_user. A host from before them leaves them out. */
   userTools?: boolean;
-  /** The main agent has the Playtest Hub's tools: the hub is on. A host from before them leaves them out. */
-  hubTools?: boolean;
   /** A subagent's conversation: it has Studio's reply tool, and reports the user's messages it took in. Protocol 4. */
   reply?: boolean;
   /** Studio's tools by name, when a helper's file narrows them. */

@@ -19,8 +19,8 @@
  * person's. ue-mcp-asks.md asks for package write ownership, which ends that.
  */
 import type { ActionResult } from "ue-mcp/daemon";
-import type { AgentHost, TurnCallOptions } from "../tools.js";
-import { answerOf } from "./util.js";
+import type { AgentHost, TurnCallOptions } from "./tools.js";
+import { answerOf } from "./action-answer.js";
 
 type Call = (category: string, action: string, args?: Record<string, unknown>) => Promise<ActionResult>;
 

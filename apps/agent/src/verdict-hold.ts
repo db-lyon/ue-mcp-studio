@@ -39,7 +39,7 @@
  */
 import type { ActionResult } from "ue-mcp/daemon";
 import { QA_NO_VERDICT, qaWaitingForPerson, type QaHeld, type QaRun } from "@ue-mcp-studio/shared";
-import { failureOf } from "./hub/util.js";
+import { failureOf } from "./action-answer.js";
 
 export interface VerdictHoldOptions {
   callAction(category: string, action: string, args?: Record<string, unknown>): Promise<ActionResult>;

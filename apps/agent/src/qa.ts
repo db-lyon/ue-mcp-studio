@@ -107,7 +107,7 @@ export interface QaLoopSupport {
   blocked?: (sessionId: string) => string | null;
   /** A loop needs the user: the Windows notification and anything else beside the card. */
   notify?: (sessionId: string, loop: QaLoop, run: QaRun) => void;
-  /** The per-package write lease each attempt takes (hub/write-lease.ts). */
+  /** The per-package write lease each attempt takes (write-lease.ts). */
   writes?: LoopWrites;
   /** The loop's clock. */
   now?: () => number;

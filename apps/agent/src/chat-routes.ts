@@ -31,7 +31,7 @@
  *   POST /updates/deferred/now      Restart now: end the turns in progress and run the waiting steps
  *
  * Per-turn review (/review, /sessions/:id/review, /sessions/:id/reviews, /sessions/:id/timeline) is in review.ts.
- * Editor dialogs (/dialogs) are in dialog-routes.ts, playtests, PIE test script runs (/qa), in qa.ts; the Playtest Hub (/hub) in hub/routes.ts. Studio's window and the editor's busy state are in window-routes.ts; resolving
+ * Editor dialogs (/dialogs) are in dialog-routes.ts, playtests, PIE test script runs (/qa), in qa.ts; the Playtest Hub is ue-mcp's (/v1/hub), configured with Studio's cards and settings in hub-bridge.ts. Studio's window and the editor's busy state are in window-routes.ts; resolving
  * and opening the assets the chat names (/assets/resolve, /assets/open) in asset-links.ts; the composer's @-mention search
  * (/mentions/search) in mentions.ts.
  *
@@ -83,11 +83,11 @@ import { BusyTracker } from "./busy.js";
 import { registerDialogs } from "./dialog-routes.js";
 import { registerForms } from "./forms.js";
 import { registerQa } from "./qa.js";
-import { registerHub } from "./hub/routes.js";
-import { WriteLease } from "./hub/write-lease.js";
+import { configureHub, offersHub } from "./hub-bridge.js";
+import { startHubMove } from "./hub-migration.js";
+import { WriteLease } from "./write-lease.js";
 import type { PieWatch } from "./viewport/pie-watch.js";
 import type { Presence } from "./notify.js";
-import type { Hub } from "./hub/hub.js";
 import { PlaytestIndex, registerPlaytestIndex, type PlaytestIndexHost } from "./playtest-index.js";
 import { registerReview } from "./review.js";
 import { PlaytestStore } from "./playtest-store.js";
@@ -317,8 +317,6 @@ export function registerChat(api: DaemonExtensionApi, agentVersion = "0.0.0", pa
     const e = endpoints.get(id);
     return e ? { baseUrl: e.baseUrl, key: endpoints.key(id) } : null;
   };
-  // The Playtest Hub, registered below over the runner's cards; the agent's hub tools reach it only while its experiment is on.
-  let hubForAgent: Hub | null = null;
   // A fix loop's write lease: its agents never save a package the person has unsaved changes in.
   const writes = new WriteLease((c, a, args) => api.callAction(c, a, args), api.log);
   // Who is at this computer, from the notifier registered below; the hub reads it only when it decides to start work.
@@ -326,7 +324,6 @@ export function registerChat(api: DaemonExtensionApi, agentVersion = "0.0.0", pa
   const runner = new AgentRunner({
     // callAction takes the turn's signal on a daemon with "callAction.signal"; the pinned ue-mcp's types do not say so yet.
     host: api as unknown as AgentHost,
-    hub: () => (settings.experiments().playtestHub ? hubForAgent : null),
     replyImages: (text) => replyImages(text, { projectDir: api.projectDir, home: userHome() }, path.join(api.dataDir, "posters")),
     review,
     busy,
@@ -426,29 +423,20 @@ export function registerChat(api: DaemonExtensionApi, agentVersion = "0.0.0", pa
     },
     writes,
   });
-  // The Playtest Hub (/hub, hub/routes.ts): goals, run history and the plan queue, over the cards above.
-  const hub = registerHub(api, {
-    broker: qa,
-    index: playtestIndex,
+  // The Playtest Hub runs in ue-mcp's daemon (/v1/hub). Studio gives it what only a chat client has: the cards
+  // runs live on, the Assign fix loop, the /playtest flow, its settings and the signed-in account.
+  const unconfigureHub = configureHub({
+    api,
+    qa,
     store,
-    playtestRuns: () => playtests.runs(),
-    // A replay a plan starts goes through the card's session, as an assigned subagent's would, so the run takes the card.
-    replay: (sid, args) => qa.wrap(api as unknown as AgentHost, sid, { assigned: true }).callAction("pie", "script_replay", args),
     writePlaytests: (sid, text) => runner.playtest(sid, { text }),
+    playtestRuns: () => playtests.runs(),
     signer: () => (settings.accountToken() ? settings.accountLogin() : null) ?? account.registryLogin()?.login ?? null,
     enabled: () => settings.experiments().playtestHub,
-    // What else holds the editor, for the hub's occupancy answer.
-    editor: {
-      pie: () => pie?.get() ?? false,
-      onPie: (listener) => pie?.listen(listener) ?? (() => {}),
-      dialogs: () => dialogs.state().dialogs.length,
-      busy: () => busy.state(),
-      inputAgeMs: () => presence?.desktopInputAgeMs() ?? null,
-    },
-    // Read when a run starts, long after the updater below exists.
-    engine: () => updater.engine(),
+    inputAgeMs: () => presence?.desktopInputAgeMs() ?? null,
   });
-  hubForAgent = hub;
+  // Goals Studio kept itself before the hub moved into ue-mcp go into ue-mcp's store, once; the old files stay.
+  const stopHubMove = offersHub(api) ? startHubMove({ dataDir: api.dataDir, endpoint, log: api.log }) : () => {};
 
   const bad = (error: string) => ({ status: 400, body: { error } });
   const missing = (id: string) => ({ status: 404, body: { error: `no session ${id}` } });
@@ -1110,7 +1098,8 @@ export function registerChat(api: DaemonExtensionApi, agentVersion = "0.0.0", pa
       unregisterModel();
       unregisterSteps();
       dialogs.dispose();
-      hub.dispose();
+      stopHubMove();
+      unconfigureHub();
       qa.dispose();
       watch.dispose();
       runner.dispose();
