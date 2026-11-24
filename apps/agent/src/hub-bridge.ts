@@ -115,7 +115,8 @@ export class HubBridge {
       startScript: async (script, start) => {
         const card = await this.cardFor(script, `plan:${start.planRunId}`, start.title);
         if ("error" in card) return card;
-        const r = await qa.runScript(card.runId, { startPie: true });
+        // The hub ends the PIE its plan's run started, under its editor lease, so the card does not end it as well.
+        const r = await qa.runScript(card.runId, { startPie: true, endPie: false });
         return "error" in r ? { error: r.error } : { run: r.run };
       },
       stopRun: (runId, reason) => qa.stopRun(runId, reason),

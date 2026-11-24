@@ -59,6 +59,7 @@ import {
   type QaRun,
   type QaVerdict,
   type RestoreOutcome,
+  type BusyState,
 } from "@ue-mcp-studio/shared";
 import { NO_CHECKPOINTS, PlaytestLoop, attentionText, carryOf, type LoopCheckpoints, type LoopWrites } from "./playtest-loop.js";
 import { type ElicitParams, type ElicitResult, type FormBroker } from "./forms.js";
@@ -121,13 +122,32 @@ export interface QaBrokerOptions {
   playtests?: PlaytestStore;
   /** The playtest loop's checkpoints; without it Assign to subagent says why it cannot start. */
   loop?: QaLoopSupport;
+  /** The editor calls in flight (BusyTracker), so PIE a run started is not ended under another session's PIE call. */
+  busy?: () => BusyState;
+  /** How long ending a run's PIE waits for it to come up, and for another session's PIE call, and how often it looks; tests shorten them. */
+  pieWaits?: { startMs?: number; inUseMs?: number; pollMs?: number };
   now?: () => string;
 }
+
+/** How long ending a run's PIE waits for the PIE that run asked for to come up: the editor starts it on a later tick. */
+const PIE_START_WAIT_MS = 20_000;
+/** How long ending a run's PIE lets another session's PIE call finish first. */
+const PIE_IN_USE_WAIT_MS = 60_000;
+/** How often those waits look again. */
+const PIE_POLL_MS = 500;
+/** How long Studio's shutdown waits for its runs and their PIE to stop. */
+const SHUTDOWN_MS = 10_000;
 
 /** How a draft's Start playtest starts it. */
 export interface QaRunOptions {
   /** Start PIE, or use the one running. */
   startPie?: boolean;
+  /**
+   * End the PIE the run started once the run ends, however it ends (default
+   * true). False leaves it to the caller: the Playtest Hub ends its plan
+   * runs' PIE under its editor lease.
+   */
+  endPie?: boolean;
   /** Players in PIE; more than one sets PIE's clients first. */
   players?: number;
   /** Listen server with more than one player. */
@@ -194,6 +214,10 @@ export class QaBroker {
   readonly hold: VerdictHold;
   /** A plan's own verdict wait for its runs (the Playtest Hub's), in minutes; the setting otherwise. */
   private planWait: ((run: QaRun) => number | undefined) | null = null;
+  /** Runs Start playtest started PIE for, whose PIE Studio ends when they end. */
+  private readonly endsPie = new Set<string>();
+  /** Of those, the runs PIE was seen running for, so PIE not running at their end means it has ended already. */
+  private readonly pieSeen = new Set<string>();
 
   constructor(private readonly o: QaBrokerOptions) {
     this.now = o.now ?? (() => new Date().toISOString());
@@ -554,19 +578,42 @@ export class QaBroker {
     }
     const watched = run.steps.find((s) => s.judge === "auto" && s.player)?.player;
     const instance = players > 1 ? qaPieInstance(watched) : undefined;
-    const args: Record<string, unknown> = { script: run.script, start_pie: o.startPie !== false, record: o.record !== false, ...(instance !== undefined ? { pie_instance: instance } : {}) };
+    const startPie = o.startPie !== false;
+    const endPie = startPie && o.endPie !== false;
+    const args: Record<string, unknown> = { script: run.script, start_pie: startPie, record: o.record !== false, ...(instance !== undefined ? { pie_instance: instance } : {}) };
+    // Whether PIE played before the call, so a call that fails on the way back can tell PIE it started from PIE that was there.
+    const pieBefore = endPie ? await this.pieRunning() : true;
     const call: Inflight = { sessionId, action: "script_run" };
     this.inflight.push(call);
+    let r: ActionResult;
     try {
-      const r = await this.o.host.callAction("pie", "script_run", args, this.callOptions(sessionId));
-      const answer = json(r);
-      const error = failure(r, answer);
-      if (error || !answer) return { error: error ?? "ue-mcp's answer was not JSON", status: 409 };
-      this.started(sessionId, "script_run", answer, { ...(players > 1 || o.listen ? { pieSetup: { players, netMode: o.listen ? "listen" : "standalone" } } : {}) });
-      const id = typeof answer.run_id === "string" ? answer.run_id : "";
-      return { run: this.runs.get(id) ?? run };
+      r = await this.o.host.callAction("pie", "script_run", args, this.callOptions(sessionId));
+    } catch (e) {
+      // The call may have reached the editor and started PIE before its answer was lost.
+      if (!pieBefore) void this.endOrphanPie(run.scriptName, sessionId);
+      return { error: e instanceof Error ? e.message : String(e), status: 409 };
     } finally {
       this.inflight.splice(this.inflight.indexOf(call), 1);
+    }
+    const answer = json(r);
+    const error = failure(r, answer);
+    // A refused run starts no PIE: ue-mcp refuses before it asks for one.
+    if (error || !answer) return { error: error ?? "ue-mcp's answer was not JSON", status: 409 };
+    const id = typeof answer.run_id === "string" ? answer.run_id : "";
+    // Before the run is kept, so a run that ended before its answer was taken in has its PIE ended as it is saved.
+    if (endPie && id && answer.pie_started === true) this.endsPie.add(id);
+    this.started(sessionId, "script_run", answer, { ...(players > 1 || o.listen ? { pieSetup: { players, netMode: o.listen ? "listen" : "standalone" } } : {}) });
+    return { run: this.runs.get(id) ?? run };
+  }
+
+  /** A start whose answer was lost: PIE that comes up although none played before the call is the call's, and ends. */
+  private async endOrphanPie(scriptName: string, sessionId: string): Promise<void> {
+    try {
+      if (!(await this.until(() => this.pieRunning(), this.o.pieWaits?.startMs ?? PIE_START_WAIT_MS))) return;
+      if (!(await this.until(async () => !this.pieInUse(sessionId), this.o.pieWaits?.inUseMs ?? PIE_IN_USE_WAIT_MS))) return;
+      await this.stopPie(scriptName);
+    } catch (e) {
+      this.o.host.log.warn(`playtest: PIE ${scriptName} may have started was not checked`, e);
     }
   }
 
@@ -709,23 +756,21 @@ export class QaBroker {
 
   /**
    * Stop on a live card, the bar's Stop now, or a verdict that never came:
-   * pie(script_stop) ends the run, its unsettled steps left as they were. A
-   * run holding for a verdict in a PIE session it started has PIE paused for
-   * it, so PIE stops too; PIE the run only joined is left as it is.
+   * pie(script_stop) ends the run, its unsettled steps left as they were. PIE
+   * the run started stops too: a Start playtest run's as it is saved stopped,
+   * and a run holding for a verdict in a PIE session it started, which has PIE
+   * paused for it, here. PIE the run only joined is left as it is.
    */
   async stopRun(runId: string, reason = "Stopped from its card"): Promise<{ run: QaRun } | { error: string; status: number }> {
     const run = this.runs.get(runId);
     if (!run || qaIsDraft(run) || qaEnded(run.state)) return { error: "only a run that is going can be stopped", status: 409 };
     if (run.assignment?.state === "running") return { error: "a subagent is running this playtest: cancel it instead", status: 409 };
-    const endsPie = this.hold.stopping(runId);
+    // A run Start playtest started PIE for has it ended as the stopped run is saved (endRunPie), held or not.
+    const endsPie = this.hold.stopping(runId) && !this.endsPie.has(runId);
     const r = await this.o.host.callAction("pie", "script_stop", { run_id: runId, reason });
     const error = failure(r, json(r));
     if (error) return { error, status: 409 };
-    if (endsPie) {
-      const pie = await this.o.host.callAction("editor", "play_in_editor", { pieAction: "stop" }).catch((e: Error) => ({ isError: true, content: [{ type: "text", text: e.message }] }) as ActionResult);
-      const pieError = failure(pie, json(pie));
-      if (pieError && !/alreadyStopped|already/i.test(pieError)) this.o.host.log.warn(`playtest: PIE did not stop with ${run.scriptName}: ${pieError}`);
-    }
+    if (endsPie) await this.stopPie(run.scriptName);
     const read = await this.status(runId).catch(() => null);
     return { run: (read && "run" in read && read.run) || this.runs.get(runId) || run };
   }
@@ -803,6 +848,10 @@ export class QaBroker {
   private observe(e: { type: string; data: Record<string, unknown> }): void {
     if (e.type === "editor.connected") {
       void this.resume();
+      return;
+    }
+    if (e.type === "pie.started") {
+      for (const id of this.endsPie) this.pieSeen.add(id);
       return;
     }
     if (!e.type.startsWith("script.")) return;
@@ -908,6 +957,85 @@ export class QaBroker {
         this.o.host.log.warn("a qa listener failed", e);
       }
     }
+    this.followPie(run);
+  }
+
+  // ── The PIE a run started ─────────────────────────────────────────
+
+  /** A run Studio ends the PIE of: note PIE seen running for it, and end that PIE once the run has ended. */
+  private followPie(run: QaRun): void {
+    if (!this.endsPie.has(run.runId)) return;
+    if (run.state === "running" || run.state === "awaiting_verdict") this.pieSeen.add(run.runId);
+    if (qaEnded(run.state)) void this.endRunPie(run).catch((e: unknown) => this.o.host.log.warn(`playtest: PIE did not stop after ${run.scriptName}`, e));
+  }
+
+  /**
+   * End the PIE a run started, now that the run has ended, whichever way it
+   * did. PIE that ended the run is not touched, since anything playing now is
+   * someone else's. PIE that has not come up yet is waited for, since the
+   * editor starts it on a later tick. Another session's PIE call in flight is
+   * let finish first, and one that outlasts the wait keeps PIE.
+   */
+  private async endRunPie(run: QaRun): Promise<void> {
+    if (!this.endsPie.delete(run.runId)) return;
+    const seen = this.pieSeen.delete(run.runId);
+    if (run.stopReason === "PIE ended") return;
+    const w = this.o.pieWaits ?? {};
+    if (!(await this.pieRunning())) {
+      if (seen || !(await this.until(() => this.pieRunning(), w.startMs ?? PIE_START_WAIT_MS))) return;
+    }
+    if (!(await this.until(async () => !this.pieInUse(run.sessionId), w.inUseMs ?? PIE_IN_USE_WAIT_MS))) {
+      this.o.host.log.warn(`playtest: left PIE running after ${run.scriptName}: another session's call is using it`);
+      return;
+    }
+    await this.stopPie(run.scriptName);
+  }
+
+  /** Whether a PIE session plays now, as the editor answers. */
+  private async pieRunning(): Promise<boolean> {
+    const r = await this.o.host.callAction("editor", "play_in_editor", { pieAction: "status" }).catch(() => null);
+    return !!r && json(r)?.isPlaying === true;
+  }
+
+  /** A call another session has in flight on PIE: a pie action or play_in_editor, from another chat or another MCP client. */
+  private pieInUse(sessionId: string | null | undefined): boolean {
+    const calls = this.o.busy?.().calls ?? [];
+    return calls.some((c) => (c.category === "pie" || (c.category === "editor" && c.action.startsWith("play_in_editor"))) && !(c.source === "studio" && !!sessionId && c.sessionId === sessionId));
+  }
+
+  private async stopPie(scriptName: string): Promise<void> {
+    const pie = await this.o.host.callAction("editor", "play_in_editor", { pieAction: "stop" }).catch((e: Error) => ({ isError: true, content: [{ type: "text", text: e.message }] }) as ActionResult);
+    const pieError = failure(pie, json(pie));
+    if (pieError && !/alreadyStopped|already/i.test(pieError)) this.o.host.log.warn(`playtest: PIE did not stop with ${scriptName}: ${pieError}`);
+  }
+
+  /** Wait until a condition holds, at most `ms`. Returns whether it held. */
+  private async until(cond: () => boolean | Promise<boolean>, ms: number): Promise<boolean> {
+    const end = Date.now() + ms;
+    const poll = this.o.pieWaits?.pollMs ?? PIE_POLL_MS;
+    while (!(await cond())) {
+      if (Date.now() >= end) return false;
+      await new Promise((r) => setTimeout(r, poll));
+    }
+    return true;
+  }
+
+  /**
+   * The daemon is stopping: every run Start playtest started PIE for that is
+   * still going stops, and its PIE ends with it, so neither outlives Studio.
+   * Bounded, so an editor that does not answer cannot hold the daemon open.
+   */
+  async shutdown(): Promise<void> {
+    const live = [...this.endsPie].map((id) => this.runs.get(id)).filter((r): r is QaRun => !!r && !qaEnded(r.state));
+    if (live.length === 0) return;
+    const stopping = Promise.all(live.map(async (run) => {
+      const r = await this.o.host.callAction("pie", "script_stop", { run_id: run.runId, reason: "Studio stopped" }).catch(() => null);
+      if (r && !failure(r, json(r)) && this.endsPie.delete(run.runId)) {
+        this.pieSeen.delete(run.runId);
+        await this.stopPie(run.scriptName);
+      }
+    }));
+    await Promise.race([stopping, new Promise<void>((r) => setTimeout(r, SHUTDOWN_MS).unref())]);
   }
 
   /** Each step's player, from what Studio keeps for the run's script. */
@@ -919,8 +1047,8 @@ export class QaBroker {
   }
 }
 
-export function registerQa(api: DaemonExtensionApi, store: SessionStore, forms?: FormBroker, playtests?: PlaytestStore): QaBroker {
-  const broker = new QaBroker({ host: api as unknown as QaHost, store, forms, playtests });
+export function registerQa(api: DaemonExtensionApi, store: SessionStore, forms?: FormBroker, playtests?: PlaytestStore, busy?: () => BusyState): QaBroker {
+  const broker = new QaBroker({ host: api as unknown as QaHost, store, forms, playtests, ...(busy ? { busy } : {}) });
   const id = (req: { params: Record<string, string> }) => req.params.id;
   api.route("GET", "/qa/runs", () => ({ body: { runs: broker.unowned() } }));
   api.route("GET", "/qa/runs/:id/status", async (req) => {

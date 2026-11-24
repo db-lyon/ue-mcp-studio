@@ -155,9 +155,11 @@ describe("the draft card's buttons", () => {
     await agent.callAction("pie", "script_create", { name: "SigilPickup", steps: STEPS });
     calls = [];
     const r = await broker.runScript(qaDraftId(PATH), { startPie: true, players: 2, listen: true, record: false });
-    expect(calls.map((c) => c.action)).toEqual(["configure_pie", "script_run"]);
+    // PIE's state is read first, so PIE the run starts can be told from PIE that was already playing.
+    expect(calls.map((c) => c.action)).toEqual(["configure_pie", "play_in_editor", "script_run"]);
     expect(calls[0]).toMatchObject({ category: "editor", args: { numClients: 2, netMode: "listen" } });
-    expect(calls[1].args).toEqual({ script: PATH, start_pie: true, record: false, pie_instance: 0 });
+    expect(calls[1]).toMatchObject({ category: "editor", args: { pieAction: "status" } });
+    expect(calls[2].args).toEqual({ script: PATH, start_pie: true, record: false, pie_instance: 0 });
     expect("run" in r && r.run.runId).toBe(RUN);
     expect(cards(s.id).map((c) => c.runId)).toEqual([RUN]);
   });
@@ -309,8 +311,8 @@ describe("a verdict on a draft's manual step, before Start playtest", () => {
     calls.length = 0;
     const r = await broker.runScript(MANUAL, {});
     expect("run" in r && r.run.runId).toBe(RUN);
-    expect(calls.map((c) => c.action)).toEqual(["script_stop", "script_run"]);
-    expect(calls[1].args).toMatchObject({ script: PATH, start_pie: true });
+    expect(calls.map((c) => c.action)).toEqual(["script_stop", "play_in_editor", "script_run"]);
+    expect(calls[2].args).toMatchObject({ script: PATH, start_pie: true });
     const all = cards(s.id);
     expect(all).toHaveLength(1);
     expect(all[0].runId).toBe(RUN);
