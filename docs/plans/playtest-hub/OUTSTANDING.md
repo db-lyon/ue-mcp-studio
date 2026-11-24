@@ -22,6 +22,9 @@ To ship it:
 
 Nothing below blocks the MVP.
 
+- **First priority: open the hub to any agent.** Today only Studio's chat agent (hub tools) and Studio's HTTP API reach the goal store, so an external MCP agent, such as the user's own, cannot read or write goals or start plans.
+  - **Fix:** ue-mcp lets an extension contribute MCP tools (a ue-mcp change first), and Studio registers its hub tools there.
+  - **Also add:** a hub tool to run a goal or playtests as a plan, under the editor lease and the "Starting playtests" setting.
 - **Verify live:** the verdict hold (`TS_Camera_Feel`), the live viewport from a paired browser and the phone, and store export and import.
 - **ue-mcp backlog:** every item in [ue-mcp-asks.md](ue-mcp-asks.md).
 - **Waiting on that backlog:** the dedicated runner editor ([runner-editor.md](runner-editor.md), needs asks 13 and 14), and replacing the interim pause (ask 1).
