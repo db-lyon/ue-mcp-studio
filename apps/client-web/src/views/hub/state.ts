@@ -54,7 +54,7 @@ export interface HubData {
 
 /**
  * The overview, while the hub is on: read when the stream is up, then again
- * after studio.hub.changed, studio.qa.changed and script.* events. A run's
+ * after hub.changed, studio.qa.changed and script.* events. A run's
  * burst of script events is folded into one read per HUB_RELOAD_MS.
  */
 export function useHubOverview(daemon: Pick<DaemonState, "events" | "streaming">, on: boolean): HubData {

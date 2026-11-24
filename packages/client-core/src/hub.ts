@@ -79,7 +79,8 @@ import type { ViewerPhase } from "./viewport.js";
 /** One JSON request: the web client passes its fetch `call`, the phone `requestJson` over its sealed transport. */
 export type HubRequest = <T>(method: string, path: string, body?: unknown) => Promise<T>;
 
-export const HUB_BASE = "/v1/ext/studio/hub";
+/** The hub is ue-mcp's: its routes are the daemon's own, not an extension's. */
+export const HUB_BASE = "/v1/hub";
 const QA_BASE = "/v1/ext/studio/qa";
 const enc = encodeURIComponent;
 

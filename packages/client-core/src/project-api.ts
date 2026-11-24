@@ -45,9 +45,9 @@ export function projectApi(t: Transport) {
     qaHeld: () => get<{ held: QaHeld[] }>(`${S}/qa/held`),
     qaResume: (runId: string) => send<{ held: QaHeld }>("POST", `${runPath(runId)}/resume`),
     /** The Playtest Hub's hold on the editor, for the app's bar. */
-    hubLease: () => get<HubLeaseEvent>(`${S}/hub/lease`),
+    hubLease: () => get<HubLeaseEvent>("/v1/hub/lease"),
     /** Release the editor: what the hub holds stops, and its queue pauses. */
-    hubRelease: () => send<unknown>("POST", `${S}/hub/release`, {}),
+    hubRelease: () => send<unknown>("POST", "/v1/hub/release", {}),
     qaRun: (runId: string, options: RunOptions) => send<{ run: QaRun }>("POST", `${runPath(runId)}/run`, options),
     qaSaveScript: (runId: string, steps: QaScriptStep[], map?: string) => send<{ run: QaRun }>("PUT", `${runPath(runId)}/script`, { steps, ...(map !== undefined ? { map } : {}) }),
     qaDeleteScript: (runId: string) => send<{ run: QaRun }>("DELETE", `${runPath(runId)}/script`),

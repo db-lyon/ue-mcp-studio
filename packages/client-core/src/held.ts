@@ -7,7 +7,7 @@
 import { HUB_LEASE, QA_VERDICT_WAIT_CHOICES, type EditorLease, type QaHeld } from "@ue-mcp-studio/shared";
 
 /**
- * The hub's hold on the editor (GET /hub/lease, studio.hub.lease), which
+ * The hub's hold on the editor (GET /v1/hub/lease, hub.lease), which
  * both clients show as an app bar beside the verdict bar, with one control
  * that takes the editor back.
  */

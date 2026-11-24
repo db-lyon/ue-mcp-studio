@@ -5,7 +5,7 @@
  * the queue starts plans one item at a time, and fix loops settle. Status is worked out with the shared rules (checkHealth,
  * goalStatus and the rest), exactly as the agent does. Every change is
  * announced as the daemon would: script.*, studio.qa.changed and
- * studio.hub.changed. No DOM: the clock, the random source and the event sink
+ * hub.changed. No DOM: the clock, the random source and the event sink
  * are given, so tests and the visual QA harness drive it too.
  */
 import {
@@ -74,7 +74,7 @@ import {
   type SignOff,
   type TrackerLink,
 } from "@ue-mcp-studio/shared";
-import { obj } from "@ue-mcp-studio/client-core";
+import { HUB_BASE, obj } from "@ue-mcp-studio/client-core";
 import {
   DEMO_PROJECT,
   DEMO_SCRIPTS_DIR,
@@ -180,10 +180,11 @@ export class HubDemo {
 
   // ---------- Requests ----------
 
-  /** A request under /v1/ext/studio/hub or /qa, or undefined for any other path. */
+  /** A request under /v1/hub (ue-mcp's) or /v1/ext/studio/qa, or undefined for any other path. */
   handle(method: string, path: string, query: URLSearchParams, body?: unknown): DemoAnswer | undefined {
-    if (!path.startsWith(`${BASE}/hub`) && !path.startsWith(`${BASE}/qa/`)) return undefined;
-    const seg = path.slice(BASE.length).split("/").slice(1).map((x) => decodeURIComponent(x));
+    const hub = path === HUB_BASE || path.startsWith(`${HUB_BASE}/`);
+    if (!hub && !path.startsWith(`${BASE}/qa/`)) return undefined;
+    const seg = path.slice(hub ? "/v1".length : BASE.length).split("/").slice(1).map((x) => decodeURIComponent(x));
     const m = (verb: string, pattern: string): string[] | null => {
       if (verb !== method) return null;
       const ps = pattern.split("/").slice(1);

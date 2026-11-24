@@ -316,9 +316,9 @@ export const api = {
   qaHeld: () => call<{ held: QaHeld[] }>("GET", "/v1/ext/studio/qa/held"),
   qaResume: (runId: string) => call<{ held: QaHeld }>("POST", `/v1/ext/studio/qa/runs/${encodeURIComponent(runId)}/resume`),
   /** The Playtest Hub's hold on the editor, for the app's bar. */
-  hubLease: () => call<HubLeaseEvent>("GET", "/v1/ext/studio/hub/lease"),
+  hubLease: () => call<HubLeaseEvent>("GET", "/v1/hub/lease"),
   /** Release the editor: what the hub holds stops, and its queue pauses. */
-  hubRelease: () => call<unknown>("POST", "/v1/ext/studio/hub/release", {}),
+  hubRelease: () => call<unknown>("POST", "/v1/hub/release", {}),
   qaRun: (runId: string, options: { startPie: boolean; players: number; listen: boolean; record: boolean }) =>
     call<{ run: QaRun }>("POST", `/v1/ext/studio/qa/runs/${encodeURIComponent(runId)}/run`, options),
   qaSaveScript: (runId: string, steps: QaScriptStep[], map?: string) => call<{ run: QaRun }>("PUT", `/v1/ext/studio/qa/runs/${encodeURIComponent(runId)}/script`, { steps, ...(map !== undefined ? { map } : {}) }),

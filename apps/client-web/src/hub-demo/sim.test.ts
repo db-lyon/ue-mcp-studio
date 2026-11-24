@@ -4,7 +4,8 @@ import { demoState } from "./seed";
 import { HubDemo } from "./sim";
 
 const T0 = Date.parse("2026-11-23T15:00:00Z");
-const BASE = "/v1/ext/studio";
+/** The hub is ue-mcp's, at /v1/hub; the run routes it still uses are Studio's. */
+const base = (path: string) => (path === "/hub" || path.startsWith("/hub/") ? "/v1" : "/v1/ext/studio") + path;
 
 /** A demo on a clock the test moves, every random draw a pass. */
 function demo(seed: "full" | "empty" | "fresh" = "full", random = () => 0.5) {
@@ -12,7 +13,7 @@ function demo(seed: "full" | "empty" | "fresh" = "full", random = () => 0.5) {
   const events: Array<{ type: string; data: Record<string, unknown> }> = [];
   const d = new HubDemo(demoState(seed, T0), { now: () => now, random, emit: (type, data) => events.push({ type, data }) });
   const call = <T>(method: string, path: string, body?: unknown): T => {
-    const url = new URL(`http://x${BASE}${path}`);
+    const url = new URL(`http://x${base(path)}`);
     const a = d.handle(method, url.pathname, url.searchParams, body)!;
     if (a.status >= 400) throw new Error(`${method} ${path}: ${JSON.stringify(a.body)}`);
     return a.body as T;
@@ -77,7 +78,7 @@ describe("the hub demo's seed", () => {
 describe("the hub demo's relationship graph", () => {
   it("answers the requires and order routes as the agent does, refusing a loop", () => {
     const { d, call } = demo();
-    const status = (method: string, path: string, body?: unknown) => d.handle(method, `${BASE}${path}`, new URLSearchParams(), body)!.status;
+    const status = (method: string, path: string, body?: unknown) => d.handle(method, base(path), new URLSearchParams(), body)!.status;
     call("POST", "/hub/goals/coop-beta/requires", { goal: "save-load" });
     let o = call<HubOverview>("GET", "/hub");
     expect(goalOf(o, "save-load").parents).toEqual(["coop-beta"]);
@@ -124,7 +125,7 @@ describe("the hub demo's simulation", () => {
     expect(q.current?.id).toBe(plan.id);
     expect(q.current?.items[0].state).toBe("running");
     expect(events.some((e) => e.type === "script.run_started")).toBe(true);
-    expect(events.some((e) => e.type === "studio.hub.changed")).toBe(true);
+    expect(events.some((e) => e.type === "hub.changed")).toBe(true);
     run(40_000);
     // The first script holds at its manual step: the plan waits for the verdict.
     const held = call<QueueState>("GET", "/hub/queue").current!;

@@ -35,7 +35,7 @@ export function useHeld(daemon: Pick<DaemonState, "events" | "streaming">): Held
   return { held, resume };
 }
 
-/** The hub's lease as the agent has it: read when the stream comes up, then replaced by each studio.hub.lease. */
+/** The hub's lease as the agent has it: read when the stream comes up, then replaced by each hub.lease. */
 export function useLease(daemon: Pick<DaemonState, "events" | "streaming">): EditorLease | null {
   const [lease, setLease] = useState<EditorLease | null>(null);
   useEffect(() => {

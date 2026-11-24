@@ -340,18 +340,18 @@ describe("the hub API", () => {
     await api.orderRequires("m", ["a", "b"]);
     await api.orderChecks("g", ["script:/Game/B", "script:/Game/A"]);
     expect(calls.slice(6)).toEqual([
-      ["POST", "/v1/ext/studio/hub/goals/m/requires", { goal: "a b" }],
-      ["POST", "/v1/ext/studio/hub/goals/m/requires", { goal: "a", required: false }],
-      ["DELETE", "/v1/ext/studio/hub/goals/m/requires/a%20b", undefined],
-      ["PUT", "/v1/ext/studio/hub/goals/m/requires", { order: ["a", "b"] }],
-      ["PUT", "/v1/ext/studio/hub/goals/g/checks/order", { order: ["script:/Game/B", "script:/Game/A"] }],
+      ["POST", "/v1/hub/goals/m/requires", { goal: "a b" }],
+      ["POST", "/v1/hub/goals/m/requires", { goal: "a", required: false }],
+      ["DELETE", "/v1/hub/goals/m/requires/a%20b", undefined],
+      ["PUT", "/v1/hub/goals/m/requires", { order: ["a", "b"] }],
+      ["PUT", "/v1/hub/goals/g/checks/order", { order: ["script:/Game/B", "script:/Game/A"] }],
     ]);
     expect(calls.slice(0, 6)).toEqual([
-      ["GET", "/v1/ext/studio/hub", undefined],
-      ["DELETE", "/v1/ext/studio/hub/goals/tut/checks/script%3A%2FGame%2FA", undefined],
-      ["GET", "/v1/ext/studio/hub/checks/script%3A%2FGame%2FA?limit=30", undefined],
-      ["GET", "/v1/ext/studio/hub/runs?check=script%3A%2FGame%2FA&before=r1", undefined],
-      ["POST", "/v1/ext/studio/hub/fix", { checkId: "script:/Game/A" }],
+      ["GET", "/v1/hub", undefined],
+      ["DELETE", "/v1/hub/goals/tut/checks/script%3A%2FGame%2FA", undefined],
+      ["GET", "/v1/hub/checks/script%3A%2FGame%2FA?limit=30", undefined],
+      ["GET", "/v1/hub/runs?check=script%3A%2FGame%2FA&before=r1", undefined],
+      ["POST", "/v1/hub/fix", { checkId: "script:/Game/A" }],
       ["POST", "/v1/ext/studio/qa/runs/r%201/verdict", { step: 3, verdict: "fail", note: "fell through" }],
     ]);
   });
@@ -463,9 +463,9 @@ describe("tracker links", () => {
     await api.addRunLink("r 1", issue);
     await api.removeRunLink("r 1", issue.url);
     expect(calls).toEqual([
-      ["PUT", "/v1/ext/studio/hub/checks/script%3A%2FGame%2FA", { links: [issue] }],
-      ["POST", "/v1/ext/studio/hub/runs/r%201/links", { link: issue }],
-      ["DELETE", `/v1/ext/studio/hub/runs/r%201/links?url=${encodeURIComponent(issue.url)}`, undefined],
+      ["PUT", "/v1/hub/checks/script%3A%2FGame%2FA", { links: [issue] }],
+      ["POST", "/v1/hub/runs/r%201/links", { link: issue }],
+      ["DELETE", `/v1/hub/runs/r%201/links?url=${encodeURIComponent(issue.url)}`, undefined],
     ]);
   });
 });
