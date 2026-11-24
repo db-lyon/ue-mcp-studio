@@ -6,35 +6,43 @@ State on 2026-11-23:
 - **Last commit:** `db38221`. The full suite passes: 3402 tests.
 - **Final design:** the top section of [review.md](review.md).
 
+## MVP scope: autonomous playtests only (user, 2026-11-23)
+
+The MVP covers playtests whose steps are all judged automatically. Human-in-the-loop work is post-MVP: live verdicts, holds, frame-exact pausing, and judging through the viewport. The code for those already exists on the branch, and it stays.
+
 ## Before calling the MVP done
 
-1. **Verify the verdict hold live** in HubPlayground. Run `TS_Camera_Feel`. At its manual step PIE should pause and the waiting bar should show a countdown. Then:
-   - **Resume and watch,** then **Pass:** the run continues, and "Core movement" reaches 4 of 4 after a second passing run.
-   - **Let it time out:** the run and PIE stop, and the run reads "Not judged" (not failing).
-2. **Verify the live viewport streams** from a paired browser and from the Android app: the Live button appears only while PIE runs, the modal shows the picture, and the host shows no viewport anywhere. It has never streamed a frame so far.
-3. **Verify store export and import:** export, import into an empty store, then a merge with a conflict report.
-4. **Grade all new user-facing copy against PROSE_EVAL.md** (`C:\Users\David\.agents\PROSE_EVAL.md`) with a separate reviewer, and fix anything short of PASS. This covers:
+1. **Verify an autonomous run end to end** in HubPlayground: run a goal of automated playtests, then check the goal status, the provenance on each run, and that the Run screen shows evidence. This has already worked for the automated playtests.
+2. **Verify store export and import:** export, import into an empty store, then a merge with a conflict report.
+3. **Grade all new user-facing copy against PROSE_EVAL.md** (`C:\Users\David\.agents\PROSE_EVAL.md`) with a separate reviewer, and fix anything short of PASS. This covers:
    - hub screens;
-   - the waiting bar and the lease bar;
-   - the Live button;
+   - the lease bar;
    - Settings rows;
    - the store export and import report.
-5. **Push the branch and open a pull request.** Read `C:\Users\David\.agents\PROSE.md` before writing the PR body. Never commit `keys/dev-ui-signing.pub.pem`; it holds a local key change.
+4. **Push the branch and open a pull request.** Read `C:\Users\David\.agents\PROSE.md` before writing the PR body. Never commit `keys/dev-ui-signing.pub.pem`; it holds a local key change.
+
+## Post-MVP: human in the loop
+
+- **Verify the verdict hold live.** Run `TS_Camera_Feel`: PIE pauses at its manual step, and the waiting bar counts down. Then check:
+  - **Resume and watch,** then **Pass:** the run continues.
+  - **Let it time out:** the run reads "Not judged".
+- **Verify the live viewport streams** from a paired browser and from the Android app. It has never streamed a frame so far.
+- **ue-mcp asks 1/5 and 6:** frame-exact pausing, and a hold mode per step.
 
 ## ue-mcp changes to file
 
-Full text is in [ue-mcp-asks.md](ue-mcp-asks.md). None has been filed or implemented. In priority order:
+Full text is in [ue-mcp-asks.md](ue-mcp-asks.md). None has been filed or implemented. The ones the MVP benefits from come first; asks 1, 5 and 6 belong to the post-MVP human-in-the-loop work.
 
 | Ask | What | Why Studio needs it |
 |---|---|---|
-| 1 / 5 | Pause PIE on the frame a person-judged step starts waiting | Studio's pause lands a round trip late |
 | 4 | Run provenance in `results.json` (script hash, dependency fingerprints, environment, single process) | Staleness by dependency change; refusing to pause runs with players in other processes |
 | 10 | PIE control scoped to a run, `pie.paused` and `pie.resumed` events, a run option to never attach to existing PIE | Removes a race with the developer pressing Play |
 | 7 | Structured run end causes | After a crash, the run record still shows running |
 | 8 | Typed refusal codes; a verdict that applies only while still awaiting | A refusal currently fails the plan item; several clients can judge at once |
 | 11 | Editor occupancy in one query, with an event | Replaces Studio's assembled occupancy signals |
 | 12 | Who dirtied a package; a save scoped to a session | A precise write lease for fix loops |
-| 6 | A hold mode per step (inspect paused, or perform and watch live) | One hold rule cannot fit both kinds of step |
+| 1 / 5 | Pause PIE on the frame a person-judged step starts waiting (post-MVP) | Studio's pause lands a round trip late |
+| 6 | A hold mode per step: inspect paused, or perform and watch live (post-MVP) | One hold rule cannot fit both kinds of step |
 | 2 | Export the script run and event types from `ue-mcp/daemon` | Typed events in Studio |
 | 9 | A stable script identity; a script's dependencies without running it | Renames, and staleness before a run |
 | 13 | Editor instances of one project | The dedicated runner editor |
