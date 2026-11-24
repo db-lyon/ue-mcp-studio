@@ -1,6 +1,6 @@
 /**
  * A playtest: a PIE test script run as a card of named steps, each with whether
- * the observer or a person judges it, its live status, and Pass, Fail and Skip
+ * ue-mcp or a person judges it, its live status, and Pass, Fail and Skip
  * on the manual steps. The card starts from the run Studio saved and applies
  * the script.* events on the daemon's stream itself; after the stream drops it
  * reads the run again from its last seq. A verdict form ue-mcp raised for the
@@ -170,7 +170,7 @@ export function StepPath({ steps, onStep, ended = false }: { steps: QaStep[]; on
         <div className="qa-path-caption small" aria-hidden="true">
           <span className="qa-num mono">{on.index + 1}</span>
           <span className="qa-path-caption-text">{stepPlain(on.instruction)}</span>
-          <span className="qa-path-caption-state">{on.judge === "auto" ? "Checked by the observer" : "Judged by a person"}: {statusLabel(on, ended)}</span>
+          <span className="qa-path-caption-state">{on.judge === "auto" ? "Checks a value" : "Watched by a person"}: {statusLabel(on, ended)}</span>
         </div>
       )}
     </div>
@@ -186,7 +186,7 @@ export function PathLegend({ runs }: { runs: QaRun[] }) {
       {PATH_MARKS.filter(([m]) => marks.has(m)).map(([m, label]) => (
         <span key={m} className="qa-legend-item"><span className={`qa-legend-mark ${m}`} aria-hidden="true" />{label}</span>
       ))}
-      {person && <span className="qa-legend-item"><span className="qa-legend-mark pending person" aria-hidden="true" />Judged by a person</span>}
+      {person && <span className="qa-legend-item"><span className="qa-legend-mark pending person" aria-hidden="true" />Watched by a person</span>}
     </div>
   );
 }
@@ -596,8 +596,7 @@ export function QaCard({ run: saved, form: own, onDismiss, actions: outside, met
                 <span className="qa-instruction"><StepText text={s.instruction} /></span>
                 <span className="qa-step-tags">
                   {s.player && <span className="qa-player small" title="The player this step is for">{s.player}</span>}
-                  <span className={`qa-judge small ${s.judge}`} title={s.judge === "auto" ? "The observer checks this step from a value in PIE" : "A person judges this step"}>{judgeLabel(s)}</span>
-                  {s.judge === "manual" && !qaAgentMayJudge(s) && <span className="qa-judge small" title="Only a person gives this step's verdict, never an agent">Person only</span>}
+                  <span className={`qa-judge small ${s.judge}`} title={s.judge === "auto" ? "ue-mcp checks this step from a value in PIE" : "Someone watches the game and decides this step"}>{judgeLabel(s)}</span>
                   {byAgent && <span className="qa-badge agent small" title={why} tabIndex={0} aria-label={`Judged by the agent. ${why.replace(/\n/g, ". ")}`}>Agent</span>}
                   {unchecked ? <span className="qa-status small dim">Checked when the playtest runs</span>
                     : !draft && <span className={`qa-status small ${stepTone(s)}`} title={evidence || undefined} tabIndex={evidence ? 0 : undefined} aria-label={evidence ? `${statusLabel(s, ended)}. ${evidence.replace(/\n/g, ". ")}` : undefined}>

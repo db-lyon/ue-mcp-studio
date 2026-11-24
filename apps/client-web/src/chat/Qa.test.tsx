@@ -66,8 +66,8 @@ describe("the checklist card", () => {
     expect(screen.getByText("Playtest")).toBeTruthy();
     expect(screen.getByRole("group", { name: "Playtest DoorOpens" })).toBeTruthy();
     expect(step(0).textContent).toContain("Walk up to the door");
-    expect(within(step(0)).getByText("Observer")).toBeTruthy();
-    expect(within(step(2)).getByText("Person")).toBeTruthy();
+    expect(within(step(0)).getByText("Checks a value")).toBeTruthy();
+    expect(within(step(2)).getByText("Watched by a person or an agent")).toBeTruthy();
     expect([...document.querySelectorAll(".qa-step")].map((li) => li.getAttribute("data-status"))).toEqual(["pending", "pending", "pending"]);
     expect(within(step(0)).getByText("To come")).toBeTruthy();
     expect(step(1).textContent).toContain("Door.OpenAngle gt 80, within 5000 ms");
@@ -296,7 +296,7 @@ describe("assigning the playtest to a subagent", () => {
     expect(screen.queryByRole("note")).toBeNull();
     fireEvent.click(assign);
     expect(screen.getByRole("note").textContent).toMatch(/Every step needs a person to judge/);
-    expect(within(step(2)).getByText("Person only")).toBeTruthy();
+    expect(within(step(2)).getByText("Watched by a person")).toBeTruthy();
   });
 
   it("badges the agent's verdict, shows its evidence on hover and expanded, and overrides it with one click", async () => {
@@ -351,11 +351,11 @@ describe("the collapsed card", () => {
     const bars = within(screen.getByRole("list", { name: "Steps" })).getAllByRole("listitem");
     expect(bars.map((b) => b.className.split(" ")[1])).toEqual(["ok", "bad", ""]);
     const bar = within(bars[1]).getByRole("button");
-    expect(bar.getAttribute("aria-label")).toBe("Step 2, observer, Failed");
-    expect(bar.getAttribute("title")).toBe("2. Open the door (Observer): Failed");
+    expect(bar.getAttribute("aria-label")).toBe("Step 2, checks a value, Failed");
+    expect(bar.getAttribute("title")).toBe("2. Open the door (Checks a value): Failed");
     // The step the finished run never reached is marked so, apart from one still to come.
     expect(bars[2].className).toContain("unrun");
-    expect(within(bars[2]).getByRole("button").getAttribute("title")).toBe("3. " + STEPS[2].instruction + " (Person): Not run");
+    expect(within(bars[2]).getByRole("button").getAttribute("title")).toBe("3. " + STEPS[2].instruction + " (Watched by a person or an agent): Not run");
     expect(screen.getByText("3 steps: 1 passed, 1 failed, 1 not run")).toBeTruthy();
     expect(screen.queryByText("Walk up to the door")).toBeNull();
     // The pill says how it ended in words, not only in colour.
@@ -366,7 +366,7 @@ describe("the collapsed card", () => {
     collapsed(runOf());
     const bars = within(screen.getByRole("list", { name: "Steps" })).getAllByRole("listitem");
     expect(bars.map((b) => b.classList.contains("manual"))).toEqual([false, false, true]);
-    expect(within(bars[2]).getByRole("button").getAttribute("aria-label")).toBe("Step 3, person, To come");
+    expect(within(bars[2]).getByRole("button").getAttribute("aria-label")).toBe("Step 3, watched by a person or an agent, To come");
   });
 
   it("opens to the full card on a click, keeping its path and summary, and closes again from its title", () => {
@@ -388,7 +388,7 @@ describe("the collapsed card", () => {
     };
     try {
       collapsed(runOf());
-      fireEvent.click(screen.getByRole("button", { name: "Step 3, person, To come" }));
+      fireEvent.click(screen.getByRole("button", { name: "Step 3, watched by a person or an agent, To come" }));
       expect(screen.getByText("The door opens without a visible pop")).toBeTruthy();
       expect(scrolled).toEqual(["2"]);
       expect(document.activeElement?.getAttribute("data-index")).toBe("2");
@@ -438,7 +438,7 @@ describe("the collapsed card", () => {
 
   it("names the step a running run is on", () => {
     collapsed(runOf({ state: "running", steps: STEPS.map((s, i) => ({ ...s, status: ["passed", "running", "pending"][i] })) }));
-    expect(screen.getAllByRole("status")[0].textContent).toBe("Step 2 of 3: observer checking");
+    expect(screen.getAllByRole("status")[0].textContent).toBe("Step 2 of 3: checking a value");
   });
 
   it("stops a live run from its collapsed card", async () => {
@@ -521,7 +521,7 @@ describe("the collapsed card", () => {
       fireEvent.click(screen.getByRole("button", { name: "Open playtest DoorOpens" }));
       expect(scrolled).toEqual([RUN]);
       fireEvent.click(screen.getByRole("button", { name: /DoorOpens/, expanded: true }));
-      fireEvent.click(screen.getByRole("button", { name: "Step 2, observer, To come" }));
+      fireEvent.click(screen.getByRole("button", { name: "Step 2, checks a value, To come" }));
       const li = document.querySelector(".qa-step[data-index='1']")!;
       expect(li.classList.contains("flash")).toBe(true);
       act(() => {

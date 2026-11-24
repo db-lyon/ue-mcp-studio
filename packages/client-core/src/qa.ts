@@ -44,11 +44,11 @@ export function statusLabel(s: QaStep, ended = false): string {
 }
 
 /** Who judges a step, in the words the legend and the draft's summary use. */
-export const judgeLabel = (s: Pick<QaStep, "judge">): string => (s.judge === "auto" ? "Observer" : "Person");
+export const judgeLabel = (s: Pick<QaStep, "judge"> & { agentJudgeable?: boolean }): string => (s.judge === "auto" ? "Checks a value" : s.agentJudgeable === false ? "Watched by a person" : "Watched by a person or an agent");
 
 const shown = (v: unknown): string => (v === null || v === undefined ? "never read" : String(v));
 
-/** What the observer saw, for the hover on an auto step. */
+/** What ue-mcp read, for the hover on an auto step. */
 export function evidenceText(s: QaStep): string {
   const e = s.evidence;
   const lines: string[] = [];
@@ -56,7 +56,7 @@ export function evidenceText(s: QaStep): string {
   if (e?.value !== undefined || e?.at_start !== undefined || e?.at_end !== undefined) {
     lines.push(`${e?.value ?? s.expect?.value ?? "Value"}: ${shown(e?.at_start)} at the start, ${shown(e?.at_end)} at the end${e?.samples !== undefined ? `, ${e.samples} samples` : ""}`);
   }
-  if (e?.observed === false) lines.push("The observer never read the value.");
+  if (e?.observed === false) lines.push("ue-mcp never read the value.");
   if (e?.reason) lines.push(e.reason);
   if (s.regression) lines.push(`Passed in the source run, ${s.status} in this replay.`);
   return lines.join("\n");
@@ -86,8 +86,8 @@ export const stepTone = (s: QaStep): StepTone =>
 /** The words for a run that is starting, wherever it is named: the pill, the strip's line and the pointer to it. */
 export const STARTING = "Starting";
 
-/** What the strip's line says a step in progress is: the observer checks it, or the person plays it. */
-export const stepDoing = (s: QaStep): string => (s.judge === "auto" ? "Observer checking" : "Play this step");
+/** What the strip's line says a step in progress is: ue-mcp checks a value, or the person plays it. */
+export const stepDoing = (s: QaStep): string => (s.judge === "auto" ? "Checking a value" : "Play this step");
 
 /** A running run's pill: the step it is on, or how far it got when none is running. */
 export function runningText(run: QaRun, settled: number, total: number): string {
@@ -100,7 +100,7 @@ export function pathSummary(run: QaRun, sum: ReturnType<typeof qaSummaryOf>): st
   const steps = `${run.steps.length} step${run.steps.length === 1 ? "" : "s"}`;
   if (qaIsDraft(run)) {
     const manual = run.steps.filter((s) => s.judge === "manual").length;
-    return manual ? `${steps}, ${manual} judged by a person` : `${steps}, all checked by the observer`;
+    return manual ? `${steps}, ${manual} watched by a person` : `${steps}, all check a value`;
   }
   const waiting = run.steps.filter((s) => s.status === "awaiting_verdict").length;
   const parts = [

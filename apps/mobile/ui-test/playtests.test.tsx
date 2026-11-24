@@ -47,10 +47,10 @@ describe("QaCard", () => {
 
   it("opens on a step from its bar, with who judges each step and its status", () => {
     renderInProject(<QaCard run={RUNS.waiting} />);
-    expect(screen.queryByText("Observer")).toBeNull();
-    press("Step 4, person, Needs you");
-    expect(screen.getAllByText("Observer").length).toBe(3);
-    expect(screen.getAllByText("Person").length).toBe(2);
+    expect(screen.queryByText("Checks a value")).toBeNull();
+    press("Step 4, watched by a person or an agent, Needs you");
+    expect(screen.getAllByText("Checks a value").length).toBe(3);
+    expect(screen.getAllByText("Watched by a person or an agent").length).toBe(2);
     expect(screen.getByText("JumpCurrentCount gt 0")).toBeTruthy();
     // The open card asks on the step's own row, not in the box.
     expect(screen.queryByText(/Check in PIE/)).toBeNull();
@@ -62,7 +62,7 @@ describe("QaCard", () => {
     api.qaRun.mockResolvedValue({ run: RUNS.armed });
     renderInProject(<QaCard run={RUNS.draft} />, api);
     expect(screen.getByText("Playtest draft")).toBeTruthy();
-    expect(screen.getByText("5 steps, 2 judged by a person")).toBeTruthy();
+    expect(screen.getByText("5 steps, 2 watched by a person")).toBeTruthy();
     press("Start playtest");
     expect(api.qaRun).toHaveBeenCalledWith(RUNS.draft.runId, { startPie: true, players: 1, listen: false, record: true });
     await settle();

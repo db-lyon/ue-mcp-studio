@@ -2,7 +2,7 @@
  * The playtest editor: a new playtest, or a saved one, on a screen of its own.
  * Each step reads as one sentence and is built from parts picked from what
  * the open level has (pie(script_values), its Input Actions and levels):
- * what the engine does first, then what the observer checks or what a person
+ * what the engine does first, then what ue-mcp checks or what a person
  * judges. ue-mcp checks the draft as it changes (pie(script_validate)), and
  * each finding sits on the step and field it is about, its candidates one
  * click away. Save creates the script asset (pie(script_create)) or updates
@@ -553,11 +553,10 @@ function StepCard({ step, index, count, open, catalog, defaultWithinMs, problems
       {open && (
         <div className="hub-draft-step-body" id={bodyId}>
           <div className="hub-draft-row">
-            <span className="hub-draft-label" id={`${step.id}-judge-label`}>{DRAFT_COPY.judgedBy}</span>
-            <div className="seg" role="radiogroup" aria-labelledby={`${step.id}-judge-label`}>
+            <div className="seg" role="radiogroup" aria-label={DRAFT_COPY.judgeKind}>
               {(["auto", "manual"] as const).map((j) => (
                 <button key={j} role="radio" aria-checked={step.judge === j} className={step.judge === j ? "on" : ""} onClick={() => onChange((s) => withJudge(s, j))}>
-                  <JudgeIcon judge={j} /> {j === "auto" ? DRAFT_COPY.observer : DRAFT_COPY.person}
+                  <JudgeIcon judge={j} /> {j === "auto" ? DRAFT_COPY.addCheck : DRAFT_COPY.addAsk}
                 </button>
               ))}
             </div>
@@ -614,10 +613,16 @@ function StepCard({ step, index, count, open, catalog, defaultWithinMs, problems
                   onChange={(e) => onChange((s) => ({ ...s, instruction: e.target.value.replace(/\r?\n/g, " ") }), "instruction")}
                 />
                 {lines("instruction")}
-                <label className="hub-check-label hub-draft-agent">
-                  <input type="checkbox" checked={step.agentJudgeable} onChange={(e) => onChange((s) => ({ ...s, agentJudgeable: e.target.checked }))} />
-                  <span>{DRAFT_COPY.agentMay}</span>
-                </label>
+                <div className="hub-draft-row hub-draft-agent">
+                  <span className="hub-draft-label" id={`${step.id}-who-label`}>{DRAFT_COPY.whoJudges}</span>
+                  <div className="seg" role="radiogroup" aria-labelledby={`${step.id}-who-label`}>
+                    {([false, true] as const).map((a) => (
+                      <button key={String(a)} role="radio" aria-checked={step.agentJudgeable === a} className={step.agentJudgeable === a ? "on" : ""} onClick={() => onChange((s) => ({ ...s, agentJudgeable: a }))}>
+                        {a ? DRAFT_COPY.personOrAgent : DRAFT_COPY.personOnly}
+                      </button>
+                    ))}
+                  </div>
+                </div>
               </div>
             </div>
           )}
@@ -631,7 +636,7 @@ function StepCard({ step, index, count, open, catalog, defaultWithinMs, problems
 
 function JudgeIcon({ judge }: { judge: "auto" | "manual" }) {
   return (
-    <svg className={`hub-draft-judge ${judge}`} width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" aria-label={judge === "auto" ? DRAFT_COPY.observer : DRAFT_COPY.person} role="img">
+    <svg className={`hub-draft-judge ${judge}`} width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" aria-label={judge === "auto" ? DRAFT_COPY.addCheck : DRAFT_COPY.addAsk} role="img">
       {judge === "auto"
         ? <path d="M1.5 8s2.4-4.5 6.5-4.5S14.5 8 14.5 8 12.1 12.5 8 12.5 1.5 8 1.5 8zM8 10a2 2 0 1 0 0-4 2 2 0 0 0 0 4z" />
         : <path d="M8 8a2.5 2.5 0 1 0 0-5 2.5 2.5 0 0 0 0 5zM3 13.5c.8-2.2 2.7-3.5 5-3.5s4.2 1.3 5 3.5" />}
@@ -916,10 +921,12 @@ function Picker({ id, label, value, shown, placeholder, searchLabel, subjects, a
           />
           <div className="hub-draft-pop-list" role="listbox" id={listId} ref={list} aria-label={label}>
             {rows.map((s, i) => {
-              const head = s.group !== lastGroup ? SUBJECT_GROUPS.find((g) => g.id === s.group)?.label : null;
-              lastGroup = s.group;
+              const key = `${s.group}:${s.section ?? ""}`;
+              const groupLabel = SUBJECT_GROUPS.find((g) => g.id === s.group)?.label;
+              const head = key !== lastGroup ? (s.section ?? groupLabel) : null;
+              lastGroup = key;
               return (
-                <div key={`${s.group}:${s.path}`}>
+                <div key={`${s.group}:${s.section ?? ""}:${s.path}`}>
                   {head && <div className="hub-draft-pop-group" role="presentation">{head}</div>}
                   <div
                     id={`${listId}-${i}`}

@@ -50,11 +50,27 @@ describe("the catalog", () => {
     expect(r.body).toEqual({
       values: { success: true, values: [{ path: "Stamina", kind: "number", type: "float" }], actors: ["BP_Door"] },
       inputActions: ["/Game/Input/IA_Jump"],
+      inputContexts: [],
       levels: [{ path: "/Game/Maps/L_Arena", name: "L_Arena" }],
       currentLevel: "/Game/Maps/L_Arena",
       gaps: [],
     });
     expect(calls.find((c) => c.action === "script_values")?.args).toEqual({ limit: 1000 });
+  });
+
+  it("lists Input Actions from every content root and the contexts that map them", async () => {
+    answers["gameplay.list_input_assets"] = ok({
+      inputActions: [{ path: "/Game/Input/IA_Jump.IA_Jump" }, { path: "/Hero/Input/IA_Dash.IA_Dash" }],
+      inputMappingContexts: [{ path: "/Hero/Input/IMC_Hero.IMC_Hero" }],
+    });
+    answers["gameplay.read_imc"] = ok({ mappings: [{ inputAction: "/Hero/Input/IA_Dash.IA_Dash" }, { inputAction: { objectPath: "/Hero/Input/IA_Dash.IA_Dash" } }] });
+    const r = await drafting().catalog();
+    expect(r.body).toMatchObject({
+      inputActions: ["/Game/Input/IA_Jump", "/Hero/Input/IA_Dash"],
+      inputContexts: [{ path: "/Hero/Input/IMC_Hero", name: "IMC_Hero", actions: ["/Hero/Input/IA_Dash"] }],
+      gaps: [],
+    });
+    expect(calls.find((c) => c.action === "read_imc")?.args).toEqual({ imcPath: "/Hero/Input/IMC_Hero" });
   });
 
   it("names what it could not read and still answers with the rest", async () => {
