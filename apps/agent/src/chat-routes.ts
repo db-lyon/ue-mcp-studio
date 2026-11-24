@@ -119,7 +119,7 @@ import { KEY_PROVIDER_IDS, STUDIO_PLAN_AVAILABLE, conventionOf, endpointIdOf, en
 /** The longest a turn that starts or resumes after the daemon starts waits for the sign-ins to be read. */
 const SIGN_INS_READY_MS = 20_000;
 
-export function registerChat(api: DaemonExtensionApi, agentVersion = "0.0.0", packageDir?: string, sharedAccount?: AccountSource, pie?: PieWatch): { runner: AgentRunner; dispose(): void } {
+export function registerChat(api: DaemonExtensionApi, agentVersion = "0.0.0", packageDir?: string, sharedAccount?: AccountSource, pie?: PieWatch): { runner: AgentRunner; shutdown(): Promise<void>; dispose(): void } {
   const settings = new SettingsStore(api.dataDir);
   // A sign-in from the panel wins; otherwise the account from `ue-mcp login`. Remote control reads the same source.
   const account = sharedAccount ?? new AccountSource(settings, () => api.registryAccount());
@@ -268,7 +268,7 @@ export function registerChat(api: DaemonExtensionApi, agentVersion = "0.0.0", pa
   const unobserve = api.events.subscribe((e) => busy.observe(e));
   const forms = registerForms(api);
   const dialogs = registerDialogs(api, store, settings, forms);
-  const qa = registerQa(api, store, forms, playtests);
+  const qa = registerQa(api, store, forms, playtests, () => busy.state());
   const playtestIndex = new PlaytestIndex({ host: api as unknown as PlaytestIndexHost, broker: qa, store });
   registerPlaytestIndex(api, playtestIndex);
   registerDrafting(api, new Drafting({ host: api as unknown as DraftingHost, players: playtests, created: () => playtestIndex.created() }));
@@ -1154,6 +1154,8 @@ export function registerChat(api: DaemonExtensionApi, agentVersion = "0.0.0", pa
   runner.recover();
   return {
     runner,
+    // The daemon is stopping: playtests the cards started stop, with the PIE they started, while the editor still answers.
+    shutdown: () => qa.shutdown(),
     dispose: () => {
       notifications.dispose();
       unobserve();

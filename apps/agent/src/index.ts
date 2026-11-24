@@ -134,7 +134,9 @@ const extension: DaemonExtension = {
       changed: () => host.events.publish("viewport.changed", { pie: pie.get() }),
     });
     return {
-      dispose: () => {
+      // Awaited by the daemon as it stops: a playtest a card started, and its PIE, stop before the bridges go.
+      dispose: async () => {
+        await chat.shutdown().catch((e: unknown) => api.log.warn("studio: the playtests could not be stopped", e));
         unwatch();
         viewport.dispose();
         remote.dispose();
