@@ -13,10 +13,11 @@
  * - fixer: a fix item is the Assign loop on that card;
  * - writePlaytests: the /playtest flow in a session of its own;
  * - replay: pie(script_replay) through the card's session;
- * - signer, playtestRuns, enabled, inputAgeMs: Studio's account and settings.
+ * - signer, playtestRuns, enabled, inputAgeMs: Studio's account and settings;
+ * - agentCalls: the editor calls Studio's own agents have in flight.
  */
-import type { ActionResult, DaemonExtensionApi, HubBroker, HubClientOptions, HubFixer, HubWritePlaytests, PlaytestRunsMode } from "ue-mcp/daemon";
-import { qaScriptKey, type QaRun } from "@ue-mcp-studio/shared";
+import type { ActionResult, BusyCall as HubBusyCall, DaemonExtensionApi, HubBroker, HubClientOptions, HubFixer, HubWritePlaytests, PlaytestRunsMode } from "ue-mcp/daemon";
+import { qaScriptKey, type BusyState, type QaRun } from "@ue-mcp-studio/shared";
 import type { QaBroker } from "./qa.js";
 import type { SessionStore } from "./sessions.js";
 import type { AgentHost } from "./tools.js";
@@ -37,6 +38,8 @@ export interface HubBridgeOptions {
   enabled: () => boolean;
   /** How long since someone used this computer; null when no window reports it. */
   inputAgeMs: () => number | null;
+  /** What the editor is working on (BusyTracker): the calls Studio's agents have in flight are the hub's agentCalls. */
+  busy: () => BusyState;
 }
 
 /** Whether the daemon offers the hub (its feature "hub"). */
@@ -69,7 +72,13 @@ export class HubBridge {
       playtestRuns: this.o.playtestRuns,
       enabled: this.o.enabled,
       inputAgeMs: this.o.inputAgeMs,
+      agentCalls: () => this.agentCalls(),
     };
+  }
+
+  /** The editor calls Studio's agents have in flight, which reach the editor through api.callAction and so publish no call events. */
+  private agentCalls(): HubBusyCall[] {
+    return this.o.busy().calls.flatMap((c) => (c.source === "studio" ? [{ ...c, source: "agent" as const }] : []));
   }
 
   private broker(): HubBroker {

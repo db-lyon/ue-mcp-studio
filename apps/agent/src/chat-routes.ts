@@ -433,6 +433,7 @@ export function registerChat(api: DaemonExtensionApi, agentVersion = "0.0.0", pa
     signer: () => (settings.accountToken() ? settings.accountLogin() : null) ?? account.registryLogin()?.login ?? null,
     enabled: () => settings.experiments().playtestHub,
     inputAgeMs: () => presence?.desktopInputAgeMs() ?? null,
+    busy: () => busy.state(),
   });
   // Goals Studio kept itself before the hub moved into ue-mcp go into ue-mcp's store, once; the old files stay.
   const stopHubMove = offersHub(api) ? startHubMove({ dataDir: api.dataDir, endpoint, log: api.log }) : () => {};

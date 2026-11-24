@@ -30,6 +30,13 @@ function setup(features: string[], hub = true) {
     signer: () => "dev",
     enabled: () => true,
     inputAgeMs: () => 5,
+    busy: () => ({
+      now: 0,
+      calls: [
+        { id: 1, category: "asset", action: "list", startedAt: 0, source: "studio", sessionId: "s1", stopped: false },
+        { id: 2, category: "level", action: "save", startedAt: 0, source: "client", client: "cli", stopped: false },
+      ],
+    }),
   } as unknown as HubBridgeOptions;
   return { given: () => given, off, qa, o };
 }
@@ -43,6 +50,8 @@ describe("configureHub", () => {
     expect(c.enabled?.()).toBe(true);
     expect(c.playtestRuns?.()).toBe("manual");
     expect(c.inputAgeMs?.()).toBe(5);
+    // Only Studio's own agents' calls: the daemon already sees other MCP clients'.
+    expect(c.agentCalls?.()).toEqual([{ id: 1, category: "asset", action: "list", startedAt: 0, source: "agent", sessionId: "s1", stopped: false }]);
     expect(c.broker && c.fixer && c.writePlaytests && c.replay).toBeTruthy();
     back();
     expect(t.off).toHaveBeenCalled();
