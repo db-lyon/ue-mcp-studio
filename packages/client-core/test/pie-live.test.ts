@@ -1,7 +1,8 @@
-/** The chat's way into the live viewport: when the PIE indicator shows, what the Play In Editor card says, and where the card goes in a thread. */
+/** The chat's way into the live viewport: when Play In Editor reads as live, what the Play In Editor card says, and where the card goes in a thread. */
 import { describe, expect, it } from "vitest";
 import type { QaRun, ToolCallRecord, TranscriptEntry, ViewportStatus } from "@ue-mcp-studio/shared";
-import { asksViewportAgain, pieCard, pieFromEvent, pieLive, withPie } from "../src/viewport.js";
+import { asksViewportAgain, pieCard, pieFromEvent, withPie } from "../src/viewport.js";
+import { pieRunning } from "../src/viewport-open.js";
 import { mainTimeline, startsPie } from "../src/chat-model.js";
 
 const status = (s: Partial<ViewportStatus> = {}): ViewportStatus => ({ access: "ok", editor: "ready", streamer: false, source: null, viewers: 0, ...s });
@@ -11,15 +12,15 @@ const call = (category: string, method: string, args: Record<string, unknown>, o
 });
 const qa = (over: Partial<QaRun>): TranscriptEntry => ({ kind: "qa", run: { runId: "r1", script: "s", scriptName: "s", state: "running", steps: [], awaiting: [], lastSeq: 0, summary: { total: 0, passed: 0, failed: 0, skipped: 0, pending: 0, awaiting: 0 }, resultsPath: null, sessionId: "x", toolUseId: null, seenAt: "", ...over } });
 
-describe("the PIE indicator", () => {
-  it("shows while PIE runs or the stream is live or armed, and not otherwise", () => {
-    expect(pieLive(null)).toBe(false);
-    expect(pieLive(status())).toBe(false);
-    expect(pieLive(status({ pie: true }))).toBe(true);
-    expect(pieLive(status({ streamer: true }))).toBe(true);
-    expect(pieLive(status({ bridge: { available: true, pluginEnabled: true, streaming: false, armed: true } }))).toBe(true);
-    // Watching is free: an account without Pro sees the indicator the same way.
-    expect(pieLive(status({ access: "needs-pro", pie: true }))).toBe(true);
+describe("Play In Editor live", () => {
+  it("reads live while PIE runs or its stream is up, not while a stream is only armed", () => {
+    expect(pieRunning(null)).toBe(false);
+    expect(pieRunning(status())).toBe(false);
+    expect(pieRunning(status({ pie: true }))).toBe(true);
+    expect(pieRunning(status({ streamer: true }))).toBe(true);
+    expect(pieRunning(status({ bridge: { available: true, pluginEnabled: true, streaming: false, armed: true } }))).toBe(false);
+    // Watching is free: an account without Pro reads it the same way.
+    expect(pieRunning(status({ access: "needs-pro", pie: true }))).toBe(true);
   });
 
   it("moves at once on the daemon's pie events, however PIE was started", () => {
@@ -27,7 +28,7 @@ describe("the PIE indicator", () => {
     expect(pieFromEvent("pie.ended")).toBe(false);
     expect(pieFromEvent("editor.connected")).toBeNull();
     const idle = status({ pie: false });
-    expect(pieLive(withPie(idle, true))).toBe(true);
+    expect(pieRunning(withPie(idle, true))).toBe(true);
     expect(withPie(idle, false)).toBe(idle);
     expect(withPie(null, true)).toBeNull();
   });

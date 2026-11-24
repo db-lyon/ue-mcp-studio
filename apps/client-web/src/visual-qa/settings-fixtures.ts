@@ -227,6 +227,8 @@ export const SETTINGS_SCENARIOS: Record<string, Scenario> = {
     focus: ".yaml-editor textarea",
   }),
   "settings-general": page("General: themes and updates", "general"),
+  "settings-experiments": page("Experiments: the Playtest Hub switch, off", "experiments"),
+  "settings-experiments-on": page("Experiments with the Playtest Hub switched on", "experiments", { settings: { experiments: { playtestHub: true } } }),
   "settings-whats-new-card": page("General with an update waiting: What's new right under the Update button, right-aligned to it", "general", {
     get: (p) => (p === "/v1/ext/studio/whats-new" ? WHATS_NEW : p === "/v1/ext/studio/updates" ? WHATS_NEW_UPDATES : undefined),
   }),

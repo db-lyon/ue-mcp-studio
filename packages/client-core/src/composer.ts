@@ -38,21 +38,19 @@ export function atMost(tier: BarTier, t: BarTier): boolean {
 /**
  * The composer bar's utility buttons, after the model and the context meter,
  * in this order on every client. Each is an icon with its name for a screen
- * reader; Subagents shows only while the session has subagents, and the PIE
- * indicator (viewport) only while Play In Editor runs or its stream is live
- * or armed (pieLive), first so it is seen.
+ * reader; Subagents shows only while the session has subagents. The live
+ * viewport is not here: a playtest card opens it while its run plays.
  */
-export type BarUtilityId = "viewport" | "checkpoints" | "subagents" | "attach";
-export const BAR_UTILITIES: readonly BarUtilityId[] = ["viewport", "checkpoints", "subagents", "attach"];
+export type BarUtilityId = "checkpoints" | "subagents" | "attach";
+export const BAR_UTILITIES: readonly BarUtilityId[] = ["checkpoints", "subagents", "attach"];
 
 /** A utility's name: its accessibility label and its overflow menu item. */
 export function utilityLabel(id: BarUtilityId, count = 0): string {
-  return id === "viewport" ? "PIE live" : id === "checkpoints" ? "Checkpoints" : id === "subagents" ? `Subagents (${count})` : "Attach";
+  return id === "checkpoints" ? "Checkpoints" : id === "subagents" ? `Subagents (${count})` : "Attach";
 }
 
-/** A utility's longer description: its tooltip, or its accessibility hint. The PIE indicator's own comes from pieLiveTitle. */
+/** A utility's longer description: its tooltip, or its accessibility hint. */
 export const UTILITY_TITLE: Record<BarUtilityId, string> = {
-  viewport: "Play In Editor is running. Watch it live.",
   checkpoints: "Review this session's changes and its checkpoints",
   subagents: "This session's subagents",
   attach: "Attach files (or drop or paste them)",

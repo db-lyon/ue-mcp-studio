@@ -1,7 +1,7 @@
 /**
- * Where the panel is: its tab, the Settings section, and the open session,
- * kept in the URL's hash (#/chat/<session>, #/settings/<section>, #/playtests,
- * #/plugins). A reload reads it back, and Studio's window carries the hash
+ * Where the panel is: its tab, the Settings section, the open session and the
+ * hub screen, kept in the URL's hash (#/chat/<session>, #/settings/<section>,
+ * #/playtests/<screen>, #/plugins). A reload reads it back, and Studio's window carries the hash
  * to the daemon's new address when ue-mcp restarts on another port, so the
  * panel comes back where it was. The draft lives with the session, agent side.
  */
@@ -21,6 +21,16 @@ export function writeLocation(change: Partial<PanelLocation>): void {
   window.history.replaceState(window.history.state, "", next);
   // replaceState fires no hashchange; presence listens for this to report the open session at once.
   window.dispatchEvent(new Event(LOCATION_EVENT));
+}
+
+/**
+ * Move to a location as a navigation: a history entry, so Back returns, and a
+ * hashchange, which every listener follows. The hub moves between its screens this way.
+ */
+export function pushLocation(change: Partial<PanelLocation>): void {
+  if (typeof window === "undefined") return;
+  const next = formatLocation({ ...readLocation(), ...change });
+  if (next !== window.location.hash) window.location.hash = next;
 }
 
 /** Fired on window when writeLocation changes the hash. */

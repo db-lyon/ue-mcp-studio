@@ -121,8 +121,10 @@ describe("images in a reply", () => {
     expect(screen.getByText(/too large to show in full here/)).toBeTruthy();
     expect(screen.getByRole("button", { name: "Show in folder" })).toBeTruthy();
     expect(tile().closest("a")).toBeNull();
-    expect(asked).toHaveLength(1);
-    expect(asked[0]).toContain("poster=1");
+    // Loads live for the page's life, so a late read from an earlier test can land here: count this picture's own.
+    const mine = asked.filter((u) => u.includes(encodeURIComponent(path)));
+    expect(mine).toHaveLength(1);
+    expect(mine[0]).toContain("poster=1");
   });
 
   it("gives a reply from an older Studio, without the picture's size, a 16:9 tile rather than a link", async () => {

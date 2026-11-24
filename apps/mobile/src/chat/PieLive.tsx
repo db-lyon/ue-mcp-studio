@@ -1,19 +1,23 @@
 /**
- * The way into the live PIE viewport from the chat (client-web chat/PieLive.tsx):
- * the composer bar's PIE indicator, the Play In Editor card after what started
- * PIE, and the full-screen sheet both open, which draws the Viewport tab's own
- * player, gate and states. The card never streams in the thread; the sheet
- * joins as a viewer while it is open, and closing it leaves, so the stream
- * stops once nobody watches.
+ * The ways into the live PIE viewport (client-web chat/PieLive.tsx): the
+ * bar's Live button on every tab while PIE runs, the chat's Play In Editor
+ * card after what started PIE, a live playtest card's Viewport
+ * (screens/playtests/QaCard.tsx), and the full-screen sheet they all open,
+ * which draws the viewer's player, gate and states (views/Viewport.tsx).
+ * Nothing streams until the sheet opens; it joins as a viewer while open,
+ * and closing it leaves, so the stream stops once nobody watches. The phone
+ * is always remote, so client-core's viewportAllowed always lets it watch.
  *
- * The status is GET /viewport, asked on mount and again after the events
+ * The status is GET /viewport, held once for the app (PieStatusContext),
+ * asked on mount and again after the events
  * client-core's asksViewportAgain names, and a pie.* event from the daemon
  * applies at once (pieFromEvent). Nothing polls.
  */
-import { createContext, useContext, useEffect, useState } from "react";
+import { createContext, useContext, useEffect, useMemo, useState } from "react";
 import { Modal, View } from "react-native";
 import type { ViewportStatus } from "@ue-mcp-studio/shared";
-import { VIEWPORT_MODAL_TITLE, WATCH_LIVE, asksViewportAgain, pieCard, pieFromEvent, withPie } from "@ue-mcp-studio/client-core";
+import { LIVE_BUTTON, VIEWPORT_MODAL_TITLE, WATCH_LIVE, asksViewportAgain, liveButtonHint, pieCard, pieFromEvent, pieRunning, withPie } from "@ue-mcp-studio/client-core";
+import { Pulse } from "../ui/Pulse";
 import { useProjectNav } from "../nav";
 import { useBack } from "../back";
 import type { DaemonState } from "../state";
@@ -21,8 +25,24 @@ import { ViewportView } from "../views/Viewport";
 import type { SettingsSection } from "../views/settings/sections";
 import { Button, T, Spacer, useInsets, useTheme } from "../ui";
 
-/** GET /viewport for the chat, asked again after an event that may change it. */
-export function usePieStatus(enabled = true): { status: ViewportStatus | null; check: (fresh?: boolean) => Promise<void> } {
+/** GET /viewport as one place holds it, with a pie.* event applied: whether PIE runs is client-core's pieRunning of it. */
+export interface PieStatus {
+  status: ViewportStatus | null;
+  check: (fresh?: boolean) => Promise<void>;
+}
+
+/** The app's one PieStatus (AppShell.tsx), which the chat and the bar's Live button both read. */
+export const PieStatusContext = createContext<PieStatus | null>(null);
+
+/** GET /viewport: the app's shared one when there is one, otherwise this component's own. */
+export function usePieStatus(enabled = true): PieStatus {
+  const shared = useContext(PieStatusContext);
+  const own = useOwnPieStatus(enabled && !shared);
+  return shared ?? own;
+}
+
+/** The fetch behind PieStatus, asked again after an event that may change it; AppShell calls it once. */
+export function useOwnPieStatus(enabled = true): PieStatus {
   const { project, api } = useProjectNav();
   const [status, setStatus] = useState<ViewportStatus | null>(null);
   const check = (fresh = false) => Promise.resolve().then(() => api.viewport(fresh)).then(setStatus, () => undefined);
@@ -36,10 +56,26 @@ export function usePieStatus(enabled = true): { status: ViewportStatus | null; c
       if (asksViewportAgain(e.type)) void check();
     });
   }, [api, project, enabled]);
-  return { status, check };
+  return useMemo(() => ({ status, check }), [status, api]);
 }
 
-/** What the chat's PIE card and indicator read: the status, and the ways out of the thread. */
+/** The bar's Live button (client-web chat/PieLive.tsx): a pulsing dot and Live, shown only while Play In Editor runs. */
+export function LiveButton({ onOpen }: { onOpen: () => void }) {
+  const t = useTheme();
+  const pie = useContext(PieStatusContext);
+  if (!pie || !pieRunning(pie.status)) return null;
+  const hint = liveButtonHint();
+  return (
+    <Button label={hint} hint={hint} variant="ghost" size="small" onPress={onOpen}>
+      <Pulse period={1600}>
+        <View style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: t.c.bad }} />
+      </Pulse>
+      <T style={{ color: t.c.text }}>{LIVE_BUTTON}</T>
+    </Button>
+  );
+}
+
+/** What the chat's PIE card and playtest cards read: the status, and the ways out of the thread. */
 export interface PieLiveValue {
   status: ViewportStatus | null;
   /** Open the viewport over the chat. */
@@ -69,7 +105,7 @@ export function PieCard({ current }: { current: boolean }) {
 }
 
 /**
- * The viewport in a full-screen sheet over the chat. Mounted only while open,
+ * The viewport in a full-screen sheet over the current tab. Mounted only while open,
  * so its viewer joins on open and leaves on close; Close or Back closes it.
  */
 export function ViewportSheet({ daemon, onClose, onSettings }: { daemon: DaemonState; onClose: () => void; onSettings: (s: SettingsSection) => void }) {

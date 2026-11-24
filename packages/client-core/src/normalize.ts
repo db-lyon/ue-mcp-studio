@@ -20,6 +20,8 @@ import {
   dialogPolicyOf,
   isVendorId,
   usageOf,
+  QA_VERDICT_WAIT_MINUTES,
+  qaVerdictWaitValid,
   type AgentSettings,
   type ClientContextStrategy,
   type ContextStrategy,
@@ -72,6 +74,8 @@ export function settingsOf(raw: unknown): StudioSettings {
     connected: Object.fromEntries(PROVIDER_IDS.map((p) => [p, connected[p] === true])) as Record<ProviderId, boolean>,
     ...(typeof s.endpoints === "number" ? { endpoints: s.endpoints } : {}),
     account: typeof account.login === "string" ? { login: account.login, via: account.via === "ue-mcp-login" ? "ue-mcp-login" : "studio", ...signInMethodsOf(account) } : null,
+    // Each experiment is on only when the agent says true; an agent before experiments has none.
+    experiments: { playtestHub: obj(s.experiments).playtestHub === true },
   };
 }
 
@@ -114,6 +118,7 @@ export function agentSettingsOf(raw: unknown): AgentSettings {
     feedbackMode: { mode: oneOf(feedback.mode, FEEDBACK_MODES, "interactive"), project: feedback.project === true },
     dialogMode: { mode: DIALOG_MODES.includes(dialog.mode as DialogMode) ? (dialog.mode as DialogMode) : null, project: dialog.project === true },
     playtestRuns: a.playtestRuns === "automatic" ? "automatic" : "manual",
+    verdictWaitMinutes: qaVerdictWaitValid(a.verdictWaitMinutes) ? a.verdictWaitMinutes : QA_VERDICT_WAIT_MINUTES,
     ...(a.restarting === true ? { restarting: true } : {}),
   };
 }

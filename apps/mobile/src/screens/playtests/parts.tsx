@@ -15,8 +15,8 @@ import { Button, Input, T, font, lineBox, useStyles, useTheme, type Theme } from
 import { Glyph, OptionsGlyph, type GlyphName } from "../../ui/glyphs";
 import { AssetToken, ExactAssetLink } from "./StepText";
 
-/** A card action as an icon: its name is the accessible label. */
-export function IconButton({ label, glyph, onPress, disabled, expanded, primary, style }: { label: string; glyph: GlyphName | "options"; onPress: () => void; disabled?: boolean; expanded?: boolean; primary?: boolean; style?: StyleProp<ViewStyle> }) {
+/** A card action as an icon: its name is the accessible label, and `hint` its longer description, as the web's tooltip. */
+export function IconButton({ label, hint, glyph, onPress, disabled, expanded, primary, style }: { label: string; hint?: string; glyph: GlyphName | "options"; onPress: () => void; disabled?: boolean; expanded?: boolean; primary?: boolean; style?: StyleProp<ViewStyle> }) {
   const t = useTheme();
   const s = useStyles(iconStyles);
   const color = disabled ? t.c.dim : primary ? "#fff" : expanded ? t.c.accentHi : t.c.muted;
@@ -24,6 +24,7 @@ export function IconButton({ label, glyph, onPress, disabled, expanded, primary,
     <Pressable
       accessibilityRole="button"
       accessibilityLabel={label}
+      accessibilityHint={hint}
       accessibilityState={{ disabled: !!disabled, expanded }}
       aria-expanded={expanded}
       disabled={disabled}

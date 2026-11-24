@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { beforeEach, describe, expect, it } from "vitest";
-import { formatLocation, parseLocation, readLocation, writeLocation } from "./location";
+import { formatLocation, parseLocation, pushLocation, readLocation, writeLocation } from "./location";
 
 beforeEach(() => window.history.replaceState(null, "", "/ui/"));
 
@@ -32,6 +32,26 @@ describe("the panel's location", () => {
     expect(window.location.hash).toBe("#/settings/general");
     expect(window.history.length).toBe(before);
     expect(window.location.pathname).toBe("/ui/");
+  });
+
+  it("carries the hub screen under #/playtests, ids encoded, and nothing else", () => {
+    expect(parseLocation("#/playtests/queue")).toEqual({ tab: "Playtests", session: null, section: null, sub: "queue" });
+    expect(parseLocation("#/playtests/checks/script%3A%2FGame%2FJump").sub).toBe("checks/script%3A%2FGame%2FJump");
+    expect(parseLocation("#/playtests/goals/tutorial").sub).toBe("goals/tutorial");
+    expect(parseLocation("#/playtests/inbox").sub).toBeUndefined();
+    for (const h of ["#/playtests/queue", "#/playtests/checks", "#/playtests/goals/tutorial", "#/playtests/runs/run-1%3A2"]) expect(formatLocation(parseLocation(h))).toBe(h);
+    expect(parseLocation("#/playtests/elsewhere").sub).toBeUndefined();
+    expect(parseLocation("#/playtests/goals/a/b").sub).toBeUndefined();
+    expect(parseLocation("#/playtests/goals/<x>").sub).toBeUndefined();
+    expect(formatLocation({ tab: "Chat", session: "s1", section: null, sub: "queue" })).toBe("#/chat/s1");
+  });
+
+  it("moves between hub screens as navigations Back can return from", () => {
+    window.location.hash = "#/playtests";
+    const before = window.history.length;
+    pushLocation({ tab: "Playtests", sub: "queue" });
+    expect(window.location.hash).toBe("#/playtests/queue");
+    expect(window.history.length).toBe(before + 1);
   });
 
   it("reads back after a reload at a new address with the hash carried over", () => {

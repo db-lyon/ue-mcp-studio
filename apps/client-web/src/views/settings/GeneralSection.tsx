@@ -23,7 +23,7 @@ export function GeneralSection({ onTheme }: { onTheme: (t: StudioTheme) => void 
   };
   return (
     <>
-      <Head title="General" lead="Your ue-mcp account, theme, and updates for Studio and the editor plugin." />
+      <Head title="General" lead="Your ue-mcp account, the theme, and updates for Studio and the editor plugin." />
       {msg.node}
       <Card label="Appearance">
         <div className="themes">

@@ -4,7 +4,7 @@
  * a ue-mcp PIE test script; its runs are QaRuns, each in the session whose
  * call started it, or in no session when a run started outside Studio.
  */
-import { qaEnded, qaIsDraft, qaSummaryOf, type QaRun } from "./qa.js";
+import { qaEnded, qaIsDraft, qaSummaryOf, type QaRun } from "ue-mcp/hub";
 
 /** A playtest waiting for the user: a step's verdict, or a loop that stopped for them. */
 export const qaNeedsYou = (run: QaRun): boolean =>

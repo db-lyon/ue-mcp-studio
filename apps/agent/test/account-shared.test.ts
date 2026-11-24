@@ -17,7 +17,7 @@ describe("the account source", () => {
   it("is made once in the extension and passed to chat, remote control and billing", () => {
     const index = read("index.ts");
     expect(index.match(/new AccountSource\(/g)).toHaveLength(1);
-    expect(index).toMatch(/registerChat\([^)]*, account\)/);
+    expect(index).toMatch(/registerChat\([^)]*, account[,)]/);
     expect(index).toMatch(/registerRemote\(host, \{ account \}\)/);
     expect(index).toMatch(/registerBilling\(host, \{ account,/);
   });

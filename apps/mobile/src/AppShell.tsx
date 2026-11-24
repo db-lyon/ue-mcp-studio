@@ -8,7 +8,7 @@
 import { useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
 import { Linking, Pressable, StyleSheet, View } from "react-native";
 import Svg, { Path } from "react-native-svg";
-import { studioApi, type PanelLocation, type Transport } from "@ue-mcp-studio/client-core";
+import { studioApi, viewportAllowed, type PanelLocation, type Transport } from "@ue-mcp-studio/client-core";
 import { playtestMatches, type StudioTheme } from "@ue-mcp-studio/shared";
 import { BackLayer, useBack } from "./back";
 import { useProject } from "./connection";
@@ -23,8 +23,7 @@ import { Banner, Button, font, PageGlow, T, useInsets, useSetTheme, useStyles, u
 import { Chat } from "./views/Chat";
 import { PlaytestsView, usePlaytestIndex } from "./views/Playtests";
 import { PluginsView } from "./views/Plugins";
-import { ViewportView } from "./views/Viewport";
-import { ViewportSheet } from "./chat/PieLive";
+import { LiveButton, PieStatusContext, ViewportSheet, useOwnPieStatus } from "./chat/PieLive";
 import { SettingsHub } from "./views/SettingsHub";
 import { sectionOf, type SettingsSection } from "./views/settings/sections";
 import { useUpdateCount } from "./views/Updates";
@@ -43,10 +42,11 @@ import { CompatBanner } from "./native/CompatBanner";
 import { useDeviceOnline } from "./native/online";
 import { OFFLINE_STRIP } from "./views/OfflineBanner";
 import { FileViewerProvider } from "./chat/FileViewer";
+import { HeldBar, HeldContext, LeaseBar, useHeld, useLease } from "./held";
 // Ways out of the project the drawer offers at all times: the projects list and pairing.
 import { Exits } from "./exits";
 
-const TABS = ["Chat", "Viewport", "Playtests", "Plugins", "Settings"] as const;
+const TABS = ["Chat", "Playtests", "Plugins", "Settings"] as const;
 type Tab = (typeof TABS)[number];
 
 const THEMES: StudioTheme[] = ["ue-mcp", "editor", "editor-orange"];
@@ -145,7 +145,10 @@ function Studio({ daemon, initial, onBack, device }: { daemon: ReturnType<typeof
     setTab("Settings");
   });
   const [feedback, setFeedback] = useState(false);
-  // The live viewport over the chat, from the PIE indicator or a Play In Editor card; closing it returns to the chat as it was.
+  // Whether PIE runs, held once for the bar's Live button and the chat. A phone is always remote, so it may watch.
+  const pie = useOwnPieStatus(viewportAllowed(true));
+  // The live viewport over the current tab, from the bar's Live button, a Play In Editor card or a live playtest's Viewport;
+  // closing it returns to the same place.
   const [watching, setWatching] = useState(false);
   const watchLive = useCallback(() => setWatching(true), []);
   const settingsFromChat = useCallback((x: string) => {
@@ -153,9 +156,6 @@ function Studio({ daemon, initial, onBack, device }: { daemon: ReturnType<typeof
     setSection(sectionOf(x));
     setTab("Settings");
   }, []);
-  useEffect(() => {
-    if (tab !== "Chat") setWatching(false);
-  }, [tab]);
   const [drawer, setDrawer] = useState(false);
   const [chatNav, setChatNav] = useState<{ session: string | null; n: number }>({ session: null, n: 0 });
   const openChat = (session: string | null) => {
@@ -171,6 +171,10 @@ function Studio({ daemon, initial, onBack, device }: { daemon: ReturnType<typeof
   const playtests = usePlaytestIndex(daemon);
   const playtestsWaiting = (playtests.index?.playtests ?? []).filter((e) => playtestMatches(e, "needs-you")).length;
   const openPlaytest = (sessionId: string) => openChat(sessionId);
+  // Runs holding at a manual step for a verdict, PIE paused: the bar under the top bar, and the cards' Resume and watch.
+  const held = useHeld(daemon);
+  // While the Playtest Hub holds the editor: the bar that says so, with Release the editor.
+  const lease = useLease(daemon);
   // The chat stays mounted once shown, parked while another tab is up, so coming back finds the same session and draft.
   const chatShown = useRef(tab === "Chat");
   if (tab === "Chat") chatShown.current = true;
@@ -178,6 +182,8 @@ function Studio({ daemon, initial, onBack, device }: { daemon: ReturnType<typeof
   useBack(tab === "Chat" ? null : () => (tab === "Settings" && section ? setSection(null) : setTab("Chat")));
 
   return (
+    <PieStatusContext.Provider value={pie}>
+    <HeldContext.Provider value={held}>
     <View style={s.app}>
       {/* body's glow over --bg, under everything; the bar's --bar-bg reads over it as the web's blurred bar does. */}
       <PageGlow top={insets.top} />
@@ -192,6 +198,7 @@ function Studio({ daemon, initial, onBack, device }: { daemon: ReturnType<typeof
           {tab}
         </T>
         <View style={{ flex: 1 }} />
+        <LiveButton onOpen={watchLive} />
         <EditorBanner daemon={daemon} compact />
       </View>
       {/* Room for the offline strip that lies under the bar, so it covers nothing. */}
@@ -204,6 +211,8 @@ function Studio({ daemon, initial, onBack, device }: { daemon: ReturnType<typeof
         </Banner>
       ) : null}
       <DialogBanner daemon={daemon} />
+      <LeaseBar lease={lease} />
+      <HeldBar value={held} onOpenCard={(h) => h.sessionId && openChat(h.sessionId)} onWatchLive={watchLive} />
       <PendingDisruptions daemon={daemon} />
       <VersionNotice daemon={daemon} />
       {/* A landscape navigation bar's side; each view pads the end of its own scrolling by the bottom one. */}
@@ -228,7 +237,6 @@ function Studio({ daemon, initial, onBack, device }: { daemon: ReturnType<typeof
           <View style={[s.main, tab !== "Playtests" && s.padded]}>
             <ErrorBoundary what={tab} resetKey={tab}>
               {tab === "Playtests" ? <PlaytestsView daemon={daemon} index={playtests} onOpenSession={openPlaytest} onChat={() => setTab("Chat")} /> : null}
-              {tab === "Viewport" ? <ViewportView daemon={daemon} onSettings={(x) => { setSection(x); setTab("Settings"); }} /> : null}
               {tab === "Plugins" ? <PluginsView daemon={daemon} remote /> : null}
               {tab === "Settings" ? <SettingsHub daemon={daemon} section={section} onSection={setSection} onTheme={(x: StudioTheme) => THEMES.includes(x) && setTheme(x)} updates={updates} narrow /> : null}
             </ErrorBoundary>
@@ -236,7 +244,7 @@ function Studio({ daemon, initial, onBack, device }: { daemon: ReturnType<typeof
         ) : null}
       </View>
       <UpdateRunner streaming={daemon.streaming} events={daemon.events} onReload={() => daemon.refresh()} />
-      {watching && tab === "Chat" ? <ViewportSheet daemon={daemon} onClose={() => setWatching(false)} onSettings={(x) => settingsFromChat(x)} /> : null}
+      {watching ? <ViewportSheet daemon={daemon} onClose={() => setWatching(false)} onSettings={(x) => settingsFromChat(x)} /> : null}
       <NavDrawer
         open={drawer}
         onClose={() => setDrawer(false)}
@@ -256,6 +264,8 @@ function Studio({ daemon, initial, onBack, device }: { daemon: ReturnType<typeof
       </NavDrawer>
       {feedback ? <FeedbackDialog onClose={() => setFeedback(false)} /> : null}
     </View>
+    </HeldContext.Provider>
+    </PieStatusContext.Provider>
   );
 }
 

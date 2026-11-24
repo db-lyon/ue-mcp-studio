@@ -87,14 +87,20 @@ describe.skipIf(!browserPath)("the What's new dialog in a browser at small heigh
       expect(before.bodyHeight).toBeLessThanOrEqual(before.vh * 0.6);
       expect(before.bodyScrolls).toBe(true);
 
-      await page.mouse.move(before.x, before.y);
-      await page.mouse.wheel(0, 400);
-      await page.waitForTimeout(250);
-      const after = await page.evaluate(() => {
+      // A freshly launched headless browser can drop the first wheel over a page
+      // it has just been handed: wheel again until the box moves, a few times at most.
+      const read = () => page.evaluate(() => {
         const open = document.querySelector(".whats-new-part[open] > .whats-new-body") as HTMLElement;
         const head = document.querySelector(".overlay-head") as HTMLElement;
         return { scrollTop: open.scrollTop, headTop: head.getBoundingClientRect().top };
       });
+      let after = { scrollTop: 0, headTop: before.headTop };
+      for (let i = 0; i < 5 && after.scrollTop === 0; i++) {
+        await page.mouse.move(before.x, before.y);
+        await page.mouse.wheel(0, 400);
+        await page.waitForTimeout(250);
+        after = await read();
+      }
       expect(after.scrollTop).toBeGreaterThan(0);
       expect(after.headTop).toBe(before.headTop);
 

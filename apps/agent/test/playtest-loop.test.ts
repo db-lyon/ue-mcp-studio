@@ -232,6 +232,19 @@ describe("the loop", () => {
     expect(store.get(h.sessionId)!.transcript.filter((t) => t.kind === "qa")).toHaveLength(1);
   });
 
+  it("takes the write lease before each attempt and lets it go when the attempt ends", async () => {
+    const lease: string[] = [];
+    support.writes = { begin: async (sid) => void lease.push(`begin ${sid}`), end: (sid) => void lease.push(`end ${sid}`) };
+    const h = setup([{ run: [OPEN_FAIL, PASS] }, { files: { "Content/BP_Door.uasset": "v2" }, run: [PASS, PASS] }]);
+    await assign(h);
+    await ended(h);
+    const sid = h.sessionId;
+    // Each attempt: begin, then end once its subagent is done; the loop's end lets go of whatever is left.
+    expect(lease.slice(0, 4)).toEqual([`begin ${sid}`, `end ${sid}`, `begin ${sid}`, `end ${sid}`]);
+    expect(lease.at(-1)).toBe(`end ${sid}`);
+    expect(lease.filter((l) => l.startsWith("begin"))).toHaveLength(2);
+  });
+
   it("works with steps the engine acts on, telling the subagent not to drive them", () => {
     steps = [{ ...STEPS[0], act: [{ goto: "Door" }, { inject_input: "IA_Interact" }] }];
     const run = qaRunFromAnswer(answerOf("r", [OPEN_FAIL]), { sessionId: "s", seenAt: "x" })!;

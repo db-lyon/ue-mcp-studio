@@ -31,7 +31,7 @@
  *   POST /updates/deferred/now      Restart now: end the turns in progress and run the waiting steps
  *
  * Per-turn review (/review, /sessions/:id/review, /sessions/:id/reviews, /sessions/:id/timeline) is in review.ts.
- * Editor dialogs (/dialogs) are in dialog-routes.ts, playtests, PIE test script runs (/qa), in qa.ts. Studio's window and the editor's busy state are in window-routes.ts; resolving
+ * Editor dialogs (/dialogs) are in dialog-routes.ts, playtests, PIE test script runs (/qa), in qa.ts; the Playtest Hub is ue-mcp's (/v1/hub), configured with Studio's cards and settings in hub-bridge.ts. Studio's window and the editor's busy state are in window-routes.ts; resolving
  * and opening the assets the chat names (/assets/resolve, /assets/open) in asset-links.ts; the composer's @-mention search
  * (/mentions/search) in mentions.ts.
  *
@@ -42,7 +42,7 @@
  */
 import { registerVersionNotice } from "./version-notice.js";
 import { registerWhatsNew } from "./whats-new.js";
-import { readDiscovery, type DaemonExtensionApi } from "ue-mcp/daemon";
+import { WriteLease, readDiscovery, type DaemonExtensionApi } from "ue-mcp/daemon";
 import { CONSENT_FEATURE, ConsentLedger, type DisruptionView } from "./consent.js";
 import { UPDATE_REASON, UPDATE_REQUESTER, UpdateHold, consentOf, updateOp } from "./update-hold.js";
 import { registerQueueRoutes } from "./queue-routes.js";
@@ -85,6 +85,10 @@ import { BusyTracker } from "./busy.js";
 import { registerDialogs } from "./dialog-routes.js";
 import { registerForms } from "./forms.js";
 import { registerQa } from "./qa.js";
+import { configureHub, offersHub } from "./hub-bridge.js";
+import { startHubMove } from "./hub-migration.js";
+import type { PieWatch } from "./viewport/pie-watch.js";
+import type { Presence } from "./notify.js";
 import { PlaytestIndex, registerPlaytestIndex, type PlaytestIndexHost } from "./playtest-index.js";
 import { registerReview } from "./review.js";
 import { PlaytestStore } from "./playtest-store.js";
@@ -113,7 +117,7 @@ import { KEY_PROVIDER_IDS, STUDIO_PLAN_AVAILABLE, conventionOf, endpointIdOf, en
 /** The longest a turn that starts or resumes after the daemon starts waits for the sign-ins to be read. */
 const SIGN_INS_READY_MS = 20_000;
 
-export function registerChat(api: DaemonExtensionApi, agentVersion = "0.0.0", packageDir?: string, sharedAccount?: AccountSource): { runner: AgentRunner; dispose(): void } {
+export function registerChat(api: DaemonExtensionApi, agentVersion = "0.0.0", packageDir?: string, sharedAccount?: AccountSource, pie?: PieWatch): { runner: AgentRunner; dispose(): void } {
   const settings = new SettingsStore(api.dataDir);
   // A sign-in from the panel wins; otherwise the account from `ue-mcp login`. Remote control reads the same source.
   const account = sharedAccount ?? new AccountSource(settings, () => api.registryAccount());
@@ -263,7 +267,8 @@ export function registerChat(api: DaemonExtensionApi, agentVersion = "0.0.0", pa
   const forms = registerForms(api);
   const dialogs = registerDialogs(api, store, settings, forms);
   const qa = registerQa(api, store, forms, playtests);
-  registerPlaytestIndex(api, new PlaytestIndex({ host: api as unknown as PlaytestIndexHost, broker: qa, store }));
+  const playtestIndex = new PlaytestIndex({ host: api as unknown as PlaytestIndexHost, broker: qa, store });
+  registerPlaytestIndex(api, playtestIndex);
   const review = registerReview(api, store, () => settings.reviewTurns());
   /** The daemon's own address, for the flow routes. */
   const endpoint = () => {
@@ -316,6 +321,10 @@ export function registerChat(api: DaemonExtensionApi, agentVersion = "0.0.0", pa
     const e = endpoints.get(id);
     return e ? { baseUrl: e.baseUrl, key: endpoints.key(id) } : null;
   };
+  // A fix loop's write lease: its agents never save a package the person has unsaved changes in.
+  const writes = new WriteLease((c, a, args) => api.callAction(c, a, args), api.log);
+  // Who is at this computer, from the notifier registered below; the hub reads it only when it decides to start work.
+  let presence: Presence | null = null;
   const runner = new AgentRunner({
     // callAction takes the turn's signal on a daemon with "callAction.signal"; the pinned ue-mcp's types do not say so yet.
     host: api as unknown as AgentHost,
@@ -324,6 +333,7 @@ export function registerChat(api: DaemonExtensionApi, agentVersion = "0.0.0", pa
     busy,
     dialogs,
     qa,
+    writes,
     forms,
     // The notifier is registered below, once the runner exists; a call comes only from a turn, after both.
     notify: (sessionId, title, text) => notifications.notifier.emit("agent.notice", sessionId, title, text, { sessionId }),
@@ -417,7 +427,23 @@ export function registerChat(api: DaemonExtensionApi, agentVersion = "0.0.0", pa
       const s = store.get(sid);
       return s && !review.on(s) ? "Review is off in this session, so no checkpoints would let you undo its changes. Turn it on in the session's Checkpoints panel." : null;
     },
+    writes,
   });
+  // The Playtest Hub runs in ue-mcp's daemon (/v1/hub). Studio gives it what only a chat client has: the cards
+  // runs live on, the Assign fix loop, the /playtest flow, its settings and the signed-in account.
+  const unconfigureHub = configureHub({
+    api,
+    qa,
+    store,
+    writePlaytests: (sid, text) => runner.playtest(sid, { text }),
+    playtestRuns: () => playtests.runs(),
+    signer: () => (settings.accountToken() ? settings.accountLogin() : null) ?? account.registryLogin()?.login ?? null,
+    enabled: () => settings.experiments().playtestHub,
+    inputAgeMs: () => presence?.desktopInputAgeMs() ?? null,
+    busy: () => busy.state(),
+  });
+  // Goals Studio kept itself before the hub moved into ue-mcp go into ue-mcp's store, once; the old files stay.
+  const stopHubMove = offersHub(api) ? startHubMove({ dataDir: api.dataDir, endpoint, log: api.log }) : () => {};
 
   const bad = (error: string) => ({ status: 400, body: { error } });
   const missing = (id: string) => ({ status: 404, body: { error: `no session ${id}` } });
@@ -1101,6 +1127,7 @@ export function registerChat(api: DaemonExtensionApi, agentVersion = "0.0.0", pa
     session: (id) => store.get(id) as NotifySession | undefined,
     window: (model) => knownWindow(model),
   });
+  presence = notifications.notifier.presence;
 
   runner.recover();
   return {
@@ -1114,6 +1141,8 @@ export function registerChat(api: DaemonExtensionApi, agentVersion = "0.0.0", pa
       unregisterModel();
       unregisterSteps();
       dialogs.dispose();
+      stopHubMove();
+      unconfigureHub();
       qa.dispose();
       watch.dispose();
       runner.dispose();

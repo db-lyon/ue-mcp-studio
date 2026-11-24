@@ -4,8 +4,8 @@ import { SWITCH_PROJECT, SWITCH_PROJECT_LABEL } from "@ue-mcp-studio/client-core
 import { api } from "../api";
 import { listState } from "../chat/SessionRow";
 
-export type NavTab = "Chat" | "Viewport" | "Playtests" | "Plugins" | "Settings";
-const TABS: NavTab[] = ["Chat", "Viewport", "Plugins", "Settings"];
+export type NavTab = "Chat" | "Playtests" | "Plugins" | "Settings";
+const TABS: NavTab[] = ["Chat", "Playtests", "Plugins", "Settings"];
 
 /**
  * Navigation at narrow widths: a panel that slides over the page from the
@@ -13,7 +13,7 @@ const TABS: NavTab[] = ["Chat", "Viewport", "Plugins", "Settings"];
  * tabs, the recent sessions and, at the foot, the bar's tools. A pick, the
  * scrim, or Escape closes it. The recent sessions are read each time it opens.
  */
-export function NavDrawer({ open, onClose, tab, session, updates, playtestsWaiting = 0, onTab, onSession, onNewSession, project, viewport = true, children }: {
+export function NavDrawer({ open, onClose, tab, session, updates, playtestsWaiting = 0, showPlaytests = false, onTab, onSession, onNewSession, project, children }: {
   open: boolean;
   onClose: () => void;
   tab: NavTab;
@@ -22,16 +22,15 @@ export function NavDrawer({ open, onClose, tab, session, updates, playtestsWaiti
   updates: number;
   /** Playtests across the project that wait for the user. */
   playtestsWaiting?: number;
+  /** The Playtest Hub experiment is on: Playtests is one of the tabs. */
+  showPlaytests?: boolean;
   onTab: (t: NavTab) => void;
   onSession: (id: string) => void;
   onNewSession: () => void;
   /** On a paired device: the open project as the relay lists it, and the way to every other one. */
   project?: { name: string | null; onSwitch: () => void };
-  /** Whether to list the Viewport tab: false in Studio on the computer, beside the editor's own viewport. */
-  viewport?: boolean;
   children?: ReactNode;
 }) {
-  const tabs = viewport ? TABS : TABS.filter((t) => t !== "Viewport");
   const [recent, setRecent] = useState<SessionSummary[] | null>(null);
 
   useEffect(() => {
@@ -75,7 +74,7 @@ export function NavDrawer({ open, onClose, tab, session, updates, playtestsWaiti
           New session
         </button>
         <nav className="drawer-nav" aria-label="Sections">
-          {tabs.map((t) => (
+          {TABS.filter((t) => showPlaytests || t !== "Playtests").map((t) => (
             <button key={t} className={`drawer-item ${t === tab ? "active" : ""}`} aria-current={t === tab ? "page" : undefined} onClick={pick(() => onTab(t))}>
               <TabGlyph tab={t} />
               <span>{t}</span>
@@ -118,7 +117,6 @@ function PlusGlyph() {
 function TabGlyph({ tab }: { tab: NavTab }) {
   const path = {
     Chat: "M3 4.5A1.5 1.5 0 0 1 4.5 3h7A1.5 1.5 0 0 1 13 4.5v5a1.5 1.5 0 0 1-1.5 1.5H7l-3 2.5V11h0.5A1.5 1.5 0 0 1 3 9.5z",
-    Viewport: "M2.5 4.5A1.5 1.5 0 0 1 4 3h8a1.5 1.5 0 0 1 1.5 1.5v6A1.5 1.5 0 0 1 12 12H4a1.5 1.5 0 0 1-1.5-1.5zM7 5.8v3.4l2.8-1.7zM5.5 14h5",
     Playtests: "M5 3.5h6M6 3.5v3.2L3.4 11.6A1.3 1.3 0 0 0 4.5 13.5h7a1.3 1.3 0 0 0 1.1-1.9L10 6.7V3.5M5 10h6",
     Plugins: "M6 2.5v3M10 2.5v3M4 5.5h8v2.5a4 4 0 0 1-8 0zM8 12v1.5",
     Settings: "M3 5h10M3 11h10M6 3.5v3M10 9.5v3",

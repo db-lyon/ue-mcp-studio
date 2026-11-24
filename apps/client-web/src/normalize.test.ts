@@ -62,6 +62,7 @@ describe("the agent's other answers", () => {
       feedbackMode: { mode: "interactive", project: false },
       dialogMode: { mode: null, project: false },
       playtestRuns: "manual",
+      verdictWaitMinutes: 10,
     });
   });
 

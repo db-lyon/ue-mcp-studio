@@ -427,14 +427,25 @@ export interface CardControls {
   assignWaits: string | null;
   /** Edit and Delete. */
   editable: boolean;
+  /**
+   * Viewport: the run is live (armed, running or waiting for a verdict) while
+   * Play In Editor runs, and the card can open the live viewer. The viewer
+   * itself says why it cannot stream, when it cannot.
+   */
+  viewport: boolean;
 }
+
+/** The run states in which Play In Editor plays the run. */
+const LIVE_STATES: ReadonlySet<QaRun["state"]> = new Set(["armed", "running", "awaiting_verdict"]);
 
 /**
  * The rules for a card's buttons. `outside` names the actions a card drawn
  * outside a session (the Playtests page) brings; `assignSession` is where a
- * subagent would run; `open` is whether the card is open.
+ * subagent would run; `open` is whether the card is open; `pie` is whether
+ * Play In Editor runs (showsViewportButton with nothing else relevant), and
+ * is absent where the card cannot open the viewer.
  */
-export function cardControls(run: QaRun, o: { outside?: { start?: boolean; assign?: boolean; script?: boolean }; assignSession: string | null; open: boolean }): CardControls {
+export function cardControls(run: QaRun, o: { outside?: { start?: boolean; assign?: boolean; script?: boolean }; assignSession: string | null; open: boolean; pie?: boolean }): CardControls {
   const draft = qaIsDraft(run);
   const ended = qaEnded(run.state);
   const owned = !!run.sessionId;
@@ -450,7 +461,8 @@ export function cardControls(run: QaRun, o: { outside?: { start?: boolean; assig
   const editable = (scripted ? true : draft && owned) && !run.deleted && !assigned;
   const placed = (o.outside ? !!o.outside.assign : !!o.assignSession) && !run.deleted && !assigned && !needsYouLoop && assignment?.loop?.state !== "passed";
   const assignWaits = placed && !qaAssignable(run) ? ASSIGN_WAITS : null;
-  return { draft, ended, owned, assigned, needsYouLoop, runnable, stoppable, canAssign, assignWaits, editable };
+  const viewport = !!o.pie && !draft && !run.deleted && LIVE_STATES.has(run.state);
+  return { draft, ended, owned, assigned, needsYouLoop, runnable, stoppable, canAssign, assignWaits, editable, viewport };
 }
 
 export const ASSIGN_WAITS = "Every step needs a person to judge, so a subagent has nothing to run yet. Fail a step and it can fix the project and run the playtest again.";

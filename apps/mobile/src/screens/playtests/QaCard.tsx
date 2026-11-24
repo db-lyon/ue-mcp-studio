@@ -11,6 +11,7 @@ import { lhOf } from "./live";
 import { Fragment, useContext, useEffect, useRef, useState, type ReactNode } from "react";
 import { Alert, Platform, Pressable, ScrollView, View, type ViewStyle, Text } from "react-native";
 import {
+  HELD_COPY,
   QA_VERDICTS,
   STARTING,
   WITHOUT_CHECKPOINTS_QUESTION,
@@ -26,6 +27,9 @@ import {
   newerRun,
   offlinePill,
   pathSummary,
+  showsViewportButton,
+  VIEWPORT_BUTTON,
+  VIEWPORT_BUTTON_HINT,
   qaResultsPath,
   readText,
   quickRunOptions,
@@ -39,6 +43,8 @@ import {
 } from "@ue-mcp-studio/client-core";
 import { assetLinkTarget, qaAgentMayJudge, qaAgentVerdict, qaIsDraft, qaSummaryOf, qaVerdictForm, type PendingForm, type QaRun, type QaScriptStep, type QaStep, type QaVerdict } from "@ue-mcp-studio/shared";
 import { useProjectNav } from "../../nav";
+import { PieLiveContext } from "../../chat/PieLive";
+import { useHeldRun } from "../../held";
 import { Banner, CardTint, T, bannerText, font, italic, labelFont, lineBox, monoNormal, useStyles, useTheme, type Theme } from "../../ui";
 import { Chevron } from "../../ui/glyphs";
 import { RevealContext, useLiveRun, useQaLive, type Measurable } from "./live";
@@ -71,6 +77,19 @@ export function useSavedScript(script: string | undefined, after: () => void = (
   };
 }
 
+/** Resume and watch, while the run holds at this step with Play In Editor paused (client-web chat/Qa.tsx ResumeWatch). */
+function ResumeWatch({ runId, step }: { runId: string; step: number }) {
+  const h = useHeldRun(runId);
+  const [busy, setBusy] = useState(false);
+  if (!h || h.held.step !== step || !h.held.paused) return null;
+  return (
+    <SmallButton title={HELD_COPY.resume} label={HELD_COPY.resumeHelp} disabled={busy} onPress={() => {
+      setBusy(true);
+      h.resume().catch(() => undefined).finally(() => setBusy(false));
+    }} />
+  );
+}
+
 function PillView({ pill, label }: { pill: PillState; label?: string }) {
   const t = useTheme();
   const color = pill.tone === "ok" ? t.c.ok : pill.tone === "warn" ? t.c.warn : pill.tone === "bad" ? t.c.bad : pill.tone === "run" ? t.c.text : t.c.muted;
@@ -100,6 +119,8 @@ export function QaCard({ run: saved, form: own, onDismiss, actions: outside, met
   const s = useStyles(styles);
   const { api, project } = useProjectNav();
   const live = useQaLive();
+  /** The chat's Play In Editor status and its viewer; absent outside a chat, where the card offers no Viewport. */
+  const pie = useContext(PieLiveContext);
   const [run, setRun] = useLiveRun(saved, live);
   const [notes, setNotes] = useState<Record<number, string>>({});
   const [picked, setPicked] = useState<Record<number, QaVerdict>>({});
@@ -210,10 +231,11 @@ export function QaCard({ run: saved, form: own, onDismiss, actions: outside, met
   const scripted = outside ? outside.script : null;
   const savedScript = useSavedScript(!outside && !qaIsDraft(run) && run.script ? run.script : undefined);
   const scriptActions = scripted ?? savedScript;
-  const { draft, ended, owned, assigned, needsYouLoop, runnable, stoppable, canAssign, assignWaits, editable } = cardControls(run, {
+  const { draft, ended, owned, assigned, needsYouLoop, runnable, stoppable, canAssign, assignWaits, editable, viewport } = cardControls(run, {
     outside: outside && { start: !!outside.start, assign: !!outside.assign, script: !!outside.script },
     assignSession,
     open,
+    pie: pie ? showsViewportButton({ relevant: false, status: pie.status }) : undefined,
   });
 
   const runAssign = (withoutCheckpoints: boolean): Promise<void> =>
@@ -307,6 +329,8 @@ export function QaCard({ run: saved, form: own, onDismiss, actions: outside, met
         />
       </View>,
     );
+  // The viewer opens over the chat and says itself why it cannot stream, when it cannot.
+  if (viewport && pie) ownActions.push(<IconButton key="viewport" label={VIEWPORT_BUTTON} hint={offline ?? VIEWPORT_BUTTON_HINT} disabled={off} onPress={pie.watch} glyph="viewport" />);
   if (stoppable) ownActions.push(<IconButton key="stop" label={`Stop playtest ${run.scriptName}`} disabled={working || off} onPress={stop} glyph="stop" />);
   if (assigned) ownActions.push(<IconButton key="cancel" label={assignment?.loop ? "End the loop" : "Cancel the subagent"} disabled={assigning || off} onPress={toggleAssign} glyph="cancel" />);
   if (canAssign && !assigned) ownActions.push(<IconButton key="assign" label={needsYouLoop ? assignAgainLabel(needsYouLoop) : "Assign to subagent"} disabled={assigning || off} onPress={toggleAssign} glyph="assign" />);
@@ -403,6 +427,7 @@ export function QaCard({ run: saved, form: own, onDismiss, actions: outside, met
               />
             ) : (
               <View style={s.verdict}>
+                <ResumeWatch runId={run.runId} step={askBox.index} />
                 {QA_VERDICTS.map((v) => verdictButton(askBox, v, () => (v.verdict === "fail" ? setFailing({ index: askBox.index, via: "box" }) : decide(askBox, v.verdict)), { disabled: off }))}
                 {waiting.length > 1 ? <SmallButton title={`+${waiting.length - 1} more`} label={waiting.length === 2 ? "1 more step needs you" : `${waiting.length - 1} more steps need you`} onPress={() => openAt(askBox.index)} /> : null}
               </View>
@@ -520,6 +545,7 @@ export function QaCard({ run: saved, form: own, onDismiss, actions: outside, met
                     ) : null}
                     {verdictable && !failBox && askBox?.index !== step.index ? (
                       <View style={[s.inset, s.verdict]}>
+                        <ResumeWatch runId={run.runId} step={step.index} />
                         {QA_VERDICTS.map((v) =>
                           verdictButton(step, v, () => (v.verdict === "fail" ? setFailing({ index: step.index, via: "verdict" }) : decide(step, v.verdict)), {
                             picked: picked[step.index] === v.verdict || busy === v.verdict,

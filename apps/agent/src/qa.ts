@@ -9,7 +9,9 @@
  *   POST   /qa/runs/:id/assign          hand the playtest to a subagent loop: { sessionId? } for a run started elsewhere
  *   DELETE /qa/runs/:id/assign          cancel the loop
  *   POST   /qa/runs/:id/loop/revert     revert the loop's changes: { attempt? }, every attempt's when none is named
- *   POST   /qa/runs/:id/stop            Stop on a live card: pie(script_stop)
+ *   POST   /qa/runs/:id/stop            Stop on a live card or the bar's Stop now: pie(script_stop), and PIE with a run held for a verdict
+ *   GET    /qa/held                     runs holding at a step for a person's verdict, PIE paused (ue-mcp's VerdictHold)
+ *   POST   /qa/runs/:id/resume          Resume and watch: PIE unpaused while the step still waits for its verdict
  *   POST   /qa/runs/:id/run             Start playtest on a draft's card: { startPie?, players?, listen?, record? }
  *   PUT    /qa/runs/:id/script          Edit on a draft's card: { steps }, saved with pie(script_update)
  *   DELETE /qa/runs/:id/script          Delete on a draft's card: pie(script_delete)
@@ -37,7 +39,7 @@
 import * as crypto from "node:crypto";
 import * as fs from "node:fs";
 import * as path from "node:path";
-import type { ActionResult, DaemonExtensionApi } from "ue-mcp/daemon";
+import { VerdictHold, type ActionResult, type DaemonExtensionApi } from "ue-mcp/daemon";
 import {
   qaActive,
   qaApplyStreamEvent,
@@ -51,13 +53,14 @@ import {
   qaPieInstance,
   qaScriptKey,
   PLAYTEST_RUNS_REFUSAL,
+  QA_VERDICT_WAIT_MINUTES,
   QA_VERDICTS,
   type QaLoop,
   type QaRun,
   type QaVerdict,
   type RestoreOutcome,
 } from "@ue-mcp-studio/shared";
-import { NO_CHECKPOINTS, PlaytestLoop, attentionText, carryOf, type LoopCheckpoints } from "./playtest-loop.js";
+import { NO_CHECKPOINTS, PlaytestLoop, attentionText, carryOf, type LoopCheckpoints, type LoopWrites } from "./playtest-loop.js";
 import { type ElicitParams, type ElicitResult, type FormBroker } from "./forms.js";
 import type { SessionStore } from "./sessions.js";
 import type { AgentHost, TurnCallOptions } from "./tools.js";
@@ -103,6 +106,8 @@ export interface QaLoopSupport {
   blocked?: (sessionId: string) => string | null;
   /** A loop needs the user: the Windows notification and anything else beside the card. */
   notify?: (sessionId: string, loop: QaLoop, run: QaRun) => void;
+  /** The per-package write lease each attempt takes (ue-mcp's WriteLease). */
+  writes?: LoopWrites;
   /** The loop's clock. */
   now?: () => number;
 }
@@ -181,11 +186,27 @@ export class QaBroker {
   private readonly dismissed = new Set<string>();
   /** Playtest loops running in this daemon, by loop id. */
   private readonly loops = new Map<string, PlaytestLoop>();
+  /** Who hears of every saved run: the Playtest Hub's run index and queue. */
+  private readonly listeners = new Set<(run: QaRun, replaces?: string) => void>();
   private readonly now: () => string;
   private readonly unsubscribe: () => void;
+  /** Runs holding at a step for a person's verdict, PIE paused. */
+  readonly hold: VerdictHold;
+  /** A plan's own verdict wait for its runs (the Playtest Hub's), in minutes; the setting otherwise. */
+  private planWait: ((run: QaRun) => number | undefined) | null = null;
 
   constructor(private readonly o: QaBrokerOptions) {
     this.now = o.now ?? (() => new Date().toISOString());
+    this.hold = new VerdictHold({
+      callAction: (c, a, args) => o.host.callAction(c, a, args),
+      publish: (type, data) => o.host.events.publish(type, data),
+      log: o.host.log,
+      stop: async (runId, reason) => {
+        const r = await this.stopRun(runId, reason);
+        if ("error" in r) throw new Error(r.error);
+      },
+      waitMinutes: (run) => this.planWait?.(run) ?? o.playtests?.verdictWaitMinutes() ?? QA_VERDICT_WAIT_MINUTES,
+    });
     for (const s of o.store.all()) {
       for (const t of s.transcript) {
         if (t.kind !== "qa") continue;
@@ -204,6 +225,19 @@ export class QaBroker {
 
   dispose(): void {
     this.unsubscribe();
+    this.listeners.clear();
+    this.hold.dispose();
+  }
+
+  /** How long a plan's runs wait for a verdict, where the plan sets its own. */
+  setPlanWait(wait: (run: QaRun) => number | undefined): void {
+    this.planWait = wait;
+  }
+
+  /** Hear of every run saved, after it is kept; replaces names a card's run it took over. Returns the unsubscribe. */
+  onSaved(listener: (run: QaRun, replaces?: string) => void): () => void {
+    this.listeners.add(listener);
+    return () => void this.listeners.delete(listener);
   }
 
   /** Read every unfinished run again from its last seq, so a restart misses nothing and ue-mcp follows it again. */
@@ -273,14 +307,15 @@ export class QaBroker {
     };
   }
 
-  /** A session's call started a run: its answer is the card's first state. */
-  private started(sessionId: string, action: string, answer: Record<string, unknown>): void {
+  /** A session's call started a run: its answer is the card's first state, with the PIE setup Studio applied first. */
+  private started(sessionId: string, action: string, answer: Record<string, unknown>, extra: Pick<QaRun, "pieSetup"> = {}): void {
     const runId = typeof answer.run_id === "string" ? answer.run_id : null;
     if (!runId) return;
     const had = this.runs.get(runId);
     const fresh = qaRunFromAnswer(answer, { ...this.ownerOf(sessionId, action), seenAt: this.now() });
     if (!fresh) return;
     let run: QaRun = had ? { ...qaMergeAnswer(had, answer), ...this.ownerOf(sessionId, action, had) } : fresh;
+    if (extra.pieSetup) run = { ...run, pieSetup: extra.pieSetup };
     // A run a subagent the user assigned starts shows that subagent too: its Cancel and its thread.
     if (!run.assignment) {
       const parent = this.callParent(sessionId, run.toolUseId);
@@ -527,7 +562,7 @@ export class QaBroker {
       const answer = json(r);
       const error = failure(r, answer);
       if (error || !answer) return { error: error ?? "ue-mcp's answer was not JSON", status: 409 };
-      this.started(sessionId, "script_run", answer);
+      this.started(sessionId, "script_run", answer, { ...(players > 1 || o.listen ? { pieSetup: { players, netMode: o.listen ? "listen" : "standalone" } } : {}) });
       const id = typeof answer.run_id === "string" ? answer.run_id : "";
       return { run: this.runs.get(id) ?? run };
     } finally {
@@ -587,6 +622,7 @@ export class QaBroker {
       },
       checkpoints,
       carry: carryOf(run.assignment?.loop),
+      ...(support?.writes ? { writes: support.writes } : {}),
       agents: { assign: (sid, d, p) => assigner.assign(sid, d, p), stop: (sid, c) => assigner.stop(sid, c) },
       events: this.o.host.events,
       projectDir: this.o.host.projectDir,
@@ -671,14 +707,25 @@ export class QaBroker {
     return { run: this.runs.get(saved.runId) ?? saved, outcome };
   }
 
-  /** Stop on a live card: pie(script_stop) ends the run, its unsettled steps left pending. */
-  async stopRun(runId: string): Promise<{ run: QaRun } | { error: string; status: number }> {
+  /**
+   * Stop on a live card, the bar's Stop now, or a verdict that never came:
+   * pie(script_stop) ends the run, its unsettled steps left as they were. A
+   * run holding for a verdict in a PIE session it started has PIE paused for
+   * it, so PIE stops too; PIE the run only joined is left as it is.
+   */
+  async stopRun(runId: string, reason = "Stopped from its card"): Promise<{ run: QaRun } | { error: string; status: number }> {
     const run = this.runs.get(runId);
     if (!run || qaIsDraft(run) || qaEnded(run.state)) return { error: "only a run that is going can be stopped", status: 409 };
     if (run.assignment?.state === "running") return { error: "a subagent is running this playtest: cancel it instead", status: 409 };
-    const r = await this.o.host.callAction("pie", "script_stop", { run_id: runId, reason: "Stopped from its card" });
+    const endsPie = this.hold.stopping(runId);
+    const r = await this.o.host.callAction("pie", "script_stop", { run_id: runId, reason });
     const error = failure(r, json(r));
     if (error) return { error, status: 409 };
+    if (endsPie) {
+      const pie = await this.o.host.callAction("editor", "play_in_editor", { pieAction: "stop" }).catch((e: Error) => ({ isError: true, content: [{ type: "text", text: e.message }] }) as ActionResult);
+      const pieError = failure(pie, json(pie));
+      if (pieError && !/alreadyStopped|already/i.test(pieError)) this.o.host.log.warn(`playtest: PIE did not stop with ${run.scriptName}: ${pieError}`);
+    }
     const read = await this.status(runId).catch(() => null);
     return { run: (read && "run" in read && read.run) || this.runs.get(runId) || run };
   }
@@ -742,7 +789,7 @@ export class QaBroker {
       try {
         return JSON.parse(fs.readFileSync(file, "utf-8")) as Record<string, unknown>;
       } catch {
-        // Being rewritten by a late verdict: ask ue-mcp instead.
+        // Being rewritten by a verdict on the ended run: ask ue-mcp instead.
       }
     }
     const r = await this.o.host.callAction("pie", "script_results", { run_id: runId });
@@ -853,6 +900,14 @@ export class QaBroker {
     }
     // No sessionId: the open chat would load its whole transcript again on each step. The card takes the run from here.
     this.o.host.events.publish("qa.changed", { runId: run.runId, run: run as unknown as Record<string, unknown>, ...(replaces ? { replaces } : {}) });
+    this.hold.observe(run);
+    for (const listener of this.listeners) {
+      try {
+        listener(run, replaces);
+      } catch (e) {
+        this.o.host.log.warn("a qa listener failed", e);
+      }
+    }
   }
 
   /** Each step's player, from what Studio keeps for the run's script. */
@@ -896,6 +951,11 @@ export function registerQa(api: DaemonExtensionApi, store: SessionStore, forms?:
   });
   api.route("DELETE", "/qa/runs/:id/assign", (req) => {
     const r = broker.cancel(id(req));
+    return "error" in r ? { status: r.status, body: { error: r.error } } : { body: r };
+  });
+  api.route("GET", "/qa/held", () => ({ body: { held: broker.hold.held() } }));
+  api.route("POST", "/qa/runs/:id/resume", async (req) => {
+    const r = await broker.hold.resume(id(req));
     return "error" in r ? { status: r.status, body: { error: r.error } } : { body: r };
   });
   api.route("POST", "/qa/runs/:id/stop", async (req) => {

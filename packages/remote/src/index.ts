@@ -108,6 +108,8 @@ const ALLOW: Array<{ methods: string[] | "any"; path: RegExp }> = [
   { methods: ["GET"], path: /^\/v1\/disruptions$/ },
   { methods: ["POST"], path: /^\/v1\/disruptions\/r-[0-9a-f]{1,16}\/approve$/ },
   { methods: "any", path: /^\/v1\/flows(\/.*)?$/ },
+  // The Playtest Hub, which ue-mcp's daemon serves: goals, evidence, the plan queue and the editor lease.
+  { methods: "any", path: /^\/v1\/hub(\/.*)?$/ },
   { methods: "any", path: /^\/v1\/ext\/studio(\/.*)?$/ },
 ];
 

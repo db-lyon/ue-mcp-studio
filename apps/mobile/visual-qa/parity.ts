@@ -35,6 +35,9 @@ export interface ParityEntry {
 /** The UE-MCP desktop app's screens (apps/client-web/src/app): they manage the computer itself. */
 const DESKTOP_APP = "The UE-MCP desktop app manages this computer's projects (each with its updates and daemon) and its own setup; a paired phone reaches one project's Studio, never the computer's app.";
 
+/** The Playtest Hub's screens: the recorded exception CONTRIBUTING.md asks for, until the web UX settles (docs/plans/playtest-hub). */
+const HUB = "The Playtest Hub is an experiment on web first; the phone gets it once the UX settles.";
+
 /** The message box, as the app's page draws it. */
 const BOX = "textarea";
 
@@ -54,6 +57,8 @@ export const PARITY: Record<string, ParityEntry> = {
   "reply-image-legacy": {owner: "chat"},
   "chat-pie-live": {owner: "chat"},
   "chat-pie-watch": {owner: "chat", clicks: ["Watch live"]},
+  "bar-live": {owner: "shell"},
+  "bar-live-open": {owner: "shell", clicks: ["Watch Play In Editor live"]},
   "dialog-save-content": {owner: "chat"},
   "dialog-save-content-agent": {owner: "chat"},
   "dialog-save-content-flat": {owner: "chat"},
@@ -75,11 +80,6 @@ export const PARITY: Record<string, ParityEntry> = {
   "remote-lock-screen-typing": {owner: "shell", clicks: ["1", "5", "9"]},
   "remote-lock-screen-wrong": {owner: "shell"},
   "remote-pin-sheet": {owner: "shell", clicks: ["Allow"]},
-  "viewport-no-editor": {owner: "shell"},
-  "viewport-plugin-off": {owner: "shell"},
-  "viewport-plugin-restart": {owner: "shell"},
-  "viewport-no-actions": {owner: "shell"},
-  "viewport-waiting": {owner: "shell"},
   "plugins-remote": {owner: "agent-b"},
   "agents-long": {owner: "chat"},
   "agents-tokens": {owner: "chat"},
@@ -123,6 +123,8 @@ export const PARITY: Record<string, ParityEntry> = {
   "draft-asset-links": {owner: "agent-a", clicks: ["Open TS_Playtest_BP_Obstacle_BrokenBridge"], focus: "BP_Obstacle_BrokenBridge"},
   "armed": {owner: "agent-a"},
   "running": {owner: "agent-a"},
+  "running-viewport": {owner: "agent-a"},
+  "running-viewport-open": {owner: "agent-a", clicks: ["Viewport"]},
   "waiting": {owner: "agent-a"},
   "waiting-open": {owner: "agent-a", clicks: ["Step 4, person, Needs you"]},
   "focus-step-bar": {owner: "agent-a", focus: "Step 2, person, Passed"},
@@ -164,6 +166,8 @@ export const PARITY: Record<string, ParityEntry> = {
   "settings-update-held": {owner: "agent-b"},
   "settings-project-yaml": {owner: "agent-b", clicks: ["Advanced: ue-mcp.yml"], scroll: "Advanced"},
   "settings-general": {owner: "agent-b"},
+  "settings-experiments": {owner: "agent-b"},
+  "settings-experiments-on": {owner: "agent-b"},
   "settings-whats-new-card": {owner: "agent-b"},
   "settings-whats-new": {owner: "agent-b", clicks: ["What's new", "Editor dialogs"]},
   "settings-general-signed-in": {owner: "agent-b"},
@@ -334,4 +338,14 @@ export const PARITY: Record<string, ParityEntry> = {
   "setup-installing": {notOnPhone: DESKTOP_APP},
   "setup-done": {notOnPhone: DESKTOP_APP},
   "setup-failed": {notOnPhone: DESKTOP_APP},
+  // The Playtest Hub, behind its experimental setting.
+  "hub-overview": {notOnPhone: HUB},
+  "hub-overview-empty": {notOnPhone: HUB},
+  "hub-goal": {notOnPhone: HUB},
+  "hub-goal-not-on-checkout": {notOnPhone: HUB},
+  "hub-goal-milestone": {notOnPhone: HUB},
+  "hub-library": {notOnPhone: HUB},
+  "hub-check": {notOnPhone: HUB},
+  "hub-run": {notOnPhone: HUB},
+  "hub-editor-offline": {notOnPhone: HUB},
 };

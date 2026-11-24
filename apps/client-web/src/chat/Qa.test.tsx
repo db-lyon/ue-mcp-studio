@@ -18,6 +18,8 @@ const m = vi.hoisted(() => ({
 }));
 vi.mock("../api", () => ({ api: m }));
 import { QaCard, QaContext, type QaLive } from "./Qa";
+import { PieLiveContext, type PieLiveValue } from "./PieLive";
+import type { ViewportStatus } from "@ue-mcp-studio/shared";
 
 afterEach(() => {
   cleanup();
@@ -538,5 +540,44 @@ describe("the collapsed card", () => {
     expect(screen.getByText("Two attempts changed nothing")).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: "Review" }));
     expect(screen.getByRole("button", { name: /DoorOpens/, expanded: true })).toBeTruthy();
+  });
+});
+
+describe("Viewport on the card", () => {
+  const status = (s: Partial<ViewportStatus>): ViewportStatus => ({ access: "ok", editor: "ready", streamer: false, source: null, viewers: 0, ...s });
+  function inChat(run: QaRun, pie: Partial<ViewportStatus> | null) {
+    const watch = vi.fn();
+    const value: PieLiveValue | null = pie ? { status: status(pie), remote: false, watch, check: async () => {}, onSettings: () => {} } : null;
+    render(
+      <PieLiveContext.Provider value={value}>
+        <QaContext.Provider value={{ events: [], streaming: true, forms: [] }}>
+          <QaCard run={run} />
+        </QaContext.Provider>
+      </PieLiveContext.Provider>,
+    );
+    return watch;
+  }
+  const viewport = () => screen.queryByRole("button", { name: "Viewport" });
+
+  it("opens the live viewer from a run that plays in PIE", () => {
+    const watch = inChat(runOf({ state: "running" }), { pie: true });
+    fireEvent.click(viewport()!);
+    expect(watch).toHaveBeenCalledTimes(1);
+  });
+
+  it("shows even when the editor cannot stream, for the viewer to say why", () => {
+    inChat(runOf({ state: "awaiting_verdict" }), { pie: true, editor: "plugin-off" });
+    expect(viewport()).not.toBeNull();
+  });
+
+  it("is absent while PIE is not running, once the run ends, and outside a chat", () => {
+    inChat(runOf({ state: "running" }), { pie: false });
+    expect(viewport()).toBeNull();
+    cleanup();
+    inChat(runOf({ state: "finished" }), { pie: true });
+    expect(viewport()).toBeNull();
+    cleanup();
+    inChat(runOf({ state: "running" }), null);
+    expect(viewport()).toBeNull();
   });
 });

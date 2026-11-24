@@ -21,6 +21,7 @@ import {
   type ViewportStatus,
 } from "@ue-mcp-studio/shared";
 import { requestJson, type Transport } from "./transport.js";
+import { pieRunning } from "./viewport-open.js";
 
 /** The HTTP status of a refused call: HttpError here, the web client's ApiError there; both carry status and body. */
 const statusOf = (e: unknown): number | null => (e && typeof e === "object" && typeof (e as { status?: unknown }).status === "number" ? (e as { status: number }).status : null);
@@ -432,9 +433,6 @@ export const NO_VIDEO = "The connection opened, but no video arrived from the ed
 /** Requests to the computer were cut short or dropped. */
 export const LOST_COMPUTER = "The computer stopped answering. Check that it is online.";
 
-/** The tab's name in both clients. */
-export const VIEWPORT_TAB = "Viewport";
-
 /** A way forward the panel offers, drawn as a button. */
 export type ViewportActionId = "check" | "plans" | "upgrade" | "settings" | "start-editor" | "restart-editor" | "enable-plugin" | "level-viewport" | "pie" | "watch";
 
@@ -525,8 +523,8 @@ export const VIEWPORT_PLANS_URL = PLANS_SITE;
 
 /**
  * The events after which a client asks GET /viewport again for the chat's
- * indicator and card: the agent's viewport.changed, and the editor coming or
- * going. Nothing polls.
+ * Play In Editor card and playtest cards: the agent's viewport.changed, and
+ * the editor coming or going. Nothing polls.
  */
 export function asksViewportAgain(type: string): boolean {
   return type === VIEWPORT_CHANGED_EVENT || type === "editor.connected" || type === "editor.disconnected";
@@ -537,21 +535,12 @@ export { pieFromEvent };
 
 /**
  * The status with what a pie.* event said (pieFromEvent) applied, so the
- * indicator moves before GET /viewport answers again. Against a daemon older
+ * cards move before GET /viewport answers again. Against a daemon older
  * than those events the status comes from GET /viewport alone.
  */
 export function withPie(s: ViewportStatus | null, pie: boolean): ViewportStatus | null {
   return s && s.pie !== pie ? { ...s, pie } : s;
 }
-
-/** Play In Editor runs, or the stream is live or armed: the composer bar shows its PIE indicator. */
-export function pieLive(s: ViewportStatus | null | undefined): boolean {
-  if (!s) return false;
-  return s.pie === true || s.streamer || s.bridge?.streaming === true || s.bridge?.armed === true;
-}
-
-/** The composer bar's indicator (utilityLabel "viewport" names it): what its tooltip or accessibility hint says. */
-export const PIE_LIVE_TITLE = "Play In Editor is running. Watch it live.";
 
 /** The button on the chat's Play In Editor card. */
 export const WATCH_LIVE = "Watch live";
@@ -570,5 +559,6 @@ export interface PieCardView {
 
 export function pieCard(s: ViewportStatus | null | undefined, o: { current: boolean }): PieCardView {
   if (!o.current || !s) return { title: "Play In Editor started", live: false };
-  return pieLive(s) ? { title: "Play In Editor is running", live: true } : { title: "Play In Editor stopped", live: false };
+  // The same rule as the bar's Live button (pieRunning), so the two never disagree.
+  return pieRunning(s) ? { title: "Play In Editor is running", live: true } : { title: "Play In Editor stopped", live: false };
 }

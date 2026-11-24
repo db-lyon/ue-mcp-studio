@@ -22,7 +22,7 @@ vi.mock("./views/SettingsHub", () => ({
 vi.mock("./views/EditorBanner", () => ({ EditorBanner: () => null }));
 vi.mock("./views/DialogBanner", () => ({ DialogBanner: () => null }));
 vi.mock("./views/UpdateOverlay", () => ({ UpdateRunner: () => null }));
-import { App, landingTab, shownTabs } from "./App";
+import { App } from "./App";
 
 const COMPOSER = "Ask for something";
 
@@ -163,13 +163,14 @@ describe("the live viewport, on the computer and on a paired device", () => {
     expect(document.querySelector(".composer-pie")).toBeNull();
   });
 
-  it("a paired browser lists the Viewport tab and shows the PIE indicator while PIE runs", async () => {
+  it("a paired browser lists no Viewport tab either, and shows the Live button while PIE runs", async () => {
     layout(false);
     setRemote(true);
     m.viewport.mockResolvedValue(running);
     render(<App />);
-    expect(await screen.findByRole("button", { name: "Viewport" })).toBeTruthy();
-    await waitFor(() => expect(document.querySelector(".composer-pie")).not.toBeNull());
+    await screen.findByPlaceholderText(COMPOSER);
+    await waitFor(() => expect(document.querySelector(".live-button")).not.toBeNull());
+    expect(screen.queryByRole("button", { name: "Viewport" })).toBeNull();
   });
 
   it("a link to the viewport opens the chat on the computer", async () => {
@@ -181,7 +182,7 @@ describe("the live viewport, on the computer and on a paired device", () => {
     await waitFor(() => expect(window.location.hash).toBe("#/chat"));
   });
 
-  it("narrow: the drawer lists the Viewport tab only on a paired device", async () => {
+  it("narrow: the drawer lists no Viewport tab, on the computer or on a paired device", async () => {
     layout(true);
     render(<App />);
     await screen.findByPlaceholderText(COMPOSER);
@@ -191,17 +192,7 @@ describe("the live viewport, on the computer and on a paired device", () => {
     setRemote(true);
     render(<App />);
     await screen.findByPlaceholderText(COMPOSER);
-    expect([...document.querySelectorAll(".drawer-item")].some((b) => b.textContent === "Viewport")).toBe(true);
-  });
-});
-
-describe("the tabs a page lists", () => {
-  it("drops the Viewport tab on the computer and keeps it on a paired device", () => {
-    expect(shownTabs(false)).not.toContain("Viewport");
-    expect(shownTabs(true)).toContain("Viewport");
-    expect(landingTab("Viewport", false)).toBe("Chat");
-    expect(landingTab("Viewport", true)).toBe("Viewport");
-    expect(landingTab("Plugins", false)).toBe("Plugins");
+    expect([...document.querySelectorAll(".drawer-item")].some((b) => b.textContent === "Viewport")).toBe(false);
   });
 });
 

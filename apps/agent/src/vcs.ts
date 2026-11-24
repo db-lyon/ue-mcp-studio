@@ -18,7 +18,7 @@ const TIMEOUT_MS = 4000;
 export const run: Run = (cmd, args, cwd) =>
   new Promise((resolve) => {
     execFile(cmd, args, { cwd, timeout: TIMEOUT_MS, windowsHide: true, maxBuffer: 8 * 1024 * 1024, env: { ...process.env, GIT_OPTIONAL_LOCKS: "0" } }, (err, stdout) =>
-      resolve(err ? null : stdout.toString()));
+      resolve(err ? null : String(stdout)));
   });
 
 /** The nearest folder at or above `dir` that holds `name`. */
@@ -135,6 +135,23 @@ export async function detectVcs(projectDir: string, r: Run = run): Promise<VcsSt
     if (found) return found;
   }
   return null;
+}
+
+/**
+ * The revision the workspace is at: Git's commit, the newest Perforce
+ * changelist the workspace has synced, Subversion's revision or Plastic's
+ * changeset. Null when it cannot be read.
+ */
+export async function revisionOf(vcs: VcsStatus, projectDir: string, r: Run = run): Promise<string | null> {
+  let out: string | null = null;
+  if (vcs.kind === "git") out = await r("git", ["rev-parse", "HEAD"], vcs.root);
+  else if (vcs.kind === "perforce") {
+    const info = await r("p4", ["-ztag", "-F", "%clientName%|%clientRoot%|%clientStream%|%userName%", "info"], projectDir);
+    const client = info ? parseP4Info(info)?.client : null;
+    if (client) out = await r("p4", ["-ztag", "-F", "%change%", "changes", "-m1", `//${client}/...#have`], projectDir);
+  } else if (vcs.kind === "svn") out = await r("svn", ["info", "--show-item", "revision"], vcs.root);
+  else if (vcs.kind === "plastic") out = /\bcs:(\d+)/.exec((await r("cm", ["status", "--header"], vcs.root)) ?? "")?.[1] ?? null;
+  return out?.trim().split(/\r?\n/)[0]?.trim() || null;
 }
 
 /** One changed file, its path relative to the repository root. */

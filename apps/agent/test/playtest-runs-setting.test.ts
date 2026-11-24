@@ -42,3 +42,15 @@ describe("the Playtest runs setting", () => {
     expect((await setup().put({ playtestRuns: "always" })).status).toBe(400);
   });
 });
+
+describe("the Wait for a verdict setting", () => {
+  it("is 10 minutes until chosen, saves one of its choices for this project, and refuses any other", async () => {
+    const s = setup();
+    expect(((await s.get()).body as { verdictWaitMinutes: number }).verdictWaitMinutes).toBe(10);
+    expect(((await s.put({ verdictWaitMinutes: 30 })).body as { verdictWaitMinutes: number }).verdictWaitMinutes).toBe(30);
+    expect(new PlaytestStore(path.join(root, "data")).verdictWaitMinutes()).toBe(30);
+    expect((await s.put({ verdictWaitMinutes: 7 })).status).toBe(400);
+    expect((await s.put({ verdictWaitMinutes: "10" })).status).toBe(400);
+    expect(new PlaytestStore(path.join(root, "data")).verdictWaitMinutes()).toBe(30);
+  });
+});

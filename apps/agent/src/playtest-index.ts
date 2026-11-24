@@ -65,9 +65,24 @@ function answerBody(r: ActionResult): Record<string, unknown> | null {
   }
 }
 
+/** A script the editor lists. */
+export interface ListedScript {
+  path: string;
+  name: string;
+  map?: string;
+}
+
+/** When a recorded run started and ended, wall time, as ue-mcp wrote it. */
+export interface RunTimes {
+  startedAt?: string;
+  endedAt?: string;
+}
+
 export class PlaytestIndex {
-  private list: { at: number; scripts: Array<{ path: string; name: string }> } | null = null;
+  private list: { at: number; scripts: ListedScript[] } | null = null;
   private readonly results = new Map<string, { mtime: number; run: QaRun | null }>();
+  /** started_at and ended_at of every recorded run read, which QaRun does not keep. */
+  private readonly times = new Map<string, RunTimes>();
   private readonly reads = new Map<string, { at: number; draft: QaRun | null }>();
   /** When the bridge last answered that it has no pie(script_runs). */
   private noRunsAction = -Infinity;
@@ -78,7 +93,7 @@ export class PlaytestIndex {
   }
 
   /** The editor's script list, or null without an editor or when it fails. */
-  private async scripts(fresh: boolean): Promise<Array<{ path: string; name: string }> | null> {
+  private async scripts(fresh: boolean): Promise<ListedScript[] | null> {
     if (!fresh && this.list && this.now() - this.list.at < LIST_TTL_MS) return this.list.scripts;
     if (!this.o.host.editors().some((e) => e.connected)) return null;
     const r = await this.o.host.callAction("pie", "script_list", { directory: "/" }).catch(() => null);
@@ -86,7 +101,11 @@ export class PlaytestIndex {
     if (!b || !Array.isArray(b.scripts)) return null;
     const scripts = (b.scripts as Array<Record<string, unknown>>)
       .filter((s) => typeof s?.path === "string")
-      .map((s) => ({ path: qaScriptKey(s.path as string), name: typeof s.name === "string" ? s.name : qaScriptKey(s.path as string).split("/").pop()! }));
+      .map((s) => ({
+        path: qaScriptKey(s.path as string),
+        name: typeof s.name === "string" ? s.name : qaScriptKey(s.path as string).split("/").pop()!,
+        ...(typeof s.map === "string" && s.map ? { map: s.map } : {}),
+      }));
     this.list = { at: this.now(), scripts };
     return scripts;
   }
@@ -120,6 +139,7 @@ export class PlaytestIndex {
       const o = row && typeof row === "object" ? (row as Record<string, unknown>) : {};
       const seenAt = typeof o.started_at === "string" && o.started_at ? o.started_at : typeof o.ended_at === "string" && o.ended_at ? o.ended_at : at;
       const run = qaRunFromAnswer(o, { seenAt });
+      if (run) this.keepTimes(run.runId, o);
       return run ? [run] : [];
     });
   }
@@ -152,6 +172,7 @@ export class PlaytestIndex {
           const raw = JSON.parse(fs.readFileSync(file, "utf-8")) as Record<string, unknown>;
           const at = typeof raw.started_at === "string" ? raw.started_at : new Date(mtime).toISOString();
           run = qaRunFromAnswer(raw, { seenAt: at });
+          if (run) this.keepTimes(run.runId, raw);
         } catch {
           // Being written: the next read takes it.
         }
@@ -161,6 +182,27 @@ export class PlaytestIndex {
       if (hit.run) runs.push(hit.run);
     }
     return runs;
+  }
+
+  private keepTimes(runId: string, o: Record<string, unknown>): void {
+    const startedAt = typeof o.started_at === "string" && o.started_at ? o.started_at : undefined;
+    const endedAt = typeof o.ended_at === "string" && o.ended_at ? o.ended_at : undefined;
+    if (startedAt || endedAt) this.times.set(runId, { ...(startedAt ? { startedAt } : {}), ...(endedAt ? { endedAt } : {}) });
+  }
+
+  /** The Playtest Hub's script list: the editor's, or null without an editor. */
+  listScripts(fresh = false): Promise<ListedScript[] | null> {
+    return this.scripts(fresh);
+  }
+
+  /**
+   * The Playtest Hub's backfill: every run ue-mcp has a record of, newest
+   * first, from pie(script_runs) or else the results files, each with its
+   * wall times when ue-mcp wrote them.
+   */
+  async recorded(limit: number): Promise<Array<{ run: QaRun; times: RunTimes }>> {
+    const runs = (await this.listedRuns(Math.min(MAX_LIMIT, limit))) ?? this.disk(Math.min(MAX_LIMIT, limit));
+    return runs.map((run) => ({ run, times: this.times.get(run.runId) ?? {} }));
   }
 
   /** A never-run script's steps as saved, read once a minute at most. */

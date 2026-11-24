@@ -10,6 +10,11 @@ describe("remotePath", () => {
     // Compacting keeps the whole transcript, so a paired phone may ask for it like any message.
     expect(remotePath("POST", "/v1/ext/studio/sessions/1/compact")).toBe("/v1/ext/studio/sessions/1/compact");
     expect(remotePath("POST", "/v1/editor/restart")).toBe("/v1/editor/restart");
+    // The Playtest Hub is ue-mcp's own, at /v1/hub: a paired phone reads goals and queues plans through it.
+    expect(remotePath("GET", "/v1/hub")).toBe("/v1/hub");
+    expect(remotePath("POST", "/v1/hub/goals/tutorial/sign-off")).toBe("/v1/hub/goals/tutorial/sign-off");
+    expect(remotePath("GET", "/v1/hub/checks/script%3A%2FGame%2FA?limit=30")).toBe("/v1/hub/checks/script%3A%2FGame%2FA?limit=30");
+    expect(remotePath("GET", "/v1/hubs")).toBeNull();
     // The file viewer reads a file; opening one in an app on the computer stays there.
     expect(remotePath("GET", "/v1/ext/studio/files/read?path=.wiki%2FDecisions.md")).toBe("/v1/ext/studio/files/read?path=.wiki%2FDecisions.md");
     // A reply's images load the same way on a paired phone and browser as on the computer.

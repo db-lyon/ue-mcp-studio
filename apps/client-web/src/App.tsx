@@ -5,13 +5,12 @@ import { applyTheme } from "./theme";
 import { useDaemon, type DaemonState } from "./state";
 import { openDocs } from "./native";
 import { PluginsView } from "./views/Plugins";
-import { ViewportView } from "./views/Viewport";
 import { useUpdateCount } from "./views/Updates";
 import { UpdateRunner } from "./views/UpdateOverlay";
 import { FeedbackDialog } from "./views/Feedback";
 import { FileViewerProvider } from "./chat/FileViewer";
 import { ChatView } from "./views/Chat";
-import { ViewportDialog } from "./chat/PieLive";
+import { LiveButton, LiveProvider } from "./chat/PieLive";
 import { SettingsHub } from "./views/SettingsHub";
 import { sectionOf, type SettingsSection } from "./views/settings/sections";
 import { VcsChip } from "./chat/VcsChip";
@@ -24,6 +23,8 @@ import { RemoteLock } from "./views/remote/RemoteLock";
 import { DockToggle } from "./views/DockToggle";
 import { NavDrawer } from "./views/NavDrawer";
 import { PlaytestsView, usePlaytestIndex } from "./views/Playtests";
+import { HubView } from "./views/hub/Hub";
+import { useExperiments, useHubOverview } from "./views/hub/state";
 import { playtestMatches } from "@ue-mcp-studio/shared";
 import { NARROW, useMedia } from "./layout";
 import { readLocation, writeLocation } from "./location";
@@ -34,30 +35,18 @@ import { replaceStaleWindow } from "./window-version";
 import { RefusalPending, RefusedScreen, useRefusal } from "./views/Refused";
 import { ErrorBoundary } from "./views/ErrorBoundary";
 import { onRemotePage } from "./connection";
-import { projectListUrl } from "@ue-mcp-studio/client-core";
+import { HUB_COPY, playingRuns, projectListUrl, viewportAllowed } from "@ue-mcp-studio/client-core";
+import { HeldBar, LeaseBar, useHeld, useLease } from "./held";
+import { HeldContext } from "./held-context";
 import { BarProjectSwitch } from "./views/ProjectSwitch";
 import { Slot } from "./extensions/Slot";
 
 const NO_CTX = {};
 
-// Playtests is hidden for now; its view stays for when it comes back.
-const TABS = ["Chat", "Viewport", "Playtests", "Plugins", "Settings"] as const;
-// Playtests is hidden for now; its view stays for when it comes back.
-const SHOWN: readonly (typeof TABS)[number][] = TABS.filter((t) => t !== "Playtests");
+const TABS = ["Chat", "Playtests", "Plugins", "Settings"] as const;
+// Playtests shows only with the Playtest Hub experiment on; otherwise its old page stays reachable by URL alone.
+const WITHOUT_PLAYTESTS: readonly (typeof TABS)[number][] = TABS.filter((t) => t !== "Playtests");
 type Tab = (typeof TABS)[number];
-
-/**
- * The tabs the bar lists. The live viewport is for a paired device: Studio on
- * the computer sits beside the editor, which already shows the viewport.
- */
-export function shownTabs(remote: boolean): readonly Tab[] {
-  return remote ? SHOWN : SHOWN.filter((t) => t !== "Viewport");
-}
-
-/** The tab a location lands on: the viewport, on the computer, falls back to the chat. */
-export function landingTab(tab: Tab, remote: boolean): Tab {
-  return !remote && tab === "Viewport" ? "Chat" : tab;
-}
 
 /** Studio, or the one screen that says it needs a newer ue-mcp. */
 export function App() {
@@ -93,25 +82,19 @@ export function App() {
 function Studio({ daemon }: { daemon: DaemonState }) {
   // Where the panel was, from the URL's hash: a reload, or ue-mcp back on a new port, lands there.
   // A paired browser names the open project in the drawer and switches to the relay's list of every project.
-  // It alone shows the live viewport: Studio on the computer sits beside the editor.
   const remote = onRemotePage();
-  const tabs = shownTabs(remote);
-  const [tab, setTab] = useState<Tab>(() => landingTab(readLocation().tab, remote));
+  const [tab, setTab] = useState<Tab>(() => readLocation().tab);
   // null: the section list, which only a narrow panel shows on its own.
   const [section, setSection] = useState<SettingsSection | null>(() => sectionOf(readLocation().section));
-  // The live viewport over the chat, from the PIE indicator or a Play In Editor card; closing it returns to the chat as it was.
-  const [watching, setWatching] = useState(false);
-  const watchLive = useCallback(() => setWatching(true), []);
+  // The live viewport (LiveProvider), for a paired browser only: Studio on the computer shows none.
+  const liveAllowed = viewportAllowed(onRemotePage());
   const settingsFromChat = useCallback((s: SettingsSection) => { setSection(s); setTab("Settings"); }, []);
-  useEffect(() => {
-    if (tab !== "Chat") setWatching(false);
-  }, [tab]);
   useEffect(() => writeLocation({ tab, section: tab === "Settings" ? section : null }), [tab, section]);
   // Studio's window moves the panel by its hash when it is asked to open somewhere (the UE-MCP app's Update).
   useEffect(() => {
     const follow = () => {
       const at = readLocation();
-      setTab(landingTab(at.tab, remote));
+      setTab(at.tab);
       if (at.tab === "Settings") setSection(sectionOf(at.section));
     };
     window.addEventListener("hashchange", follow);
@@ -161,10 +144,22 @@ function Studio({ daemon }: { daemon: DaemonState }) {
   const updates = useUpdateCount();
   // The project's playtests: the page's rows, and the count on its tab of those that wait for the user.
   const playtests = usePlaytestIndex(daemon);
-  const playtestsWaiting = (playtests.index?.playtests ?? []).filter((e) => playtestMatches(e, "needs-you")).length;
-  const openPlaytest = (sessionId: string, runId: string) => {
+  // The Playtest Hub experiment: the tab shows, draws the hub, and counts what needs attention there.
+  // A verdict waiting live has the held bar on every tab instead, so it is not counted twice.
+  const experiments = useExperiments(daemon.events);
+  const hubOn = experiments?.playtestHub === true;
+  const hub = useHubOverview(daemon, hubOn);
+  const shownTabs = hubOn ? TABS : WITHOUT_PLAYTESTS;
+  const playtestsWaiting = hubOn
+    ? hub.overview?.attention.length ?? 0
+    : (playtests.index?.playtests ?? []).filter((e) => playtestMatches(e, "needs-you")).length;
+  // Runs holding at a manual step for a verdict, PIE paused: the bar under the header, and the cards' Resume and watch.
+  const held = useHeld(daemon);
+  // While the Playtest Hub holds the editor: the bar that says so, with Release the editor.
+  const lease = useLease(daemon);
+  const openPlaytest = (sessionId: string, runId?: string) => {
     openChat(sessionId);
-    focusRun(runId);
+    if (runId) focusRun(runId);
   };
   // The chat stays mounted once shown, parked while another tab is up, so coming back to it
   // finds the same session, scroll position and composer draft (#40).
@@ -175,18 +170,24 @@ function Studio({ daemon }: { daemon: DaemonState }) {
     replaceStaleWindow().catch(() => undefined);
   }, []);
 
+  // The bar's Live button while PIE runs, naming the hub's check that plays when there is one.
+  const playingCheck = hubOn && hub.overview ? playingRuns(hub.overview)[0]?.name ?? null : null;
+  const live = <LiveButton check={playingCheck} />;
+
   // The bar's tools: in the bar when wide, at the foot of the drawer when narrow, never both.
+  // Live stays in the bar when narrow, where it can be seen.
   const tools = (
     <div className="bar-tools">
       <Slot name="toolbar.action" ctx={NO_CTX} />
       <DockToggle />
+      {!narrow && live}
       <button className="ghost docs-link" onClick={() => setFeedback(true)} title="Report a problem or suggest an idea">Feedback</button>
       <button className="ghost docs-link" onClick={() => void openDocs()} title="The ue-mcp documentation">Docs</button>
       <VcsChip events={daemon.events.filter((e) => e.type === "studio.session.changed")} />
     </div>
   );
 
-  return (
+  const studio = (
     <FileViewerProvider>
       <div className="app">
         <header className="bar">
@@ -198,6 +199,7 @@ function Studio({ daemon }: { daemon: DaemonState }) {
               </button>
               <span className="bar-title">{tab}</span>
               <span className="spacer" />
+              {live}
               <EditorBanner daemon={daemon} compact />
             </>
           ) : (
@@ -208,11 +210,11 @@ function Studio({ daemon }: { daemon: DaemonState }) {
                 <span className="product">Studio</span>
               </span>
               <nav>
-                {tabs.map((t) => (
+                {shownTabs.map((t) => (
                   <button key={t} className={t === tab ? "tab active" : "tab"} onClick={() => setTab(t)}>
                     {t}
                     {t === "Settings" && updates > 0 && <span className="tab-dot" title={`${updates} ${updates === 1 ? "update" : "updates"} available`} />}
-                    {t === "Playtests" && playtestsWaiting > 0 && <span className="tab-count warn" aria-label={`${playtestsWaiting} need you`} title={`${playtestsWaiting} ${playtestsWaiting === 1 ? "playtest needs" : "playtests need"} you`}>{playtestsWaiting}</span>}
+                    {t === "Playtests" && playtestsWaiting > 0 && <span className="tab-count warn" aria-label={`${playtestsWaiting} need you`} title={hubOn ? `${playtestsWaiting} ${HUB_COPY.attention.toLowerCase()}` : `${playtestsWaiting} need you`}>{playtestsWaiting}</span>}
                   </button>
                 ))}
               </nav>
@@ -231,10 +233,10 @@ function Studio({ daemon }: { daemon: DaemonState }) {
             session={tab === "Chat" ? readLocation().session : null}
             updates={updates}
             playtestsWaiting={playtestsWaiting}
+            showPlaytests={hubOn}
             onTab={setTab}
             onSession={openChat}
             onNewSession={newSession}
-            viewport={remote}
             project={remote ? { name: projectName, onSwitch: switchProject } : undefined}
           >
             {tools}
@@ -248,6 +250,8 @@ function Studio({ daemon }: { daemon: DaemonState }) {
           </div>
         )}
         <DialogBanner daemon={daemon} />
+        <LeaseBar lease={lease} />
+        <HeldBar value={held} onOpenCard={(h) => h.sessionId && openPlaytest(h.sessionId, h.runId)} />
         <PendingDisruptions daemon={daemon} />
         <VersionNotice daemon={daemon} />
         <RemoteApprovalBanner onOpenAsk={(o) => { if (o.tab === "Settings") setSection(o.section ?? "general"); setTab(o.tab); }} />
@@ -256,15 +260,18 @@ function Studio({ daemon }: { daemon: DaemonState }) {
           {chatShown.current && (
             <main className={tab === "Chat" ? "view-chat" : "view-chat parked"} aria-hidden={tab !== "Chat" || undefined}>
               <ErrorBoundary what="Chat">
-                <ChatView daemon={daemon} nav={chatNav} active={tab === "Chat"} onSettings={settingsFromChat} onWatchLive={remote ? watchLive : undefined} />
+                <ChatView daemon={daemon} nav={chatNav} active={tab === "Chat"} onSettings={settingsFromChat} />
               </ErrorBoundary>
             </main>
           )}
           {tab !== "Chat" && (
-            <main className={`view-${tab.toLowerCase()}`}>
+            <main className={`view-${tab.toLowerCase()}${tab === "Playtests" && hubOn ? " hub-host" : ""}`}>
               <ErrorBoundary what={tab} resetKey={tab}>
-                {tab === "Playtests" && <PlaytestsView daemon={daemon} index={playtests} onOpenSession={openPlaytest} onChat={() => setTab("Chat")} />}
-                {tab === "Viewport" && <ViewportView daemon={daemon} onSettings={(s) => { setSection(s); setTab("Settings"); }} />}
+                {tab === "Playtests" && (hubOn
+                  ? <HubView data={hub} narrow={narrow} onOpenChat={openPlaytest} onChat={() => setTab("Chat")} />
+                  // A hub link before the setting has been read waits for it rather than flashing the old page.
+                  : experiments === null && readLocation().sub ? null
+                  : <PlaytestsView daemon={daemon} index={playtests} onOpenSession={openPlaytest} onChat={() => setTab("Chat")} />)}
                 {tab === "Plugins" && <PluginsView daemon={daemon} />}
                 {tab === "Settings" && <SettingsHub daemon={daemon} section={section} onSection={setSection} onTheme={(t: StudioTheme) => void applyTheme(t)} updates={updates} narrow={narrow} />}
               </ErrorBoundary>
@@ -273,10 +280,11 @@ function Studio({ daemon }: { daemon: DaemonState }) {
         </div>
         <UpdateRunner streaming={daemon.streaming} events={daemon.events} />
         {feedback && <FeedbackDialog onClose={() => setFeedback(false)} />}
-        {watching && tab === "Chat" && <ViewportDialog daemon={daemon} onClose={() => setWatching(false)} onSettings={settingsFromChat} />}
       </div>
     </FileViewerProvider>
   );
+  const withHeld = <HeldContext.Provider value={held}>{studio}</HeldContext.Provider>;
+  return liveAllowed ? <LiveProvider daemon={daemon} onSettings={settingsFromChat}>{withHeld}</LiveProvider> : withHeld;
 }
 
 function MenuGlyph() {

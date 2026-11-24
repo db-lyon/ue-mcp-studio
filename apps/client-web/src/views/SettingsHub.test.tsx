@@ -39,7 +39,7 @@ describe("Settings sections", () => {
     const nav = screen.getByRole("navigation", { name: "Settings sections" });
     expect([...nav.querySelectorAll(".cfg-rail-label")].map((e) => e.textContent)).toEqual(["Studio", "Work", "Project"]);
     expect([...nav.querySelectorAll(".cfg-rail-text > span:first-child")].map((e) => e.textContent)).toEqual([
-      "General", "Notifications", "Remote control", "Agents", "Models & accounts", "Approvals & review", "Project", "Diagnostics",
+      "General", "Notifications", "Remote control", "Experiments", "Agents", "Models & accounts", "Approvals & review", "Project", "Diagnostics",
     ]);
     expect(screen.getByText("ProjectSection body")).toBeTruthy();
   });

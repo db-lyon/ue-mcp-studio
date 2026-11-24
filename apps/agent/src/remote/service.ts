@@ -28,6 +28,7 @@ import {
   type PlainRequest,
   type SealedRequest,
 } from "@ue-mcp-studio/remote";
+import { DAEMON_HEADERS } from "ue-mcp/daemon";
 import * as fs from "node:fs";
 import * as path from "node:path";
 import { writeFileAtomic } from "../atomic-write.js";
@@ -342,6 +343,9 @@ export class RemoteService {
     if (!daemon) return error(503, "The daemon is not running for that project.");
     const headers = forwardHeaders(req);
     headers["authorization"] = `Bearer ${daemon.token}`;
+    const device = this.o.keys.phones().find((p) => p.id === sealed.phone);
+    // The device this request came through, which a hub sign-off records. A browser cannot send it itself, since it is not forwarded.
+    headers[DAEMON_HEADERS.via] = encodeURIComponent(device?.label ?? "Paired device");
 
     let res: Response;
     try {

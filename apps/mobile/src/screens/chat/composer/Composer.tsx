@@ -461,20 +461,12 @@ export interface BarUtility {
   /** Subagents: how many the Subagents list shows (listedSubagents). */
   count?: number;
   disabled?: boolean;
-  /** Its hint, when it changes with what it shows (the PIE indicator's); UTILITY_TITLE otherwise. */
+  /** Its hint, when it changes with what it shows; UTILITY_TITLE otherwise. */
   title?: string;
-  /** Something is live behind it (the PIE indicator): a live dot on its corner, and on the overflow button. */
-  live?: boolean;
 }
 
 /** A utility button's size: a 44 dp target. */
 const UTILITY = 44;
-
-/** The web's .pie-dot.live on a bar button's corner: PIE is running. */
-function LiveDot() {
-  const t = useTheme();
-  return <View pointerEvents="none" style={{ position: "absolute", top: 10, right: 9, width: 7, height: 7, borderRadius: 4, backgroundColor: t.c.bad, borderWidth: 1.5, borderColor: t.c.panel }} />;
-}
 
 /** The subagents' count, as a badge on the icon's corner. */
 function CountBadge({ count }: { count: number }) {
@@ -500,7 +492,7 @@ function UtilityButton({ u }: { u: BarUtility }) {
       style={({ pressed }) => ({ width: UTILITY, height: UTILITY, borderRadius: UTILITY / 2, alignItems: "center", justifyContent: "center", flexShrink: 0, backgroundColor: pressed ? t.c.panel3 : "transparent" })}
     >
       <GlyphColor color={u.disabled ? t.c.dim : t.c.muted}>{u.icon}</GlyphColor>
-      {u.count ? <CountBadge count={u.count} /> : u.live ? <LiveDot /> : null}
+      {u.count ? <CountBadge count={u.count} /> : null}
     </Pressable>
   );
 }
@@ -540,7 +532,7 @@ function UtilityMenu({ items }: { items: BarUtility[] }) {
         style={({ pressed }) => ({ width: UTILITY, height: UTILITY, borderRadius: UTILITY / 2, alignItems: "center", justifyContent: "center", flexShrink: 0, backgroundColor: pressed || open ? t.c.panel3 : "transparent" })}
       >
         <MoreGlyph color={t.c.muted} />
-        {agents > 0 ? <CountBadge count={agents} /> : items.some((u) => u.live) ? <LiveDot /> : null}
+        {agents > 0 ? <CountBadge count={agents} /> : null}
       </Pressable>
       <Modal visible={open} transparent animationType="none" onRequestClose={anchored.close} statusBarTranslucent navigationBarTranslucent>
         <Pressable accessibilityLabel="Close" style={StyleSheet.absoluteFill} onPress={anchored.close} />
@@ -607,16 +599,6 @@ function GlyphColor({ color, children }: { color: string; children: ReactNode })
 function useGlyphColor(): string {
   const t = useTheme();
   return useContext(GlyphColorContext) ?? t.c.muted;
-}
-
-/** The PIE indicator: the viewport's screen; the bar draws the live dot on its corner. */
-export function PieLiveGlyph() {
-  const color = useGlyphColor();
-  return (
-    <Svg width={16} height={16} viewBox="0 0 16 16" fill="none">
-      <Path d="M2.5 4.5A1.5 1.5 0 0 1 4 3h8a1.5 1.5 0 0 1 1.5 1.5v6A1.5 1.5 0 0 1 12 12H4a1.5 1.5 0 0 1-1.5-1.5zM7 5.8v3.4l2.8-1.7zM5.5 14h5" stroke={color} strokeWidth={1.4} strokeLinecap="round" strokeLinejoin="round" />
-    </Svg>
-  );
 }
 
 /** Checkpoints: a flag on a pole. */

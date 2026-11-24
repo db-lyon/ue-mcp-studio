@@ -46,7 +46,7 @@ import type {
   DialogMode,
   FeedbackMode,
   PendingForm,
-  QaRun, QaScriptStep, PlaytestRunsMode, PlaytestIndexAnswer,
+  HubLeaseEvent, QaHeld, QaRun, QaScriptStep, PlaytestRunsMode, PlaytestIndexAnswer,
   QaVerdict,
   CheckpointChange,
   RestoreOutcome,
@@ -76,7 +76,7 @@ import type {
   ViewportStatus,
 } from "@ue-mcp-studio/shared";
 import { alive, fromUeMcp, recordDiag } from "./diag";
-import { notificationsOf, playtestsQuery, threadQuery, uploadChunked, uploadInParts } from "@ue-mcp-studio/client-core";
+import { hubApi, notificationsOf, playtestsQuery, threadQuery, uploadChunked, uploadInParts } from "@ue-mcp-studio/client-core";
 import { FILE_REVEAL_PATH } from "@ue-mcp-studio/shared";
 import type { AgentThreadPage, Notice, NotifyDelivery, NotifyDevice, ProjectNotifyUpdate } from "@ue-mcp-studio/shared";
 import { agentSettingsOf, catalogOf, contextOf, healthOf, installOf, nativeOf, settingsOf } from "./normalize";
@@ -299,7 +299,7 @@ export const api = {
     call<void>("POST", `/v1/ext/studio/sessions/${encodeURIComponent(id)}/approvals/${encodeURIComponent(approvalId)}`, { decision }),
   busy: () => call<BusyState>("GET", "/v1/ext/studio/busy"),
   agentSettings: () => call<unknown>("GET", "/v1/ext/studio/agent-settings").then(agentSettingsOf),
-  saveAgentSettings: (u: Partial<{ feedbackTool: boolean; feedbackMode: FeedbackMode; dialogMode: DialogMode; playtestRuns: PlaytestRunsMode }>) => call<unknown>("PUT", "/v1/ext/studio/agent-settings", u).then(agentSettingsOf),
+  saveAgentSettings: (u: Partial<{ feedbackTool: boolean; feedbackMode: FeedbackMode; dialogMode: DialogMode; playtestRuns: PlaytestRunsMode; verdictWaitMinutes: number }>) => call<unknown>("PUT", "/v1/ext/studio/agent-settings", u).then(agentSettingsOf),
   forms: (sessionId: string) => call<{ forms: PendingForm[] }>("GET", `/v1/ext/studio/forms?session=${encodeURIComponent(sessionId)}`),
   answerForm: (id: string, answer: { action: "accept"; content: Record<string, unknown> } | { action: "decline" | "cancel" }) =>
     call<void>("POST", `/v1/ext/studio/forms/${encodeURIComponent(id)}`, answer),
@@ -319,6 +319,12 @@ export const api = {
   qaRevertLoop: (runId: string, attempt?: number) =>
     call<{ run: QaRun; outcome: RestoreOutcome }>("POST", `/v1/ext/studio/qa/runs/${encodeURIComponent(runId)}/loop/revert`, attempt === undefined ? {} : { attempt }),
   qaStop: (runId: string) => call<{ run: QaRun }>("POST", `/v1/ext/studio/qa/runs/${encodeURIComponent(runId)}/stop`),
+  qaHeld: () => call<{ held: QaHeld[] }>("GET", "/v1/ext/studio/qa/held"),
+  qaResume: (runId: string) => call<{ held: QaHeld }>("POST", `/v1/ext/studio/qa/runs/${encodeURIComponent(runId)}/resume`),
+  /** The Playtest Hub's hold on the editor, for the app's bar. */
+  hubLease: () => call<HubLeaseEvent>("GET", "/v1/hub/lease"),
+  /** Release the editor: what the hub holds stops, and its queue pauses. */
+  hubRelease: () => call<unknown>("POST", "/v1/hub/release", {}),
   qaRun: (runId: string, options: { startPie: boolean; players: number; listen: boolean; record: boolean }) =>
     call<{ run: QaRun }>("POST", `/v1/ext/studio/qa/runs/${encodeURIComponent(runId)}/run`, options),
   qaSaveScript: (runId: string, steps: QaScriptStep[], map?: string) => call<{ run: QaRun }>("PUT", `/v1/ext/studio/qa/runs/${encodeURIComponent(runId)}/script`, { steps, ...(map !== undefined ? { map } : {}) }),
@@ -364,6 +370,8 @@ export const api = {
   saveContextStrategy: (strategy: ContextStrategy) => call<unknown>("PUT", "/v1/ext/studio/context-strategy", { strategy }).then(contextOf),
   feedbackEnvironment: () => call<{ body: string }>("GET", "/v1/ext/studio/feedback/environment"),
   sendFeedback: (report: FeedbackReport) => call<FeedbackResult>("POST", "/v1/ext/studio/feedback", report),
+  /** The Playtest Hub's routes (client-core hubApi), over this page's fetch. */
+  hub: hubApi(<T,>(method: string, url: string, body?: unknown) => call<T>(method, url, body)),
 };
 
 /** A stream whose response head has not come back this long is stalled: abort and ask again. */

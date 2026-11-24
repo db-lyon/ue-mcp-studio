@@ -120,7 +120,7 @@ const extension: DaemonExtension = {
     const unwatch = host.events.subscribe((e) => pie.observe(e));
     void pie.refresh();
     const chatHost = pie.wrap(host);
-    const chat = registerChat(chatHost, agentVersion, packageDir, account);
+    const chat = registerChat(chatHost, agentVersion, packageDir, account, pie);
     const remote = registerRemote(host, { account });
     registerBilling(host, { account, gatewayUrl: () => new SettingsStore(host.dataDir).gatewayUrl() });
     // The live viewport: Pixel Streaming from the editor, signalled through Studio, for Pro accounts.
