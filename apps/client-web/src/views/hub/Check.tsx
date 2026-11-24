@@ -87,7 +87,7 @@ export function CheckScreen({ checkId }: { checkId: string }) {
   if (!state) {
     return (
       <div className="hub-screen">
-        {error ? <Empty title="Playtest not found" actions={<button onClick={() => go({ screen: "library" })}>Go to Library</button>}>{error}</Empty> : <Placeholder />}
+        {error ? <Empty title="Playtest not found" actions={<button onClick={() => go({ screen: "library" })}>Go to {HUB_COPY.library}</button>}>{error}</Empty> : <Placeholder />}
       </div>
     );
   }

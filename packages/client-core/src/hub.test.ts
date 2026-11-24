@@ -17,6 +17,11 @@ import {
   hubKeymap,
   hubPath,
   milestoneGroups,
+  goalsByMilestone,
+  filterGoalGroups,
+  rememberRecent,
+  parseRecent,
+  type HubRecent,
   moveId,
   goalCheckIds,
   parentCandidates,
@@ -71,7 +76,7 @@ const check = (name: string, health: CheckState["health"], over: Partial<CheckSt
 describe("hub routes", () => {
   it("round-trips every screen through the hash, encoding ids", () => {
     const routes: HubRoute[] = [
-      { screen: "overview" }, { screen: "library" },
+      { screen: "overview" }, { screen: "goals" }, { screen: "library" },
       { screen: "goal", goalId: "tutorial" },
       { screen: "check", checkId: "script:/Game/Tests/Jump Test" },
       { screen: "run", runId: "run/42:a" },
@@ -83,7 +88,7 @@ describe("hub routes", () => {
 
   it("falls back to the overview for what it does not know", () => {
     expect(parseHubPath("nowhere")).toEqual({ screen: "overview" });
-    expect(parseHubPath("goals")).toEqual({ screen: "overview" });
+    expect(parseHubPath("goals")).toEqual({ screen: "goals" });
     expect(parseHubPath("checks/%E0%A4%A")).toEqual({ screen: "library" });
     expect(parseHubPath(null)).toEqual({ screen: "overview" });
   });
@@ -141,6 +146,35 @@ describe("overview models", () => {
     expect(groups[1].goals[0]).toBe(groups[0].goals[1]);
     // A goal only another goal requires shows on that goal's screen.
     expect(groups[2].goals.map((g) => g.goal.id)).toEqual(["g3"]);
+  });
+
+  it("lists every goal under its milestones, nested ones too, and the rest under none", () => {
+    const all = graph(
+      gs("m1", "failing", { kind: "milestone", requires: [{ goal: "g1" }, { goal: "shared" }] }),
+      gs("m2", "met", { kind: "milestone", requires: [{ goal: "shared" }] }),
+      gs("g1", "met", { requires: [{ goal: "deep" }] }),
+      gs("shared", "failing"),
+      gs("deep", "met"),
+      gs("alone", "met"),
+      gs("old", "met", { archived: true }),
+    );
+    const groups = goalsByMilestone(all);
+    expect(groups.map((g) => g.milestone?.goal.id ?? null)).toEqual(["m1", "m2", null]);
+    expect(groups[0].goals.map((g) => g.goal.id)).toEqual(["g1", "shared", "deep"]);
+    expect(groups[1].goals.map((g) => g.goal.id)).toEqual(["shared"]);
+    expect(groups[2].goals.map((g) => g.goal.id)).toEqual(["alone"]);
+    const f = filterGoalGroups(groups, { status: "failing", text: "SHA" });
+    expect(f.map((g) => g.milestone?.goal.id)).toEqual(["m1", "m2"]);
+    expect(filterGoalGroups(groups, { status: null, text: "alo" }).map((g) => g.milestone)).toEqual([null]);
+  });
+
+  it("keeps the five goals and playtests opened last, and survives bad storage", () => {
+    let l: HubRecent[] = [];
+    for (const id of ["a", "b", "c", "d", "e", "f", "c"]) l = rememberRecent(l, { kind: "goal", id });
+    expect(l.map((r) => r.id)).toEqual(["c", "f", "e", "d", "b"]);
+    expect(parseRecent(JSON.stringify(l))).toEqual(l);
+    expect(parseRecent("{nope")).toEqual([]);
+    expect(parseRecent('[{"kind":"x","id":"a"},{"kind":"check","id":"b"}]')).toEqual([{ kind: "check", id: "b" }]);
   });
 
   it("lists a goal's parents, required goals and deep checks, and what can be added without a loop", () => {

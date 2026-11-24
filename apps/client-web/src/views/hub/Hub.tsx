@@ -10,8 +10,10 @@
 import { useEffect, useMemo, useRef, useState, type MutableRefObject, type ReactNode } from "react";
 import type { PlanRequest } from "@ue-mcp-studio/shared";
 import {
+  CHECK_HEALTH_LOOK,
   GOAL_STATUS_LOOK,
   HUB_COPY,
+  HUB_RECENT_KEY,
   HUB_SHORTCUTS,
   hubHash,
   hubKeymap,
@@ -19,10 +21,12 @@ import {
   hubSection,
   paletteEntries,
   parseHubPath,
+  parseRecent,
+  rememberRecent,
   searchPalette,
-  sortGoals,
   typingTarget,
   type HubKeyAction,
+  type HubRecent,
   type HubRoute,
   type PaletteEntry,
 } from "@ue-mcp-studio/client-core";
@@ -32,6 +36,7 @@ import { HubContext, useHub, type HubContextValue, type HubData, type LeaveGuard
 import { HubIcon, HubLink, Kbd, Placeholder, StatusMark, type HubIconName } from "./parts";
 import { OverviewScreen } from "./Overview";
 import { GoalScreen } from "./Goal";
+import { GoalsScreen } from "./Goals";
 import { LibraryScreen } from "./Library";
 import { CheckScreen } from "./Check";
 import { RunScreen } from "./Run";
@@ -196,6 +201,7 @@ export function HubView({ data, narrow, onOpenChat, onChat }: {
   const screen = (() => {
     switch (route.screen) {
       case "overview": return <OverviewScreen onChat={onChat} />;
+      case "goals": return <GoalsScreen />;
       case "goal": return <GoalScreen key={route.goalId} goalId={route.goalId} />;
       case "library": return <LibraryScreen />;
       case "check": return <CheckScreen key={route.checkId} checkId={route.checkId} />;
@@ -239,25 +245,61 @@ export function HubView({ data, narrow, onOpenChat, onChat }: {
   );
 }
 
-const SECTIONS: ReadonlyArray<{ id: "overview" | "library"; label: string; icon: HubIconName; keys: string }> = [
+type SectionId = "overview" | "goals" | "library";
+const SECTIONS: ReadonlyArray<{ id: SectionId; label: string; icon: HubIconName; keys?: string }> = [
   { id: "overview", label: HUB_COPY.overview, icon: "overview", keys: "g o" },
+  { id: "goals", label: HUB_COPY.goals, icon: "goal" },
   { id: "library", label: HUB_COPY.library, icon: "library", keys: "g l" },
 ];
+
+/** The last five goals and playtests opened, newest first, kept in this browser. */
+function useRecent(route: HubRoute): HubRecent[] {
+  const [list, setList] = useState<HubRecent[]>(() => {
+    try {
+      return parseRecent(window.localStorage.getItem(HUB_RECENT_KEY));
+    } catch {
+      return [];
+    }
+  });
+  const id = route.screen === "goal" ? route.goalId : route.screen === "check" ? route.checkId : null;
+  const kind = route.screen === "goal" ? "goal" : "check";
+  useEffect(() => {
+    if (!id) return;
+    setList((l) => {
+      const next = rememberRecent(l, { kind, id });
+      try {
+        window.localStorage.setItem(HUB_RECENT_KEY, JSON.stringify(next));
+      } catch { /* storage is a convenience */ }
+      return next;
+    });
+  }, [kind, id]);
+  return list;
+}
 
 function sectionCount(id: string, ctx: Pick<HubContextValue, "o">): ReactNode {
   const { o } = ctx;
   if (id === "overview" && o.attention.length) return <span className="tab-count warn" aria-label={`${o.attention.length} need attention`}>{o.attention.length}</span>;
   if (id === "overview" && o.queue.current) return <span className="hub-live-dot" aria-label={HUB_COPY.nowRunning} title={HUB_COPY.nowRunning} />;
+  if (id === "goals") return <span className="hub-rail-count">{o.goals.filter((g) => !g.goal.archived).length}</span>;
   if (id === "library") return <span className="hub-rail-count">{o.checks.length}</span>;
   return null;
 }
 
-/** The wide hub's rail: the four screens, then every goal by status, then New goal. */
+const sectionRoute = (id: SectionId): HubRoute => ({ screen: id });
+
+/** The wide hub's rail: the three screens, then the goals and playtests opened last. */
 function HubRail({ onPalette, onShortcuts }: { onPalette: () => void; onShortcuts: () => void }) {
   const ctx = useHub();
   const { o, route, go } = ctx;
   const at = hubSection(route);
-  const goals = useMemo(() => sortGoals(o.goals.filter((g) => !g.goal.archived)), [o.goals]);
+  const recent = useRecent(route).flatMap((r) => {
+    if (r.kind === "goal") {
+      const g = o.goals.find((x) => x.goal.id === r.id && !x.goal.archived);
+      return g ? [{ key: `goal:${r.id}`, title: g.goal.title, look: GOAL_STATUS_LOOK[g.status], to: { screen: "goal", goalId: r.id } as HubRoute }] : [];
+    }
+    const c = o.checks.find((x) => x.id === r.id);
+    return c ? [{ key: `check:${r.id}`, title: c.name, look: CHECK_HEALTH_LOOK[c.health], to: { screen: "check", checkId: r.id } as HubRoute }] : [];
+  });
   return (
     <nav className="hub-rail" aria-label="Playtests">
       <button className="hub-find" onClick={onPalette} title="Find a goal, playtest or run (Ctrl+K)">
@@ -268,26 +310,20 @@ function HubRail({ onPalette, onShortcuts }: { onPalette: () => void; onShortcut
       </button>
       <div className="hub-rail-group">
         {SECTIONS.map((s) => (
-          <HubLink key={s.id} href={hubHash({ screen: s.id } as HubRoute)} onGo={() => go({ screen: s.id } as HubRoute)} className={`hub-rail-item ${at === s.id && route.screen !== "goal" ? "active" : ""}`} title={`${s.label} (${s.keys})`}>
+          <HubLink key={s.id} href={hubHash(sectionRoute(s.id))} onGo={() => go(sectionRoute(s.id))} className={`hub-rail-item ${at === s.id && route.screen !== "goal" ? "active" : ""}`} title={s.keys ? `${s.label} (${s.keys})` : s.label}>
             <HubIcon name={s.icon} />
             <span className="hub-rail-label">{s.label}</span>
             {sectionCount(s.id, ctx)}
           </HubLink>
         ))}
       </div>
-      <div className="hub-rail-head">
-        <span>{HUB_COPY.goals}</span>
-        <span className="spacer" />
-        <button className="ghost icon-button" aria-label={HUB_COPY.newGoal} title={`${HUB_COPY.newGoal} (c)`} onClick={() => ctx.editGoal(null)}><HubIcon name="plus" size={12} /></button>
-      </div>
+      {recent.length > 0 && <div className="hub-rail-head"><span>{HUB_COPY.recent}</span></div>}
       <div className="hub-rail-goals">
-        {goals.length === 0 && <p className="dim small hub-rail-note">None yet.</p>}
-        {goals.map((g) => (
-          <HubLink key={g.goal.id} href={hubHash({ screen: "goal", goalId: g.goal.id })} onGo={() => go({ screen: "goal", goalId: g.goal.id })}
-            className={`hub-rail-item goal ${route.screen === "goal" && route.goalId === g.goal.id ? "active" : ""}`} title={`${g.goal.title}: ${GOAL_STATUS_LOOK[g.status].label}`}>
-            <StatusMark look={GOAL_STATUS_LOOK[g.status]} />
-            <span className="hub-rail-label">{g.goal.title}</span>
-            {g.goal.kind === "milestone" && <HubIcon name="milestone" size={12} />}
+        {recent.map((r) => (
+          <HubLink key={r.key} href={hubHash(r.to)} onGo={() => go(r.to)}
+            className={`hub-rail-item goal ${hubPath(route) === hubPath(r.to) ? "active" : ""}`} title={`${r.title}: ${r.look.label}`}>
+            <StatusMark look={r.look} />
+            <span className="hub-rail-label">{r.title}</span>
           </HubLink>
         ))}
       </div>
@@ -304,9 +340,9 @@ function HubBar({ onPalette }: { onPalette: () => void }) {
     <div className="hub-bar">
       <nav className="hub-seg" aria-label="Playtests">
         {SECTIONS.map((s) => (
-          <HubLink key={s.id} href={hubHash({ screen: s.id } as HubRoute)} onGo={() => ctx.go({ screen: s.id } as HubRoute)} className={`hub-seg-item ${at === s.id ? "active" : ""}`}>
+          <HubLink key={s.id} href={hubHash(sectionRoute(s.id))} onGo={() => ctx.go(sectionRoute(s.id))} className={`hub-seg-item ${at === s.id ? "active" : ""}`}>
             <span>{s.label}</span>
-            {s.id !== "library" && sectionCount(s.id, ctx)}
+            {s.id === "overview" && sectionCount(s.id, ctx)}
           </HubLink>
         ))}
       </nav>
