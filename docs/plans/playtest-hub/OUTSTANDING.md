@@ -29,9 +29,9 @@ The MVP covers playtests whose steps are all judged automatically. Human-in-the-
 - **Verify the live viewport streams** from a paired browser and from the Android app. It has never streamed a frame so far.
 - **ue-mcp asks 1/5 and 6:** frame-exact pausing, and a hold mode per step.
 
-## ue-mcp changes to file
+## Features to add to ue-mcp (backlog for the db-lyon/ue-mcp repo)
 
-Full text is in [ue-mcp-asks.md](ue-mcp-asks.md). None has been filed or implemented. The ones the MVP benefits from come first; asks 1, 5 and 6 belong to the post-MVP human-in-the-loop work.
+CLAUDE.md requires that anything Studio needs from ue-mcp be added to ue-mcp as a general feature, never patched around in Studio. These are those features. Each is written up in full (problem, proposed API, who benefits) in [ue-mcp-asks.md](ue-mcp-asks.md). None is open as an issue or pull request on ue-mcp yet, and none is built. The ones the MVP benefits from come first; asks 1, 5 and 6 belong to the post-MVP human-in-the-loop work.
 
 | Ask | What | Why Studio needs it |
 |---|---|---|
