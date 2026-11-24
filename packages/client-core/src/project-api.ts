@@ -30,6 +30,8 @@ export function projectApi(t: Transport) {
     denyDisruption: (id: string, by: string) => send<unknown>("POST", `/v1/disruptions/${enc(id)}/deny`, { by }),
     /** A person approves a pending request, whatever the sessions answered. On a paired phone it takes the PIN. */
     approveDisruption: (id: string, by: string) => send<unknown>("POST", `/v1/disruptions/${enc(id)}/approve`, { by }),
+    /** A person agrees to stop Studio's own running subagents that hold a request: they are stopped and the request confirmed paused. */
+    stopHeldSubagents: (requestId: string) => send<unknown>("POST", `${S}/updates/consent/subagents`, { requestId }),
     /** The requests to stop, restart, rebuild or patch the editor, and what each session answered (feature "editor.consent"). */
     disruptions: () => get<unknown>("/v1/disruptions"),
     flows: () => get<{ flows: FlowListing[] }>("/v1/flows"),

@@ -15,7 +15,7 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
 import type { DisruptionView } from "./consent.js";
-import type { HoldDecision, UpdateConsent } from "./update-hold.js";
+import type { HoldDecision, UpdateConsent, UpdateHoldState } from "./update-hold.js";
 
 export type DeferredStep = "plugin" | "studio" | "restart";
 export const DEFERRED_STEPS: readonly DeferredStep[] = ["plugin", "studio", "restart"];
@@ -28,6 +28,8 @@ export interface StepResult {
   error?: string;
   /** ue-mcp's editor consent gate held the step: other sessions are using the editor it would close. */
   request?: DisruptionView;
+  /** Studio's own running subagents the held request waits for the person to stop. */
+  subagents?: UpdateHoldState["subagents"];
 }
 
 /** Why a held update stopped when nobody answered its request in time. */
@@ -62,7 +64,7 @@ export interface UpdateQueueOptions {
   /** Run one step now, with the person's override when they gave it. */
   run: (step: DeferredStep, consent: UpdateConsent) => Promise<StepResult>;
   /** A waiting step the consent gate held: the person is asked, and `decide` goes on from their answer. */
-  held?: (request: DisruptionView) => void;
+  held?: (request: DisruptionView, subagents?: UpdateHoldState["subagents"]) => void;
   /** End every turn in progress before a Restart now. */
   interruptTurns: () => void;
   publish?: (type: string, data: Record<string, unknown>) => void;
@@ -213,7 +215,7 @@ export class UpdateQueue {
           this.save([step, ...rest], { ...consent, held: last.request.id });
           this.markRun(step, "deferred");
           this.stop();
-          this.o.held?.(last.request);
+          this.o.held?.(last.request, last.subagents);
           return last;
         }
         if (!last.ok) {

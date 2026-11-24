@@ -49,13 +49,53 @@ export const STEP_NOTE: Partial<Record<StepKey, string>> = {
 export interface UpdateHold {
   request: EditorDisruptionRequest;
   source: "panel" | "queue";
+  /** Studio's own subagents still working, which the request waits for the person to stop. */
+  subagents?: HeldSubagent[];
+}
+
+/** A subagent of one of Studio's conversations that holds an Update. */
+export interface HeldSubagent {
+  sessionId: string;
+  callId: string;
+  description: string;
 }
 
 /** The hold in a studio.update.consent event's data or GET /updates/consent's answer, or null. */
 export function holdOf(v: unknown): UpdateHold | null {
-  const raw = (v && typeof v === "object" ? (v as { hold?: unknown }).hold : null) as { request?: unknown; source?: unknown } | null | undefined;
+  const raw = (v && typeof v === "object" ? (v as { hold?: unknown }).hold : null) as { request?: unknown; source?: unknown; subagents?: unknown } | null | undefined;
   const request = raw?.request ? consentRequestOf({ status: 409, body: { request: raw.request } }) : null;
-  return request && (raw?.source === "panel" || raw?.source === "queue") ? { request, source: raw.source } : null;
+  if (!request || (raw?.source !== "panel" && raw?.source !== "queue")) return null;
+  const subagents = Array.isArray(raw.subagents) ? (raw.subagents as HeldSubagent[]).filter((s) => s && typeof s.description === "string") : [];
+  return { request, source: raw.source, ...(subagents.length ? { subagents } : {}) };
+}
+
+/**
+ * What an Update held by the gate says, the same on every client. Studio's own
+ * subagents come first: stopping them is the person's call, and the update goes
+ * on once they are stopped. Otherwise other sessions hold the editor, and the
+ * update goes on by itself as soon as they agree.
+ */
+export function holdCopy(hold: UpdateHold): { title: string; lead: string; approve: string; cancel: string; note: string | null; stopsSubagents: boolean } {
+  const own = hold.subagents ?? [];
+  if (own.length > 0) {
+    const names = own.map((s) => `"${s.description}"`).join(", ");
+    return {
+      title: own.length === 1 ? "A subagent is still working" : "Subagents are still working",
+      lead: `Updating closes the editor, and Studio's ${own.length === 1 ? `subagent ${names} is` : `subagents ${names} are`} still using it. Stop ${own.length === 1 ? "it" : "them"} to go on, or cancel and update when ${own.length === 1 ? "it has" : "they have"} finished.`,
+      approve: own.length === 1 ? "Stop it and update" : "Stop them and update",
+      cancel: "Cancel",
+      note: null,
+      stopsSubagents: true,
+    };
+  }
+  return {
+    title: "Other sessions are using the editor",
+    lead: "Updating now closes the editor and interrupts those sessions' work in it.",
+    approve: "Update anyway",
+    cancel: "Cancel",
+    note: "You can also wait: the update goes on by itself as soon as they agree.",
+    stopsSubagents: false,
+  };
 }
 
 /** Why a held update stopped when nobody answered its request in time (the agent's update-queue says the same). */

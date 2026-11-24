@@ -9,9 +9,9 @@ import { STUDIO_REQUESTER, consentAskOf, consentCopy, consentHolders, type AskKi
 import { Banner, Button, T, bannerText, useTheme } from "../../ui";
 
 /** `ask.op` is a button's operation, or "update" for an Update that closes the editor. */
-export function EditorConsent({ ask, onApprove, onCancel }: { ask: { op: AskKind; request: EditorDisruptionRequest }; onApprove: () => void; onCancel: () => void }) {
+export function EditorConsent({ ask, onApprove, onCancel, copy: given }: { ask: { op: AskKind; request: EditorDisruptionRequest }; onApprove: () => void; onCancel: () => void; copy?: { title: string; lead: string; approve: string; cancel: string; note?: string | null } }) {
   const t = useTheme();
-  const copy = consentCopy(ask.op);
+  const copy = given ?? consentCopy(ask.op);
   const holders = consentHolders(ask.request);
   const color = { color: bannerText(t, "warn") };
   return (
@@ -19,6 +19,7 @@ export function EditorConsent({ ask, onApprove, onCancel }: { ask: { op: AskKind
       <Banner kind="warn" role="alert">
         <T weight={700} size={12} style={color}>{copy.title}</T>
         <T size={12} style={[color, { marginTop: 4 }]}>{copy.lead}</T>
+        {given?.note ? <T size={12} style={[color, { marginTop: 4 }]}>{given.note}</T> : null}
         {holders.map((h) => (
           <T key={h.session} size={12} style={[color, { marginTop: 4 }]}>
             <T weight={700} size={12} style={color}>{h.label}</T>: {h.state}

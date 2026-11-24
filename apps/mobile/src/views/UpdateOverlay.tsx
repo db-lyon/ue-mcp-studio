@@ -6,7 +6,7 @@
  */
 import { useEffect, useState, useSyncExternalStore } from "react";
 import { StyleSheet, View } from "react-native";
-import { PENDING_COPY, STUDIO_REQUESTER, UPDATE_RETRY_ON_COMPUTER, STEP_NAME, STEP_NOTE, holdOf, waitingSteps, waitingWho, type UpdateHold, type UpdateRun } from "@ue-mcp-studio/client-core";
+import { PENDING_COPY, holdCopy, STUDIO_REQUESTER, UPDATE_RETRY_ON_COMPUTER, STEP_NAME, STEP_NOTE, holdOf, waitingSteps, waitingWho, type UpdateHold, type UpdateRun } from "@ue-mcp-studio/client-core";
 import { Banner, Button, edgePadding, font, Row, Spacer, Spinner, T, useInsets, useStyles, useTheme, type Theme } from "../ui";
 import { useProjectNav } from "../nav";
 import { EditorConsent } from "../screens/editor/EditorConsent";
@@ -111,9 +111,12 @@ export function UpdateHeld({ hold }: { hold: UpdateHold }) {
     setError(null);
     void act(hold.request.id, STUDIO_REQUESTER).catch((e: Error) => setError(e.message || PENDING_COPY.notSent));
   };
+  const copy = holdCopy(hold);
+  // Studio's own subagents: stopping them is Studio's answer to the request, not the override.
+  const stop = (id: string) => api.stopHeldSubagents(id);
   return (
     <View testID="update-held" style={{ marginLeft: 6 + insets.left, marginRight: 6 + insets.right, marginBottom: 6 + insets.bottom }}>
-      <EditorConsent ask={{ op: "update", request: hold.request }} onApprove={answer(api.approveDisruption)} onCancel={answer(api.denyDisruption)} />
+      <EditorConsent ask={{ op: "update", request: hold.request }} copy={copy} onApprove={answer(copy.stopsSubagents ? stop : api.approveDisruption)} onCancel={answer(api.denyDisruption)} />
       {error ? (
         <Banner kind="bad" role="alert">
           <T size={12} style={{ color: t.c.badText }}>{error}</T>
