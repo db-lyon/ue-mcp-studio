@@ -421,6 +421,13 @@ export const HUB_COPY = {
   deleting: (done: number, total: number) => `Deleting ${done + 1} of ${total}`,
   deleted: (n: number) => (n === 1 ? "Deleted the playtest" : `Deleted ${n} playtests`),
   deleteFailedTitle: (failed: number, total: number) => `${failed} of ${total} could not be deleted`,
+  /** Deleting a goal or milestone: the button, the question, what stays, and the goals that lose it. */
+  deleteGoal: (kind: "goal" | "milestone") => (kind === "milestone" ? "Delete milestone" : "Delete goal"),
+  deleteGoalTitle: (kind: "goal" | "milestone", title: string) => `Delete the ${kind} "${title}"?`,
+  deleteGoalKeeps: (kind: "goal" | "milestone") =>
+    kind === "milestone" ? "The goals it requires stay. Its playtests stay in the library and keep their past runs." : "Its playtests stay in the library and keep their past runs.",
+  deleteGoalUnlinks: "These will no longer require it:",
+  goalDeleted: (title: string) => `Deleted ${title}`,
   fixFailing: "Fix failing with an agent",
   fix: "Fix with an agent",
   /** After a fix is asked for: what was queued, and where the work happens. */
@@ -700,6 +707,20 @@ export function parentGoals(g: GoalState, all: readonly GoalState[]): GoalState[
   const ps = all.filter((x) => (g.parents ?? []).includes(x.goal.id));
   return ps.sort((a, b) => (a.goal.kind === b.goal.kind ? byText(a.goal.title, b.goal.title) : a.goal.kind === "milestone" ? -1 : 1));
 }
+
+/**
+ * ue-mcp's feature for deleting a goal safely: goals that required it stop
+ * requiring it, its playtests stay, and a plan made for it that is queued or
+ * running refuses the delete with 409. Delete is offered only where the
+ * daemon's health lists it.
+ */
+export const GOAL_DELETE_FEATURE = "hub.goalDelete";
+
+/** Whether the daemon's health (GET /v1/health) offers deleting goals. */
+export const canDeleteGoals = (health: unknown): boolean => {
+  const features = (health as { features?: unknown } | null)?.features;
+  return Array.isArray(features) && features.includes(GOAL_DELETE_FEATURE);
+};
 
 /** Every check id running this goal runs: its required goals' at any depth, then its own. */
 export function goalCheckIds(goalId: string, all: readonly GoalState[]): string[] {

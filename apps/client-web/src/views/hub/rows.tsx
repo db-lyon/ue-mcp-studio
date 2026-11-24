@@ -20,7 +20,7 @@ import {
   shortAgo,
 } from "@ue-mcp-studio/client-core";
 import { useHub } from "./state";
-import { HubLink, Progress, StatusMark, WinLoss } from "./parts";
+import { HubIcon, HubLink, Progress, StatusMark, WinLoss } from "./parts";
 import { HubLinkChips } from "./links";
 
 /** A goal, or with `milestone` a milestone: its progress counts the goals it requires. */
@@ -47,6 +47,21 @@ export function GoalRow({ g, on, onPoint, milestone }: { g: GoalState; on?: bool
           ? <Progress met={milestoneProgress(g).met} total={milestoneProgress(g).total} label={milestoneProgressText(g)} />
           : <Progress met={g.progress.met} total={g.progress.total} label={progressText(g.progress)} />}
     </HubLink>
+  );
+}
+
+/** A goal or milestone row in a list, with Delete at its end when the daemon offers it. */
+export function GoalListRow(props: { g: GoalState; on?: boolean; onPoint?: () => void; milestone?: boolean }) {
+  const { canDeleteGoals, deleteGoal } = useHub();
+  if (!canDeleteGoals) return <GoalRow {...props} />;
+  const title = props.g.goal.title;
+  return (
+    <div className="hub-goal-line">
+      <GoalRow {...props} />
+      <span className="hub-row-actions">
+        <button className="ghost icon-button" aria-label={`${HUB_COPY.delete} ${title}`} title={HUB_COPY.deleteGoal(props.g.goal.kind)} onClick={() => deleteGoal(props.g.goal.id)}><HubIcon name="trash" size={12} /></button>
+      </span>
+    </div>
   );
 }
 

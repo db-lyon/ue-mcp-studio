@@ -1,6 +1,7 @@
 /**
- * The hub's dialogs: New and Edit goal, Add playtests to a goal, and Add to
- * goal for playtests picked in the library, and Delete playtests. Each closes
+ * The hub's dialogs: New and Edit goal, Add playtests to a goal, Add to goal
+ * for playtests picked in the library, Delete playtests, and Delete a goal or
+ * milestone. Each closes
  * on Escape or the scrim.
  */
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
@@ -19,6 +20,7 @@ import {
   goalFormOf,
   goalUpdateOf,
   parentCandidates,
+  parentGoals,
   requireCandidates,
   shortAgo,
   sortGoals,
@@ -345,6 +347,68 @@ export function DeleteDialog({ checkIds, onDone, onClose }: { checkIds: string[]
             <button className="danger-button" disabled={running || items.length === 0} onClick={() => void run()}>{HUB_COPY.delete}</button>
           </>
         )}
+      </div>
+    </Dialog>
+  );
+}
+
+/**
+ * Delete a goal or milestone: one confirmation saying its playtests stay and
+ * naming the goals that required it, which lose the link. A refusal (a plan
+ * made for it is in the queue) is shown here, with the dialog left open.
+ */
+export function GoalDeleteDialog({ goalId, onDone, onClose }: { goalId: string; onDone?: () => void; onClose: () => void }) {
+  const hub = useHub();
+  const [g] = useState(() => hub.o.goals.find((x) => x.goal.id === goalId) ?? null);
+  const [parents] = useState(() => (g ? parentGoals(g, hub.o.goals) : []));
+  const [running, setRunning] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const busy = useRef(false);
+  const close = () => {
+    if (!busy.current) onClose();
+  };
+  if (!g) return null;
+  const { kind, title } = g.goal;
+  const run = async () => {
+    if (busy.current) return;
+    busy.current = true;
+    setRunning(true);
+    setError(null);
+    try {
+      await api.hub.deleteGoal(goalId);
+      busy.current = false;
+      hub.notify(HUB_COPY.goalDeleted(title));
+      onClose();
+      onDone?.();
+      hub.data.reload();
+    } catch (e) {
+      busy.current = false;
+      setRunning(false);
+      setError((e as Error).message);
+    }
+  };
+  const question = HUB_COPY.deleteGoalTitle(kind, title);
+  return (
+    <Dialog label={question} onClose={close} className="hub-delete">
+      <div className="overlay-head">{question}</div>
+      <p className="small">{HUB_COPY.deleteGoalKeeps(kind)}</p>
+      {parents.length > 0 && (
+        <div className="hub-goal-delete-parents">
+          <p className="small" id="hub-goal-delete-parents">{HUB_COPY.deleteGoalUnlinks}</p>
+          <ul className="hub-delete-list" aria-labelledby="hub-goal-delete-parents">
+            {parents.map((p) => (
+              <li key={p.goal.id} className="small">
+                {p.goal.kind === "milestone" ? <HubIcon name="milestone" size={10} /> : <StatusMark look={GOAL_STATUS_LOOK[p.status]} size={10} />} {p.goal.title}
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+      {error && <div className="banner bad small" role="alert">{error}</div>}
+      <div className="hub-form-actions">
+        <span className="spacer" />
+        <button className="ghost" autoFocus disabled={running} onClick={close}>Cancel</button>
+        <button className="danger-button" disabled={running} onClick={() => void run()}>{HUB_COPY.deleteGoal(kind)}</button>
       </div>
     </Dialog>
   );

@@ -781,6 +781,9 @@ export class HubDemo {
   private deleteGoal(id: string): DemoAnswer {
     const g = this.goal(id);
     if (!g) return refuse(404, "No such goal");
+    // As ue-mcp: a plan made for the goal that is queued or running holds it.
+    const plans = [this.state.current, ...this.state.queued].filter((p): p is PlanRun => !!p && "goalId" in p.scope && p.scope.goalId === id);
+    if (plans.length) return refuse(409, `"${g.title}" can't be deleted while ${plans.length === 1 ? "a run made for it is" : "runs made for it are"} queued or running: ${plans.map((p) => `"${p.title}"`).join(", ")}. Cancel ${plans.length === 1 ? "that run" : "those runs"} or let ${plans.length === 1 ? "it" : "them"} finish, then try again.`);
     this.state.goals = this.state.goals.filter((x) => x.id !== id);
     delete this.state.signOffs[id];
     // Goals that required it stop requiring it; the goals it required stay.
