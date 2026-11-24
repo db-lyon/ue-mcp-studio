@@ -59,10 +59,14 @@ import {
   type HubRecordData,
   type HubRecordType,
   type AttentionItem,
+  planOptionsFor,
   type PlanItem,
+  type PlanPlacement,
   type PlanRequest,
   type PlanRun,
   type PlanTrigger,
+  type Schedule,
+  type ScheduleDraft,
   type QaRun,
   type QaScriptStep,
   type QaStep,
@@ -87,6 +91,7 @@ import {
   demoRandom,
   demoResultsPath,
   demoRunId,
+  demoNextRun,
   demoWrittenScripts,
   type DemoScript,
   type DemoState,
@@ -143,10 +148,11 @@ export class HubDemo {
 
   // ---------- Time ----------
 
-  /** Move the simulation to now: jobs due, the live run's next step, the queue. */
+  /** Move the simulation to now: jobs due, schedules due, the live run's next step, the queue. */
   tick(): void {
     const now = this.now();
     const s = this.state;
+    this.dueSchedules(now);
     for (const job of s.jobs.filter((j) => j.at <= now)) {
       s.jobs = s.jobs.filter((j) => j !== job);
       if (job.kind === "loop") this.settleLoop(job.runId);
@@ -235,7 +241,7 @@ export class HubDemo {
     if ((p = m("POST", "/hub/checks/*/run"))) {
       const ref = this.checkRef(p[0]);
       if (!ref) return refuse(404, "No such check");
-      return this.plan({ scope: { kind: "checks", checks: [ref] }, options: { replay: b.replay === true } }, "person");
+      return this.plan({ scope: { kind: "checks", checks: [ref] }, options: { replay: b.replay === true }, next: b.next === true }, "person");
     }
     if (m("GET", "/hub/runs")) return this.runList(q);
     if ((p = m("GET", "/hub/runs/*"))) {
@@ -246,6 +252,16 @@ export class HubDemo {
     if ((p = m("DELETE", "/hub/runs/*/links"))) return this.runLink(p[0], null, q.get("url"));
     if (m("POST", "/hub/plans")) return this.plan(b as unknown as PlanRequest, "person");
     if ((p = m("POST", "/hub/plans/*/cancel"))) return this.cancelPlan(p[0]);
+    if ((p = m("POST", "/hub/plans/*/move"))) return this.movePlan(p[0], Number(b.to));
+    if (m("POST", "/hub/schedules")) return this.createSchedule(b as unknown as ScheduleDraft);
+    if ((p = m("PUT", "/hub/schedules/*"))) return this.updateSchedule(p[0], b as Partial<ScheduleDraft>);
+    if ((p = m("DELETE", "/hub/schedules/*"))) {
+      const before = this.schedules().length;
+      this.state.schedules = this.schedules().filter((x) => x.id !== p![0]);
+      if (this.state.schedules.length === before) return refuse(404, "No such schedule");
+      this.hubChanged(["queue"]);
+      return ok(undefined, 204);
+    }
     if (m("PUT", "/hub/queue/paused")) return this.pause(b.paused === true);
     if (m("GET", "/hub/lease")) return ok({ lease: this.lease() });
     if (m("POST", "/hub/release")) return this.release();
@@ -388,7 +404,7 @@ export class HubDemo {
 
   queueState(): QueueState {
     const s = this.state;
-    return { paused: s.paused, pausedBy: s.paused ? s.pausedBy ?? "person" : null, current: s.current, queued: s.queued, recent: s.recent.slice(0, 20), editor: { connected: s.editor }, lease: this.lease() };
+    return { paused: s.paused, pausedBy: s.paused ? s.pausedBy ?? "person" : null, current: s.current, queued: s.queued, recent: s.recent.slice(0, 20), schedules: s.schedules ?? [], editor: { connected: s.editor }, lease: this.lease() };
   }
 
   /** The hub's hold on the editor, as the agent's lease.ts keeps it: held while a plan's run is live. */
@@ -427,7 +443,8 @@ export class HubDemo {
 
   /** The agent's own Needs attention rule, over the demo's runs. */
   private attention(goals: GoalState[], checks: CheckState[]): AttentionItem[] {
-    return buildAttention({ runs: Object.values(this.state.qa), goals, checks, plans: this.state.recent, now: this.now() });
+    // The pinned ue-mcp's PlanRun has no "schedule" trigger yet (hub-contract.ts); the rule reads only state and items.
+    return buildAttention({ runs: Object.values(this.state.qa), goals, checks, plans: this.state.recent as Parameters<typeof buildAttention>[0]["plans"], now: this.now() });
   }
 
   private page(runs: RunRecord[], q: URLSearchParams): { runs: RunRecord[]; more: boolean } {
@@ -1064,7 +1081,7 @@ export class HubDemo {
     return this.state.checkMetas[checkId(c)]?.title ?? this.script(c.target)?.name ?? leafName(c.target);
   }
 
-  private makePlan(req: PlanRequest, trigger: PlanTrigger): PlanRun | null {
+  private makePlan(req: PlanRequest, trigger: PlanTrigger, scheduleId: string | null = null): PlanRun | null {
     const refs = this.scopeChecks(req.scope);
     if (refs.length === 0) return null;
     const items: PlanItem[] = refs.map((c) => ({ check: c, name: this.nameOf(c), state: "queued" }));
@@ -1072,23 +1089,120 @@ export class HubDemo {
       id: `plan-${this.state.counter++}`,
       title: req.title?.trim() || this.planTitle(req.scope, refs),
       scope: req.scope,
-      options: { ...DEFAULT_PLAN_OPTIONS, ...req.options },
+      options: { ...planOptionsFor(trigger), ...req.options },
       state: "queued",
       items,
       trigger,
+      ...(scheduleId ? { scheduleId } : {}),
       createdAt: iso(this.now()),
       startedAt: null,
       endedAt: null,
     };
   }
 
+  /** As ue-mcp's queue does: a person's Run resumes a paused queue and, with nothing playing, starts first. */
   private plan(req: PlanRequest, trigger: PlanTrigger): DemoAnswer {
     if (!req?.scope?.kind) return refuse(400, "A plan needs a scope");
     const plan = this.makePlan(req, trigger);
     if (!plan) return refuse(409, "Nothing to run in that scope");
-    this.state.queued.push(plan);
+    const s = this.state;
+    const playing = !!s.live;
+    let resumed = false;
+    if (trigger === "person" && s.paused) {
+      if (s.current && !playing) {
+        s.current.state = "queued";
+        s.queued.unshift(s.current);
+        s.current = null;
+      }
+      s.paused = false;
+      s.pausedBy = null;
+      resumed = true;
+    }
+    if (req.next || (resumed && !playing)) s.queued.unshift(plan);
+    else s.queued.push(plan);
     this.hubChanged(["queue"], { planRunId: plan.id });
-    return ok({ plan });
+    // Starts here when nothing is ahead, as the daemon's pump does.
+    if (!s.current && s.queued[0] === plan && !s.paused && s.editor) {
+      s.idleUntil = 0;
+      this.advanceQueue();
+    }
+    return ok({ plan, placement: { ...this.placementOf(plan.id), ...(resumed ? { resumed } : {}) } });
+  }
+
+  private placementOf(id: string): PlanPlacement {
+    const s = this.state;
+    if (s.current?.id === id) return { state: "started", position: 0, ahead: 0 };
+    const at = s.queued.findIndex((p) => p.id === id);
+    const ahead = at + (s.current ? 1 : 0);
+    if (s.paused) return { state: "queued", position: at + 1, ahead, reason: "the queue is paused" };
+    if (ahead === 0) return { state: "waiting", position: 1, ahead: 0, reason: s.editor ? null : "the editor is not connected" };
+    return { state: "queued", position: at + 1, ahead };
+  }
+
+  private movePlan(id: string, to: number): DemoAnswer {
+    const s = this.state;
+    const i = s.queued.findIndex((p) => p.id === id);
+    if (i < 0) return refuse(404, "No such plan waiting");
+    if (!Number.isFinite(to) || to < 0) return refuse(400, "Say where to move it");
+    const [plan] = s.queued.splice(i, 1);
+    s.queued.splice(Math.max(0, Math.min(s.queued.length, Math.round(to))), 0, plan);
+    this.hubChanged(["queue"], { planRunId: id });
+    return ok(this.queueState());
+  }
+
+  // ---------- Schedules ----------
+
+  private schedules(): Schedule[] {
+    return (this.state.schedules ??= []);
+  }
+
+  /** As ue-mcp's hub does: a due schedule waits while the queue is paused or busy or the editor is away, then gives up after an hour. */
+  private dueSchedules(now: number): void {
+    const s = this.state;
+    for (const sch of this.schedules()) {
+      if (!sch.enabled || !sch.nextRunAt || Date.parse(sch.nextRunAt) > now) continue;
+      const late = now - Date.parse(sch.nextRunAt) > 60 * 60_000;
+      const blocked = !s.editor ? "The editor is not connected" : s.paused ? "the queue is paused" : s.current || s.queued.length ? "other runs are queued" : null;
+      if (blocked && !late) {
+        if (sch.waiting !== blocked) {
+          sch.waiting = blocked;
+          this.hubChanged(["queue"]);
+        }
+        continue;
+      }
+      if (blocked) sch.lastSkipped = `waited an hour: ${blocked}`;
+      else {
+        const plan = this.makePlan({ title: sch.title, scope: sch.scope, options: sch.options }, "schedule", sch.id);
+        if (plan) {
+          s.queued.push(plan);
+          sch.lastRunAt = iso(now);
+          sch.lastSkipped = null;
+        } else sch.lastSkipped = "Nothing to run";
+      }
+      sch.waiting = null;
+      sch.nextRunAt = demoNextRun(sch, now);
+      this.hubChanged(["queue"]);
+    }
+  }
+
+  private createSchedule(d: ScheduleDraft): DemoAnswer {
+    if (!d?.title?.trim() || !/^\d{2}:\d{2}$/.test(d.at ?? "") || !Array.isArray(d.days) || d.days.length === 0 || !d.scope?.kind) return refuse(400, "A schedule needs a title, a time (HH:MM), days and a scope");
+    const sch: Schedule = { id: `sched-${this.state.counter++}`, title: d.title.trim(), scope: d.scope, options: { ...planOptionsFor("schedule"), ...d.options }, at: d.at, days: d.days, enabled: d.enabled !== false, lastRunAt: null, lastSkipped: null, waiting: null, nextRunAt: null };
+    sch.nextRunAt = demoNextRun(sch, this.now());
+    this.schedules().push(sch);
+    this.hubChanged(["queue"]);
+    return ok({ schedule: sch });
+  }
+
+  private updateSchedule(id: string, u: Partial<ScheduleDraft>): DemoAnswer {
+    const sch = this.schedules().find((x) => x.id === id);
+    if (!sch) return refuse(404, "No such schedule");
+    if (u.at !== undefined && !/^\d{2}:\d{2}$/.test(u.at)) return refuse(400, "The time is HH:MM");
+    Object.assign(sch, u, u.options ? { options: { ...sch.options, ...u.options } } : {});
+    sch.waiting = null;
+    sch.nextRunAt = demoNextRun(sch, this.now());
+    this.hubChanged(["queue"]);
+    return ok({ schedule: sch });
   }
 
   private cancelPlan(id: string): DemoAnswer {

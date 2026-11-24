@@ -13,6 +13,7 @@ const m = vi.hoisted(() => ({
     runs: vi.fn(), addChecks: vi.fn(), removeCheck: vi.fn(), fix: vi.fn(), writePlaytests: vi.fn(), resultsUrl: (id: string) => `/r/${id}`,
     addRequire: vi.fn(), removeRequire: vi.fn(), orderRequires: vi.fn(), orderChecks: vi.fn(), cancelPlan: vi.fn(), pause: vi.fn(),
     deleteGoal: vi.fn(),
+    movePlan: vi.fn(), createSchedule: vi.fn(), updateSchedule: vi.fn(), deleteSchedule: vi.fn(),
   },
 }));
 vi.mock("../../api", () => ({ ApiError: class extends Error {}, api: { hub: m.hub, openAsset: m.open, qaCaptureUrl: () => "", qaPlaytestDelete: m.del, settings: () => new Promise(() => {}), agentSettings: () => m.agentSettings() } }));
@@ -46,10 +47,9 @@ afterEach(() => {
 
 describe("hub routes", () => {
   it("opens the screen the hash names and follows Back and Forward", async () => {
-    // The Queue screen is gone: its old address is the Overview, where Now running is.
     window.location.hash = "#/playtests/queue";
     render(<Harness start={hubFixture()} />);
-    expect(heading()).toBe("Overview");
+    expect(heading()).toBe("Queue");
     act(() => {
       window.location.hash = "#/playtests/goals/movement";
     });
@@ -364,6 +364,56 @@ describe("now running", () => {
     expect(within(strip).getByText("Run Tutorial completes")).toBeTruthy();
     fireEvent.click(within(strip).getByRole("button", { name: "Stop Run Tutorial completes" }));
     await waitFor(() => expect(m.hub.cancelPlan).toHaveBeenCalledWith("p2"));
+  });
+
+  it("links to the Queue screen", async () => {
+    render(<Harness start={hubFixture()} />);
+    fireEvent.click(within(screen.getByRole("region", { name: "Now running" })).getByText("Open queue"));
+    await waitFor(() => expect(heading()).toBe("Queue"));
+  });
+});
+
+describe("the queue", () => {
+  const item = (name: string) => ({ check: { kind: "script" as const, target: `/Game/Tests/${name}` }, name, state: "queued" as const });
+  const plan = (id: string, title: string, trigger: "person" | "schedule" | "agent" = "person") => ({ id, title, scope: { kind: "all" as const }, options: { attended: true, stopOnFailure: false, replay: false }, state: "queued" as const, items: [item("Jump")], trigger, createdAt: "2026-11-22T10:00:00Z" });
+  const schedule = { id: "s1", title: "Nightly", scope: { kind: "all" as const }, options: { attended: false, stopOnFailure: false, replay: false }, at: "02:00", days: [0, 1, 2, 3, 4, 5, 6], enabled: true, waiting: "Claude Code holds the editor: refactoring", nextRunAt: "2026-11-25T09:00:00Z" };
+
+  it("reorders queued runs: Run next and the arrows move them", async () => {
+    const o = hubFixture();
+    o.queue = { ...o.queue, queued: [plan("a", "Run A"), plan("b", "Run B", "schedule"), plan("c", "Run C")] };
+    m.hub.movePlan.mockImplementation(async (_id: string, _to: number) => o.queue);
+    window.location.hash = "#/playtests/queue";
+    render(<Harness start={o} />);
+    expect(screen.getByText("Scheduled")).toBeTruthy();
+    fireEvent.click(within(screen.getByText("Run C").closest("li")!).getByRole("button", { name: "Run next" }));
+    await waitFor(() => expect(m.hub.movePlan).toHaveBeenCalledWith("c", 0));
+    fireEvent.click(screen.getByRole("button", { name: "Move Run B down" }));
+    await waitFor(() => expect(m.hub.movePlan).toHaveBeenCalledWith("b", 2));
+  });
+
+  it("lists schedules with why a due one waits, and creates, toggles and deletes them", async () => {
+    const o = hubFixture();
+    o.queue = { ...o.queue, schedules: [schedule] };
+    m.hub.createSchedule.mockResolvedValue({ schedule });
+    m.hub.updateSchedule.mockResolvedValue({ schedule });
+    m.hub.deleteSchedule.mockResolvedValue(undefined);
+    window.location.hash = "#/playtests/queue";
+    render(<Harness start={o} />);
+    expect(screen.getByText("Due, waiting: Claude Code holds the editor: refactoring")).toBeTruthy();
+    fireEvent.click(screen.getByRole("switch", { name: "Nightly on" }));
+    await waitFor(() => expect(m.hub.updateSchedule).toHaveBeenCalledWith("s1", { enabled: false }));
+    fireEvent.click(screen.getByRole("button", { name: "Delete Nightly" }));
+    await waitFor(() => expect(m.hub.deleteSchedule).toHaveBeenCalledWith("s1"));
+    fireEvent.click(screen.getByRole("button", { name: /New schedule/ }));
+    fireEvent.click(screen.getByRole("button", { name: "Create schedule" }));
+    await waitFor(() => expect(m.hub.createSchedule).toHaveBeenCalledWith(expect.objectContaining({ title: "Nightly", at: "02:00", options: expect.objectContaining({ attended: false }) })));
+  });
+
+  it("says schedules need a newer ue-mcp when the daemon has none", () => {
+    window.location.hash = "#/playtests/queue";
+    render(<Harness start={hubFixture()} />);
+    expect(screen.getByText("Schedules need a newer ue-mcp.")).toBeTruthy();
+    expect(screen.queryByRole("button", { name: /New schedule/ })).toBeNull();
   });
 });
 

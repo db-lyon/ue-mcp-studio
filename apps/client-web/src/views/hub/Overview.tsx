@@ -221,9 +221,10 @@ function GoalsMenu() {
 }
 
 /**
- * Now running: the run on the editor and how far its batch is, why the queue
- * waits or is paused, then the runs waiting and the
- * ones that finished. Release the editor is the app's bar (held.tsx LeaseBar).
+ * Now running: the queue at a glance. The run on the editor and how far its
+ * batch is, why the queue waits or is paused, then the runs waiting and the
+ * ones that finished; the Queue screen reorders them and holds schedules.
+ * Release the editor is the app's bar (held.tsx LeaseBar).
  */
 function NowRunning() {
   const hub = useHub();
@@ -263,6 +264,7 @@ function NowRunning() {
         <span>{HUB_COPY.nowRunning}</span>
         {q.paused && <span className="pill warn" title={queuePausedText(q)}>{PLAN_STATE_LABEL.paused}</span>}
         <span className="spacer" />
+        <HubLink className="small" href={hubHash({ screen: "queue" })} onGo={() => go({ screen: "queue" })}>{HUB_COPY.openQueue}</HubLink>
         {(!idle || q.paused) && (
           <button className="ghost small-button" aria-pressed={q.paused} onClick={() => void pause()}>
             <HubIcon name={q.paused ? "play" : "pause"} size={12} /> {q.paused ? HUB_COPY.resume : HUB_COPY.pause}
@@ -281,9 +283,9 @@ function NowRunning() {
       {idle && <p className="dim small">{HUB_COPY.queueIdle}</p>}
       {q.queued.length > 0 && (
         <ol className="hub-list hub-queued">
-          {q.queued.map((plan) => (
+          {q.queued.map((plan, i) => (
             <li key={plan.id} className="hub-row hub-queued-row">
-              <span className="dim small">Next</span>
+              <span className="hub-queued-pos mono">{i + 1}</span>
               <span className="hub-row-main">
                 <span className="hub-row-title">{plan.title}</span>
                 <span className="hub-row-meta"><span>{scopeText(plan.scope, o.goals)}</span><span>{plan.items.length} {plan.items.length === 1 ? "playtest" : "playtests"}</span></span>
@@ -306,7 +308,7 @@ function NowRunning() {
 }
 
 /** A batch of runs: its title and scope, progress, and each playtest's state; open by default while it runs. */
-function PlanCard({ plan, onCancel, live = false }: { plan: PlanRun; onCancel?: () => void; live?: boolean }) {
+export function PlanCard({ plan, onCancel, live = false }: { plan: PlanRun; onCancel?: () => void; live?: boolean }) {
   const { o, go, openChat } = useHub();
   const fixes = useAgentFixes();
   const p = planProgress(plan);

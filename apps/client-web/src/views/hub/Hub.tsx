@@ -1,7 +1,8 @@
 /**
  * The Playtest Hub on the Playtests tab: goals the game must meet, the
  * playtests that prove them, and their runs; what runs now is a strip on the
- * Overview. A rail on wide
+ * Overview, and the Queue screen holds what waits, its order and schedules.
+ * A rail on wide
  * screens and a segmented bar on narrow ones move between the screens; each
  * screen has its own URL under #/playtests, so Back works and every goal,
  * check and run can be linked. Keyboard first: j and k move, Enter opens,
@@ -45,6 +46,7 @@ import { LibraryScreen } from "./Library";
 import { CheckScreen } from "./Check";
 import { RunScreen } from "./Run";
 import { DraftScreen } from "./Draft";
+import { QueueScreen } from "./Queue";
 import { CheckPicker, DeleteDialog, DescribeDialog, GoalDeleteDialog, GoalDialog, GoalPicker, LeaveDialog, RequirePicker } from "./dialogs";
 import type { GoalPreset } from "./state";
 import "./hub.css";
@@ -245,6 +247,7 @@ export function HubView({ data, narrow, onOpenChat, onChat, canDeleteGoals = fal
       case "check": return <CheckScreen key={route.checkId} checkId={route.checkId} />;
       case "run": return <RunScreen key={route.runId} runId={route.runId} />;
       case "draft": return <DraftScreen key={hubPath(route)} checkId={route.checkId} goalId={route.goalId} />;
+      case "queue": return <QueueScreen />;
     }
   })();
 
@@ -284,12 +287,13 @@ export function HubView({ data, narrow, onOpenChat, onChat, canDeleteGoals = fal
   );
 }
 
-type SectionId = "overview" | "milestones" | "goals" | "library";
+type SectionId = "overview" | "milestones" | "goals" | "library" | "queue";
 const SECTIONS: ReadonlyArray<{ id: SectionId; label: string; icon: HubIconName; keys?: string }> = [
   { id: "overview", label: HUB_COPY.overview, icon: "overview", keys: "g o" },
   { id: "milestones", label: HUB_COPY.milestones, icon: "milestone", keys: "g m" },
   { id: "goals", label: HUB_COPY.goals, icon: "goal" },
   { id: "library", label: HUB_COPY.library, icon: "library", keys: "g l" },
+  { id: "queue", label: HUB_COPY.queue, icon: "queue", keys: "g q" },
 ];
 
 /** The last five goals and playtests opened, newest first, kept in this browser. */
@@ -323,6 +327,8 @@ function sectionCount(id: string, ctx: Pick<HubContextValue, "o">): ReactNode {
   if (id === "milestones") return <span className="hub-rail-count">{o.goals.filter((g) => !g.goal.archived && g.goal.kind === "milestone").length}</span>;
   if (id === "goals") return <span className="hub-rail-count">{o.goals.filter((g) => !g.goal.archived && g.goal.kind !== "milestone").length}</span>;
   if (id === "library") return <span className="hub-rail-count">{o.checks.length}</span>;
+  if (id === "queue" && o.queue.current) return <span className="hub-live-dot" aria-label={HUB_COPY.nowRunning} title={HUB_COPY.nowRunning} />;
+  if (id === "queue" && o.queue.queued.length) return <span className="hub-rail-count">{o.queue.queued.length}</span>;
   return null;
 }
 
