@@ -47,7 +47,15 @@ To ship it:
 1. **Grade the hub's user-facing copy against `C:\Users\David\.agents\PROSE_EVAL.md`** with a separate reviewer, and fix anything short of PASS.
 2. **Push `feat/playtest-hub` and open a pull request.** Read `C:\Users\David\.agents\PROSE.md` before writing the PR body. Never commit `keys/dev-ui-signing.pub.pem`.
 
+## Shipped (2026-11-24)
+
+- **ue-mcp 1.4.16-beta.2:** the hub's machinery.
+- **Studio 0.1.46-beta.2:** the hub, the Live button, Experiments, Plugins under Settings, and the Update consent fix, with APK version code 64.
+- **Vale and HubPlayground** both run Studio 0.1.46-beta.2.
+
 ## Post-MVP (revisit later)
+
+- **Dev build numbering:** `STUDIO_DEV_BASE` dev installs sort above real releases (`dev` sorts after `beta`), so Studio's "newer version installed" notice offered a stale dev build as an upgrade. Fix: Studio ignores `-dev.` builds when looking for newer installed versions, or dev builds sort below the release they are built from.
 
 Nothing below blocks the MVP.
 
