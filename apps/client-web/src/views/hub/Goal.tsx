@@ -30,8 +30,8 @@ import {
 import { needsSignOff, type TrackerLink } from "@ue-mcp-studio/shared";
 import { HubLinks } from "./links";
 import { api } from "../../api";
-import { useCursor, useHub } from "./state";
-import { Empty,HubIcon, HubLink, Progress, ScreenHead, StatusMark, StatusPill } from "./parts";
+import { useAgentFixes, useCursor, useHub } from "./state";
+import { AgentFixesOff, Empty,HubIcon, HubLink, Progress, ScreenHead, StatusMark, StatusPill } from "./parts";
 import { CheckRow, GoalRow } from "./rows";
 
 /** Up and down for one row of an ordered list; each is disabled at its end. */
@@ -47,6 +47,7 @@ function OrderButtons({ name, at, count, onMove }: { name: string; at: number; c
 export function GoalScreen({ goalId }: { goalId: string }) {
   const hub = useHub();
   const { o, go } = hub;
+  const fixes = useAgentFixes();
   const g = o.goals.find((x) => x.goal.id === goalId);
   // The goal's own order: it is the order a run takes.
   const checks = g?.checks ?? [];
@@ -78,7 +79,7 @@ export function GoalScreen({ goalId }: { goalId: string }) {
     else if (a.type === "prev") move(-1);
     else if (a.type === "open" && checks[at]) go({ screen: "check", checkId: checks[at].id });
     else if (a.type === "run") runGoal();
-    else if (a.type === "fix" && g && failing > 0) void fix({ goalId: g.goal.id });
+    else if (a.type === "fix" && fixes && g && failing > 0) void fix({ goalId: g.goal.id });
     else return false;
     return true;
   });
@@ -187,7 +188,8 @@ export function GoalScreen({ goalId }: { goalId: string }) {
         sub={<><StatusPill look={look} /><span className="dim">{progressText(g.progress)}</span></>}
         actions={<>
           <button className="primary" onClick={runGoal} disabled={runnable === 0} title="Run every playtest in order, the required goals' first (r)"><HubIcon name="play" size={12} /> {runGoalLabel(g.goal, runnable)}</button>
-          {failing > 0 && <button onClick={() => void fix({ goalId: goal.id })} title="An agent fixes each failing playtest in its own chat session, one at a time (a)"><HubIcon name="assign" size={12} /> {HUB_COPY.fixFailing}</button>}
+          {failing > 0 && fixes === false && <AgentFixesOff />}
+          {failing > 0 && fixes && <button onClick={() => void fix({ goalId: goal.id })} title="An agent fixes each failing playtest in its own chat session, one at a time (a)"><HubIcon name="assign" size={12} /> {HUB_COPY.fixFailing}</button>}
           <button className="ghost" onClick={() => hub.editGoal(goal.id)} title={HUB_COPY.editGoal}><HubIcon name="edit" size={12} /> Edit</button>
         </>}
       />
@@ -274,7 +276,7 @@ export function GoalScreen({ goalId }: { goalId: string }) {
             {checks.map((c, i) => (
               <CheckRow key={c.id} c={c} on={i === at} onPoint={() => setAt(i)} showGoals={false} actions={<>
                 <button className="ghost icon-button" aria-label={`Run ${c.name}`} title={c.missing ? CHECK_HEALTH_LOOK.missing.label : "Run"} disabled={c.missing} onClick={() => void hub.runCheck(c.id, c.name)}><HubIcon name="play" size={12} /></button>
-                {c.health === "failing" && <button className="ghost icon-button" aria-label={`${HUB_COPY.fix}: ${c.name}`} title={HUB_COPY.fix} onClick={() => void fix({ checkId: c.id })}><HubIcon name="assign" size={12} /></button>}
+                {c.health === "failing" && fixes && <button className="ghost icon-button" aria-label={`${HUB_COPY.fix}: ${c.name}`} title={HUB_COPY.fix} onClick={() => void fix({ checkId: c.id })}><HubIcon name="assign" size={12} /></button>}
                 <OrderButtons name={c.name} at={i} count={checks.length} onMove={(by) => moveCheck(c.id, by)} />
                 <button className="ghost icon-button" aria-label={`Remove ${c.name} from this goal`} title="Remove from this goal" onClick={() => void removeCheck(c.id)}><HubIcon name="close" size={12} /></button>
               </>} />

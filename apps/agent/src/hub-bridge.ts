@@ -11,7 +11,8 @@
  * - broker: a plan's runs start on a script's card in the plan's own chat
  *   session and are followed there (QaBroker), so cards, players and verdicts
  *   keep working;
- * - fixer: a fix item is the Assign loop on a card in a new session of its own;
+ * - fixer: a fix item is the Assign loop on a card in a new session of its own,
+ *   given only while Fix failing playtests with an agent is on;
  * - writePlaytests: the /playtest flow in a session of its own;
  * - replay: pie(script_replay) through a card in the hub's replay session;
  *
@@ -45,6 +46,10 @@ export interface HubBridgeOptions {
   inputAgeMs: () => number | null;
   /** What the editor is working on (BusyTracker): the calls Studio's agents have in flight are the hub's agentCalls. */
   busy: () => BusyState;
+  /** Fix failing playtests with an agent: off, the hub is given no fixer, so POST /hub/fix answers 409 and no fix loop starts. */
+  agentFixes: () => boolean;
+  /** Hear that setting change; returns the unsubscribe. */
+  onAgentFixes?: (listener: (on: boolean) => void) => () => void;
 }
 
 /** Whether the daemon offers the hub (its feature "hub"). */
@@ -56,8 +61,21 @@ export const offersHub = (api: DaemonExtensionApi): boolean => !!api.hub && (api
  */
 export function configureHub(o: HubBridgeOptions): () => void {
   if (!offersHub(o.api)) return () => {};
+  const hub = o.api.hub!;
   const bridge = new HubBridge(o);
-  return o.api.hub!.configure(bridge.options());
+  let off = hub.configure(bridge.options());
+  // The hub reads a client's pieces when it is built, so the fixer comes and goes by configuring again.
+  // The new options go in before the old come out, so the hub is never built without Studio's broker.
+  const unlisten = o.onAgentFixes?.((on) => {
+    if (!on) bridge.stopFixes();
+    const old = off;
+    off = hub.configure(bridge.options());
+    old();
+  });
+  return () => {
+    unlisten?.();
+    off();
+  };
 }
 
 /** The cards Studio runs a plan on. Exported for tests. */
@@ -70,7 +88,7 @@ export class HubBridge {
   options(): HubClientOptions {
     return {
       broker: this.broker(),
-      fixer: this.fixer(),
+      ...(this.o.agentFixes() ? { fixer: this.fixer() } : {}),
       writePlaytests: this.writePlaytests(),
       replay: (script, args) => this.replay(script, args),
       signer: this.o.signer,
@@ -128,6 +146,14 @@ export class HubBridge {
       },
       running: () => new Set(qa.all().filter((r) => r.assignment?.state === "running").map((r) => qaScriptKey(r.script))),
     };
+  }
+
+  /** Agent fixes were turned off: every fix loop the hub started stops, so none goes on spending tokens. */
+  stopFixes(): void {
+    for (const r of this.o.qa.all()) {
+      if (r.assignment?.state !== "running") continue;
+      if (this.o.store.get(r.assignment.sessionId)?.hubKey?.startsWith("fix:")) this.o.qa.cancel(r.runId);
+    }
   }
 
   /** Write playtests for a goal: the /playtest flow in a session of its own, which ue-mcp's hub links to the goal. */

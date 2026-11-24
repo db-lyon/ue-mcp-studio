@@ -2,7 +2,7 @@
  * The agent settings ue-mcp owns, under /v1/ext/studio:
  *
  *   GET /agent-settings   the feedback tool, the feedback mode, the editor dialog mode, Playtest runs and Wait for a verdict
- *   PUT /agent-settings   change them: { feedbackTool?, feedbackMode?, dialogMode?, playtestRuns?, verdictWaitMinutes? }
+ *   PUT /agent-settings   change them: { feedbackTool?, feedbackMode?, dialogMode?, playtestRuns?, agentFixes?, verdictWaitMinutes? }
  *
  * The feedback tool is the `disable` list in ue-mcp.yml, which ue-mcp reads at
  * start, so changing it restarts ue-mcp (after the turn in progress). The modes
@@ -60,13 +60,15 @@ export function registerAgentSettings(api: DaemonExtensionApi, restartUeMcp: () 
     feedbackMode: modes.get().feedback,
     dialogMode: modes.get().dialog,
     playtestRuns: playtests.runs(),
+    agentFixes: playtests.agentFixes(),
     verdictWaitMinutes: playtests.verdictWaitMinutes(),
   });
 
   api.route("GET", "/agent-settings", () => ({ body: view() }));
   api.route("PUT", "/agent-settings", async (req) => {
-    const b = (req.body ?? {}) as { feedbackTool?: unknown; feedbackMode?: unknown; dialogMode?: unknown; playtestRuns?: unknown; verdictWaitMinutes?: unknown };
+    const b = (req.body ?? {}) as { feedbackTool?: unknown; feedbackMode?: unknown; dialogMode?: unknown; playtestRuns?: unknown; agentFixes?: unknown; verdictWaitMinutes?: unknown };
     if (b.playtestRuns !== undefined && b.playtestRuns !== "manual" && b.playtestRuns !== "automatic") return { status: 400, body: { error: "playtestRuns must be manual or automatic" } };
+    if (b.agentFixes !== undefined && typeof b.agentFixes !== "boolean") return { status: 400, body: { error: "agentFixes must be a boolean" } };
     if (b.verdictWaitMinutes !== undefined && !qaVerdictWaitValid(b.verdictWaitMinutes)) return { status: 400, body: { error: `verdictWaitMinutes must be one of ${QA_VERDICT_WAIT_CHOICES.join(", ")}` } };
     if (b.feedbackTool !== undefined && typeof b.feedbackTool !== "boolean") return { status: 400, body: { error: "feedbackTool must be a boolean" } };
     if (b.feedbackMode !== undefined && b.feedbackMode !== null && !FEEDBACK_MODES.includes(b.feedbackMode as FeedbackMode)) return { status: 400, body: { error: "feedbackMode must be interactive, auto-approve, defer or null" } };
@@ -74,6 +76,7 @@ export function registerAgentSettings(api: DaemonExtensionApi, restartUeMcp: () 
     if (b.feedbackMode !== undefined) modes.setFeedback((b.feedbackMode as FeedbackMode | null) ?? undefined);
     if (b.dialogMode !== undefined) modes.setDialog((b.dialogMode as DialogMode | null) ?? undefined);
     if (b.playtestRuns !== undefined) playtests.setRuns(b.playtestRuns as PlaytestRunsMode);
+    if (typeof b.agentFixes === "boolean") playtests.setAgentFixes(b.agentFixes);
     if (qaVerdictWaitValid(b.verdictWaitMinutes)) playtests.setVerdictWait(b.verdictWaitMinutes);
     let restarting = false;
     if (typeof b.feedbackTool === "boolean" && b.feedbackTool !== feedbackToolOn(read())) {

@@ -27,6 +27,7 @@ function setup(features: string[], hub = true) {
     store: { create: vi.fn(() => ({ id: "s9", status: "idle" })), get: vi.fn(), save: vi.fn() },
     writePlaytests: vi.fn(async () => {}),
     playtestRuns: () => "manual" as const,
+    agentFixes: () => true,
     signer: () => "dev",
     enabled: () => true,
     inputAgeMs: () => 5,
@@ -90,7 +91,7 @@ describe("configureHub", () => {
  * Which session the hub's work lands in. A fake store and broker: sessions by
  * id, and cards that move to the session drafting them, as QaBroker's do.
  */
-function world() {
+function world(agentFixes = true) {
   const sessions = new Map<string, { id: string; title: string; status: string; waitingCause: null; archived?: boolean; hubKey?: string }>();
   let n = 0;
   const store = {
@@ -119,17 +120,29 @@ function world() {
     onSaved: vi.fn(() => () => {}),
     cancel: vi.fn(),
   };
-  let given: HubClientOptions | null = null;
+  // The hub's clients as HubHolder keeps them: the newest configure's options, until taken back.
+  const clients = new Set<HubClientOptions>();
+  const given = () => [...clients].pop() ?? null;
   const api = {
     features: ["hub"],
-    hub: { configure: (o: HubClientOptions) => ((given = o), () => {}) },
+    hub: { configure: (o: HubClientOptions) => (clients.add(o), () => void clients.delete(o)) },
     events: { publish: vi.fn() },
     callAction: vi.fn(async (_c: string, _a: string, args: { path: string }) => ({ content: [{ type: "text", text: JSON.stringify({ path: args.path, steps: [{ do: "open" }] }) }] })),
   } as unknown as DaemonExtensionApi;
-  const o = { api, qa, store, writePlaytests: vi.fn(async () => {}), playtestRuns: () => "automatic", signer: () => null, enabled: () => true, inputAgeMs: () => null, busy: () => ({ now: 0, calls: [] }) } as unknown as HubBridgeOptions;
-  configureHub(o);
+  let fixes = agentFixes;
+  const listeners = new Set<(on: boolean) => void>();
+  const setFixes = (on: boolean) => {
+    fixes = on;
+    for (const l of listeners) l(on);
+  };
+  const o = {
+    api, qa, store, writePlaytests: vi.fn(async () => {}), playtestRuns: () => "automatic", signer: () => null, enabled: () => true, inputAgeMs: () => null, busy: () => ({ now: 0, calls: [] }),
+    agentFixes: () => fixes,
+    onAgentFixes: (l: (on: boolean) => void) => (listeners.add(l), () => void listeners.delete(l)),
+  } as unknown as HubBridgeOptions;
+  const off = configureHub(o);
   const user = (id: string, archived = false) => sessions.set(id, { id, title: "Mine", status: "idle", waitingCause: null, ...(archived ? { archived } : {}) });
-  return { sessions, runs, card, qa, store, user, hub: () => given! };
+  return { sessions, runs, card, qa, store, user, hub: () => given()!, clients, setFixes, off };
 }
 
 const DOOR = "/Game/T/Door";
@@ -195,5 +208,36 @@ describe("the sessions the hub works in", () => {
     await w.hub().replay!(DOOR, { path: DOOR });
     expect(w.qa.wrap).toHaveBeenCalledWith(expect.anything(), "new1", { assigned: true });
     expect(w.sessions.get("new1")!.hubKey).toBe(`replay:${DOOR}`);
+  });
+});
+
+describe("Fix failing playtests with an agent", () => {
+  it("gives the hub no fixer while it is off, so a fix request answers 409", () => {
+    const w = world(false);
+    expect(w.hub().fixer).toBeUndefined();
+    expect(w.hub().broker).toBeTruthy();
+  });
+
+  it("gives the fixer when it is turned on, and takes it back when it is turned off", async () => {
+    const w = world(false);
+    w.setFixes(true);
+    expect(w.clients.size).toBe(1);
+    expect(await w.hub().fixer!.start(doorItem(), plan("p1"))).toMatchObject({ sessionId: "new1" });
+    w.setFixes(false);
+    expect(w.clients.size).toBe(1);
+    expect(w.hub().fixer).toBeUndefined();
+    w.off();
+    expect(w.clients.size).toBe(0);
+  });
+
+  it("stops the fix loops the hub started when it is turned off, and leaves the user's own", async () => {
+    const w = world(true);
+    w.user("mine");
+    await w.hub().fixer!.start(doorItem(), plan("p1"));
+    w.runs[0].assignment = { state: "running", sessionId: "new1" };
+    w.runs.push({ runId: "run-mine", script: "/Game/T/Lift", sessionId: "mine", seenAt: "", assignment: { state: "running", sessionId: "mine" } });
+    w.setFixes(false);
+    expect(w.qa.cancel).toHaveBeenCalledTimes(1);
+    expect(w.qa.cancel).toHaveBeenCalledWith("draft:/Game/T/Door");
   });
 });

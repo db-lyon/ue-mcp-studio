@@ -27,14 +27,15 @@ import {
 } from "@ue-mcp-studio/client-core";
 import { api } from "../../api";
 import { FailNote } from "../../chat/Qa";
-import { useHub } from "./state";
-import { Empty, HubIcon, HubLink, Placeholder, ScreenHead, StatusMark, StatusPill } from "./parts";
+import { useAgentFixes, useHub } from "./state";
+import { AgentFixesOff, Empty, HubIcon, HubLink, Placeholder, ScreenHead, StatusMark, StatusPill } from "./parts";
 import { HubViewer, useHubViewer } from "./live";
 import { HubLinks } from "./links";
 
 export function RunScreen({ runId }: { runId: string }) {
   const hub = useHub();
   const { go, data } = hub;
+  const fixes = useAgentFixes();
   const [d, setD] = useState<RunDetail | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [focus, setFocus] = useState<number | null>(null);
@@ -120,7 +121,8 @@ export function RunScreen({ runId }: { runId: string }) {
         </>}
         actions={<>
           {checkId && <button className="primary" onClick={() => void hub.runCheck(checkId, record.name)} title="Run again (r)"><HubIcon name="play" size={12} /> Run again</button>}
-          {record.outcome === "failed" && checkId && <button title="An agent fixes it in a chat session of its own" onClick={() => void api.hub.fix({ checkId }).then((r) => { hub.notify(HUB_COPY.fixesQueued(r.queued)); hub.data.reload(); }, (e: Error) => hub.notify(e.message, "bad"))}><HubIcon name="assign" size={12} /> {HUB_COPY.fix}</button>}
+          {record.outcome === "failed" && checkId && fixes === false && <AgentFixesOff />}
+          {record.outcome === "failed" && checkId && fixes && <button title="An agent fixes it in a chat session of its own" onClick={() => void api.hub.fix({ checkId }).then((r) => { hub.notify(HUB_COPY.fixesQueued(r.queued)); hub.data.reload(); }, (e: Error) => hub.notify(e.message, "bad"))}><HubIcon name="assign" size={12} /> {HUB_COPY.fix}</button>}
           {record.sessionId && <button className="ghost" onClick={() => hub.openChat(record.sessionId!, runId)} title="The playtest's card in its session"><HubIcon name="external" size={12} /> Open in chat</button>}
         </>}
       />

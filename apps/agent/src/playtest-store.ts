@@ -1,7 +1,7 @@
 /**
  * What Studio keeps about this project's playtests that ue-mcp's scripts do
  * not hold: who may start a run (the Playtest runs setting, manual or
- * automatic), how long a run waits for a verdict, and the player each step
+ * automatic), whether an agent may fix a failing playtest, how long a run waits for a verdict, and the player each step
  * is for. One file in the extension's
  * per-project data directory.
  */
@@ -11,6 +11,7 @@ import { QA_VERDICT_WAIT_MINUTES, qaScriptKey, qaVerdictWaitValid, type Playtest
 
 interface Saved {
   runs?: PlaytestRunsMode;
+  agentFixes?: boolean;
   verdictWait?: number;
   players?: Record<string, Record<string, string>>;
 }
@@ -18,6 +19,7 @@ interface Saved {
 export class PlaytestStore {
   private readonly file: string;
   private data: Saved;
+  private readonly fixListeners = new Set<(on: boolean) => void>();
 
   constructor(dataDir: string) {
     this.file = path.join(dataDir, "playtests.json");
@@ -36,6 +38,24 @@ export class PlaytestStore {
   setRuns(mode: PlaytestRunsMode): void {
     this.data.runs = mode;
     this.write();
+  }
+
+  /** Fix failing playtests with an agent: off unless the user turned it on. */
+  agentFixes(): boolean {
+    return this.data.agentFixes === true;
+  }
+
+  setAgentFixes(on: boolean): void {
+    if (this.agentFixes() === on) return;
+    this.data.agentFixes = on;
+    this.write();
+    for (const l of [...this.fixListeners]) l(on);
+  }
+
+  /** Hear the agent fixes setting change. Returns the unsubscribe. */
+  onAgentFixes(listener: (on: boolean) => void): () => void {
+    this.fixListeners.add(listener);
+    return () => this.fixListeners.delete(listener);
   }
 
   /** Wait for a verdict: how many minutes a run holds at a manual step before it is stopped. */

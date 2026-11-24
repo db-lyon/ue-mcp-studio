@@ -43,6 +43,26 @@ describe("the Playtest runs setting", () => {
   });
 });
 
+describe("the Fix failing playtests with an agent setting", () => {
+  it("is off until turned on, kept for this project, tells its listeners, and refuses a non-boolean", async () => {
+    const modes = { get: () => ({ feedback: { mode: "interactive", project: false }, dialog: { mode: null, project: false } }), setFeedback: () => {}, setDialog: () => {} };
+    const api = { projectDir: root, modes, route: (m: string, p: string, h: Handler) => void routes.set(`${m} ${p}`, h) } as unknown as DaemonExtensionApi;
+    const store = new PlaytestStore(path.join(root, "data"));
+    const heard: boolean[] = [];
+    store.onAgentFixes((on) => heard.push(on));
+    registerAgentSettings(api, async () => {}, store);
+    const put = (body: unknown) => routes.get("PUT /agent-settings")!({ body });
+    expect(((await routes.get("GET /agent-settings")!({})).body as { agentFixes: boolean }).agentFixes).toBe(false);
+    expect(((await put({ agentFixes: true })).body as { agentFixes: boolean }).agentFixes).toBe(true);
+    expect(new PlaytestStore(path.join(root, "data")).agentFixes()).toBe(true);
+    // Saving the same value again tells no one.
+    await put({ agentFixes: true });
+    await put({ agentFixes: false });
+    expect(heard).toEqual([true, false]);
+    expect((await put({ agentFixes: "yes" })).status).toBe(400);
+  });
+});
+
 describe("the Wait for a verdict setting", () => {
   it("is 10 minutes until chosen, saves one of its choices for this project, and refuses any other", async () => {
     const s = setup();

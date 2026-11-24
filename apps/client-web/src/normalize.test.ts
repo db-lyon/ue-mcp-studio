@@ -56,12 +56,14 @@ describe("settings as earlier Studios sent them", () => {
 });
 
 describe("the agent's other answers", () => {
-  it("agent settings without playtestRuns, dialogMode or feedbackMode", () => {
+  it("agent settings without playtestRuns, agentFixes, dialogMode or feedbackMode", () => {
     expect(agentSettingsOf({ feedbackTool: false })).toEqual({
       feedbackTool: false,
       feedbackMode: { mode: "interactive", project: false },
       dialogMode: { mode: null, project: false },
       playtestRuns: "manual",
+      // An agent before the setting: fixing with an agent stays off.
+      agentFixes: false,
       verdictWaitMinutes: 10,
     });
   });

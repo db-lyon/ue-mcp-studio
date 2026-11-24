@@ -42,6 +42,34 @@ export function useExperiments(events: DaemonState["events"]): StudioExperiments
   return x;
 }
 
+/** Fired on window when Settings changes Fix failing playtests with an agent, so the hub's Fix buttons follow. */
+export const AGENT_FIXES_EVENT = "studio:agent-fixes";
+
+export function announceAgentFixes(on: boolean): void {
+  if (typeof window === "undefined") return;
+  window.dispatchEvent(new CustomEvent<boolean>(AGENT_FIXES_EVENT, { detail: on }));
+}
+
+/**
+ * Whether Fix failing playtests with an agent is on, read when a screen opens;
+ * null until the agent answers, when neither the Fix buttons nor the line
+ * saying they are off is shown.
+ */
+export function useAgentFixes(): boolean | null {
+  const [on, setOn] = useState<boolean | null>(null);
+  useEffect(() => {
+    let live = true;
+    Promise.resolve().then(() => api.agentSettings()).then((a) => live && setOn(a.agentFixes), () => live && setOn(false));
+    const heard = (e: Event) => setOn((e as CustomEvent<boolean>).detail === true);
+    window.addEventListener(AGENT_FIXES_EVENT, heard);
+    return () => {
+      live = false;
+      window.removeEventListener(AGENT_FIXES_EVENT, heard);
+    };
+  }, []);
+  return on;
+}
+
 export interface HubData {
   overview: HubOverview | null;
   error: string | null;
