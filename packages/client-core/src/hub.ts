@@ -8,6 +8,7 @@
 import {
   CHECK_HEALTH_ORDER,
   DEFAULT_ACCEPTANCE,
+  type AcceptanceRule,
   FAILING_ITEM_STATES,
   GOAL_DUE,
   GOAL_PRIORITIES,
@@ -646,9 +647,7 @@ export function progressText(p: { met: number; total: number }): string {
 
 /** A goal's acceptance rule in a sentence. */
 export function acceptanceText(goal: Pick<Goal, "acceptance">): string {
-  const a = goal.acceptance;
-  const runs = a.stableRuns <= 1 ? "passes its latest run" : `passes its last ${a.stableRuns} runs`;
-  return `Each required playtest ${runs}${a.signOff ? ", then a person signs it off" : ""}.`;
+  return goal.acceptance.signOff ? "All its playtests pass and someone signs it off." : "All its playtests pass.";
 }
 
 // ---------- Moving goals between computers ----------
@@ -858,7 +857,7 @@ export interface GoalForm {
   priority: GoalPriority | "";
   /** YYYY-MM-DD, or empty. */
   due: string;
-  stableRuns: string;
+  /** Whether a person signs the goal off once its playtests pass. */
   signOff: boolean;
   /** The goal's links as typed, one row each; a row with no URL is left out. */
   links: LinkRow[];
@@ -887,7 +886,6 @@ export function goalFormOf(g?: Partial<Goal> | null, parents: readonly string[] 
     owner: g?.owner ?? "",
     priority: g?.priority ?? "",
     due: g?.due ?? "",
-    stableRuns: String(a.stableRuns),
     signOff: a.signOff,
     links: (g?.links ?? []).map(linkRowOf),
   };
@@ -900,8 +898,6 @@ export function goalFormErrors(f: GoalForm, ctx: { selfId?: string; goals?: read
   if (!title) e.title = "A goal needs a title.";
   else if (title.length > GOAL_TITLE_MAX) e.title = `Keep the title under ${GOAL_TITLE_MAX} characters.`;
   if (f.due && !validDate(f.due)) e.due = "Use a date, such as 2026-12-31.";
-  const runs = Number(f.stableRuns);
-  if (!/^\d+$/.test(f.stableRuns.trim()) || runs < 1 || runs > 10) e.stableRuns = "From 1 to 10 runs.";
   if (f.parents.length) {
     const goals = ctx.goals?.map((g) => g.goal);
     const self = f.parents.find((p) => p === ctx.selfId);
@@ -929,7 +925,7 @@ export function goalDraftOf(f: GoalForm): GoalDraft {
     owner: f.owner.trim() || null,
     ...(f.priority ? { priority: f.priority } : {}),
     due: f.due || null,
-    acceptance: { stableRuns: Number(f.stableRuns), signOff: f.signOff },
+    acceptance: { stableRuns: 1, signOff: f.signOff },
     links: f.links.filter((r) => r.url.trim()).map(linkFromRow).flatMap((r) => ("link" in r ? [r.link] : [])),
   };
 }
@@ -937,7 +933,8 @@ export function goalDraftOf(f: GoalForm): GoalDraft {
 /** The update for an existing goal from a valid form: every field the form holds, so clearing one clears it. Its checks are left alone. */
 export function goalUpdateOf(f: GoalForm): GoalUpdate {
   const { checks: _checks, ...d } = goalDraftOf(f);
-  return { ...d, description: d.description ?? "", priority: d.priority ?? null };
+  // The agent merges acceptance field by field, so an edit sends only signOff and a goal's own stableRuns stays as it is.
+  return { ...d, acceptance: { signOff: f.signOff } as AcceptanceRule, description: d.description ?? "", priority: d.priority ?? null };
 }
 
 // ---------- Tracker links ----------

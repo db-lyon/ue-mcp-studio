@@ -48,6 +48,16 @@ function Dialog({ label, onClose, className = "", children }: { label: string; o
   );
 }
 
+const KIND_CHOICES = [
+  { value: "goal", title: "Goal", note: "Something the game must do, proven by its playtests." },
+  { value: "milestone", title: "Milestone", note: "A set of goals that must all be met, such as a release." },
+] as const;
+
+const DONE_CHOICES = [
+  { signOff: false, title: "When all its playtests pass" },
+  { signOff: true, title: "When all its playtests pass and someone signs it off" },
+] as const;
+
 /** New goal, or Edit goal: title first, everything else optional. */
 export function GoalDialog({ goalId, preset, onClose }: { goalId: string | null; preset?: GoalPreset; onClose: () => void }) {
   const hub = useHub();
@@ -102,18 +112,15 @@ export function GoalDialog({ goalId, preset, onClose }: { goalId: string | null;
         <HubField id="hub-goal-description" label="What done means">
           {(a) => <textarea {...a} rows={3} value={f.description} onChange={(e) => set("description", e.target.value)} placeholder="Optional. Markdown." />}
         </HubField>
-        <div className="hub-field-row">
-          <div className="hub-field">
-            <span className="hub-field-label">Kind</span>
-            <div className="seg compact" role="radiogroup" aria-label="Kind">
-              {(["goal", "milestone"] as const).map((k) => (
-                <button type="button" key={k} role="radio" aria-checked={f.kind === k} className={f.kind === k ? "on" : ""} onClick={() => set("kind", k)}>
-                  {k === "goal" ? "Goal" : "Milestone"}
-                </button>
-              ))}
-            </div>
-          </div>
-        </div>
+        <fieldset className="hub-fieldset">
+          <legend>Kind</legend>
+          {KIND_CHOICES.map((c) => (
+            <label key={c.value} className="hub-radio-row">
+              <input type="radio" name="hub-goal-kind" checked={f.kind === c.value} onChange={() => set("kind", c.value)} />
+              <span><span className="hub-radio-title">{c.title}</span><span className="hub-radio-note">{c.note}</span></span>
+            </label>
+          ))}
+        </fieldset>
         {candidates.length > 0 && (
           <fieldset className="hub-fieldset hub-part-of-field" aria-describedby={shown.parents ? "hub-goal-parents-error" : undefined}>
             <legend>{HUB_COPY.partOf}</legend>
@@ -148,12 +155,12 @@ export function GoalDialog({ goalId, preset, onClose }: { goalId: string | null;
         </div>
         <fieldset className="hub-fieldset">
           <legend>Done when</legend>
-          <div className="hub-field-row">
-            <HubField id="hub-goal-runs" label="Passing runs in a row" error={shown.stableRuns}>
-              {(a) => <input {...a} inputMode="numeric" value={f.stableRuns} onChange={(e) => set("stableRuns", e.target.value)} />}
-            </HubField>
-          </div>
-          <label className="hub-check-label"><input type="checkbox" checked={f.signOff} onChange={(e) => set("signOff", e.target.checked)} /> A person signs it off</label>
+          {DONE_CHOICES.map((c) => (
+            <label key={String(c.signOff)} className="hub-radio-row">
+              <input type="radio" name="hub-goal-done" checked={f.signOff === c.signOff} onChange={() => set("signOff", c.signOff)} />
+              <span className="hub-radio-title">{c.title}</span>
+            </label>
+          ))}
         </fieldset>
         <HubLinkRows rows={f.links} onChange={(rows) => set("links", rows)} error={shown.links} />
         {error && <div className="banner bad small" role="alert">{error}</div>}

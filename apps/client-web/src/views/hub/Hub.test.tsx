@@ -172,13 +172,19 @@ describe("the goal form", () => {
     expect(within(dialog).getByText("A goal needs a title.")).toBeTruthy();
     expect(m.hub.createGoal).not.toHaveBeenCalled();
     fireEvent.change(within(dialog).getByLabelText("Title"), { target: { value: "Four players join" } });
-    fireEvent.change(within(dialog).getByLabelText("Passing runs in a row"), { target: { value: "11" } });
     fireEvent.click(within(dialog).getByRole("button", { name: "Create goal" }));
-    expect(within(dialog).getByText("From 1 to 10 runs.")).toBeTruthy();
-    fireEvent.change(within(dialog).getByLabelText("Passing runs in a row"), { target: { value: "3" } });
-    fireEvent.click(within(dialog).getByRole("button", { name: "Create goal" }));
-    await waitFor(() => expect(m.hub.createGoal).toHaveBeenCalledWith(expect.objectContaining({ title: "Four players join", acceptance: { stableRuns: 3, signOff: false } })));
+    await waitFor(() => expect(m.hub.createGoal).toHaveBeenCalledWith(expect.objectContaining({ title: "Four players join", acceptance: { stableRuns: 1, signOff: false } })));
     await waitFor(() => expect(window.location.hash).toBe("#/playtests/goals/four-players-join"));
+  });
+
+  it("offers the kind and done-when choices as radios", () => {
+    render(<Harness start={hubFixture()} />);
+    key("c");
+    const dialog = screen.getByRole("dialog", { name: "New goal" });
+    expect(within(dialog).getByRole("group", { name: "Kind" })).toBeTruthy();
+    expect((within(dialog).getByRole("radio", { name: /^Goal/ }) as HTMLInputElement).checked).toBe(true);
+    expect((within(dialog).getByRole("radio", { name: "When all its playtests pass" }) as HTMLInputElement).checked).toBe(true);
+    expect(within(dialog).queryByLabelText("Passing runs in a row")).toBeNull();
   });
 
   it("edits a goal with its values filled in", async () => {
