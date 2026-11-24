@@ -3,8 +3,9 @@
  * session store, with ue-mcp faked: the overview and missing checks, goal
  * routes and their errors, a plan that runs through the card and holds at
  * manual steps for their verdicts, unattended plans, Write
- * playtests linking what it drafts, the run screen's evidence, schedules,
- * hub.changed, remote access and the experiment setting.
+ * playtests linking what it drafts, the run screen's evidence, moved
+ * scripts, the goal store's export and import, hub.changed, remote access
+ * and the experiment setting.
  */
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import * as fs from "node:fs";
@@ -18,7 +19,6 @@ import { QaBroker, type QaHost } from "../src/qa.js";
 import { PlaytestIndex } from "../src/playtest-index.js";
 import { registerHub } from "../src/hub/routes.js";
 import type { Hub } from "../src/hub/hub.js";
-import { nextRunAt } from "../src/hub/schedules.js";
 import { sample, seriesOf } from "../src/hub/evidence.js";
 import { sensitiveRequest } from "../src/remote/pin-lock.js";
 import { SettingsStore } from "../src/settings.js";
@@ -94,6 +94,11 @@ const host = (): QaHost & Record<string, unknown> => ({
       }
       case "script_runs":
         return ok({ runs: [] });
+      case "fixup_redirectors": {
+        // A dry run reports the redirector at the path and where it points; OldDoor moved to DoorOpens.
+        const from = (args.paths as string[])[0];
+        return ok({ dryRun: true, redirectors: from === "/Game/Tests/OldDoor" ? [{ packageName: from, destinationPath: `${DOOR}.DoorOpens` }] : [] });
+      }
       default:
         return ok({});
     }
@@ -180,7 +185,8 @@ describe("routes", () => {
     const created = await call("POST", "/hub/goals", { title: "Door opens", checks: [{ kind: "script", target: DOOR }] });
     expect(created.status).toBe(200);
     const id = created.body.goal.id;
-    expect(fs.existsSync(path.join(root, "project", "QA", "Goals", `${id}.json`))).toBe(true);
+    // Kept in the goal store, never in the project.
+    expect(fs.existsSync(path.join(root, "project", "QA"))).toBe(false);
     expect((await call("GET", `/hub/goals/${id}`)).body).toMatchObject({ status: "not_started", progress: { met: 0, total: 1 } });
     expect((await call("GET", "/hub/goals/nope")).status).toBe(404);
     expect((await call("PUT", `/hub/goals/${id}`, { priority: "p9" })).status).toBe(400);
@@ -220,15 +226,14 @@ describe("routes", () => {
     expect((await call("DELETE", `/hub/goals/${alpha}/requires/${jump}`)).status).toBe(404);
   });
 
-  it("bad plan, schedule and query bodies are 400; unknown ids 404", async () => {
+  it("bad plan, rule and query bodies are 400; unknown ids 404", async () => {
     setup();
     expect((await call("POST", "/hub/plans", { scope: { kind: "nope" } })).status).toBe(400);
     expect((await call("POST", "/hub/plans", { scope: { kind: "all" }, options: { attended: "yes" } })).status).toBe(400);
     expect((await call("POST", "/hub/plans", { scope: { kind: "all" }, options: { verdictWaitMinutes: 7 } })).status).toBe(400);
     expect((await call("POST", "/hub/plans", { scope: { kind: "goal", goalId: "missing" } })).status).toBe(404);
-    expect((await call("POST", "/hub/schedules", { title: "N", scope: { kind: "all" }, at: "25:00", days: [1] })).status).toBe(400);
-    expect((await call("POST", "/hub/schedules", { title: "N", scope: { kind: "all" }, at: "02:00", days: [] })).status).toBe(400);
-    expect((await call("PUT", "/hub/schedules/nope", { enabled: false })).status).toBe(404);
+    expect((await call("PUT", "/hub/rules", { flakyWindow: 0 })).status).toBe(400);
+    expect((await call("POST", "/hub/fix", { checkId: "nope" })).status).toBe(400);
     expect((await call("PUT", "/hub/queue/paused", { paused: "yes" })).status).toBe(400);
     expect((await call("POST", "/hub/plans/nope/cancel")).status).toBe(404);
     expect((await call("GET", "/hub/runs/nope")).status).toBe(404);
@@ -238,16 +243,16 @@ describe("routes", () => {
 });
 
 describe("overview", () => {
-  it("checks are the goals' and the editor's scripts; a script the editor no longer lists is missing only while it is connected", async () => {
+  it("checks are the goals' and the editor's scripts; one not on this checkout is missing, only while the editor is connected, and fails no goal", async () => {
     setup();
-    const gone = (await call("POST", "/hub/goals", { title: "Gone", checks: [{ kind: "script", target: "/Game/Tests/Deleted" }, { kind: "manual", target: "Feels good" }] })).body.goal.id;
+    const gone = (await call("POST", "/hub/goals", { title: "Gone", checks: [{ kind: "script", target: "/Game/Tests/Deleted" }] })).body.goal.id;
     const o = (await call("GET", "/hub")).body as HubOverview;
-    expect(o.checks.map((c) => c.id).sort()).toEqual([`manual:Feels good`, `script:${DOOR}`, `script:${JUMP}`, "script:/Game/Tests/Deleted"].sort());
+    expect(o.checks.map((c) => c.id).sort()).toEqual([`script:${DOOR}`, `script:${JUMP}`, "script:/Game/Tests/Deleted"].sort());
     expect(o.checks.find((c) => c.id === "script:/Game/Tests/Deleted")).toMatchObject({ health: "missing", missing: true, goalIds: [gone] });
     expect(o.checks.find((c) => c.id === `script:${DOOR}`)).toMatchObject({ health: "never_run", goalIds: [], map: "/Game/Maps/Test", name: "DoorOpens" });
-    expect(o.goals[0].status).toBe("failing");
-    expect(o.attention.map((i) => i.kind)).toEqual(["missing_check"]);
-    expect(o.goalsDir).toBe("QA/Goals");
+    expect(o.goals[0].status).toBe("not_started");
+    expect(o.attention).toEqual([]);
+    expect(o.rules).toEqual({ staleAfterDays: null, flakyWindow: 3 });
 
     // Offline nothing is flagged missing.
     connected = false;
@@ -257,11 +262,48 @@ describe("overview", () => {
     expect(off.editor.connected).toBe(false);
   });
 
-  it("goal files that do not parse are warnings", async () => {
+  it("a moved script is followed through its redirector: the goal keeps its path, and history follows", async () => {
+    setup();
+    const OLD = "/Game/Tests/OldDoor";
+    const id = (await call("POST", "/hub/goals", { title: "Door", checks: [{ kind: "script", target: OLD }] })).body.goal.id;
+    hub.runs.record(qaRunFromAnswer({ run_id: "before", script: OLD, script_name: "OldDoor", state: "finished", steps: [{ index: 0, instruction: "x", judge: "auto", status: "passed" }] }, { seenAt: "2026-11-01T00:00:00.000Z" })!);
+    await call("GET", "/hub");
+    // The overview asked ue-mcp about the path, read only.
+    expect(calls.find((a) => a.action === "fixup_redirectors")?.args).toEqual({ paths: [OLD], dryRun: true });
+    await settle();
+    const o = (await call("GET", "/hub")).body as HubOverview;
+    const c = o.goals.find((g) => g.goal.id === id)!.checks[0];
+    expect(c).toMatchObject({ id: `script:${DOOR}`, renamedFrom: OLD });
+    expect(c.missing).toBeUndefined();
+    expect(c.last?.runId).toBe("before");
+    expect(o.goals.find((g) => g.goal.id === id)!.goal.checks).toEqual([{ kind: "script", target: OLD }]);
+    // A change made through the id a client shows reaches the goal's own entry.
+    expect((await call("PUT", `/hub/goals/${id}/checks/${enc(`script:${DOOR}`)}`, { required: false })).body.goal.checks).toEqual([{ kind: "script", target: OLD, required: false }]);
+  });
+
+  it("imports QA/Goals into an empty store once, without touching the files", async () => {
     fs.mkdirSync(path.join(root, "project", "QA", "Goals"), { recursive: true });
+    const file = path.join(root, "project", "QA", "Goals", "door.json");
+    fs.writeFileSync(file, JSON.stringify({ title: "Door", checks: [{ kind: "script", target: DOOR }] }));
     fs.writeFileSync(path.join(root, "project", "QA", "Goals", "bad.json"), "{");
     setup();
-    expect(((await call("GET", "/hub")).body as HubOverview).warnings[0]).toContain("bad.json is not valid JSON");
+    const o = (await call("GET", "/hub")).body as HubOverview;
+    expect(o.goals.map((g) => g.goal.id)).toEqual(["door"]);
+    expect(o.imported).toMatchObject({ from: "QA/Goals", goals: ["door"] });
+    expect(o.imported?.problems[0]).toContain("bad.json is not valid JSON");
+    expect(fs.readFileSync(file, "utf-8")).toBe(JSON.stringify({ title: "Door", checks: [{ kind: "script", target: DOOR }] }));
+  });
+
+  it("exports the goal store as one file and imports it, merged by id", async () => {
+    setup();
+    await call("POST", "/hub/goals", { id: "door", title: "Door" });
+    await call("PUT", `/hub/checks/${enc(`script:${DOOR}`)}`, { title: "The door" });
+    const file = (await call("GET", "/hub/store")).body;
+    expect(file.records.map((r: { type: string }) => r.type).sort()).toEqual(["check", "goal"]);
+    expect((await call("POST", "/hub/store", file)).body).toEqual({ added: 0, unchanged: 2, conflicts: [] });
+    expect((await call("POST", "/hub/store", { format: "nope" })).status).toBe(400);
+    const o = (await call("GET", "/hub")).body as HubOverview;
+    expect(o.checks.find((c) => c.id === `script:${DOOR}`)?.name).toBe("The door");
   });
 });
 
@@ -284,15 +326,15 @@ describe("sign-off", () => {
     expect((await goalState(id)).signOff).toBeUndefined();
   });
 
-  it("records the account, the paired device it came from, the revision and the runs, on this computer and not in the goal file", async () => {
+  it("records the account, the paired device it came from, the revision and the runs, as a record in the goal store", async () => {
     setup();
     const id = (await call("POST", "/hub/goals", { title: "Door", acceptance: { signOff: true }, checks: [{ kind: "script", target: DOOR }] })).body.goal.id;
-    const fileBefore = fs.readFileSync(path.join(root, "project", "QA", "Goals", `${id}.json`), "utf-8");
     doorRun("r1", ago(30), true, { revision: "abc1234def", scriptHash: "sha256:1" });
-    expect((await goalState(id)).status).toBe("needs_you");
+    expect((await goalState(id)).status).toBe("ready_to_sign_off");
     const r = await call("POST", `/hub/goals/${id}/sign-off`, { note: "Played it" }, { [PAIRED_DEVICE_HEADER]: encodeURIComponent("Ama's phone") });
     expect(r.body.signOff).toMatchObject({ goalId: id, by: "octocat", via: "Ama's phone", note: "Played it", revision: "abc1234def", runIds: ["r1"] });
-    expect(fs.readFileSync(path.join(root, "project", "QA", "Goals", `${id}.json`), "utf-8")).toBe(fileBefore);
+    expect(fs.readdirSync(path.join(root, "data", "hub", "signoffs"))).toHaveLength(1);
+    expect(fs.existsSync(path.join(root, "project", "QA"))).toBe(false);
     const g = await goalState(id);
     expect(g.status).toBe("met");
     expect(g.signOff).toMatchObject({ record: { by: "octocat" }, lapsed: null });
@@ -336,9 +378,9 @@ describe("sign-off", () => {
 describe("plans", () => {
   it("runs a goal through the card; the plan holds at its manual step with PIE paused until the verdict, then moves on", async () => {
     setup();
-    const g = (await call("POST", "/hub/goals", { title: "Doors", checks: [{ kind: "script", target: DOOR }, { kind: "script", target: JUMP }, { kind: "manual", target: "Feels good" }] })).body.goal;
+    const g = (await call("POST", "/hub/goals", { title: "Doors", checks: [{ kind: "script", target: DOOR }, { kind: "script", target: JUMP }] })).body.goal;
     const planned = await call("POST", "/hub/plans", { scope: { kind: "goal", goalId: g.id } });
-    expect(planned.body.plan).toMatchObject({ title: "Run Doors", trigger: "person", options: { attended: true }, items: [{ name: "DoorOpens" }, { name: "JumpCheck" }, { name: "Feels good" }] });
+    expect(planned.body.plan).toMatchObject({ title: "Run Doors", trigger: "person", options: { attended: true }, items: [{ name: "DoorOpens" }, { name: "JumpCheck" }] });
     await settle();
     await settle();
 
@@ -350,7 +392,7 @@ describe("plans", () => {
     let q = (await plan()).body;
     const run0 = q.current!.items[0].runId!;
     expect(run0).toBe("script_DoorOpens_0");
-    expect(store.all().map((s) => s.title)).toContain("Plan: Run Doors");
+    expect(store.all().map((s) => s.title)).toContain("Run Doors");
     expect(hub.runs.get(run0)).toMatchObject({ source: "plan", planRunId: q.current!.id });
 
     // The manual step waits: PIE is paused, the item needs you, and nothing else starts.
@@ -361,8 +403,9 @@ describe("plans", () => {
     expect(broker.hold.held()).toMatchObject([{ runId: run0, step: 1, instruction: "It looks right", paused: true }]);
     expect(calls.some((c) => c.action === "script_stop")).toBe(false);
     q = (await plan()).body;
-    expect(q.current!.items.map((i) => i.state)).toEqual(["needs_you", "queued", "queued"]);
-    expect(((await call("GET", "/hub")).body as HubOverview).goals[0].status).toBe("needs_you");
+    expect(q.current!.items.map((i) => i.state)).toEqual(["needs_you", "queued"]);
+    // A live verdict is asked for in the app bar and on the Run screen; the goal is only running.
+    expect(((await call("GET", "/hub")).body as HubOverview).goals[0].status).toBe("running");
 
     // The verdict: PIE runs again, the run finishes and the plan goes on.
     expect("run" in (await broker.verdict(run0, { step: 1, verdict: "pass" }))).toBe(true);
@@ -376,15 +419,14 @@ describe("plans", () => {
     expect(q.current!.items[0].state).toBe("passed");
     expect(q.current!.items[1]).toMatchObject({ state: "running", runId: "script_JumpCheck_1" });
 
-    // The second item fails; the manual check is skipped; the plan is done.
+    // The second item fails; the plan is done.
     const run1 = "script_JumpCheck_1";
     status.set(run1, { ...status.get(run1)!, state: "finished", steps: steps(["failed", "skipped"]) });
     await hub.tick();
     await settle();
     q = (await plan()).body;
     expect(q.current).toBeNull();
-    expect(q.recent[0].items.map((i) => i.state)).toEqual(["passed", "failed", "skipped"]);
-    expect(q.recent[0].items[2].reason).toBe("Manual check checks cannot run yet");
+    expect(q.recent[0].items.map((i) => i.state)).toEqual(["passed", "failed"]);
   });
 
   it("a plan's own verdict wait sets the held run's deadline; Stop now ends the run and PIE, and the item is not judged", async () => {
@@ -414,20 +456,13 @@ describe("plans", () => {
     expect(calls.filter((c) => c.action === "set_pie_paused").map((c) => c.args.paused)).toEqual([true]);
   });
 
-  it("an unattended plan never starts a check that needs a person; a schedule's plans are unattended unless it says otherwise", async () => {
+  it("an unattended plan never starts a check that needs a person", async () => {
     setup();
     listed = [DOOR, JUMP, "/Game/Tests/AutoOnly"];
     await call("POST", "/hub/plans", { scope: { kind: "checks", checks: [{ kind: "script", target: DOOR }] }, options: { attended: false } });
     await settle();
     await settle();
-    let q = (await call("GET", "/hub/queue")).body as QueueState;
-    expect(q.recent[0].items[0]).toMatchObject({ state: "skipped", reason: "needs a person" });
-    expect(calls.some((c) => c.action === "script_run")).toBe(false);
-    const p = await hub.plan({ scope: { kind: "checks", checks: [{ kind: "script", target: JUMP }] } }, "schedule");
-    expect(p.options.attended).toBe(false);
-    await settle();
-    await settle();
-    q = (await call("GET", "/hub/queue")).body as QueueState;
+    const q = (await call("GET", "/hub/queue")).body as QueueState;
     expect(q.recent[0].items[0]).toMatchObject({ state: "skipped", reason: "needs a person" });
     expect(calls.some((c) => c.action === "script_run")).toBe(false);
     expect(broker.hold.held()).toEqual([]);
@@ -597,8 +632,10 @@ describe("the editor lease", () => {
     };
     const g = (await call("POST", "/hub/goals", { title: "Doors", checks: [{ kind: "script", target: DOOR }] })).body.goal;
     hub.runs.record(qaRunFromAnswer({ run_id: "r-old", script: DOOR, script_name: "DoorOpens", state: "finished", steps: [{ index: 0, instruction: "x", judge: "auto", status: "failed" }] }, { seenAt: "2026-11-23T00:00:00.000Z" })!);
-    const r = (await call("POST", "/hub/assign-failing", { goalId: g.id })).body;
+    const r = (await call("POST", "/hub/fix", { goalId: g.id })).body;
     expect(r).toMatchObject({ queued: 1, plan: { work: "fix", title: "Fix what is failing in Doors" } });
+    // Asked again while it is queued, nothing more is.
+    expect((await call("POST", "/hub/fix", { checkId: `script:${DOOR}` })).body).toEqual({ queued: 0, plan: null });
     for (let i = 0; i < 3; i++) await settle();
     expect(store.all().map((s) => s.title)).toContain("Fix DoorOpens");
     const q = await queue();
@@ -674,7 +711,7 @@ describe("run screen", () => {
     expect(detail.state).toMatchObject({ health: "failing", recent: ["failed", "passed"] });
   });
 
-  it("links: a run's are kept in the history and survive the run changing; a check's show on the check across goals", async () => {
+  it("links: a run's are kept in the history and survive the run changing; a check's are its own, on every goal that lists it", async () => {
     const obs = path.join(root, "project", "Saved", "MCPObservations", "script_DoorOpens_1");
     fs.mkdirSync(obs, { recursive: true });
     fs.writeFileSync(path.join(obs, "results.json"), JSON.stringify({ run_id: "script_DoorOpens_1", script: DOOR, script_name: "DoorOpens", state: "finished", started_at: "2026-11-22T00:00:00.000Z", ended_at: "2026-11-22T00:00:00.000Z", steps: steps(["failed", "passed"]) }));
@@ -692,14 +729,16 @@ describe("run screen", () => {
     expect((await call("DELETE", `/hub/runs/script_DoorOpens_1/links?url=${enc("https://other")}`)).status).toBe(404);
     expect((await call("DELETE", `/hub/runs/script_DoorOpens_1/links?url=${enc(url)}`)).body.record.links).toBeUndefined();
 
-    const a = (await call("POST", "/hub/goals", { title: "A", checks: [{ kind: "script", target: DOOR, links: [{ url: "https://trello.com/c/1" }] }] })).body.goal;
+    const a = (await call("POST", "/hub/goals", { title: "A", checks: [{ kind: "script", target: DOOR }] })).body.goal;
     const b = (await call("POST", "/hub/goals", { title: "B", checks: [{ kind: "script", target: DOOR }] })).body.goal;
-    const put = await call("PUT", `/hub/goals/${b.id}/checks/${enc(`script:${DOOR}`)}`, { links: [{ url: "jira://HOL-9" }] });
-    expect(put.body.goal.checks[0].links).toEqual([{ url: "jira://HOL-9" }]);
-    expect((await call("PUT", `/hub/goals/${a.id}/checks/${enc("script:/Game/None")}`, { title: "x" })).status).toBe(404);
+    const put = await call("PUT", `/hub/checks/${enc(`script:${DOOR}`)}`, { links: [{ url: "jira://HOL-9" }] });
+    expect(put.body.meta).toEqual({ links: [{ url: "jira://HOL-9" }] });
+    expect((await call("PUT", `/hub/checks/${enc(`script:${DOOR}`)}`, { links: [{ url: "javascript:x" }] })).status).toBe(400);
+    expect((await call("PUT", `/hub/goals/${a.id}/checks/${enc("script:/Game/None")}`, { required: false })).status).toBe(404);
     const detail = (await call("GET", `/hub/checks/${enc(`script:${DOOR}`)}`)).body;
-    expect(detail.state.check.links).toEqual([{ url: "https://trello.com/c/1" }, { url: "jira://HOL-9" }]);
-    expect((await call("GET", `/hub/goals/${b.id}`)).body.checks[0].check.links).toEqual([{ url: "jira://HOL-9" }]);
+    expect(detail.state.links).toEqual([{ url: "jira://HOL-9" }]);
+    expect((await call("GET", `/hub/goals/${a.id}`)).body.checks[0].links).toEqual([{ url: "jira://HOL-9" }]);
+    expect((await call("GET", `/hub/goals/${b.id}`)).body.checks[0].links).toEqual([{ url: "jira://HOL-9" }]);
   });
 
   it("samples a series down to the cap and keeps its end", () => {
@@ -709,40 +748,6 @@ describe("run screen", () => {
     expect(s[0]).toEqual([0, 0]);
     expect(s[299]).toEqual([1000, 1000]);
     expect(seriesOf("frame,time\n1,0")).toEqual({});
-  });
-});
-
-describe("schedules", () => {
-  it("the next run is the next allowed day at that local time", () => {
-    const mon = new Date(2026, 10, 23, 1, 0); // a Monday, 01:00 local
-    expect(nextRunAt({ at: "02:00", days: [1] }, mon)?.getTime()).toBe(new Date(2026, 10, 23, 2, 0).getTime());
-    expect(nextRunAt({ at: "00:30", days: [1] }, mon)?.getTime()).toBe(new Date(2026, 10, 30, 0, 30).getTime());
-    expect(nextRunAt({ at: "02:00", days: [3] }, mon)?.getTime()).toBe(new Date(2026, 10, 25, 2, 0).getTime());
-  });
-
-  it("a due schedule with the editor closed is skipped and says why; with it open, it queues its plan", async () => {
-    let now = new Date(2026, 10, 23, 1, 0).getTime();
-    const h = host();
-    broker = new QaBroker({ host: h, store });
-    hub = registerHub(h as never, { broker, index: new PlaytestIndex({ host: h as never, broker, store }), store, playtestRuns: () => "manual", signer: () => "you", enabled: () => true, timers: false, now: () => now });
-    const s = (await call("POST", "/hub/schedules", { title: "Nightly", scope: { kind: "all" }, at: "02:00", days: [0, 1, 2, 3, 4, 5, 6] })).body.schedule;
-    expect(s.nextRunAt).toBe(new Date(2026, 10, 23, 2, 0).toISOString());
-    connected = false;
-    now = new Date(2026, 10, 23, 2, 1).getTime();
-    await hub.tick();
-    let got = (await call("GET", "/hub/queue")).body.schedules[0];
-    expect(got).toMatchObject({ lastSkipped: "The editor is not connected", nextRunAt: new Date(2026, 10, 24, 2, 0).toISOString() });
-    connected = true;
-    now = new Date(2026, 10, 24, 2, 0, 30).getTime();
-    await hub.tick();
-    await settle();
-    const q = (await call("GET", "/hub/queue")).body as QueueState;
-    got = q.schedules[0];
-    expect(got.lastSkipped).toBeNull();
-    expect(got.lastRunAt).toBe(new Date(now).toISOString());
-    const plan = q.current ?? q.queued[0] ?? q.recent[0];
-    expect(plan).toMatchObject({ trigger: "schedule", scheduleId: s.id, title: "Nightly" });
-    expect((await call("DELETE", `/hub/schedules/${s.id}`)).status).toBe(204);
   });
 });
 

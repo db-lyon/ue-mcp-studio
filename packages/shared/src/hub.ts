@@ -1,10 +1,21 @@
 /**
- * The Playtest Hub: goals a game must meet, the checks that prove them, the
- * runs that are their evidence, and the queue that schedules runs on the
- * editor. Goals are files in the project (QA/Goals/<id>.json, checked in and
- * shared); run history, the queue and schedules are per machine, in the
- * extension's data directory. Status is always computed, never stored: these
- * rules are the one place it is worked out, for the agent and both clients.
+ * The Playtest Hub: goals a game must meet, the playtests that prove them,
+ * the runs that are their evidence, and the queue that runs them on the
+ * editor.
+ *
+ * Goals and milestones are tracked like issues: in one place, not versioned
+ * per branch. They live in the project's goal store, outside the game repo
+ * (HubRecord below; on this computer under the extension's data directory),
+ * with their graph, owner, priority and due date, what each playtest says
+ * about itself, sign-offs and the health rule. The repo holds only the
+ * playtest scripts, which goals name by asset path; a script missing on the
+ * current checkout shows as missing and the goal never forks. Run history
+ * and the queue are per machine too. Status is always computed, never
+ * stored: these rules are the one place it is worked out, for the agent and
+ * both clients.
+ *
+ * In code a playtest is a "check", the general word, kept for when a second
+ * kind runs; people only ever read "playtest".
  *
  * Routes are under /v1/ext/studio/hub (see HUB_ROUTES below); every change
  * publishes `studio.hub.changed` with a HubChanged body.
@@ -12,23 +23,15 @@
 import { qaEnded, type QaRun, type QaStep, type QaStepStatus, type QaSummary } from "./qa.js";
 
 export const HUB_SCHEMA = 1 as const;
-/** Where goal files live in the project unless the project sets another folder. */
-export const HUB_GOALS_DIR = "QA/Goals";
-/** Beside the goal files: the JSON Schema each goal file names in "$schema", and a short guide for people and agents. */
-export const HUB_GOAL_SCHEMA_FILE = "goal.schema.json";
-export const HUB_GOALS_README = "README.md";
 
-// ---------- Goals and checks (checked in) ----------
+// ---------- Goals and checks ----------
 
 /**
- * What a check is. Today only `script` runs (a ue-mcp PIE test script); the
- * others are modelled so goals can name them, and run as their runners land:
- * `uat` a pie.uat_run scenario, `repro` a pie.test_run reproduction test,
- * `automation` an Unreal automation test filter, `manual` a checklist item a
- * person signs off.
+ * What a check is: a ue-mcp PIE test script, a playtest. The only kind the
+ * schema has; a kind returns with its runner, as a schema version. Goals
+ * imported with another kind keep those entries apart (Goal.unsupported).
  */
-export type CheckKind = "script" | "uat" | "repro" | "automation" | "manual";
-export const RUNNABLE_KINDS: readonly CheckKind[] = ["script"];
+export type CheckKind = "script";
 
 // ---------- Tracker links ----------
 
@@ -116,53 +119,104 @@ export function linkHost(url: string): string {
   return scheme;
 }
 
+/** A check as a goal lists it: which one, and whether the goal needs it. Nothing about the check itself (that is its CheckMeta). */
 export interface CheckRef {
   kind: CheckKind;
-  /** script: asset path without object name; uat/repro: file path; automation: test filter; manual: the item's text. */
+  /** The script's asset path without the object name, such as /Game/Tests/PT_Jump. */
   target: string;
-  /** A display name; the script's own name otherwise. */
-  title?: string;
   /** A goal is met only when its required checks pass. Default true. */
   required?: boolean;
-  /** Tracker items this check refers to, kept in the goal that lists it. */
+}
+
+/** PUT /hub/goals/:id/checks/:checkId: what the goal says of the check. */
+export interface GoalCheckUpdate {
+  required?: boolean;
+}
+
+/**
+ * A check a goal was imported with whose kind this Studio cannot run (a UAT
+ * scenario, an automation filter, a manual checklist item). Kept as it came,
+ * shown as unsupported, and never counted toward the goal.
+ */
+export interface UnsupportedCheck {
+  kind: string;
+  target: string;
+  required?: boolean;
+}
+
+/** What a check says about itself, wherever it is listed: its one home, one record in the goal store. */
+export interface CheckMeta {
+  /** A display name; the script's own name otherwise. */
+  title?: string;
+  /** Tracker items the check refers to. */
   links?: TrackerLink[];
 }
 
-/** PUT /hub/goals/:id/checks/:checkId. Given fields change; null clears title, an empty list clears links. */
-export interface CheckUpdate {
+/** PUT /hub/checks/:checkId. Given fields change; null clears the title, an empty list the links. */
+export interface CheckMetaUpdate {
   title?: string | null;
-  required?: boolean;
   links?: TrackerLink[];
+}
+
+/** A check's CheckMeta as the goal store keeps it: it names its check. */
+export interface CheckMetaRecord extends CheckMeta {
+  check: Pick<CheckRef, "kind" | "target">;
 }
 
 /** A check's identity across goals and runs: "<kind>:<target>". */
 export const checkId = (c: Pick<CheckRef, "kind" | "target">): string => `${c.kind}:${c.target}`;
 export function parseCheckId(id: string): Pick<CheckRef, "kind" | "target"> | null {
   const i = id.indexOf(":");
-  if (i <= 0) return null;
-  const kind = id.slice(0, i) as CheckKind;
-  if (!["script", "uat", "repro", "automation", "manual"].includes(kind)) return null;
+  if (i <= 0 || id.slice(0, i) !== "script") return null;
   const target = id.slice(i + 1);
-  return target ? { kind, target } : null;
+  return target ? { kind: "script", target } : null;
 }
 
 export interface AcceptanceRule {
-  /** How many latest runs of each required check must all pass. 1 to 10, default 1. */
+  /** How many consecutive passes of each required check count when the goal rolls up. 1 to 10, default 1. */
   stableRuns: number;
-  /** A passing check not run for this many days counts as stale (at risk). Null: never stale. */
-  staleAfterDays: number | null;
   /** A person signs the goal off before it is met. */
   signOff: boolean;
 }
-export const DEFAULT_ACCEPTANCE: AcceptanceRule = { stableRuns: 1, staleAfterDays: 14, signOff: false };
-
-export type GoalPriority = "p0" | "p1" | "p2" | "p3";
-export type GoalKind = "milestone" | "goal";
+export const DEFAULT_ACCEPTANCE: AcceptanceRule = { stableRuns: 1, signOff: false };
 
 /**
- * A person's sign-off of a goal, kept on the machine it was given on beside
- * the runs it judged, never in the goal file. It records what was signed so
- * it can lapse (signOffLapse) when that no longer describes the game.
+ * The project's one rule for a check's health, whichever goal lists it: when
+ * a passing check is flaky or stale. Kept in the goal store, a project
+ * setting.
+ */
+export interface HealthRule {
+  /** A passing check not run for this many days is stale, where no dependency fingerprints say more. Null: never stale by age. */
+  staleAfterDays: number | null;
+  /** Flaky: mixed results among this many latest results on the same provenance. 2 to 20. */
+  flakyWindow: number;
+}
+export const DEFAULT_HEALTH_RULE: HealthRule = { staleAfterDays: null, flakyWindow: 3 };
+export const FLAKY_WINDOW_MIN = 2;
+export const FLAKY_WINDOW_MAX = 20;
+export const STALE_DAYS_MAX = 365;
+
+/** Why a body cannot be a health rule, or null when it can. */
+export function healthRuleProblem(v: unknown): string | null {
+  if (!v || typeof v !== "object" || Array.isArray(v)) return "the rule is { staleAfterDays, flakyWindow }";
+  const o = v as Record<string, unknown>;
+  const d = o.staleAfterDays;
+  if (d !== undefined && d !== null && !(typeof d === "number" && Number.isInteger(d) && d >= 1 && d <= STALE_DAYS_MAX)) return `staleAfterDays is a whole number of days from 1 to ${STALE_DAYS_MAX}, or null for never`;
+  const w = o.flakyWindow;
+  if (w !== undefined && !(typeof w === "number" && Number.isInteger(w) && w >= FLAKY_WINDOW_MIN && w <= FLAKY_WINDOW_MAX)) return `flakyWindow is a whole number from ${FLAKY_WINDOW_MIN} to ${FLAKY_WINDOW_MAX}`;
+  return null;
+}
+
+export type GoalKind = "milestone" | "goal";
+export type GoalPriority = "p0" | "p1" | "p2" | "p3";
+export const GOAL_PRIORITIES: readonly GoalPriority[] = ["p0", "p1", "p2", "p3"];
+/** A due date: YYYY-MM-DD. */
+export const GOAL_DUE = /^\d{4}-\d{2}-\d{2}$/;
+
+/**
+ * A person's sign-off of a goal, a record in the goal store beside the goal.
+ * It records what was signed so it can lapse (signOffLapse) when that no
+ * longer describes the game.
  */
 export interface SignOff {
   goalId: string;
@@ -190,10 +244,10 @@ export interface SignOffState {
 }
 
 /**
- * One goal another goal requires, in the requiring goal's file. A goal may be
- * required by any number of goals and milestones; the edge lives only in the
- * file of the goal that requires, so adding a goal to a milestone edits only
- * the milestone's file.
+ * One goal another goal requires, held by the goal that requires. A goal may
+ * be required by any number of goals and milestones; the edge lives only on
+ * the goal that requires, so adding a goal to a milestone changes only the
+ * milestone.
  */
 export interface GoalRequirement {
   goal: string;
@@ -201,7 +255,7 @@ export interface GoalRequirement {
   required?: boolean;
 }
 
-/** One goal file. Ids are slugs and name the file: QA/Goals/<id>.json. */
+/** One goal, a record in the goal store. Ids are the title's slug and a random ending, so ids made on two computers never meet. */
 export interface Goal {
   schema: typeof HUB_SCHEMA;
   id: string;
@@ -210,24 +264,26 @@ export interface Goal {
   title: string;
   /** What "done" means, in the team's words. Markdown. */
   description?: string;
+  /** Who owns the goal, as the team names people. */
   owner?: string | null;
   priority?: GoalPriority;
-  tags?: string[];
-  /** ISO date (YYYY-MM-DD). */
+  /** YYYY-MM-DD. */
   due?: string | null;
-  /** Tracker items this goal refers to: its issue, a design document. */
+  /** Tracker items this goal refers to: its issue, a design document. Optional, and never synced. */
   links?: TrackerLink[];
   acceptance: AcceptanceRule;
   /** The goals this one requires, in its own order. A goal is met only when its required goals are. */
   requires?: GoalRequirement[];
   checks: CheckRef[];
+  /** Checks it was imported with that this Studio cannot run. */
+  unsupported?: UnsupportedCheck[];
   archived?: boolean;
 }
 
 /**
  * The goals that require this one, as a draft or update gives them: each
- * named goal's file gains the requirement, and on an update each goal that
- * required it and is not named loses it. Never stored in this goal's file.
+ * named goal gains the requirement, and on an update each goal that required
+ * it and is not named loses it. Never stored on this goal.
  */
 export interface GoalParents {
   parents?: string[];
@@ -235,8 +291,8 @@ export interface GoalParents {
 
 /** POST /hub/goals. The agent fills id (the title's slug and a random suffix, unless one is given), schema and defaults. */
 export type GoalDraft = Pick<Goal, "title"> & Partial<Omit<Goal, "schema">> & GoalParents;
-/** PUT /hub/goals/:id. Given fields change; checks and requires, when given, replace the list. */
-export type GoalUpdate = Partial<Omit<Goal, "schema" | "id">> & GoalParents;
+/** PUT /hub/goals/:id. Given fields change; checks and requires, when given, replace the list; null clears owner, priority and due. */
+export type GoalUpdate = Partial<Omit<Goal, "schema" | "id" | "priority">> & { priority?: GoalPriority | null } & GoalParents;
 
 /** A goal id's readable part from a title: lowercase ASCII words joined by dashes, at most `max` characters. */
 export function goalSlug(title: string, max = 64): string {
@@ -255,7 +311,7 @@ export const GOAL_ID = /^[a-z0-9][a-z0-9-]{0,63}$/;
 // ---------- Runs (per machine) ----------
 
 export type RunOutcome = "passed" | "failed" | "needs_you" | "running" | "incomplete" | "unjudged" | "stopped" | "error";
-export type RunSource = "person" | "agent" | "plan" | "schedule" | "outside";
+export type RunSource = "person" | "agent" | "plan" | "outside";
 
 /**
  * Why a run happened, beside who started it (RunRecord.source): a run of
@@ -382,17 +438,33 @@ export interface RunDetail {
 
 // ---------- Health and status (computed) ----------
 
-export type CheckHealth = "needs_you" | "failing" | "running" | "flaky" | "stale" | "passing" | "never_run" | "missing";
-export type GoalStatus = "needs_you" | "failing" | "at_risk" | "running" | "met" | "not_started";
+/**
+ * A check's health. A run holding for a live verdict is "running": the
+ * verdict itself is asked for in the app bar and on the Run screen, never
+ * as a status. "missing": the script is not on this checkout, which says
+ * nothing about the goal (another branch may have it), so it never makes a
+ * goal fail.
+ */
+export type CheckHealth = "failing" | "running" | "flaky" | "stale" | "passing" | "never_run" | "missing";
+/**
+ * A goal's status. "ready_to_sign_off": everything passes and only a
+ * person's sign-off is missing. "at_risk": met, but a required check is
+ * flaky or stale. "in_progress": some evidence, not all of it yet, which
+ * the goal's progress counts.
+ */
+export type GoalStatus = "failing" | "ready_to_sign_off" | "at_risk" | "running" | "in_progress" | "not_started" | "met";
 
 /** Worst first: what every list sorts by, and the order the status ladder is drawn in. */
-export const CHECK_HEALTH_ORDER: readonly CheckHealth[] = ["needs_you", "failing", "missing", "running", "flaky", "stale", "never_run", "passing"];
-export const GOAL_STATUS_ORDER: readonly GoalStatus[] = ["needs_you", "failing", "at_risk", "running", "not_started", "met"];
+export const CHECK_HEALTH_ORDER: readonly CheckHealth[] = ["failing", "running", "flaky", "stale", "never_run", "missing", "passing"];
+export const GOAL_STATUS_ORDER: readonly GoalStatus[] = ["failing", "ready_to_sign_off", "at_risk", "running", "in_progress", "not_started", "met"];
 
 export interface CheckState {
   id: string;
   check: CheckRef;
+  /** The check's title when its CheckMeta has one, else the script's name. */
   name: string;
+  /** Tracker items the check refers to (CheckMeta.links). */
+  links?: TrackerLink[];
   /** Goals that list this check. Empty for a script no goal names yet. */
   goalIds: string[];
   health: CheckHealth;
@@ -404,8 +476,10 @@ export interface CheckState {
   /** The script's map and step count, when known. */
   map?: string | null;
   steps?: number | null;
-  /** The script no longer resolves in the project. */
+  /** The script is not on this checkout. */
   missing?: boolean;
+  /** The path goals name, when the script moved and is followed to `check.target` (a redirector ue-mcp reported). */
+  renamedFrom?: string;
   /** No goal lists this check, so nothing it proves counts anywhere. */
   unused?: boolean;
   /** The newest result differs from the one before it, and they tested different things (checkChange). */
@@ -444,7 +518,7 @@ export interface GoalState {
   requires: RequiredGoalState[];
   /** Not a milestone, and nothing requires it: it is part of no milestone and no goal. */
   unused?: boolean;
-  /** The goal's sign-off on this machine, current or lapsed. */
+  /** The goal's newest sign-off, current or lapsed. */
   signOff?: SignOffState;
 }
 
@@ -492,8 +566,9 @@ export interface HealthInput {
   /** Runs of this check, newest first. */
   runs: RunRecord[];
   missing?: boolean;
-  acceptance?: AcceptanceRule;
-  /** The workspace now. Without it acceptance does not compare revisions. */
+  /** The project's health rule; DEFAULT_HEALTH_RULE without one. */
+  rule?: HealthRule;
+  /** The workspace now, for staleness by dependency fingerprints. */
   current?: CurrentProvenance;
   now?: number;
 }
@@ -503,24 +578,26 @@ export interface HealthInput {
  * pass and the workspace both have fingerprints for it; otherwise older than
  * the rule's age.
  */
-function staleSince(pass: RunRecord, acceptance: AcceptanceRule, current: CurrentProvenance | undefined, now: number): boolean {
+function staleSince(pass: RunRecord, rule: HealthRule, current: CurrentProvenance | undefined, now: number): boolean {
   const then = pass.provenance?.dependencies;
   const deps = current?.dependencies;
   const known = then && deps ? Object.keys(then).filter((k) => k in deps) : [];
   if (known.length) return known.some((k) => deps![k] !== then![k]);
-  if (acceptance.staleAfterDays === null) return false;
+  if (rule.staleAfterDays === null) return false;
   const at = Date.parse(pass.endedAt ?? pass.startedAt);
-  return Number.isFinite(at) && now - at > acceptance.staleAfterDays * DAY;
+  return Number.isFinite(at) && now - at > rule.staleAfterDays * DAY;
 }
 
 /**
- * A check's health from its results (isResult): stopped, unjudged, replayed
- * and fix-loop runs leave the health the result before them gave.
+ * A check's health from its results (isResult), the same wherever it is
+ * listed: stopped, unjudged, replayed and fix-loop runs leave the health the
+ * result before them gave.
  *
+ * - Running: a run of it plays now, or holds for a verdict.
  * - Failing: the newest result did not pass.
- * - Flaky: it passed, and the last stableRuns+2 (at least 3) results on the
- *   same provenance are mixed. Mixed results across revisions or script
- *   versions are a fix or a regression (checkChange), not flakiness.
+ * - Flaky: it passed, and the rule's flakyWindow latest results on the same
+ *   provenance are mixed. Mixed results across revisions or script versions
+ *   are a fix or a regression (checkChange), not flakiness.
  * - Stale: staleSince the pass.
  *
  * A run over uncommitted changes is the newest word on the check, so a person
@@ -528,18 +605,17 @@ function staleSince(pass: RunRecord, acceptance: AcceptanceRule, current: Curren
  * flakiness (sameProvenance) and never counts toward acceptance.
  */
 export function checkHealth(input: HealthInput): CheckHealth {
-  const { runs, acceptance = DEFAULT_ACCEPTANCE, now = Date.now() } = input;
+  const { runs, rule = DEFAULT_HEALTH_RULE, now = Date.now() } = input;
   if (input.missing) return "missing";
   const live = runs[0];
-  if (live?.outcome === "needs_you") return "needs_you";
-  if (live?.outcome === "running") return "running";
+  if (live?.outcome === "running" || live?.outcome === "needs_you") return "running";
   const done = runs.filter(isResult);
   if (done.length === 0) return "never_run";
   const newest = done[0];
   if (newest.outcome !== "passed") return "failing";
-  const same = done.filter((r) => sameProvenance(r, newest)).slice(0, Math.max(3, acceptance.stableRuns + 2));
+  const same = done.filter((r) => sameProvenance(r, newest)).slice(0, rule.flakyWindow);
   if (same.some((r) => r.outcome !== "passed")) return "flaky";
-  if (staleSince(newest, acceptance, input.current, now)) return "stale";
+  if (staleSince(newest, rule, input.current, now)) return "stale";
   return "passing";
 }
 
@@ -567,13 +643,15 @@ export function checkChange(runs: RunRecord[]): CheckChange | undefined {
   return { kind: passed(n) ? "fixed" : "regressed", runId: n.runId, at: n.endedAt ?? n.startedAt };
 }
 
-export function checkStateOf(input: HealthInput & { goalIds: string[]; name?: string; map?: string | null; steps?: number | null }): CheckState {
+export function checkStateOf(input: HealthInput & { goalIds: string[]; meta?: CheckMeta; name?: string; map?: string | null; steps?: number | null; renamedFrom?: string }): CheckState {
   const done = input.runs.filter(isResult).slice(0, 20);
   const change = checkChange(input.runs);
+  const links = input.meta?.links ?? [];
   return {
     id: checkId(input.check),
     check: input.check,
-    name: input.check.title ?? input.name ?? leafName(input.check.target),
+    name: input.meta?.title ?? input.name ?? leafName(input.check.target),
+    ...(links.length ? { links } : {}),
     goalIds: input.goalIds,
     health: checkHealth(input),
     last: input.runs[0] ?? null,
@@ -582,59 +660,56 @@ export function checkStateOf(input: HealthInput & { goalIds: string[]; name?: st
     map: input.map ?? null,
     steps: input.steps ?? null,
     ...(input.missing ? { missing: true } : {}),
+    ...(input.renamedFrom ? { renamedFrom: input.renamedFrom } : {}),
     ...(input.goalIds.length === 0 ? { unused: true } : {}),
     ...(change ? { change } : {}),
   };
 }
 
-/** Whether a goal is met only once a person signs it off: its rule asks for it, or a required manual check waits on it. */
-export const needsSignOff = (goal: Pick<Goal, "acceptance" | "checks">): boolean =>
-  goal.acceptance.signOff || goal.checks.some((c) => c.kind === "manual" && c.required !== false);
+/** Whether a goal is met only once a person signs it off. */
+export const needsSignOff = (goal: Pick<Goal, "acceptance">): boolean => goal.acceptance.signOff;
 
 /**
- * A goal's status from its checks (each worked out with the goal's own
- * acceptance rule) and the statuses of the goals it requires. An optional
- * goal (required: false) never blocks: only a verdict waiting in it, or a
- * run in it, shows, as an optional check's would. `current` is the workspace
- * acceptance compares revisions with (checkSatisfied). `signedOff`: the goal
- * has a sign-off that has not lapsed.
+ * A goal's status from its checks' health and acceptance (stableRuns counted
+ * here, at the roll-up, never in a check's own health) and the statuses of
+ * the goals it requires. An optional goal (required: false) never blocks:
+ * only a run in it shows, as an optional check's would. A required check
+ * missing on this checkout is not met, and is no failure either: the goal
+ * waits for it. `current` is the workspace acceptance compares revisions
+ * with (checkSatisfied). `signedOff`: the goal has a sign-off that has not
+ * lapsed.
  */
 export function goalStatus(goal: Goal, checks: Array<{ state: CheckState; runs: RunRecord[] }>, childStatuses: GoalStatus[] = [], optionalStatuses: GoalStatus[] = [], current?: CurrentProvenance, signedOff = false): { status: GoalStatus; progress: { met: number; total: number } } {
-  const optNeeds = optionalStatuses.includes("needs_you");
-  const optRunning = optionalStatuses.includes("running");
   const required = checks.filter((c) => c.state.check.required !== false);
-  const met = required.filter((c) => c.state.check.kind !== "manual" && checkSatisfied(c.runs, goal.acceptance, current)).length;
-  const manualRequired = required.filter((c) => c.state.check.kind === "manual").length;
-  // A manual check is satisfied by the goal's sign-off.
-  const metAll = met + (signedOff ? manualRequired : 0);
+  const met = required.filter((c) => !c.state.missing && checkSatisfied(c.runs, goal.acceptance, current)).length;
+  // At risk is met, with a flaky or stale check under it.
+  const childMet = (s: GoalStatus): boolean => s === "met" || s === "at_risk";
   // Required goals count as one each beside the checks, so a milestone made of goals shows how many are met.
-  const progress = { met: metAll + childStatuses.filter((s) => s === "met").length, total: required.length + childStatuses.length };
+  const progress = { met: met + childStatuses.filter(childMet).length, total: required.length + childStatuses.length };
   const hs = checks.map((c) => c.state.health);
   const reqHs = required.map((c) => c.state.health);
-  if (hs.includes("needs_you") || childStatuses.includes("needs_you") || optNeeds) return { status: "needs_you", progress };
-  if (reqHs.includes("failing") || reqHs.includes("missing") || childStatuses.includes("failing")) return { status: "failing", progress };
-  if (hs.includes("running") || childStatuses.includes("running") || optRunning) return { status: "running", progress };
+  if (reqHs.includes("failing") || childStatuses.includes("failing")) return { status: "failing", progress };
+  if (hs.includes("running") || childStatuses.includes("running") || optionalStatuses.includes("running")) return { status: "running", progress };
   if (required.length === 0 && childStatuses.length === 0) return { status: "not_started", progress };
-  const everyChildMet = childStatuses.every((s): boolean => s === "met");
-  const allMet = metAll === required.length && everyChildMet && (!goal.acceptance.signOff || signedOff);
-  if (allMet) {
+  const everyChildMet = childStatuses.every(childMet);
+  if (met === required.length && everyChildMet) {
+    // Everything is in and only a person's sign-off is missing.
+    if (goal.acceptance.signOff && !signedOff) return { status: "ready_to_sign_off", progress };
     if (reqHs.some((h) => h === "flaky" || h === "stale") || childStatuses.includes("at_risk")) return { status: "at_risk", progress };
     return { status: "met", progress };
   }
-  // Everything else is in and only a person's sign-off is missing: the rule asks for one, or required manual checks wait on it.
-  if (!signedOff && (goal.acceptance.signOff || manualRequired > 0) && met + manualRequired === required.length && everyChildMet) return { status: "needs_you", progress };
-  if (reqHs.every((h) => h === "never_run") && childStatuses.every((s) => s === "not_started")) return { status: "not_started", progress };
-  // Some evidence, not all of it passing yet (a check never run, or too few stable runs).
-  return { status: "at_risk", progress };
+  if (reqHs.every((h) => h === "never_run" || h === "missing") && childStatuses.every((s) => s === "not_started")) return { status: "not_started", progress };
+  // Some evidence, not all of it yet (a check never run, too few passes in a row, a required goal not met): the progress says how far.
+  return { status: "in_progress", progress };
 }
 
 // ---------- Sign-off ----------
 
 /** What a sign-off accepts of a goal: its acceptance rule, required checks and required goals, in a form that ignores their order. */
 export function requirementsKey(goal: Pick<Goal, "acceptance" | "checks" | "requires">): string {
-  const { stableRuns, staleAfterDays, signOff } = goal.acceptance;
+  const { stableRuns, signOff } = goal.acceptance;
   return JSON.stringify({
-    acceptance: { stableRuns, staleAfterDays, signOff },
+    acceptance: { stableRuns, signOff },
     checks: goal.checks.filter((c) => c.required !== false).map(checkId).sort(),
     requires: requiresOf(goal).filter((r) => r.required !== false).map((r) => r.goal).sort(),
   });
@@ -653,7 +728,7 @@ export function requirementsKey(goal: Pick<Goal, "acceptance" | "checks" | "requ
  */
 export function signOffLapse(s: SignOff, goal: Goal, checks: Array<{ state: CheckState; runs: RunRecord[] }>, current?: CurrentProvenance): SignOffLapse | null {
   if (requirementsKey(goal) !== s.requirements) return "requirements";
-  const required = checks.filter((c) => c.state.check.required !== false && c.state.check.kind !== "manual");
+  const required = checks.filter((c) => c.state.check.required !== false);
   const failedSince = (r: RunRecord): boolean => isResult(r) && r.outcome !== "passed" && (r.endedAt ?? r.startedAt) > s.at;
   if (required.some((c) => c.runs.some(failedSince))) return "failed";
   if (!current || current.revision === s.revision) return null;
@@ -787,8 +862,8 @@ export function goalChecksDeep(goals: readonly Pick<Goal, "id" | "requires" | "a
  * requires, each worked out once. An edge that closes a loop is left out of
  * the roll-up (goalLoops says which), so status never goes round forever;
  * archived and unknown goals count for nothing. `current` as for goalStatus.
- * `signOffs`: this machine's sign-offs by goal id, each counted unless it
- * lapsed (signOffLapse).
+ * `signOffs`: the goal store's current sign-off of each goal, by goal id,
+ * each counted unless it lapsed (signOffLapse).
  */
 export function rollUpGoals(goals: readonly Goal[], checksOf: (g: Goal) => Array<{ state: CheckState; runs: RunRecord[] }>, current?: CurrentProvenance, signOffs?: ReadonlyMap<string, SignOff>): GoalState[] {
   const byId = new Map(goals.map((g) => [g.id, g]));
@@ -826,7 +901,93 @@ export const leafName = (path: string): string => {
   return last.replace(/\.[^.]*$/, "");
 };
 
-// ---------- Plans, queue and schedules (per machine) ----------
+// ---------- The goal store ----------
+
+/**
+ * What the goal store keeps, one kind of record each: goals (milestones
+ * included), what a check says about itself (id: the check id), sign-offs,
+ * the project's health rule (id "health"), and the one-time import of an
+ * older Studio's QA/Goals files (id "qa-goals").
+ */
+export type HubRecordType = "goal" | "check" | "signoff" | "rules" | "import";
+
+/**
+ * The import of a project's QA/Goals files, where an older Studio kept
+ * goals, into an empty store. It happens once: the files are read, never
+ * changed, and never read again.
+ */
+export interface GoalImport {
+  /** The folder read, relative to the project. */
+  from: string;
+  at: string;
+  /** The goals it brought. */
+  goals: string[];
+  /** Files and fields it could not read, each named. */
+  problems: string[];
+}
+
+export interface HubRecordData {
+  goal: Goal;
+  check: CheckMetaRecord;
+  signoff: SignOff;
+  rules: HealthRule;
+  import: GoalImport;
+}
+
+/**
+ * One version of one record. A store never rewrites a version: a change is a
+ * new version (rev one more), and a removal is a version with `deleted` and
+ * no data. The newest version of each (type, id) is the record. The same
+ * records move to a hosted store unchanged: ids are unique across computers
+ * (goal ids end in a random part, sign-off ids are random) and each version
+ * names the store it was written in.
+ */
+export interface HubRecord<T extends HubRecordType = HubRecordType> {
+  schema: typeof HUB_SCHEMA;
+  type: T;
+  id: string;
+  /** This version's number: 1 for the first. */
+  rev: number;
+  at: string;
+  /** The store this version was written in: a random id each project's store takes on each computer. */
+  origin: string;
+  deleted?: true;
+  data?: HubRecordData[T];
+}
+
+/** Any record, its data typed by its type. */
+export type AnyHubRecord = { [T in HubRecordType]: HubRecord<T> }[HubRecordType];
+
+export const HUB_EXPORT_FORMAT = "ue-mcp-studio.goals";
+
+/**
+ * GET /hub/store: the whole goal store as one file, to move it to another
+ * computer. Every live record at its newest version, the import marker
+ * left out.
+ */
+export interface HubExport {
+  format: typeof HUB_EXPORT_FORMAT;
+  schema: typeof HUB_SCHEMA;
+  exportedAt: string;
+  /** The store it came from. */
+  origin: string;
+  records: AnyHubRecord[];
+}
+
+/**
+ * POST /hub/store: what importing a HubExport did. The rule is merge by id,
+ * and nothing here changes: a record this store lacks is added as it is in
+ * the file; one it holds with the same content is unchanged; one it holds
+ * with other content keeps this store's version and is listed in conflicts.
+ * A file with any record that does not read is refused whole.
+ */
+export interface HubImportReport {
+  added: number;
+  unchanged: number;
+  conflicts: Array<{ type: HubRecordType; id: string; title: string }>;
+}
+
+// ---------- Plans and the queue (per machine) ----------
 
 export type PlanScope =
   | { kind: "goal"; goalId: string }
@@ -848,10 +1009,8 @@ export interface PlanOptions {
   /** Replay each check's last recording instead of a live run, where it has one. */
   replay: boolean;
 }
-/** A person's plan: they are there to judge. */
+/** The options a plan starts from when its request gives none: someone is there to judge. */
 export const DEFAULT_PLAN_OPTIONS: PlanOptions = { attended: true, stopOnFailure: false, replay: false };
-/** The options a plan starts from when its request gives none: a schedule's runs are unattended. */
-export const planOptionsFor = (trigger: PlanTrigger): PlanOptions => ({ ...DEFAULT_PLAN_OPTIONS, attended: trigger !== "schedule" });
 
 /** Why an unattended plan skips a check. */
 export const NEEDS_PERSON = "needs a person";
@@ -886,7 +1045,7 @@ export interface PlanItem {
 export const FAILING_ITEM_STATES: readonly PlanItemState[] = ["failed", "error", "crashed"];
 
 export type PlanState = "queued" | "running" | "paused" | "done" | "cancelled" | "failed";
-export type PlanTrigger = "person" | "schedule" | "agent";
+export type PlanTrigger = "person" | "agent";
 
 export interface PlanRun {
   id: string;
@@ -898,7 +1057,6 @@ export interface PlanRun {
   state: PlanState;
   items: PlanItem[];
   trigger: PlanTrigger;
-  scheduleId?: string | null;
   createdAt: string;
   startedAt?: string | null;
   endedAt?: string | null;
@@ -911,22 +1069,11 @@ export interface PlanRequest {
   options?: Partial<PlanOptions>;
 }
 
-export interface Schedule {
-  id: string;
-  title: string;
-  scope: PlanScope;
-  options: PlanOptions;
-  /** Local time HH:MM. */
-  at: string;
-  /** Days of the week it runs, 0 Sunday to 6 Saturday. */
-  days: number[];
-  enabled: boolean;
-  lastRunAt?: string | null;
-  /** Why the last due run did not start (editor closed, busy). */
-  lastSkipped?: string | null;
-  nextRunAt?: string | null;
+/** POST /hub/fix: a fix plan for every failing check of a goal (or of the project), or for one check. */
+export interface FixRequest {
+  goalId?: string;
+  checkId?: string;
 }
-export type ScheduleDraft = Omit<Schedule, "id" | "lastRunAt" | "lastSkipped" | "nextRunAt">;
 
 export interface QueueState {
   paused: boolean;
@@ -936,7 +1083,6 @@ export interface QueueState {
   queued: PlanRun[];
   /** Finished plans, newest first, at most 20. */
   recent: PlanRun[];
-  schedules: Schedule[];
   editor: { connected: boolean };
   /** The hub's hold on the editor while it starts or runs an item. */
   lease?: EditorLease | null;
@@ -998,7 +1144,7 @@ export const HUB_LEASE = "studio.hub.lease";
  * verdict is not one: it is given live, while its step plays (the run's
  * held verdict, QaHeld).
  */
-export type AttentionKind = "loop_blocked" | "regression" | "sign_off" | "missing_check" | "plan_failed";
+export type AttentionKind = "loop_blocked" | "regression" | "sign_off" | "plan_failed";
 
 export interface AttentionItem {
   /** Stable while the thing it points at waits: "<kind>:<id>" and the like. */
@@ -1012,9 +1158,11 @@ export interface AttentionItem {
   step?: number;
   checkId?: string;
   planRunId?: string;
+  /** A blocked fix loop's chat session: where the agent work, and its blocker, are. */
+  sessionId?: string;
 }
 
-export const ATTENTION_ORDER: readonly AttentionKind[] = ["loop_blocked", "sign_off", "regression", "missing_check", "plan_failed"];
+export const ATTENTION_ORDER: readonly AttentionKind[] = ["loop_blocked", "sign_off", "regression", "plan_failed"];
 
 // ---------- Overview ----------
 
@@ -1030,8 +1178,6 @@ export interface EvidenceScope {
 
 /** GET /hub. Everything the overview and library draw, in one answer. */
 export interface HubOverview {
-  /** The folder goal files are read from, relative to the project. */
-  goalsDir: string;
   goals: GoalState[];
   /** Every known check: those goals name and scripts in the project no goal names yet. */
   checks: CheckState[];
@@ -1041,8 +1187,12 @@ export interface HubOverview {
   recent: RunRecord[];
   /** Whose evidence every status here is worked out from, and the workspace it is compared with. */
   evidence: EvidenceScope;
+  /** The project's rule for flaky and stale. */
+  rules: HealthRule;
+  /** The goals imported from an older Studio's QA/Goals files, when that happened. */
+  imported: GoalImport | null;
   editor: { connected: boolean };
-  /** Goal files that did not parse, and the like. */
+  /** Goals that require each other in a loop, goals required but gone, and what went wrong in the background. */
   warnings: string[];
 }
 
@@ -1078,7 +1228,7 @@ export const HUB_ROUTES = {
   deleteGoal: "DELETE /hub/goals/:id -> 204",
   addChecks: "POST /hub/goals/:id/checks { checks: CheckRef[] } -> { goal }",
   removeCheck: "DELETE /hub/goals/:id/checks/:checkId -> { goal }",
-  updateCheck: "PUT /hub/goals/:id/checks/:checkId CheckUpdate -> { goal }",
+  updateGoalCheck: "PUT /hub/goals/:id/checks/:checkId GoalCheckUpdate -> { goal }",
   orderChecks: "PUT /hub/goals/:id/checks/order { order: checkIds } -> { goal }",
   addRequire: "POST /hub/goals/:id/requires { goal, required? } -> { goal } (an existing entry takes the new required)",
   removeRequire: "DELETE /hub/goals/:id/requires/:goalId -> { goal }",
@@ -1087,6 +1237,10 @@ export const HUB_ROUTES = {
   clearSignOff: "DELETE /hub/goals/:id/sign-off -> 204",
   writePlaytests: "POST /hub/goals/:id/write-playtests { text? } -> 202 { sessionId }",
   check: "GET /hub/checks/:checkId?limit=&before= -> CheckDetail",
+  updateCheck: "PUT /hub/checks/:checkId CheckMetaUpdate -> { meta: CheckMeta }",
+  rules: "PUT /hub/rules Partial<HealthRule> -> { rules: HealthRule }",
+  exportStore: "GET /hub/store -> HubExport",
+  importStore: "POST /hub/store HubExport -> HubImportReport (merge by id; 400 naming every record that does not read)",
   runs: "GET /hub/runs?check=&limit=&before= -> { runs: RunRecord[], more: boolean }",
   run: "GET /hub/runs/:runId -> RunDetail",
   addRunLink: "POST /hub/runs/:runId/links { link: TrackerLink } -> { record: RunRecord }",
@@ -1094,13 +1248,9 @@ export const HUB_ROUTES = {
   queue: "GET /hub/queue -> QueueState",
   plan: "POST /hub/plans PlanRequest -> { plan: PlanRun }",
   cancelPlan: "POST /hub/plans/:id/cancel -> { plan }",
-  movePlan: "POST /hub/plans/:id/move { to: number } -> QueueState",
   pause: "PUT /hub/queue/paused { paused: boolean } -> QueueState",
   lease: "GET /hub/lease -> HubLeaseEvent",
   release: "POST /hub/release -> QueueState (stops what the hub holds on the editor and pauses the queue)",
-  createSchedule: "POST /hub/schedules ScheduleDraft -> { schedule }",
-  updateSchedule: "PUT /hub/schedules/:id Partial<ScheduleDraft> -> { schedule }",
-  deleteSchedule: "DELETE /hub/schedules/:id -> 204",
-  assignFailing: "POST /hub/assign-failing { goalId? } -> { queued: number, plan: PlanRun | null } (a fix plan: one chat session per check)",
+  fix: "POST /hub/fix FixRequest -> { queued: number, plan: PlanRun | null } (a fix plan: one chat session per check)",
   runCheck: "POST /hub/checks/:checkId/run { replay? } -> { plan: PlanRun }",
 } as const;

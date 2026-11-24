@@ -32,7 +32,6 @@ export function hubFixture(): HubOverview {
   const movement = goalOf("movement", "Movement feels right", { owner: "dana", priority: "p1", checks: [jumpCheck.check, swimCheck.check] });
   const tutorial = goalOf("tutorial", "Tutorial completes");
   return {
-    goalsDir: "QA/Goals",
     goals: [
       goalState(milestone, "failing", [], { met: 0, total: 0 }),
       goalState(movement, "failing", [jumpCheck, swimCheck], { met: 1, total: 2 }, ["alpha"]),
@@ -41,12 +40,13 @@ export function hubFixture(): HubOverview {
     checks: [jumpCheck, swimCheck, menuCheck],
     attention: [
       { id: "loop_blocked:loop-1", kind: "loop_blocked", at: "2026-11-22T09:00:00Z", title: "Door opens", detail: "The fix loop stopped and needs you.", goalIds: ["movement"], runId: "run-a", checkId: swimCheck.id },
-      { id: "missing_check:script:/Game/T/Menu", kind: "missing_check", at: "2026-11-22T09:30:00Z", title: "Menu shows", goalIds: [], checkId: menuCheck.id },
       { id: "regression:run-jump-2", kind: "regression", at: "2026-11-22T10:00:00Z", title: "Jump failed after passing", goalIds: ["movement"], runId: "run-jump-2", checkId: jumpCheck.id },
     ],
-    queue: { paused: false, current: null, queued: [], recent: [], schedules: [], editor: { connected: true } },
+    queue: { paused: false, current: null, queued: [], recent: [], editor: { connected: true } },
     recent: [jumpCheck.last!, swimCheck.last!],
     evidence: { store: "local", current: { vcs: "git", revision: "a1b2c3d4e5f60718", dirty: 0 } },
+    rules: { staleAfterDays: null, flakyWindow: 3 },
+    imported: null,
     editor: { connected: true },
     warnings: [],
   };

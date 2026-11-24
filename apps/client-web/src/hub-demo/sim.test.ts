@@ -34,14 +34,16 @@ describe("the hub demo's seed", () => {
     const { call } = demo();
     const o = call<HubOverview>("GET", "/hub");
     expect(goalOf(o, "tutorial-glade").status).toBe("met");
-    expect(goalOf(o, "traversal-feel").status).toBe("at_risk");
+    // A flaky ledge grab keeps two passes in a row from counting: partial evidence is progress, not risk.
+    expect(goalOf(o, "traversal-feel").status).toBe("in_progress");
     expect(goalOf(o, "lantern-combat").status).toBe("failing");
     // Its newest run was not judged: no result, so the runs before it speak for the check.
     expect(goalOf(o, "pause-settings").status).toBe("met");
-    expect(goalOf(o, "coop-join").status).toBe("at_risk");
-    expect(goalOf(o, "coop-revive").status).toBe("failing");
+    expect(goalOf(o, "coop-join").status).toBe("in_progress");
+    // One of its playtests is not on this checkout: the goal waits for it, it does not fail.
+    expect(goalOf(o, "coop-revive").status).toBe("in_progress");
     expect(goalOf(o, "shared-loot").status).toBe("not_started");
-    expect(goalOf(o, "ashwood-perf").status).toBe("needs_you");
+    expect(goalOf(o, "ashwood-perf").status).toBe("ready_to_sign_off");
     expect(goalOf(o, "save-load").status).toBe("met");
     expect(goalOf(o, "vertical-slice").status).toBe("failing");
     expect(goalOf(o, "vertical-slice").requires.map((r) => r.goal)).toContain("lantern-combat");
@@ -54,9 +56,12 @@ describe("the hub demo's seed", () => {
     expect(goalOf(o, "save-load").unused).toBe(true);
     const health = Object.fromEntries(o.checks.map((c) => [c.name, c.health]));
     expect(health).toMatchObject({ PT_LedgeGrab: "flaky", PT_Coop_Join_Late: "stale", PT_Revive_Downed_Old: "missing", PT_Revive_Timer: "never_run", PT_Settings_Apply: "passing", PT_Stagger_Wisp: "failing", PT_Boss_Phase2: "failing" });
-    expect(o.attention.map((i) => i.kind)).toEqual(expect.arrayContaining(["loop_blocked", "sign_off", "regression", "missing_check"]));
+    expect(o.attention.map((i) => i.kind)).toEqual(expect.arrayContaining(["loop_blocked", "sign_off", "regression"]));
+    // A playtest missing on this checkout is no goal error and needs nobody.
+    expect(o.attention.map((i) => i.kind)).not.toContain("missing_check");
+    expect(goalOf(o, "coop-revive").status).not.toBe("failing");
     expect(o.queue.queued).toHaveLength(2);
-    expect(o.queue.schedules[0].nextRunAt).toBeTruthy();
+    expect(o.rules.staleAfterDays).toBe(14);
   });
 
   it("has scripts and runs but no goals when empty, and nothing when fresh", () => {
@@ -167,7 +172,7 @@ describe("the hub demo's simulation", () => {
     call("PUT", "/hub/queue/paused", { paused: true });
     for (const p of call<QueueState>("GET", "/hub/queue").queued) call("POST", `/hub/plans/${p.id}/cancel`);
     const id = checkId({ kind: "script", target: "/Game/PIEStudio/Scripts/Combat/PT_Stagger_Wisp" });
-    const { queued } = call<{ queued: number }>("POST", "/hub/assign-failing", { goalId: "lantern-combat" });
+    const { queued } = call<{ queued: number }>("POST", "/hub/fix", { goalId: "lantern-combat" });
     expect(queued).toBe(1);
     run(15_000);
     let o = call<HubOverview>("GET", "/hub");
@@ -189,8 +194,8 @@ describe("the hub demo's simulation", () => {
     expect(check().health).toBe("passing");
     expect(check().change?.kind).toBe("fixed");
     expect(check().last?.provenance?.dirty).toBe(1);
-    // A run over uncommitted changes never counts toward acceptance.
-    expect(goalOf(o, "lantern-combat").status).toBe("at_risk");
+    // A run over uncommitted changes never counts toward acceptance: the goal is in progress.
+    expect(goalOf(o, "lantern-combat").status).toBe("in_progress");
   });
 
   it("writes playtests for a goal after a short wait", () => {
@@ -202,17 +207,14 @@ describe("the hub demo's simulation", () => {
     expect(goalOf(call<HubOverview>("GET", "/hub"), "shared-loot").checks.length).toBeGreaterThan(n);
   });
 
-  it("creates, links and deletes goals, and the queue respects pause and moves", () => {
+  it("creates, links and deletes goals, and the queue respects pause", () => {
     const { call } = demo();
     const { goal } = call<{ goal: { id: string } }>("POST", "/hub/goals", { title: "Fishing is relaxing", checks: [{ kind: "script", target: "/Game/PIEStudio/Scripts/Fishing/PT_Fishing_Minigame" }] });
     expect(goal.id).toMatch(/^fishing-is-relaxing-[0-9a-z]{4}$/);
     const o = call<HubOverview>("GET", "/hub");
     expect(goalOf(o, goal.id).status).toBe("not_started");
     expect(o.checks.find((c) => c.name === "PT_Fishing_Minigame")!.goalIds).toEqual([goal.id]);
-    call("PUT", "/hub/queue/paused", { paused: true });
-    const q = call<QueueState>("GET", "/hub/queue");
-    const moved = call<QueueState>("POST", `/hub/plans/${q.queued[1].id}/move`, { to: 0 });
-    expect(moved.queued[0].id).toBe(q.queued[1].id);
+    expect(call<QueueState>("PUT", "/hub/queue/paused", { paused: true }).paused).toBe(true);
     call("DELETE", `/hub/goals/${goal.id}`);
     expect(call<HubOverview>("GET", "/hub").goals.some((g) => g.goal.id === goal.id)).toBe(false);
   });
@@ -222,7 +224,7 @@ describe("the hub demo's simulation", () => {
     const o = call<HubOverview>("GET", "/hub");
     const tutorial = goalOf(o, "tutorial-glade").goal;
     expect(tutorial.links?.[0].url).toBe("https://git.example.com/ember/hollow/issues/42");
-    expect(goalOf(o, "lantern-combat").goal.checks.find((c) => c.target.endsWith("PT_Stagger_Wisp"))?.links?.[0].rel).toBe("blocks");
+    expect(o.checks.find((c) => c.check.target.endsWith("PT_Stagger_Wisp"))?.links?.[0].rel).toBe("blocks");
     const filed = o.recent.concat(call<{ runs: RunDetail["record"][] }>("GET", `/hub/runs?limit=200`).runs).find((r) => r.links?.length);
     expect(filed?.links?.[0].rel).toBe("filed-from-run");
 
@@ -230,8 +232,11 @@ describe("the hub demo's simulation", () => {
     expect(call<{ goal: { links: unknown[] } }>("PUT", "/hub/goals/tutorial-glade", { links: [...tutorial.links!, { url }] }).goal.links).toHaveLength(2);
     expect(() => call("PUT", "/hub/goals/tutorial-glade", { links: [{ url: "javascript:x" }] })).toThrow(/400|not allowed/);
     const cid = checkId(tutorial.checks[0]);
-    const put = call<{ goal: { checks: Array<{ links?: unknown[] }> } }>("PUT", `/hub/goals/tutorial-glade/checks/${encodeURIComponent(cid)}`, { links: [{ url: "jira://HOL-1" }] });
-    expect(put.goal.checks[0].links).toEqual([{ url: "jira://HOL-1" }]);
+    const put = call<{ meta: { links?: unknown[] } }>("PUT", `/hub/checks/${encodeURIComponent(cid)}`, { links: [{ url: "jira://HOL-1" }] });
+    expect(put.meta.links).toEqual([{ url: "jira://HOL-1" }]);
+    // The goal store moves as one file: exported, then imported into the same store, nothing changes.
+    const file = call<{ records: unknown[] }>("GET", "/hub/store");
+    expect(call<{ added: number; conflicts: unknown[] }>("POST", "/hub/store", file)).toMatchObject({ added: 0, conflicts: [] });
     const runId = o.recent[0].runId;
     expect(call<{ record: { links: unknown[] } }>("POST", `/hub/runs/${runId}/links`, { link: { url } }).record.links).toEqual([{ url }]);
     expect(call<{ record: { links?: unknown[] } }>("DELETE", `/hub/runs/${runId}/links?url=${encodeURIComponent(url)}`).record.links).toBeUndefined();

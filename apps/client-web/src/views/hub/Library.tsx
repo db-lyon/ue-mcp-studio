@@ -1,11 +1,10 @@
 /**
- * The library: every check the project has, goals or not, filtered by
- * health, goal, kind and text. Rows select with their box or x, and the
- * selection runs as one plan or joins a goal.
+ * The library: every playtest the project has, goals or not, filtered by
+ * health, goal and text. Rows select with their box or x, and the selection
+ * runs as one batch or joins a goal.
  */
 import { useMemo, useRef, useState } from "react";
-import type { CheckKind } from "@ue-mcp-studio/shared";
-import { CHECK_KIND_LABEL, HEALTH_FILTERS, HUB_COPY, filterChecks, healthCounts, sortGoals, type HealthFilter } from "@ue-mcp-studio/client-core";
+import { HEALTH_FILTERS, HUB_COPY, filterChecks, healthCounts, sortGoals, type HealthFilter } from "@ue-mcp-studio/client-core";
 import { useCursor, useHub } from "./state";
 import { Empty, EvidenceScope, HubIcon, Kbd, ScreenHead } from "./parts";
 import { CheckRow } from "./rows";
@@ -15,14 +14,12 @@ export function LibraryScreen() {
   const { o, go } = hub;
   const [health, setHealth] = useState<HealthFilter>("all");
   const [goalId, setGoalId] = useState("");
-  const [kind, setKind] = useState<CheckKind | "">("");
   const [text, setText] = useState("");
   const [picked, setPicked] = useState<Set<string>>(() => new Set());
   const filterBox = useRef<HTMLInputElement>(null);
   const counts = useMemo(() => healthCounts(o.checks), [o.checks]);
-  const rows = useMemo(() => filterChecks(o.checks, { health, goalId, kind, text }, o.goals), [o.checks, o.goals, health, goalId, kind, text]);
+  const rows = useMemo(() => filterChecks(o.checks, { health, goalId, text }, o.goals), [o.checks, o.goals, health, goalId, text]);
   const goals = useMemo(() => sortGoals(o.goals.filter((g) => !g.goal.archived)), [o.goals]);
-  const kinds = useMemo(() => [...new Set(o.checks.map((c) => c.check.kind))], [o.checks]);
   const list = useRef<HTMLDivElement>(null);
   const [at, setAt, move] = useCursor(rows.length, list);
   const chosen = rows.filter((c) => picked.has(c.id));
@@ -55,7 +52,7 @@ export function LibraryScreen() {
 
   return (
     <div className="hub-screen hub-library">
-      <ScreenHead title={HUB_COPY.library} sub={<><span>{o.checks.length} {o.checks.length === 1 ? "check" : "checks"}</span><EvidenceScope /></>} />
+      <ScreenHead title={HUB_COPY.library} sub={<><span>{o.checks.length} {o.checks.length === 1 ? "playtest" : "playtests"}</span><EvidenceScope /></>} />
       <div className="hub-filters">
         <div className="hub-search">
           <HubIcon name="search" />
@@ -68,7 +65,7 @@ export function LibraryScreen() {
               if (e.key === "Enter" || e.key === "ArrowDown") { e.preventDefault(); (e.target as HTMLInputElement).blur(); setAt(0); }
             }}
             placeholder={HUB_COPY.filterPlaceholder}
-            aria-label="Filter checks"
+            aria-label="Filter playtests"
           />
           {!hub.narrow && <Kbd>/</Kbd>}
         </div>
@@ -77,22 +74,16 @@ export function LibraryScreen() {
           <option value="none">{HUB_COPY.notInGoal}</option>
           {goals.map((g) => <option key={g.goal.id} value={g.goal.id}>{g.goal.title}</option>)}
         </select>
-        {kinds.length > 1 && (
-          <select value={kind} onChange={(e) => setKind(e.target.value as CheckKind | "")} aria-label="Kind">
-            <option value="">Any kind</option>
-            {kinds.map((k) => <option key={k} value={k}>{CHECK_KIND_LABEL[k]}</option>)}
-          </select>
-        )}
       </div>
       <div className="hub-chips" role="group" aria-label="Health">
         {HEALTH_FILTERS.filter((f) => f.id === "all" || counts[f.id] > 0).map((f) => (
-          <button key={f.id} className={`filter-chip ${health === f.id ? "active" : ""} ${f.id === "attention" ? "attention" : ""}`} aria-pressed={health === f.id} onClick={() => setHealth(f.id)}>
+          <button key={f.id} className={`filter-chip ${health === f.id ? "active" : ""} ${f.id === "failing" ? "attention" : ""}`} aria-pressed={health === f.id} onClick={() => setHealth(f.id)}>
             {f.label} <span className="filter-count">{counts[f.id]}</span>
           </button>
         ))}
       </div>
       {chosen.length > 0 && (
-        <div className="hub-bulk" role="toolbar" aria-label="Selected checks">
+        <div className="hub-bulk" role="toolbar" aria-label="Selected playtests">
           <strong>{chosen.length} selected</strong>
           <button className="primary" onClick={runChosen}><HubIcon name="play" size={12} /> {HUB_COPY.runSelected}</button>
           <button onClick={() => hub.addToGoal(chosen.map((c) => c.id))}><HubIcon name="goal" size={12} /> {HUB_COPY.addToGoal}</button>
@@ -100,7 +91,7 @@ export function LibraryScreen() {
           <button className="ghost" onClick={() => setPicked(new Set())}>Clear</button>
         </div>
       )}
-      {rows.length === 0 ? <Empty title={o.checks.length ? HUB_COPY.libraryEmpty : "No checks yet"}>{o.checks.length ? null : HUB_COPY.noChecksLead}</Empty> : (
+      {rows.length === 0 ? <Empty title={o.checks.length ? HUB_COPY.libraryEmpty : HUB_COPY.noChecksTitle}>{o.checks.length ? null : HUB_COPY.noChecksLead}</Empty> : (
         <>
           <label className="hub-select-all small">
             <input type="checkbox" checked={allShown} onChange={() => setPicked(allShown ? new Set() : new Set(rows.map((c) => c.id)))} />

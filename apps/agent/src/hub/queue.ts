@@ -2,7 +2,7 @@
  * The plan queue: plans waiting for the editor, run one item at a time
  * (ue-mcp runs one script at a time per editor). A plan's items either run
  * their checks, or (a fix plan) hand each check to a fix loop in a chat
- * session of its own. Kept in <dataDir>/hub/queue.json with the schedules.
+ * session of its own. Kept in <dataDir>/hub/queue.json.
  *
  * The editor is the developer's workspace, so the queue acts only on what it
  * started, under an explicit lease (lease.ts):
@@ -11,6 +11,8 @@
  *   otherwise the queue waits and says why (QueueState.waiting).
  * - The lease is taken before the item starts and released when it settles.
  *   Play In Editor the item's run started is ended then, and never any other.
+ *   An unattended item takes the runner editor's lease while there is a
+ *   runner (runner.ts), and the workspace editor's otherwise.
  * - release() is Release the editor: it pauses the queue, stops the item's
  *   run or fix loop (a loop stops at its next checkpoint), ends PIE the item
  *   started, and puts the item back at the front for when a person resumes.
@@ -43,7 +45,6 @@ import {
   type QaRun,
   type QueuePause,
   type QueueState,
-  type Schedule,
 } from "@ue-mcp-studio/shared";
 import { writeFileAtomic } from "../atomic-write.js";
 import { EditorLease } from "./lease.js";
@@ -60,9 +61,16 @@ export const CRASHED = "The editor crashed during this run";
 export type ItemStart = { runId: string; sessionId?: string } | { skipped: string } | { error: string };
 
 export interface QueueRunner {
-  connected(): boolean;
+  /**
+   * Whether an editor, by its lease's name, can take work: the workspace
+   * editor when connected, the runner editor when it runs or can be started.
+   * The workspace editor when none is named.
+   */
+  connected(editor?: string): boolean;
   /** Why the editor is not free for this plan's next item, or null when it is (occupancyOf). */
   occupied(plan: PlanRun): string | null;
+  /** The lease of the editor a plan's next item runs on: the runner editor's for an unattended plan while there is one (runner.ts). The workspace lease when absent. */
+  leaseFor?(plan: PlanRun): EditorLease;
   start(item: PlanItem, plan: PlanRun): Promise<ItemStart>;
   /** The run as Studio has it now. */
   run(runId: string): QaRun | undefined;
@@ -72,8 +80,8 @@ export interface QueueRunner {
   refresh(runId: string): Promise<void>;
   /** Stop a fix item's loop: the running attempt stops and is checkpointed. */
   stopFix(item: PlanItem): Promise<void>;
-  /** End the Play In Editor session the hub's item started. */
-  endPie(): Promise<void>;
+  /** End the Play In Editor session the hub's item started on that editor (its lease's editor). */
+  endPie(editor: string): Promise<void>;
 }
 
 interface Stored {
@@ -83,13 +91,12 @@ interface Stored {
   current: PlanRun | null;
   queued: PlanRun[];
   recent: PlanRun[];
-  schedules: Schedule[];
 }
 
 export interface QueueOptions {
   dataDir: string;
   runner: QueueRunner;
-  /** The editor's lease; a fresh one when not given. */
+  /** The workspace editor's lease; a fresh one when not given. */
   lease?: EditorLease;
   now?: () => string;
   changed?: (planRunId?: string) => void;
@@ -111,10 +118,13 @@ const settled = (i: PlanItem): boolean => i.state !== "queued" && !live(i);
 const workOf = (p: PlanRun): "run" | "fix" => p.work ?? "run";
 
 export class PlanQueue {
-  private s: Stored = { schema: 1, paused: false, pausedBy: null, current: null, queued: [], recent: [], schedules: [] };
+  private s: Stored = { schema: 1, paused: false, pausedBy: null, current: null, queued: [], recent: [] };
   private readonly file: string;
   private readonly now: () => string;
+  /** The workspace editor's lease. */
   readonly lease: EditorLease;
+  /** The lease the current item holds: the workspace editor's or the runner editor's. */
+  private held: EditorLease | null = null;
   private pumping = false;
   /** Why the next item waits although nothing is paused. */
   private waiting: string | null = null;
@@ -136,7 +146,6 @@ export class PlanQueue {
         current: raw.current && typeof raw.current === "object" ? raw.current : null,
         queued: Array.isArray(raw.queued) ? raw.queued : [],
         recent: Array.isArray(raw.recent) ? raw.recent.slice(0, MAX_RECENT) : [],
-        schedules: Array.isArray(raw.schedules) ? raw.schedules : [],
       };
     } catch {
       // None yet, or unreadable: an empty queue.
@@ -151,11 +160,17 @@ export class PlanQueue {
           Object.assign(item, { state: "queued", runId: null, startedAt: null, reason: "queued again after Studio restarted" });
           return;
         }
-        this.lease.take({ purpose: purposeOf(cur, item), planRunId: cur.id, item: at, work: workOf(cur), runId: item.runId, sessionId: item.sessionId ?? null, pie: run.pieStarted === true, ...(item.startedAt ? { since: item.startedAt } : {}) });
+        const lease = this.leaseOf(cur);
+        lease.take({ purpose: purposeOf(cur, item), planRunId: cur.id, item: at, work: workOf(cur), runId: item.runId, sessionId: item.sessionId ?? null, pie: run.pieStarted === true, ...(item.startedAt ? { since: item.startedAt } : {}) });
+        this.held = lease;
       });
     }
     // Studio restarted with work waiting: it waits for a person, as after an editor reconnect.
     this.reconnected(false);
+  }
+
+  private leaseOf(plan: PlanRun): EditorLease {
+    return this.o.runner.leaseFor?.(plan) ?? this.lease;
   }
 
   private save(planRunId?: string): void {
@@ -176,7 +191,6 @@ export class PlanQueue {
       current: copy(this.s.current),
       queued: copy(this.s.queued),
       recent: copy(this.s.recent),
-      schedules: copy(this.s.schedules),
       editor: { connected: this.o.runner.connected() },
       lease: this.lease.get(),
       waiting: this.s.paused ? null : this.waiting,
@@ -206,6 +220,11 @@ export class PlanQueue {
   /** An item holds the editor: its run or loop is on it, or is being started. */
   holding(): boolean {
     return !!this.s.current?.items.some(live);
+  }
+
+  /** The editor whose lease the current item holds (lease.ts WORKSPACE, runner.ts RUNNER), or null. */
+  heldBy(): string | null {
+    return this.held?.editor ?? null;
   }
 
   find(id: string): PlanRun | undefined {
@@ -238,15 +257,6 @@ export class PlanQueue {
     this.s.pausedBy = "reconnect";
     if (save) this.save();
     return true;
-  }
-
-  /** Move a queued plan to position `to` among the queued ones. */
-  move(id: string, to: number): void {
-    const at = this.s.queued.findIndex((p) => p.id === id);
-    if (at < 0) throw this.find(id) ? conflict("only a queued plan can be moved") : notFound(`no plan ${id}`);
-    const [plan] = this.s.queued.splice(at, 1);
-    this.s.queued.splice(Math.max(0, Math.min(this.s.queued.length, Math.floor(to))), 0, plan);
-    this.save(id);
   }
 
   /** Cancel a plan: a queued one leaves the queue, the running one stops what its item runs. */
@@ -304,10 +314,15 @@ export class PlanQueue {
 
   /** The item settled or stopped: PIE its run started ends, and the lease is released. */
   private async free(): Promise<void> {
-    const l = this.lease.get();
-    if (!l) return;
-    if (l.pie) await this.o.runner.endPie().catch((e: unknown) => this.o.log?.warn("hub: Play In Editor could not be ended after the hub's run", e));
-    this.lease.release();
+    const lease = this.held;
+    const l = lease?.get();
+    if (!lease || !l) {
+      this.held = null;
+      return;
+    }
+    if (l.pie) await this.o.runner.endPie(lease.editor).catch((e: unknown) => this.o.log?.warn("hub: Play In Editor could not be ended after the hub's run", e));
+    lease.release();
+    this.held = null;
   }
 
   /** End a plan: every item not finished takes `rest`, and the plan goes to the recent list. */
@@ -322,27 +337,6 @@ export class PlanQueue {
     this.s.recent.unshift(plan);
     this.s.recent.length = Math.min(this.s.recent.length, MAX_RECENT);
     this.o.finished?.(plan);
-  }
-
-  // ── Schedules (kept here, worked by schedules.ts) ─────────────────
-
-  schedules(): Schedule[] {
-    return this.s.schedules;
-  }
-
-  putSchedule(s: Schedule): void {
-    const at = this.s.schedules.findIndex((x) => x.id === s.id);
-    if (at >= 0) this.s.schedules[at] = s;
-    else this.s.schedules.push(s);
-    this.save();
-  }
-
-  deleteSchedule(id: string): boolean {
-    const before = this.s.schedules.length;
-    this.s.schedules = this.s.schedules.filter((s) => s.id !== id);
-    if (this.s.schedules.length === before) return false;
-    this.save();
-    return true;
   }
 
   // ── Running ───────────────────────────────────────────────────────
@@ -371,7 +365,7 @@ export class PlanQueue {
 
   private evaluateRun(plan: PlanRun, item: PlanItem, run: QaRun): boolean {
     if (!qaEnded(run.state)) {
-      if (run.pieStarted) this.lease.update({ pie: true });
+      if (run.pieStarted) this.held?.update({ pie: true });
       const waiting = run.steps.some((s) => s.status === "awaiting_verdict");
       if (waiting && item.state !== "needs_you") {
         item.state = "needs_you";
@@ -426,11 +420,14 @@ export class PlanQueue {
    * The editor went away. A run item that was on it crashed with it, once and
    * for good, when the editor crashed; otherwise it goes back in the queue. A
    * fix loop deals with crashes itself (playtest-loop.ts), so its item stays.
+   * `editor` names the editor that went (a lease's editor); another editor's
+   * item is left alone.
    */
-  editorLost(cause?: string): void {
+  editorLost(cause?: string, editor?: string): void {
     const cur = this.s.current;
     const item = cur?.items.find(live);
     if (!cur || !item || workOf(cur) === "fix") return;
+    if (editor !== undefined && this.held?.editor !== editor) return;
     const runId = item.runId;
     if (cause === "crashed") {
       this.end(cur, item, "crashed", CRASHED);
@@ -440,7 +437,8 @@ export class PlanQueue {
       this.save(cur.id);
     }
     // PIE went with the editor: nothing is left to end.
-    this.lease.release();
+    this.held?.release();
+    this.held = null;
   }
 
   /**
@@ -452,7 +450,7 @@ export class PlanQueue {
     const cur = this.s.current;
     const item = cur?.items.find(live);
     if (cur && item) {
-      if (!this.o.runner.connected()) {
+      if (!this.o.runner.connected((this.held ?? this.leaseOf(cur)).editor)) {
         this.editorLost();
       } else if (item.runId && workOf(cur) === "run") {
         const run = this.o.runner.run(item.runId);
@@ -488,12 +486,12 @@ export class PlanQueue {
     try {
       for (;;) {
         this.closeIfDone();
-        if (this.s.paused || this.o.enabled?.() === false || !this.o.runner.connected()) return this.setWaiting(null);
+        if (this.s.paused || this.o.enabled?.() === false) return this.setWaiting(null);
         let cur = this.s.current;
-        // An item on the editor, or one whose lease is being let go (its PIE ending): the next waits for it.
-        if (cur?.items.some(live) || this.lease.get()) return this.setWaiting(null);
+        // An item on an editor, or one whose lease is being let go (its PIE ending): the next waits for it.
+        if (cur?.items.some(live) || this.held) return this.setWaiting(null);
         const next = cur ?? this.s.queued[0];
-        if (!next) return this.setWaiting(null);
+        if (!next || !this.o.runner.connected(this.leaseOf(next).editor)) return this.setWaiting(null);
         const why = this.o.runner.occupied(next);
         if (why) return this.setWaiting(why);
         this.setWaiting(null);
@@ -507,7 +505,9 @@ export class PlanQueue {
         const at = cur.items.findIndex((i) => i.state === "queued");
         const item = cur.items[at];
         Object.assign(item, { state: "running", startedAt: this.now(), reason: null, runId: null });
-        this.lease.take({ purpose: purposeOf(cur, item), planRunId: cur.id, item: at, work: workOf(cur), sessionId: item.sessionId ?? null, since: item.startedAt! });
+        const lease = this.leaseOf(cur);
+        lease.take({ purpose: purposeOf(cur, item), planRunId: cur.id, item: at, work: workOf(cur), sessionId: item.sessionId ?? null, since: item.startedAt! });
+        this.held = lease;
         this.save(cur.id);
         let r: ItemStart;
         try {
@@ -531,7 +531,7 @@ export class PlanQueue {
           item.runId = r.runId;
           if (r.sessionId) item.sessionId = r.sessionId;
           const run = this.o.runner.run(r.runId);
-          this.lease.update({ runId: r.runId, sessionId: item.sessionId ?? null, pie: run?.pieStarted === true });
+          lease.update({ runId: r.runId, sessionId: item.sessionId ?? null, pie: run?.pieStarted === true });
           this.save(cur.id);
           // A run that ended at once moves the plan on here; one still going does so from its events.
           if (run && (workOf(cur) === "run" || run.assignment) && this.evaluate(cur, item, run)) await this.free();

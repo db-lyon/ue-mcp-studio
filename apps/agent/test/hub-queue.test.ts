@@ -286,16 +286,6 @@ describe("PlanQueue", () => {
     await expect(q.cancel("nope")).rejects.toMatchObject({ status: 404 });
   });
 
-  it("moves a queued plan", async () => {
-    const q = make();
-    q.setPaused(true);
-    const [a, b, c] = [q.enqueue(plan(["/Game/A"])), q.enqueue(plan(["/Game/B"])), q.enqueue(plan(["/Game/C"]))];
-    q.move(c.id, 0);
-    expect(q.state().queued.map((p) => p.id)).toEqual([c.id, a.id, b.id]);
-    q.move(c.id, 99);
-    expect(q.state().queued.map((p) => p.id)).toEqual([a.id, b.id, c.id]);
-  });
-
   it("an editor that goes away mid-run queues the item again", async () => {
     const q = make();
     q.enqueue(plan(["/Game/A"]));
@@ -330,13 +320,5 @@ describe("PlanQueue", () => {
     fs.writeFileSync(file, JSON.stringify(stored));
     const q3 = make();
     expect(q3.state().current!.items[0]).toMatchObject({ state: "queued", runId: null, reason: "queued again after Studio restarted" });
-  });
-
-  it("keeps schedules with the queue", () => {
-    const q = make();
-    q.putSchedule({ id: "s1", title: "Nightly", scope: { kind: "all" }, options: DEFAULT_PLAN_OPTIONS, at: "02:00", days: [1], enabled: true });
-    expect(make().schedules().map((s) => s.id)).toEqual(["s1"]);
-    expect(q.deleteSchedule("s1")).toBe(true);
-    expect(q.deleteSchedule("s1")).toBe(false);
   });
 });

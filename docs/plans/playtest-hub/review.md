@@ -113,6 +113,76 @@ The reviews ask for less, not more. (Product 3 to 12; editor 8.)
 10. **One word per concept:** playtest (the thing that runs), run, goal, milestone. "Check" stays internal until a second kind runs.
 11. **Checks need an identity that survives asset renames.** ue-mcp ask 9 asks for a stable script id. Until then, Studio follows redirectors through ue-mcp, so a rename never turns goals Failing or loses history.
 
+## FINAL: goals and milestones are tracked like issues, outside the repo (2026-11-23)
+
+The user's correction: no service tracks issues and milestones inside the repo, because a goal on a feature branch would disagree with main. Goals and milestones are tracked like issues: in one place, not versioned per branch.
+
+- **Now:** one local store per project at `~/.ue-mcp/data/<project>/studio/hub/`, behind one store interface. It holds goals, milestones and their graph, owner, priority and due, sign-offs and run evidence. Studio writes nothing into the game repo.
+- **Later:** the cloud product hosts the same store as the team's shared copy. Moving is an upload of identical records.
+- **The repo holds only the playtest scripts** (UE assets, owned by ue-mcp). Goals reference them by asset path. A script missing on the current checkout shows as missing; the goal never forks.
+- **Before cloud,** a goal set moves between machines by export and import.
+- **Runs record their revision** (provenance).
+- **Removed:** repo writes for goals, `QA/Goals/`, `QA/Checks/`. Existing `QA/Goals/` files are imported once, non-destructively.
+- **Every section below that puts goals in the repo is superseded.**
+
+## Superseded: Studio owns goals and milestones in the repo
+
+The user would rather give up a remote tracker than give up goals. Studio is therefore the source of truth for goals and milestones, as first-class objects:
+
+- **Storage:** the game repo, at `QA/Goals/`, through the source-control-safe writer.
+- **The goal graph stays:** goals require playtests and goals, in order; milestones stay; a goal can sit under many milestones.
+- **Owner, priority and due stay on goals.** Item G3's removal is reversed because its premise, that the tracker owns planning, no longer holds.
+- **Tracker links are optional and never synced.** Evidence stays per machine until cloud.
+- **Rejected:** the umbrella-goal idea and the tags-only design (fresh-eyes-goals.md).
+
+## Decided: goals live in the game repo (2026-11-23, one design)
+
+The user asked for a single design. Goals are tracked, in the game repo at `QA/Goals/`, under source control, through the source-control-safe writer built in wave 1.
+
+- They link to any tracker by URL.
+- They version with the game and keep a team aligned today.
+- The future cloud product reads the same files.
+- Evidence stays per machine until that cloud product exists.
+
+There is no local mode and no setting. The two proposals below are rejected.
+
+## Rejected: local store now, cloud later
+
+Gitea is one of many trackers, and a cloud product is where sharing and integrations will live. So:
+
+- **One local store per project** (`~/.ue-mcp/data/<project>/studio/hub/`) behind one store interface. It holds goals and their graph, evidence and sign-offs. Studio writes nothing into the game repo.
+- **Playtest scripts stay UE assets in the repo,** owned by ue-mcp.
+- **Trackers are links only.** The project's own agent bridges them through hub tools.
+- **The cloud product implements the same store interface.** Moving is an upload, and provider integrations are built once, server side.
+- **Export and import of the store as a file.**
+- **Existing `QA/Goals/*.json` files are imported once,** non-destructively. The repo-writing and Perforce code is removed; reading the revision for provenance stays.
+
+## Proposed: the tracker owns coordination (2026-11-23, superseded by the section above)
+
+The user already runs coordination in Gitea milestones and issues. Studio should not model coordination at all.
+
+- **The tracker (Gitea)** owns coordination: the issue, its milestone, assignee, labels, discussion and state.
+- **The game repo** owns acceptance: a goal file is the acceptance spec for one tracker item (`tracks: <issue url>`, the playtests that prove it, optional required goals for composition, and a title that is only a fallback).
+- **Studio** owns evidence.
+
+What follows from that:
+
+- **Studio milestones are removed.** The Overview groups goals by tracker milestone, read through a connector, and lists tracker items that have no playtests.
+- **The connector** is a small interface in `packages/extension-api`: an item's title, state, milestone and labels, plus the items in a milestone. It ships with one Gitea REST implementation (likely GitHub-compatible) with a per-machine token. Other providers come from extensions or from an inbound route an agent pushes item metadata into.
+- **Studio keeps only a per-machine cache** of what the tracker said; it is not source-tracked.
+- **Sign-off becomes a later write-back to the tracker** (a comment, or closing the issue) instead of a Studio record.
+
+## Where data lives, and the path to a team tool (user question, 2026-11-23)
+
+- **Definitions live in the game project repo:** goals in `QA/Goals/`, playtest metadata in `QA/Checks/`, and the scripts as UE assets. They branch, merge and are reviewed with the game, and stay there in the team version.
+- **Evidence lives on each machine,** in Studio's per-project data folder, behind the evidence-store interface: runs, and sign-offs as attestation records.
+- **The team version adds a shared evidence store** that local stores replicate into. Records do not change shape, and nothing is migrated destructively.
+- **Required now, so that path stays clean:**
+  - every record has an id unique across machines (an origin id per machine; ue-mcp run ids alone can collide);
+  - records are append-only and immutable, so compaction archives instead of rewriting;
+  - every record carries a schema version and its provenance;
+  - sign-offs are records in the evidence store, not a separate per-machine file.
+
 ## Decided
 
 The user approved everything on 2026-11-23, including the recommendation on each call:

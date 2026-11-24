@@ -7,8 +7,8 @@ import type { HubOverview } from "@ue-mcp-studio/shared";
 const m = vi.hoisted(() => ({
   hub: {
     overview: vi.fn(), verdict: vi.fn(), plan: vi.fn(), runCheck: vi.fn(), createGoal: vi.fn(), updateGoal: vi.fn(), check: vi.fn(), run: vi.fn(),
-    runs: vi.fn(), addChecks: vi.fn(), removeCheck: vi.fn(), assign: vi.fn(), assignFailing: vi.fn(), writePlaytests: vi.fn(), resultsUrl: (id: string) => `/r/${id}`,
-    addRequire: vi.fn(), removeRequire: vi.fn(), orderRequires: vi.fn(), orderChecks: vi.fn(),
+    runs: vi.fn(), addChecks: vi.fn(), removeCheck: vi.fn(), fix: vi.fn(), writePlaytests: vi.fn(), resultsUrl: (id: string) => `/r/${id}`,
+    addRequire: vi.fn(), removeRequire: vi.fn(), orderRequires: vi.fn(), orderChecks: vi.fn(), cancelPlan: vi.fn(), pause: vi.fn(),
   },
 }));
 vi.mock("../../api", () => ({ api: { hub: m.hub, qaCaptureUrl: () => "", settings: () => new Promise(() => {}) } }));
@@ -39,9 +39,10 @@ afterEach(() => {
 
 describe("hub routes", () => {
   it("opens the screen the hash names and follows Back and Forward", async () => {
+    // The Queue screen is gone: its old address is the Overview, where Now running is.
     window.location.hash = "#/playtests/queue";
     render(<Harness start={hubFixture()} />);
-    expect(heading()).toContain("Queue");
+    expect(heading()).toBe("Overview");
     act(() => {
       window.location.hash = "#/playtests/goals/movement";
     });
@@ -77,7 +78,7 @@ describe("hub routes", () => {
     render(<Harness start={hubFixture()} narrow />);
     const bar = screen.getByRole("navigation", { name: "Playtests" });
     expect(bar.classList.contains("hub-seg")).toBe(true);
-    expect(within(bar).getByText("Overview").closest("a")?.querySelector(".tab-count")?.textContent).toBe("3");
+    expect(within(bar).getByText("Overview").closest("a")?.querySelector(".tab-count")?.textContent).toBe("2");
   });
 });
 
@@ -111,7 +112,7 @@ describe("the keyboard", () => {
     window.location.hash = "#/playtests/checks";
     render(<Harness start={hubFixture()} />);
     key("/");
-    const box = screen.getByLabelText("Filter checks");
+    const box = screen.getByLabelText("Filter playtests");
     expect(document.activeElement).toBe(box);
     fireEvent.keyDown(box, { key: "g" });
     fireEvent.keyDown(box, { key: "i" });
@@ -128,8 +129,7 @@ describe("Needs attention", () => {
   it("lists on the Overview what waits for a person, each linking to where it is dealt with", () => {
     render(<Harness start={hubFixture()} />);
     const card = screen.getByRole("region", { name: "Needs attention" });
-    expect(within(card).getByText("Fix loop stopped")).toBeTruthy();
-    expect(within(card).getByText("Missing check")).toBeTruthy();
+    expect(within(card).getByText("Fix stopped")).toBeTruthy();
     const regression = within(card).getByText("Jump failed after passing").closest("a")!;
     expect(regression.getAttribute("href")).toBe("#/playtests/runs/run-jump-2");
     // There is no Inbox any more: its old address is the Overview.
@@ -175,7 +175,7 @@ describe("the goal form", () => {
     expect(within(dialog).getByText("From 1 to 10 runs.")).toBeTruthy();
     fireEvent.change(within(dialog).getByLabelText("Passing runs in a row"), { target: { value: "3" } });
     fireEvent.click(within(dialog).getByRole("button", { name: "Create goal" }));
-    await waitFor(() => expect(m.hub.createGoal).toHaveBeenCalledWith(expect.objectContaining({ title: "Four players join", acceptance: { stableRuns: 3, staleAfterDays: 14, signOff: false } })));
+    await waitFor(() => expect(m.hub.createGoal).toHaveBeenCalledWith(expect.objectContaining({ title: "Four players join", acceptance: { stableRuns: 3, signOff: false } })));
     await waitFor(() => expect(window.location.hash).toBe("#/playtests/goals/four-players-join"));
   });
 
@@ -222,7 +222,8 @@ describe("the relationship graph", () => {
     expect(rows.filter((t) => t === "Movement feels right")).toHaveLength(2);
     expect(screen.getByText("Other goals")).toBeTruthy();
     expect(screen.getByText("Not part of any milestone")).toBeTruthy();
-    expect(screen.getByText("1 check is not part of any goal")).toBeTruthy();
+    // Every playtest is listed too, and one in no goal says so.
+    expect(screen.getByRole("region", { name: "Playtests" }).querySelectorAll(".hub-unused")).toHaveLength(1);
     // The cursor walks rows, so the second copy is reachable.
     for (let i = 0; i < 2; i++) fireEvent.keyDown(document.body, { key: "j" });
     expect(document.querySelectorAll(".hub-goal-row")[2].getAttribute("aria-current")).toBe("true");
@@ -277,18 +278,38 @@ describe("the relationship graph", () => {
   });
 });
 
-describe("a project with scripts and no goals", () => {
-  it("lists the scripts and offers to make goals from them in one click", async () => {
+describe("a project with playtests and no goals", () => {
+  it("is useful at once: every playtest with its health, Run all, Run failing and what just broke", async () => {
     const o = hubFixture();
     o.goals = [];
-    o.checks = o.checks.map((c) => ({ ...c, goalIds: [] }));
-    m.hub.createGoal.mockResolvedValue({ goal: {} });
+    o.checks = o.checks.map((c) => ({ ...c, goalIds: [], unused: true }));
     render(<Harness start={o} />);
-    expect(screen.getByText("No goals yet")).toBeTruthy();
-    expect(screen.getByText("3 test scripts in this project")).toBeTruthy();
-    fireEvent.click(screen.getByRole("button", { name: "Create 2 goals, one per map" }));
-    await waitFor(() => expect(m.hub.createGoal).toHaveBeenCalledTimes(2));
-    expect(m.hub.createGoal).toHaveBeenCalledWith({ title: "Arena plays through", checks: [o.checks[0].check, o.checks[1].check] });
+    const list = screen.getByRole("region", { name: "Playtests" });
+    expect(Array.from(list.querySelectorAll(".hub-row-title")).map((t) => t.textContent)).toEqual(["Jump", "Menu", "Swim"]);
+    expect(within(list).getByText(/group them into a goal/)).toBeTruthy();
+    expect(within(screen.getByRole("region", { name: "Just broke" })).getByText("Jump")).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: /^Run all/ }));
+    await waitFor(() => expect(m.hub.plan).toHaveBeenCalledWith({ scope: { kind: "all" } }));
+    fireEvent.click(screen.getByRole("button", { name: /^Run failing/ }));
+    await waitFor(() => expect(m.hub.plan).toHaveBeenLastCalledWith({ scope: { kind: "failing" } }));
+  });
+});
+
+describe("now running", () => {
+  it("is a strip on the Overview: the run on the editor, how far its batch is, the runs waiting, and Stop", async () => {
+    const o = hubFixture();
+    const item = (name: string, state: "running" | "queued" | "passed") => ({ check: { kind: "script" as const, target: `/Game/Tests/${name}` }, name, state });
+    const plan = (id: string, title: string, items: ReturnType<typeof item>[]) => ({ id, title, scope: { kind: "all" as const }, options: { attended: true, stopOnFailure: false, replay: false }, state: "running" as const, items, trigger: "person" as const, createdAt: "2026-11-22T10:00:00Z" });
+    o.queue = { ...o.queue, current: plan("p1", "Run all playtests", [item("Jump", "passed"), item("Swim", "running")]), queued: [plan("p2", "Run Tutorial completes", [item("Menu", "queued")])] };
+    m.hub.cancelPlan.mockResolvedValue({ plan: {} });
+    render(<Harness start={o} />);
+    const strip = screen.getByRole("region", { name: "Now running" });
+    // The playing item names the line, and the batch's items are listed under it.
+    expect(strip.querySelector(".hub-plan-toggle")?.textContent).toBe("Swim");
+    expect(within(strip).getByRole("meter", { name: "1 of 2 done" })).toBeTruthy();
+    expect(within(strip).getByText("Run Tutorial completes")).toBeTruthy();
+    fireEvent.click(within(strip).getByRole("button", { name: "Stop Run Tutorial completes" }));
+    await waitFor(() => expect(m.hub.cancelPlan).toHaveBeenCalledWith("p2"));
   });
 });
 
@@ -319,8 +340,8 @@ describe("tracker links", () => {
     const o = hubFixture();
     const g = o.goals[1];
     g.goal.links = [{ url: issue, title: "Movement", rel: "counterpart" }];
-    g.goal.checks = [{ ...g.goal.checks[0], links: [{ url: "jira://HOL-7" }] }, g.goal.checks[1]];
-    g.checks = [{ ...g.checks[0], check: g.goal.checks[0] }, g.checks[1]];
+    // A playtest's links are its own, on its state wherever it is listed.
+    g.checks = [{ ...g.checks[0], links: [{ url: "jira://HOL-7" }] }, g.checks[1]];
     return o;
   };
 

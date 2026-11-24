@@ -1,16 +1,20 @@
 /**
- * The Playtest Hub's service: goals (goals.ts), the runs and what each
- * tested (an EvidenceStore, kept on this computer by run-index.ts),
- * the plan queue and schedules (queue.ts, schedules.ts) and the Needs
- * attention list (shared buildAttention), put together into the answers
- * HUB_ROUTES name. Status is worked
- * out on every read with the shared rules (checkHealth, goalStatus), never
- * stored.
+ * The Playtest Hub's service: goals and what goes with them (goals.ts over a
+ * GoalStore, kept on this computer by goal-files.ts), the runs and what each
+ * tested (an EvidenceStore, kept on this computer by run-index.ts), the plan
+ * queue (queue.ts) and the Needs attention list (shared buildAttention), put
+ * together into the answers HUB_ROUTES name. Status is worked out on every
+ * read with the shared rules (checkHealth, goalStatus), never stored.
  *
  * Checks are every check a goal names, and every script the editor lists
- * that no goal names yet. A script check whose asset the editor no longer
- * lists is missing, but only while the editor is connected and its list is
- * fresh: offline, nothing is flagged.
+ * that no goal names yet. A script check whose asset the editor does not
+ * list is missing on this checkout, but only while the editor is connected
+ * and its list is fresh: offline, nothing is flagged. Before it counts as
+ * missing, a redirector at its path is looked for through ue-mcp
+ * (asset(fixup_redirectors) with dryRun, which reads and changes nothing):
+ * a script that moved is followed to its new path, and the evidence store's
+ * alias carries its history there. The goal keeps the path it names, so a
+ * checkout where the script has not moved still finds it.
  *
  * Runs go through the existing machinery, so cards, players and verdict
  * routing keep working: a plan item runs on its script's card (the newest
@@ -19,12 +23,10 @@
  */
 import type { ActionResult } from "ue-mcp/daemon";
 import {
-  DEFAULT_ACCEPTANCE,
+  DEFAULT_PLAN_OPTIONS,
   NEEDS_PERSON,
-  RUNNABLE_KINDS,
   buildAttention,
   needsPerson,
-  planOptionsFor,
   TRACKER_LINKS_MAX,
   checkId,
   checkStateOf,
@@ -36,9 +38,8 @@ import {
   qaScriptKey,
   requirementsKey,
   rollUpGoals,
-  uniqueLinks,
-  type AcceptanceRule,
   type CheckDetail,
+  type CheckMeta,
   type CheckRef,
   type CheckState,
   type CurrentProvenance,
@@ -47,6 +48,7 @@ import {
   type HubChanged,
   type HubChangedWhat,
   type HubOverview,
+  type HubRunnerEvent,
   type PlanItem,
   type PlanRun,
   type PlanScope,
@@ -59,26 +61,26 @@ import {
   type RunDetail,
   type RunRecord,
   type RunStepSpan,
-  type Schedule,
   type SignOff,
 } from "@ue-mcp-studio/shared";
 import type { QaBroker } from "../qa.js";
 import type { ListedScript, PlaytestIndex } from "../playtest-index.js";
 import type { SessionStore } from "../sessions.js";
-import { GoalStore } from "./goals.js";
-import { SignOffStore } from "./sign-offs.js";
+import { Goals } from "./goals.js";
+import { GoalFiles } from "./goal-files.js";
+import type { GoalStore } from "./goal-store.js";
 import type { EvidenceStore } from "./evidence-store.js";
 import { RunIndex } from "./run-index.js";
 import { PlanQueue, newId, type ItemStart } from "./queue.js";
 import { EditorLease, ON_EDITOR, WORKSPACE, occupancyOf, type OccupancySignals } from "./lease.js";
 import { ProjectWatch } from "./project-watch.js";
+import { RUNNER, RUNNER_INSTANCE, RunnerEditor, type RunnerHost } from "./runner.js";
 import { readResults, readResultsFile, readSeries } from "./evidence.js";
 import { provenanceAtStart, scriptHashOf, ueMcpProvenance, withUeMcp, workspaceNow } from "./provenance.js";
-import { scheduleDraftOf, scheduleTurn, scheduleUpdated, withNext } from "./schedules.js";
 import { planOptionsOf, scopeOf } from "./scope.js";
 import { answerOf, bad, checkOfId, conflict, failureOf, isObject, linkOf, notFound } from "./util.js";
 
-/** How often the queue, the schedules and the goals folder are looked at. */
+/** How often the queue and the runs Studio may have missed are looked at. */
 export const TICK_MS = 30_000;
 /** How long hub.changed waits to gather the changes that come together, such as a run's steps. */
 const PUBLISH_MS = 200;
@@ -119,6 +121,10 @@ export interface HubOptions {
   };
   /** Watches project files during runs, for tainted runs; one of the project's own otherwise. */
   watch?: ProjectWatch;
+  /** The runner editor through the daemon (runner.ts runnerHostOf): null or absent while this ue-mcp cannot run one. */
+  runnerHost?: RunnerHost | null;
+  /** The runnerEditor setting. Default on. */
+  runnerEnabled?: () => boolean;
   index: Pick<PlaytestIndex, "listScripts" | "recorded">;
   store: Pick<SessionStore, "create" | "get" | "all">;
   /** The Playtest runs setting: an agent's plan runs only under Automatic. */
@@ -129,34 +135,39 @@ export interface HubOptions {
   writePlaytests?: (sessionId: string, text: string) => Promise<void>;
   /** The signed-in ue-mcp account's login, who a sign-off is from; null when none is signed in. */
   signer: () => string | null;
-  /** The experiment is on: schedules fire only then. */
+  /** The experiment is on: the queue starts nothing and the editor is not asked while it is off. */
   enabled: () => boolean;
   /** The project's engine version, major.minor, for what a run tested. */
   engine?: () => string | null;
   /** The workspace's source control state now; read from the project's source control otherwise. */
   workspace?: () => Promise<CurrentProvenance>;
-  goalsDir?: string;
+  /** Where goals are kept; this computer's files under the data directory otherwise. */
+  goalStore?: GoalStore;
   now?: () => number;
-  /** Start the timers and the folder watch; tests drive tick() themselves. */
+  /** Start the timers; tests drive tick() themselves. */
   timers?: boolean;
 }
 
 interface Catalog {
-  checks: Map<string, { ref: CheckRef; goalIds: string[]; name?: string; map?: string | null }>;
+  /** Every check by its id: a goal's checks by where they are now (a moved script by its new path), and scripts no goal names. */
+  checks: Map<string, { ref: CheckRef; goalIds: string[]; name?: string; map?: string | null; renamedFrom?: string }>;
   listed: Map<string, ListedScript> | null;
   connected: boolean;
   /** The workspace runs are compared with. */
   current: CurrentProvenance;
+  /** What each check says about itself, by check id. */
+  metas: Map<string, CheckMeta>;
 }
 
 /** What the editor is told while the hub holds it. */
 export const LEASE_NOTICE = "Studio is running a playtest";
-
-const KIND_NAMES: Record<CheckRef["kind"], string> = { script: "Test script", uat: "UAT scenario", repro: "Reproduction test", automation: "Automation test", manual: "Manual check" };
+/** How long a path found to have no redirector is left before it is asked about again. */
+const REDIRECT_RETRY_MS = 10 * 60_000;
+/** The most moves followed from one path. */
+const REDIRECT_HOPS = 4;
 
 export class Hub {
-  readonly goals: GoalStore;
-  readonly signOffs: SignOffStore;
+  readonly goals: Goals;
   /** The runs behind every status: this computer's own (RunIndex), the one store built so far. */
   readonly runs: EvidenceStore;
   readonly queue: PlanQueue;
@@ -172,6 +183,8 @@ export class Hub {
   private readonly planSessions = new Map<string, string>();
   /** The developer's editor's lease: the hub's hold on it while an item runs (lease.ts). */
   readonly lease: EditorLease;
+  /** The second editor unattended plans play in, with its own lease (runner.ts). It never starts while ue-mcp cannot run one. */
+  readonly runner: RunnerEditor;
   /** Project files changed during a run: the run is tainted. */
   private readonly watch: ProjectWatch;
   /** Runs the editor no longer knows (a status read answered idle): they hold nothing. */
@@ -186,28 +199,43 @@ export class Hub {
   private workspaceRead: { at: number; value: Promise<CurrentProvenance> } | null = null;
   /** Runs whose start provenance is being read; the read at their end waits for it. */
   private readonly capturing = new Map<string, Promise<void>>();
+  /** Paths asked about for a redirector, and when, so a missing script is not asked about on every read. */
+  private readonly redirectAsked = new Map<string, number>();
 
   constructor(private readonly o: HubOptions) {
     this.now = o.now ?? Date.now;
     const iso = () => new Date(this.now()).toISOString();
-    this.goals = new GoalStore({ projectDir: o.host.projectDir, dir: o.goalsDir, changed: (goalId) => this.changed(["goals", "checks", "attention"], { goalId }), log: o.host.log });
-    this.signOffs = new SignOffStore(o.host.dataDir);
+    this.goals = new Goals({ store: o.goalStore ?? new GoalFiles(o.host.dataDir, iso), projectDir: o.host.projectDir, now: iso, changed: (goalId) => this.changed(["goals", "checks", "attention"], { goalId }) });
     this.runs = new RunIndex({ dataDir: o.host.dataDir, now: iso, changed: (runId) => this.changed(["runs", "checks", "goals", "attention"], { runId }), log: o.host.log });
     this.watch = o.watch ?? new ProjectWatch(o.host.projectDir, o.host.log);
     this.lease = new EditorLease(WORKSPACE, (lease) => this.leaseChanged(lease));
+    this.runner = new RunnerEditor({
+      host: o.runnerHost ?? null,
+      enabled: () => this.o.enabled() && (o.runnerEnabled?.() ?? true),
+      watch: this.watch,
+      changed: (event) => {
+        // The daemon names an extension's events after it: this reaches clients as studio.hub.runner (HUB_RUNNER).
+        this.o.host.events.publish("hub.runner", event as unknown as Record<string, unknown>);
+        // Started, stopped or let go: the queue may go on.
+        if (this.o.enabled()) void this.queue.pump();
+      },
+      log: o.host.log,
+    });
     this.queue = new PlanQueue({
       dataDir: o.host.dataDir,
       now: iso,
       lease: this.lease,
       runner: {
-        connected: () => this.connected(),
-        occupied: (plan) => this.occupancy(!plan.options.attended)[0]?.text ?? null,
+        connected: (editor) => (editor === RUNNER ? this.runner.available() : this.connected()),
+        // An unattended plan waits only on the runner; anything else on the workspace editor's occupancy.
+        occupied: (plan) => (this.runner.takes(plan) ? this.runner.prepare() : this.occupancy(!plan.options.attended)[0]?.text ?? null),
+        leaseFor: (plan) => (this.runner.takes(plan) ? this.runner.lease : this.lease),
         start: (item, plan) => (plan.work === "fix" ? this.startFix(item, plan) : this.startItem(item, plan)),
         run: (runId) => o.broker.get(runId),
         stop: (runId, reason) => this.stopRun(runId, reason),
         refresh: async (runId) => void (await o.broker.status(runId)),
         stopFix: async (item) => this.stopFix(item),
-        endPie: () => this.endPie(),
+        endPie: (editor) => this.endPie(editor),
       },
       changed: (planRunId) => this.changed(["queue"], { planRunId }),
       finished: (plan) => {
@@ -232,8 +260,14 @@ export class Hub {
       } else if (e.type === "editor.disconnected") {
         const cause = typeof e.data.cause === "string" ? e.data.cause : undefined;
         // Every run on a crashed editor ended with it, though no event will say so.
-        if (cause === "crashed") for (const r of o.broker.all()) if (ON_EDITOR.has(r.state)) this.gone.add(r.runId);
-        this.queue.editorLost(cause);
+        if (cause === "crashed") for (const r of o.broker.all()) if (ON_EDITOR.has(r.state) && !r.editor) this.gone.add(r.runId);
+        this.queue.editorLost(cause, WORKSPACE);
+      } else if (e.type === "instance.disconnected" && e.data.instance === RUNNER_INSTANCE) {
+        // The runner went (ask 13's event): its item crashed with it or goes back in the queue, as on the workspace editor.
+        const cause = typeof e.data.cause === "string" ? e.data.cause : undefined;
+        if (cause === "crashed") for (const r of o.broker.all()) if (ON_EDITOR.has(r.state) && r.editor === RUNNER_INSTANCE) this.gone.add(r.runId);
+        this.runner.lost();
+        this.queue.editorLost(cause, RUNNER);
       } else if (e.type === "studio.busy.changed" || e.type === "studio.dialog.changed") {
         // An operation, a call or a dialog ended: the queue may be free to go on.
         void this.queue.pump();
@@ -245,9 +279,7 @@ export class Hub {
       if (this.o.enabled()) void this.queue.pump();
     });
     if (offPie) this.unsubscribe.push(offPie);
-    this.refreshSchedules();
     if (o.timers !== false) {
-      this.goals.watch();
       this.timer = setInterval(() => void this.tick(), TICK_MS);
       this.timer.unref?.();
       if (o.enabled()) {
@@ -265,8 +297,8 @@ export class Hub {
     if (this.publishTimer) clearTimeout(this.publishTimer);
     this.timer = null;
     this.publishTimer = null;
-    this.goals.dispose();
     this.watch.stop();
+    this.runner.dispose();
   }
 
   private connected(): boolean {
@@ -289,7 +321,8 @@ export class Hub {
       pie: () => e?.pie() ?? false,
       dialogs: () => e?.dialogs() ?? 0,
       busy: () => e?.busy() ?? { now: this.now(), calls: [] },
-      runs: () => this.o.broker.all().filter((r) => !this.gone.has(r.runId)),
+      // A run on another editor (the runner) does not hold this one.
+      runs: () => this.o.broker.all().filter((r) => !this.gone.has(r.runId) && !r.editor),
       inputAgeMs: () => e?.inputAgeMs() ?? null,
     };
     return occupancyOf(signals, this.lease.held(), { unattended });
@@ -301,9 +334,9 @@ export class Hub {
    * one the editor answers idle for is gone.
    */
   private async refreshOthers(): Promise<void> {
-    const mine = this.lease.held().runId;
+    const mine = new Set([this.lease.held().runId, this.runner.lease.held().runId]);
     for (const r of this.o.broker.all()) {
-      if (r.runId === mine || this.gone.has(r.runId) || r.manual || !ON_EDITOR.has(r.state)) continue;
+      if (mine.has(r.runId) || this.gone.has(r.runId) || r.manual || !ON_EDITOR.has(r.state)) continue;
       const read = await this.o.broker.status(r.runId).catch(() => null);
       if (read && "answer" in read && read.answer.state === "idle") this.gone.add(r.runId);
     }
@@ -337,13 +370,32 @@ export class Hub {
     return this.queueState();
   }
 
-  /** End Play In Editor, only while the hub's run started the session running now. */
-  private async endPie(): Promise<void> {
-    if (!this.lease.held().pie || !(this.o.editor?.pie() ?? true)) return;
-    const r = await this.o.host.callAction("editor", "play_in_editor", { pieAction: "stop" });
+  /** End Play In Editor on an editor (by its lease's name), only while the hub's run started the session running there now. */
+  private async endPie(editor: string = WORKSPACE): Promise<void> {
+    const runner = editor === RUNNER;
+    const lease = runner ? this.runner.lease : this.lease;
+    // PieWatch follows the workspace editor; on the runner, only the hub plays.
+    if (!lease.held().pie || (!runner && !(this.o.editor?.pie() ?? true))) return;
+    const r = await this.o.host.callAction("editor", "play_in_editor", { pieAction: "stop", ...(runner ? { editor: RUNNER_INSTANCE } : {}) });
     const error = failureOf(r);
     if (error && !/already/i.test(error)) throw new Error(error);
-    this.lease.update({ pie: false });
+    lease.update({ pie: false });
+  }
+
+  /** GET /hub/runner. */
+  runnerView(): HubRunnerEvent {
+    return this.runner.event();
+  }
+
+  /**
+   * Stop runner: a playtest playing there goes back to the front of the
+   * queue, which pauses as after Release the editor, then the runner editor
+   * stops. The workspace editor's item, if any, is left alone.
+   */
+  async stopRunner(): Promise<HubRunnerEvent> {
+    if (this.queue.heldBy() === RUNNER) await this.queue.release();
+    await this.runner.stop();
+    return this.runner.event();
   }
 
   private note(text: string): void {
@@ -394,8 +446,11 @@ export class Hub {
     if (goalId && qaIsDraft(run) && !run.deleted && run.script !== "inline") {
       const goal = this.goals.get(goalId);
       if (goal && !goal.checks.some((c) => c.kind === "script" && c.target === qaScriptKey(run.script))) {
-        this.goals.addChecks(goalId, [{ kind: "script", target: qaScriptKey(run.script) }]).catch((e: unknown) =>
-          this.note(`the playtest written for ${goalId} could not be added to it: ${e instanceof Error ? e.message : String(e)}`));
+        try {
+          this.goals.addChecks(goalId, [{ kind: "script", target: qaScriptKey(run.script) }]);
+        } catch (e) {
+          this.note(`the playtest written for ${goalId} could not be added to it: ${e instanceof Error ? e.message : String(e)}`);
+        }
       }
     }
     this.taint(run);
@@ -415,19 +470,19 @@ export class Hub {
     if (this.watch.runEnded(run.runId)) this.runs.setTainted(run.runId);
   }
 
-  /** The periodic look: goals folder, queue, schedules, runs Studio may have missed the end of, backfill. */
+  /** The periodic look: the queue, runs Studio may have missed the end of, backfill. */
   async tick(): Promise<void> {
     try {
-      // Off: no plan starts and the editor is not asked; due schedules are only recorded as skipped.
+      // A runner that went without a word lets its item go; one no longer wanted stops once idle.
+      if (this.runner.tick()) this.queue.editorLost(undefined, RUNNER);
+      // Off: no plan starts and the editor is not asked.
       if (!this.o.enabled()) {
         this.watch.stop();
-        return await this.runSchedules();
+        return;
       }
       this.watch.start();
-      this.goals.refresh();
       if (this.connected()) await this.refreshOthers();
       await this.queue.tick();
-      await this.runSchedules();
       if (this.now() - this.backfilled > 5 * BACKFILL_MS) void this.backfill();
     } catch (e) {
       this.o.host.log.warn("hub: a tick failed", e);
@@ -511,19 +566,21 @@ export class Hub {
     }
     const listed = list ? new Map(list.map((s) => [s.path, s])) : null;
     const checks: Catalog["checks"] = new Map();
+    const unresolved = new Set<string>();
     for (const goal of this.goals.list()) {
-      for (const ref of goal.checks) {
+      for (const named of goal.checks) {
+        const ref = this.resolve(named, listed);
         const id = checkId(ref);
+        if (connected && listed && !listed.has(ref.target)) unresolved.add(ref.target);
         const had = checks.get(id);
         if (had) {
           if (!goal.archived) had.goalIds.push(goal.id);
-          // A check outside any one goal shows every goal's links to it.
-          if (ref.links?.length) had.ref = { ...had.ref, links: uniqueLinks([...(had.ref.links ?? []), ...ref.links]) };
         } else {
-          checks.set(id, { ref, goalIds: goal.archived ? [] : [goal.id] });
+          checks.set(id, { ref: { kind: ref.kind, target: ref.target }, goalIds: goal.archived ? [] : [goal.id], ...(ref.target !== named.target ? { renamedFrom: named.target } : {}) });
         }
       }
     }
+    if (unresolved.size && this.o.enabled()) void this.followRedirects([...unresolved]);
     for (const s of listed?.values() ?? []) {
       const id = checkId({ kind: "script", target: s.path });
       if (!checks.has(id)) checks.set(id, { ref: { kind: "script", target: s.path }, goalIds: [] });
@@ -536,61 +593,102 @@ export class Hub {
       }
     }
     for (const c of checks.values()) {
-      const s = c.ref.kind === "script" ? listed?.get(c.ref.target) : undefined;
+      const s = listed?.get(c.ref.target);
       if (s) Object.assign(c, { name: s.name, map: s.map ?? null });
     }
-    return { checks, listed, connected, current };
+    return { checks, listed, connected, current, metas: this.goals.metas() };
   }
 
-  /** The script no longer resolves: only said while the editor is connected and has listed its scripts. */
+  /**
+   * Where a script a goal names is on this checkout: its own path when the
+   * editor lists it (or no list is known), else where the evidence store's
+   * aliases say it moved, when that is listed. Otherwise its own path, missing.
+   */
+  private resolve(ref: CheckRef, listed: Map<string, ListedScript> | null): CheckRef {
+    if (!listed || listed.has(ref.target)) return ref;
+    const aliases = this.runs.aliases();
+    let id = checkId(ref);
+    for (let hop = 0; hop < REDIRECT_HOPS; hop++) {
+      const next = aliases.get(id);
+      const to = next ? checkOfId(next) : null;
+      if (!to) break;
+      if (listed.has(to.target)) return { ...to, ...(ref.required === false ? { required: false } : {}) };
+      id = next!;
+    }
+    return ref;
+  }
+
+  /**
+   * Ask ue-mcp whether a redirector stands at each path the editor does not
+   * list (asset(fixup_redirectors) with dryRun: it reports and changes
+   * nothing). A script that moved gets an alias in the evidence store, so its
+   * history follows it; a path with none is asked about again later.
+   */
+  private async followRedirects(targets: string[]): Promise<void> {
+    let moved = false;
+    for (const from of targets) {
+      const asked = this.redirectAsked.get(from);
+      if (asked !== undefined && this.now() - asked < REDIRECT_RETRY_MS) continue;
+      this.redirectAsked.set(from, this.now());
+      const r = await this.o.host.callAction("asset", "fixup_redirectors", { paths: [from], dryRun: true }).catch(() => null);
+      const found = (answerOf(r)?.redirectors as Array<{ destinationPath?: unknown }> | undefined)?.find((x) => typeof x?.destinationPath === "string");
+      const to = found ? checkOfId(`script:${String(found.destinationPath)}`) : null;
+      if (!to || to.target === from) continue;
+      this.runs.alias(checkId({ kind: "script", target: from }), checkId(to));
+      moved = true;
+    }
+    if (moved) this.changed(["checks", "goals", "runs"]);
+  }
+
+  /** The script is not on this checkout: only said while the editor is connected and has listed its scripts. */
   private missing(ref: CheckRef, cat: Catalog): boolean {
-    return ref.kind === "script" && cat.connected && cat.listed !== null && !cat.listed.has(ref.target);
+    return cat.connected && cat.listed !== null && !cat.listed.has(ref.target);
   }
 
-  private stateOf(ref: CheckRef, cat: Catalog, acceptance: AcceptanceRule, goalIds?: string[]): { state: CheckState; runs: RunRecord[] } {
-    const id = checkId(ref);
+  /** A check's state from the ref a goal (or the catalog) names: health follows the script to where it is now, under the project's one rule. */
+  private stateOf(named: CheckRef, cat: Catalog, goalIds?: string[]): { state: CheckState; runs: RunRecord[] } {
+    const at = this.resolve(named, cat.listed);
+    const id = checkId(at);
     const entry = cat.checks.get(id);
     const runs = this.runs.byCheck(id);
     const last = runs[0];
+    const renamedFrom = at.target !== named.target ? named.target : entry?.renamedFrom;
     const state = checkStateOf({
-      check: ref,
+      check: { kind: at.kind, target: at.target, ...(named.required === false ? { required: false } : {}) },
       runs,
-      missing: this.missing(ref, cat),
-      acceptance,
+      missing: this.missing(at, cat),
+      rule: this.goals.rules(),
       current: cat.current,
       now: this.now(),
       goalIds: goalIds ?? entry?.goalIds ?? [],
-      name: entry?.name ?? last?.name ?? leafName(ref.target),
+      meta: cat.metas.get(id) ?? (renamedFrom ? cat.metas.get(checkId({ kind: "script", target: renamedFrom })) : undefined),
+      name: entry?.name ?? last?.name ?? leafName(at.target),
       map: entry?.map ?? last?.map ?? null,
       steps: last?.summary?.total ?? null,
+      ...(renamedFrom ? { renamedFrom } : {}),
     });
     return { state, runs };
   }
 
-  /** The acceptance a check outside any one goal is judged by: the first goal's that names it. */
-  private acceptanceFor(goalIds: string[]): AcceptanceRule {
-    const g = goalIds.map((id) => this.goals.get(id)).find((x): x is Goal => !!x);
-    return g?.acceptance ?? DEFAULT_ACCEPTANCE;
-  }
-
-  /** Every goal's state, rolled up through the goals each requires (shared rollUpGoals), with this computer's sign-offs. */
+  /** Every goal's state, rolled up through the goals each requires (shared rollUpGoals), with the store's sign-offs. */
   private goalStates(cat: Catalog): GoalState[] {
-    return rollUpGoals(this.goals.list(), (goal) => goal.checks.map((ref) => this.stateOf(ref, cat, goal.acceptance)), cat.current, this.signOffs.all());
+    return rollUpGoals(this.goals.list(), (goal) => goal.checks.map((ref) => this.stateOf(ref, cat)), cat.current, this.goals.signOffs());
   }
 
   async overview(): Promise<HubOverview> {
     if (this.now() - this.backfilled > BACKFILL_MS) void this.backfill();
     const cat = await this.catalog();
     const goals = this.goalStates(cat);
-    const checks = [...cat.checks.values()].map((c) => this.stateOf(c.ref, cat, this.acceptanceFor(c.goalIds)).state);
+    const checks = [...cat.checks.values()].map((c) => this.stateOf(c.ref, cat).state);
     return {
-      goalsDir: this.goals.relDir,
       goals,
       checks,
       attention: buildAttention({ runs: this.o.broker.all(), goals, checks, plans: this.queue.state().recent, now: this.now() }),
       queue: this.queueState(),
       recent: this.runs.all().slice(0, 30),
       evidence: { store: this.runs.scope, current: cat.current },
+      rules: this.goals.rules(),
+      imported: this.goals.imported(),
       editor: { connected: cat.connected },
       warnings: [...this.goals.warnings(), ...this.notes],
     };
@@ -602,14 +700,31 @@ export class Hub {
     return this.goalStates(cat).find((g) => g.goal.id === id)!;
   }
 
+  /**
+   * The id a goal holds a check under, from the id a client shows: a moved
+   * script shows by its new path, while the goal still names the old one.
+   */
+  async goalCheckId(goalId: string, id: string): Promise<string> {
+    const goal = this.goals.get(goalId);
+    if (!goal || goal.checks.some((c) => checkId(c) === id)) return id;
+    const cat = await this.catalog();
+    return goal.checks.map(checkId).find((c) => checkId(this.resolve(checkOfId(c)!, cat.listed)) === id) ?? id;
+  }
+
+  /** Change what a check says about itself. */
+  updateCheckMeta(id: string, body: unknown): CheckMeta {
+    const ref = checkOfId(id);
+    if (!ref) throw bad("a check id is <kind>:<target>");
+    return this.goals.updateMeta(ref, body);
+  }
+
   async check(id: string, q: { limit?: unknown; before?: unknown }): Promise<CheckDetail> {
     const ref = checkOfId(id);
     if (!ref) throw bad("a check id is <kind>:<target>");
     const cat = await this.catalog();
     const known = cat.checks.get(checkId(ref));
     if (!known && this.runs.byCheck(checkId(ref)).length === 0) throw notFound(`no check ${id}`);
-    const goalIds = known?.goalIds ?? [];
-    const { state } = this.stateOf(known?.ref ?? ref, cat, this.acceptanceFor(goalIds));
+    const { state } = this.stateOf(known?.ref ?? ref, cat);
     const page = this.runs.page({ check: checkId(ref), limit: limitOf(q.limit, 50), before: typeof q.before === "string" ? q.before : null });
     let script: QaRun | null = null;
     if (ref.kind === "script") {
@@ -704,9 +819,10 @@ export class Hub {
     if (!by) throw conflict("Sign in to your ue-mcp account to sign off a goal: a sign-off records who gave it.");
     const current = await this.workspace(true);
     const need = Math.max(1, goal.acceptance.stableRuns);
+    const cat = await this.catalog();
     const runIds = goal.checks
-      .filter((c) => c.required !== false && c.kind !== "manual")
-      .flatMap((c) => this.runs.byCheck(checkId(c)).filter(isResult).slice(0, need).map((r) => r.runId));
+      .filter((c) => c.required !== false)
+      .flatMap((c) => this.runs.byCheck(checkId(this.resolve(c, cat.listed))).filter(isResult).slice(0, need).map((r) => r.runId));
     const s: SignOff = {
       goalId: id,
       by,
@@ -717,14 +833,13 @@ export class Hub {
       runIds,
       requirements: requirementsKey(goal),
     };
-    this.signOffs.set(s);
-    this.changed(["goals", "attention"], { goalId: id });
+    this.goals.signOff(s);
     return s;
   }
 
   clearSignOff(id: string): void {
     if (!this.goals.get(id)) throw notFound(`no goal ${id}`);
-    if (this.signOffs.clear(id)) this.changed(["goals", "attention"], { goalId: id });
+    this.goals.clearSignOff(id);
   }
 
   /**
@@ -743,7 +858,7 @@ export class Hub {
     const session = this.o.store.create(`Playtests for ${goal.title}`.slice(0, 80));
     this.o.host.events.publish("session.changed", { sessionId: session.id, status: session.status, waitingCause: session.waitingCause });
     this.linking.set(session.id, goal.id);
-    const text = (asked as string | undefined)?.trim() || playtestBrief(goal);
+    const text = (asked as string | undefined)?.trim() || playtestBrief(goal, this.goals.metas());
     void write(session.id, text).catch((e: unknown) => this.note(`writing playtests for ${goal.id} failed: ${e instanceof Error ? e.message : String(e)}`));
     return { sessionId: session.id };
   }
@@ -780,15 +895,15 @@ export class Hub {
       case "failing":
       case "stale": {
         const pool = scope.goalId ? goalChecks(scope.goalId) : [...cat.checks.values()].map((c) => c.ref);
-        const acceptance = scope.goalId ? this.goals.get(scope.goalId)!.acceptance : null;
         // Stale takes the never run too: both lack recent evidence.
         const wanted = scope.kind === "failing" ? ["failing"] : ["stale", "never_run"];
-        refs = pool.filter((r) => wanted.includes(this.stateOf(r, cat, acceptance ?? this.acceptanceFor(cat.checks.get(checkId(r))?.goalIds ?? [])).state.health));
+        refs = pool.filter((r) => wanted.includes(this.stateOf(r, cat).state.health));
         break;
       }
     }
     const seen = new Set<string>();
-    return refs.filter((r) => {
+    // A script that moved runs where it is now.
+    return refs.map((r) => this.resolve(r, cat.listed)).filter((r) => {
       const id = checkId(r);
       if (seen.has(id)) return false;
       seen.add(id);
@@ -796,7 +911,13 @@ export class Hub {
     });
   }
 
-  private async titleOf(scope: PlanScope, refs: CheckRef[]): Promise<string> {
+  /** A playtest's name as people read it: its own title, the script's name, or the asset's. */
+  private nameOf(ref: CheckRef, cat: Catalog): string {
+    const id = checkId(ref);
+    return cat.metas.get(id)?.title ?? cat.checks.get(id)?.name ?? leafName(ref.target);
+  }
+
+  private titleOf(scope: PlanScope, refs: CheckRef[], cat: Catalog): string {
     const goal = "goalId" in scope && scope.goalId ? this.goals.get(scope.goalId)?.title : undefined;
     switch (scope.kind) {
       case "goal":
@@ -806,33 +927,32 @@ export class Hub {
       case "stale":
         return goal ? `Run what is stale in ${goal}` : "Run what is stale";
       case "all":
-        return "Run every check";
+        return "Run all playtests";
       case "checks":
-        return refs.length === 1 ? `Run ${refs[0].title ?? leafName(refs[0].target)}` : `Run ${refs.length} checks`;
+        return refs.length === 1 ? `Run ${this.nameOf(refs[0], cat)}` : `Run ${refs.length} playtests`;
     }
   }
 
   /** A plan run queued: its scope expanded to items now, so what it runs does not change under it. */
-  async plan(body: unknown, trigger: PlanTrigger = "person", scheduleId?: string): Promise<PlanRun> {
+  async plan(body: unknown, trigger: PlanTrigger = "person"): Promise<PlanRun> {
     if (!isObject(body)) throw bad("body must be { title?, scope, options? }");
     if (body.title !== undefined && (typeof body.title !== "string" || !body.title.trim())) throw bad("title must be a non-empty string");
-    // A person's plan, and a schedule a person set, are the user's runs; an agent's only under Automatic.
+    // A person's plan is the user's run; an agent's only under Automatic.
     if (trigger === "agent" && this.o.playtestRuns() === "manual") throw conflict("Playtest runs are set to Manual: an agent cannot start a plan");
     const scope = scopeOf(body.scope);
-    const options = planOptionsOf(body.options, planOptionsFor(trigger));
+    const options = planOptionsOf(body.options, DEFAULT_PLAN_OPTIONS);
     const refs = await this.expand(scope);
-    if (refs.length === 0) throw conflict("nothing to run: the plan's scope has no checks");
+    if (refs.length === 0) throw conflict("nothing to run: the plan's scope has no playtests");
     const cat = await this.catalog();
-    const items: PlanItem[] = refs.map((ref) => ({ check: ref, name: ref.title ?? cat.checks.get(checkId(ref))?.name ?? leafName(ref.target), state: "queued" as const }));
+    const items: PlanItem[] = refs.map((ref) => ({ check: ref, name: this.nameOf(ref, cat), state: "queued" as const }));
     const plan: PlanRun = {
       id: newId("plan"),
-      title: typeof body.title === "string" ? body.title.trim().slice(0, 200) : await this.titleOf(scope, refs),
+      title: typeof body.title === "string" ? body.title.trim().slice(0, 200) : this.titleOf(scope, refs, cat),
       scope,
       options,
       state: "queued",
       items,
       trigger,
-      ...(scheduleId ? { scheduleId } : {}),
       createdAt: new Date(this.now()).toISOString(),
     };
     return this.queue.enqueue(plan);
@@ -851,13 +971,6 @@ export class Hub {
     return this.queue.cancel(id);
   }
 
-  movePlan(id: string, body: unknown): QueueState {
-    const to = isObject(body) ? body.to : undefined;
-    if (!Number.isInteger(to) || (to as number) < 0) throw bad("body must be { to: a position from 0 }");
-    this.queue.move(id, to as number);
-    return this.queueState();
-  }
-
   setPaused(body: unknown): QueueState {
     const paused = isObject(body) ? body.paused : undefined;
     if (typeof paused !== "boolean") throw bad("body must be { paused: boolean }");
@@ -867,28 +980,29 @@ export class Hub {
 
   /** Start one plan item on the editor: its script's card run, or a replay of its last recording. */
   private async startItem(item: PlanItem, plan: PlanRun): Promise<ItemStart> {
-    if (!RUNNABLE_KINDS.includes(item.check.kind)) return { skipped: `${KIND_NAMES[item.check.kind]} checks cannot run yet` };
     const script = item.check.target;
     const listed = this.connected() ? await this.o.index.listScripts().catch(() => null) : null;
-    if (listed && !listed.some((s) => s.path === script)) return { skipped: "the script no longer exists in the project" };
+    if (listed && !listed.some((s) => s.path === script)) return { skipped: "the playtest is not on this checkout" };
     // A manual step needs someone watching it play. A replay is no way around that: it would copy an old run's verdict.
     if (!plan.options.attended) {
       const read = await this.o.broker.readScriptAt(script);
       if ("error" in read) return { error: `the script could not be read: ${read.error}` };
       if (needsPerson(read.run.steps)) return { skipped: NEEDS_PERSON };
     }
-    const card = await this.cardFor(script, plan.id, `Plan: ${plan.title}`);
+    const card = await this.cardFor(script, plan.id, plan.title);
     if ("error" in card) return card;
-    const tag = { source: plan.trigger === "schedule" ? "schedule" as const : "plan" as const, planRunId: plan.id };
+    const tag = { source: "plan" as const, planRunId: plan.id };
+    // The queue took the runner's lease for this item: it plays there, through ue-mcp's `editor` routing parameter.
+    const on = this.queue.heldBy() === RUNNER ? { editor: RUNNER_INSTANCE } : {};
     const src = plan.options.replay && this.o.replay ? this.runs.byCheck(checkId(item.check)).find((r) => r.recordingId && r.outcome !== "running" && r.outcome !== "needs_you") : undefined;
     if (src && this.o.replay && card.sessionId) {
-      const r = await this.o.replay(card.sessionId, { run_id: src.recordingId ?? src.runId });
+      const r = await this.o.replay(card.sessionId, { run_id: src.recordingId ?? src.runId, ...on });
       const body = answerOf(r);
       if (!body || typeof body.run_id !== "string") return { error: `the replay did not start: ${failureOf(r) ?? "ue-mcp started no run"}` };
       this.runs.tag(body.run_id, tag);
       return { runId: body.run_id };
     }
-    const r = await this.o.broker.runScript(card.runId, { startPie: true });
+    const r = await this.o.broker.runScript(card.runId, { startPie: true }, on);
     if ("error" in r) return { error: r.error };
     this.runs.tag(r.run.runId, tag);
     return { runId: r.run.runId };
@@ -922,91 +1036,39 @@ export class Hub {
     if ("error" in r && !/already|only a run that is going/i.test(r.error)) throw new Error(r.error);
   }
 
-  // ── Schedules ─────────────────────────────────────────────────────
-
-  private refreshSchedules(): void {
-    const now = new Date(this.now());
-    for (const s of this.queue.schedules()) {
-      if (s.nextRunAt && Date.parse(s.nextRunAt) <= now.getTime()) continue;
-      const next = withNext(s, now);
-      if (next.nextRunAt !== s.nextRunAt) this.queue.putSchedule(next);
-    }
-  }
-
-  createSchedule(body: unknown): Schedule {
-    const d = scheduleDraftOf(body);
-    if (d.scope.kind === "goal" && !this.goals.get(d.scope.goalId)) throw bad(`no goal ${d.scope.goalId}`);
-    const s = withNext({ id: newId("schedule"), ...d, lastRunAt: null, lastSkipped: null, nextRunAt: null }, new Date(this.now()));
-    this.queue.putSchedule(s);
-    return s;
-  }
-
-  updateSchedule(id: string, body: unknown): Schedule {
-    const had = this.queue.schedules().find((s) => s.id === id);
-    if (!had) throw notFound(`no schedule ${id}`);
-    const s = withNext(scheduleUpdated(had, body), new Date(this.now()));
-    this.queue.putSchedule(s);
-    return s;
-  }
-
-  deleteSchedule(id: string): void {
-    if (!this.queue.deleteSchedule(id)) throw notFound(`no schedule ${id}`);
-  }
-
-  /** Each due schedule runs its plan when the queue is idle and the editor free (occupancy); otherwise it records why not. */
-  private async runSchedules(): Promise<void> {
-    const now = new Date(this.now());
-    for (const s of [...this.queue.schedules()]) {
-      const turn = scheduleTurn(s, now, () => {
-        if (!this.o.enabled()) return "the Playtest Hub is off";
-        if (this.queue.paused()) return "the queue was paused";
-        if (!this.queue.idle()) return "other plans were queued";
-        return this.occupancy(!s.options.attended)[0]?.text ?? null;
-      });
-      if (!turn) continue;
-      let next: Schedule = { ...s };
-      if ("skip" in turn) {
-        next.lastSkipped = turn.skip;
-      } else {
-        try {
-          await this.plan({ title: s.title, scope: s.scope, options: s.options }, "schedule", s.id);
-          next = { ...next, lastRunAt: now.toISOString(), lastSkipped: null };
-        } catch (e) {
-          next.lastSkipped = e instanceof Error ? e.message : String(e);
-        }
-      }
-      this.queue.putSchedule(withNext(next, now));
-    }
-  }
-
-  // ── Fix loops ─────────────────────────────────────────────────────
+  // ── Fix with an agent ─────────────────────────────────────────────
 
   /**
-   * Fix failing with an agent: a fix plan in the queue, one item per failing
-   * script check, each a fix loop in a chat session of its own, run one at a
-   * time under the editor's lease like any plan. A script already queued for
-   * a fix, or whose loop runs, is left out. Returns how many were queued.
+   * Fix with an agent (FixRequest): a fix plan in the queue, one item per
+   * failing playtest of a goal or of the project, or for one playtest, each
+   * a fix loop in a named chat session of its own ("Fix <name>", or the
+   * session that holds its card), run one at a time under the editor's lease
+   * like any plan. A playtest already queued for a fix, or whose loop runs,
+   * is left out. Returns how many were queued.
    */
-  async assignFailing(body: unknown): Promise<{ queued: number; plan: PlanRun | null }> {
-    if (body !== undefined && body !== null && !isObject(body)) throw bad("body must be { goalId? }");
+  async fix(body: unknown): Promise<{ queued: number; plan: PlanRun | null }> {
+    if (body !== undefined && body !== null && !isObject(body)) throw bad("body must be { goalId?, checkId? }");
     const goalId = isObject(body) ? body.goalId : undefined;
+    const one = isObject(body) ? body.checkId : undefined;
     if (goalId !== undefined && typeof goalId !== "string") throw bad("goalId must be a goal's id");
-    const refs = await this.expand(goalId ? { kind: "failing", goalId } : { kind: "failing" });
+    if (one !== undefined && (typeof one !== "string" || !checkOfId(one))) throw bad("checkId must be a playtest's id, script:<asset path>");
+    if (goalId !== undefined && one !== undefined) throw bad("give goalId or checkId, not both");
+    const refs = typeof one === "string" ? [checkOfId(one)!] : await this.expand(goalId ? { kind: "failing", goalId } : { kind: "failing" });
     const q = this.queue.state();
     const queued = new Set([q.current, ...q.queued].filter((p): p is PlanRun => p?.work === "fix").flatMap((p) => p.items.filter((i) => i.state === "queued" || i.state === "running").map((i) => i.check.target)));
     const running = new Set(this.o.broker.all().filter((r) => r.assignment?.state === "running").map((r) => qaScriptKey(r.script)));
-    const fresh = refs.filter((r) => r.kind === "script" && !queued.has(r.target) && !running.has(r.target));
+    const fresh = refs.filter((r) => !queued.has(r.target) && !running.has(r.target));
     if (fresh.length === 0) return { queued: 0, plan: null };
     const cat = await this.catalog();
     const goal = typeof goalId === "string" ? this.goals.get(goalId)?.title : undefined;
     const plan: PlanRun = {
       id: newId("plan"),
-      title: goal ? `Fix what is failing in ${goal}` : "Fix what is failing",
+      title: typeof one === "string" ? `Fix ${this.nameOf(fresh[0], cat)}` : goal ? `Fix what is failing in ${goal}` : "Fix what is failing",
       work: "fix",
-      scope: goalId ? { kind: "failing", goalId } : { kind: "failing" },
-      options: planOptionsFor("person"),
+      scope: typeof one === "string" ? { kind: "checks", checks: fresh } : goalId ? { kind: "failing", goalId } : { kind: "failing" },
+      options: { ...DEFAULT_PLAN_OPTIONS },
       state: "queued",
-      items: fresh.map((ref) => ({ check: ref, name: ref.title ?? cat.checks.get(checkId(ref))?.name ?? leafName(ref.target), state: "queued" as const })),
+      items: fresh.map((ref) => ({ check: ref, name: this.nameOf(ref, cat), state: "queued" as const })),
       trigger: "person",
       createdAt: new Date(this.now()).toISOString(),
     };
@@ -1020,7 +1082,6 @@ export class Hub {
    * The item follows the loop until it passes, stops for the person, or ends.
    */
   private async startFix(item: PlanItem, plan: PlanRun): Promise<ItemStart> {
-    if (item.check.kind !== "script") return { skipped: `${KIND_NAMES[item.check.kind]} checks cannot be fixed by an agent yet` };
     const card = item.sessionId && this.o.store.get(item.sessionId)
       ? this.o.broker.all().find((r) => r.sessionId === item.sessionId && qaScriptKey(r.script) === item.check.target && !r.deleted) ?? await this.cardFor(item.check.target, `${plan.id}:${item.check.target}`, `Fix ${item.name}`)
       : await this.cardFor(item.check.target, `${plan.id}:${item.check.target}`, `Fix ${item.name}`);
@@ -1047,8 +1108,8 @@ function limitOf(v: unknown, fallback: number): number {
 }
 
 /** What the /playtest flow is told for Write playtests: the goal's words and the playtests it already has, by name. */
-export function playtestBrief(goal: Goal): string {
-  const have = goal.checks.filter((c) => c.kind === "script").map((c) => c.title ?? leafName(c.target));
+export function playtestBrief(goal: Goal, metas: ReadonlyMap<string, CheckMeta> = new Map()): string {
+  const have = goal.checks.map((c) => metas.get(checkId(c))?.title ?? leafName(c.target));
   return [
     `Write a playtest for the goal "${goal.title}".`,
     goal.description ? `What the goal means: ${goal.description}` : "",

@@ -2,8 +2,9 @@
  * The Playtest Hub's Needs attention list: what waits for a person and does
  * not depend on a game playing now, worked out from what the hub already
  * knows, never stored. Blocked loops come from the playtest runs;
- * regressions and missing checks from the checks' history; sign-offs from
- * the goals' status; failed plans from the queue. Ids stay the same while the thing
+ * regressions from the checks' history; sign-offs from the goals' status;
+ * failed plans from the queue. A playtest missing on this checkout is not
+ * here: another branch may have it. Ids stay the same while the thing
  * waits, so a client can keep its place. The agent serves it, and the hub
  * demo answers with the same rule.
  */
@@ -54,17 +55,16 @@ export function buildAttention(i: AttentionInput): AttentionItem[] {
       runId: run.runId,
       ...(loop.blocker?.step !== undefined ? { step: loop.blocker.step } : {}),
       checkId: checkId({ kind: "script", target: qaScriptKey(run.script) }),
+      ...(run.assignment?.sessionId ? { sessionId: run.assignment.sessionId } : {}),
     });
   }
 
   for (const g of i.goals) {
     const goal = g.goal;
-    if (goal.archived || !needsSignOff(goal) || g.status !== "needs_you") continue;
-    // Needs you only for the sign-off: no check of it waits for a verdict.
-    if (g.checks.some((c) => c.health === "needs_you")) continue;
+    if (goal.archived || !needsSignOff(goal) || g.status !== "ready_to_sign_off") continue;
     // Waiting since its newest result came in.
     const at = g.checks.map((c) => c.last?.endedAt ?? c.last?.startedAt ?? "").sort().pop() || g.signOff?.record.at || new Date(i.now).toISOString();
-    const detail = g.signOff ? "Signed off on an earlier revision: every check passes, so it can be signed off again" : "Every check passes: the goal waits for its sign-off";
+    const detail = g.signOff ? "Signed off on an earlier revision. Every playtest passes, so it can be signed off again." : "Every playtest passes. The goal waits for its sign-off.";
     out.push({ id: `sign_off:${goal.id}`, kind: "sign_off", at, title: goal.title, detail, goalIds: [goal.id] });
   }
 
@@ -82,17 +82,6 @@ export function buildAttention(i: AttentionInput): AttentionItem[] {
         checkId: c.id,
       });
     }
-    if (c.missing && c.goalIds.length > 0) {
-      out.push({
-        id: `missing_check:${c.id}`,
-        kind: "missing_check",
-        at: c.last?.endedAt ?? c.last?.startedAt ?? new Date(i.now).toISOString(),
-        title: c.name,
-        detail: `${c.check.target} no longer exists in the project`,
-        goalIds: c.goalIds,
-        checkId: c.id,
-      });
-    }
   }
 
   for (const p of i.plans) {
@@ -103,7 +92,7 @@ export function buildAttention(i: AttentionInput): AttentionItem[] {
       kind: "plan_failed",
       at: p.endedAt,
       title: p.title,
-      detail: bad ? `${bad.name}: ${bad.reason ?? bad.state}` : "The plan failed",
+      detail: bad ? `${bad.name}: ${bad.reason ?? bad.state}` : "Every playtest in it failed",
       goalIds: p.scope.kind === "goal" ? [p.scope.goalId] : "goalId" in p.scope && p.scope.goalId ? [p.scope.goalId] : [],
       planRunId: p.id,
       ...(bad?.runId ? { runId: bad.runId } : {}),

@@ -133,3 +133,40 @@ This is ask 1.
 **Who benefits.** Any agent that edits a project while a person works in it.
 
 **Studio today.** A fix loop reads the dirty packages before each attempt and treats them as the person's (`hub/write-lease.ts`), then refuses its own save calls that would write one of them. A package the loop itself left unsaved in an earlier attempt counts as the person's, and actions that save without a `save` flag are not seen.
+
+## From the runner editor
+
+Asks 13 and 14 come from [runner-editor.md](runner-editor.md), which has the research behind them.
+
+## 13. Editor instances of one project
+
+**Problem.** A client that runs work in the background, such as playtests, a CI pass or an agent exploring, has to share the developer's editor, because the daemon keeps one session per project root. `start_editor` refuses while the project's editor runs, and an editor started by hand takes over `port.json`, so the daemon would reconnect to it instead of the developer's editor. The bridge already moves a second editor to a free port and writes `instances/<pid>.json`, so the missing part is in the daemon.
+
+**Proposed API.** Feature `editors.instances`.
+
+- **Start and stop.** `editor(start_editor, instance: "<name>")` and `editor(stop_editor, instance: "<name>")`, taking start_editor's existing options (`window`, `ide`, `extraArgs`, `dialogPolicy`). For extensions: `api.instances.start(name, opts)`, `api.instances.stop(name)` and `api.instances.list()`. A start resolves once the instance's bridge answers, or with `{ ok: false, reason }`.
+- **Listing.** `project(list_editors)` and `/v1/health` (`instances[]`) list each instance with its name, `connected`, `port`, `pid`, `window` and `readOnly`. `api.editors()` and `editors[]` keep listing only project sessions, so a client that knows one editor per project is unchanged.
+- **Routing.** The existing `editor` argument names an instance, for MCP calls and `api.callAction` alike. An untargeted call never reaches an instance.
+- **Addresses.** The daemon dials an instance by the pid it launched (its instance record). An instance writes no `port.json` and keeps its own status file and log (`-abslog`), which the engine observer reads for it.
+- **Events.** An instance's lifecycle is `instance.connected` and `instance.disconnected` (`instance`, `cause`, `detail`), never `editor.*`. Every other event from an instance (`pie.*`, `dialog.*`, `script.*`, `call.*`) carries `instance: "<name>"`.
+- **Shared state.** An instance does not write the developer's per-user settings on exit. A build, `editor/rebuild` or bridge update stops every instance first and says so, since running instances lock the project's modules. Instances stop when the daemon exits.
+
+**Who benefits.** Any client that wants a background editor without taking the developer's: test runners, CI on a workstation, agents that explore or bake without touching the open level.
+
+**Studio today.** `apps/agent/src/hub/runner.ts` uses `api.instances` behind this feature and ask 14. Without them, unattended plans run on the developer's editor under the hub's lease.
+
+## 14. A read-only editor instance
+
+**Problem.** A background editor that plays the game must never write the project: a save there would race the developer's own saves and check files out from source control behind their back. `callAction`'s `access: "read-only"` cannot hold such an editor. It refuses every action declared `mutate`, including `pie(script_run)`, and it scopes calls rather than the editor, so autosave and the save prompt on exit still write.
+
+**Proposed API.** Feature `editors.readOnly`. `start_editor` (and `api.instances.start`) takes `readOnly: true`. Such an editor saves nothing to disk:
+
+- every save action and `save: true` is refused with `code: "read_only_editor"`;
+- autosave is off, and nothing is checked out from source control;
+- on stop, dirty packages are discarded without a prompt.
+
+Actions that change only the loaded world or play (PIE, test scripts, input, transient edits) still run. `list_editors` and `instances[]` report `readOnly`.
+
+**Who benefits.** Test runners and CI, which must leave the working copy as they found it, and agents given an editor to experiment in.
+
+**Studio today.** The runner editor asks for `readOnly: true` and will not start on a daemon without this feature: an offscreen editor that might save is the risk the runner exists to remove.

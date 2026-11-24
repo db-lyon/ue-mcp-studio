@@ -1,7 +1,7 @@
 /**
  * The hub's run history: a record per run from its QaRun, kept in an
- * append-only file that is compacted on start and capped, and read back a
- * check at a time, newest first, a page at a time.
+ * append-only log of segments, the oldest archived whole past the cap, and
+ * read back a check at a time, newest first, a page at a time.
  */
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import * as fs from "node:fs";
@@ -11,7 +11,8 @@ import { qaRunFromAnswer, type QaRun } from "@ue-mcp-studio/shared";
 import { RunIndex, recordOf, sourceOf } from "../src/hub/run-index.js";
 
 let root: string;
-const file = () => path.join(root, "hub", "runs.jsonl");
+const file = () => path.join(root, "hub", "runs", "runs-000001.jsonl");
+const legacyFile = () => path.join(root, "hub", "runs.jsonl");
 
 const run = (id: string, state: string, statuses: string[], over: Partial<QaRun> = {}, startedAt = "2026-11-23T10:00:00.000Z"): QaRun => ({
   ...qaRunFromAnswer({
@@ -65,21 +66,33 @@ describe("RunIndex", () => {
     expect(changed).toEqual(["a", "a"]);
   });
 
-  it("reads the newest line per run back, skips a broken line, and compacts on start", () => {
+  it("reads the newest line per run back, skips a broken line, and never rewrites a line", () => {
     const idx = new RunIndex({ dataDir: root, now: () => "2026-11-23T10:01:00.000Z" });
     idx.record(run("a", "running", ["running"], { sessionId: "s" }));
     idx.record(run("a", "finished", ["failed"], { sessionId: "s" }));
-    fs.appendFileSync(file(), '{"runId":"cut');
+    fs.appendFileSync(file(), '{"runId":"cut\n');
     const again = new RunIndex({ dataDir: root });
     expect(again.get("a")?.outcome).toBe("failed");
-    expect(fs.readFileSync(file(), "utf-8").trim().split("\n")).toHaveLength(1);
+    expect(fs.readFileSync(file(), "utf-8").trim().split("\n")).toHaveLength(3);
   });
 
-  it("keeps the newest runs within the cap", () => {
-    const idx = new RunIndex({ dataDir: root, max: 3, now: () => "t" });
+  it("starts a new segment when one is full, and archives the oldest whole past the cap", () => {
+    const idx = new RunIndex({ dataDir: root, max: 3, segmentLines: 2, now: () => "t" });
     for (let i = 0; i < 5; i++) idx.record(run(`r${i}`, "finished", ["passed"], { sessionId: "s" }, `2026-11-2${i}T00:00:00.000Z`));
     expect(idx.size()).toBe(3);
-    expect(new RunIndex({ dataDir: root, max: 3 }).all().map((r) => r.runId)).toEqual(["r4", "r3", "r2"]);
+    expect(fs.readdirSync(path.join(root, "hub", "runs", "archive"))).toEqual(["runs-000001.jsonl"]);
+    expect(new RunIndex({ dataDir: root, max: 3, segmentLines: 2 }).all().map((r) => r.runId)).toEqual(["r4", "r3", "r2"]);
+  });
+
+  it("follows a moved script: its new id's runs include the old id's, and the old id keeps its own", () => {
+    const idx = new RunIndex({ dataDir: root, now: () => "t" });
+    idx.record(run("old", "finished", ["passed"], { sessionId: "s" }, "2026-11-20T00:00:00.000Z"));
+    idx.record(run("new", "finished", ["passed"], { sessionId: "s", script: "/Game/Tests/Moved/Door.Door" }, "2026-11-21T00:00:00.000Z"));
+    idx.alias("script:/Game/Tests/Door", "script:/Game/Tests/Moved/Door");
+    const again = new RunIndex({ dataDir: root });
+    expect(again.byCheck("script:/Game/Tests/Moved/Door").map((r) => r.runId)).toEqual(["new", "old"]);
+    expect(again.byCheck("script:/Game/Tests/Door").map((r) => r.runId)).toEqual(["old"]);
+    expect(again.aliases().get("script:/Game/Tests/Door")).toBe("script:/Game/Tests/Moved/Door");
   });
 
   it("pages a check's runs newest first, after a run id or before a time", () => {
@@ -95,8 +108,8 @@ describe("RunIndex", () => {
   it("a tag makes a run the plan's, before or after its record", () => {
     const idx = new RunIndex({ dataDir: root, now: () => "t" });
     idx.record(run("a", "running", ["running"], { sessionId: "s" }));
-    idx.tag("a", { source: "schedule", planRunId: "p" });
-    expect(idx.get("a")).toMatchObject({ source: "schedule", planRunId: "p" });
+    idx.tag("a", { source: "plan", planRunId: "p" });
+    expect(idx.get("a")).toMatchObject({ source: "plan", planRunId: "p" });
     idx.tag("b", { source: "plan", planRunId: "q" });
     idx.record(run("b", "finished", ["passed"], { sessionId: "s" }));
     expect(idx.get("b")).toMatchObject({ source: "plan", planRunId: "q" });
@@ -104,14 +117,14 @@ describe("RunIndex", () => {
 
   it("keeps a run's links as it changes, across a restart, and past the cap", () => {
     const link = { url: "https://git.example.com/ember/hollow/issues/42", rel: "filed-from-run" };
-    const idx = new RunIndex({ dataDir: root, max: 2, now: () => "t" });
+    const idx = new RunIndex({ dataDir: root, max: 2, segmentLines: 2, now: () => "t" });
     idx.record(run("a", "running", ["running"], { sessionId: "s" }, "2026-11-20T00:00:00.000Z"));
     expect(idx.setLinks("a", [link])?.links).toEqual([link]);
     expect(idx.setLinks("nope", [link])).toBeUndefined();
     idx.record(run("a", "finished", ["passed"], { sessionId: "s" }, "2026-11-20T00:00:00.000Z"));
     expect(idx.get("a")).toMatchObject({ outcome: "passed", links: [link] });
     for (let i = 1; i <= 3; i++) idx.record(run(`r${i}`, "finished", ["passed"], { sessionId: "s" }, `2026-11-2${i}T00:00:00.000Z`));
-    const again = new RunIndex({ dataDir: root, max: 2 });
+    const again = new RunIndex({ dataDir: root, max: 2, segmentLines: 2 });
     expect(again.get("a")?.links).toEqual([link]);
     expect(again.has("r1")).toBe(false);
     expect(again.setLinks("a", [])?.links).toBeUndefined();
@@ -154,13 +167,17 @@ describe("provenance and triggers", () => {
     expect(new RunIndex({ dataDir: root }).get("a")?.provenance).toEqual(tested);
   });
 
-  it("reads a record kept before triggers and provenance were, and drops a field that does not read", () => {
-    fs.mkdirSync(path.dirname(file()), { recursive: true });
+  it("moves an earlier Studio's single file in as the first segment, reading what it kept before triggers and provenance were", () => {
+    fs.mkdirSync(path.dirname(legacyFile()), { recursive: true });
     const old = { runId: "o", kind: "script", target: "/Game/Tests/Door", name: "Door", outcome: "passed", startedAt: "2026-11-01T00:00:00.000Z", source: "person" };
-    fs.writeFileSync(file(), `${JSON.stringify(old)}\n${JSON.stringify({ ...old, runId: "b", trigger: "nonsense", provenance: "x" })}\n`);
+    const lines = `${JSON.stringify(old)}\n${JSON.stringify({ ...old, runId: "b", trigger: "nonsense", provenance: "x" })}\n${JSON.stringify({ ...old, runId: "s", source: "schedule" })}\n`;
+    fs.writeFileSync(legacyFile(), lines);
     const idx = new RunIndex({ dataDir: root });
     expect(idx.get("o")).toEqual(old);
     expect(idx.get("b")?.trigger).toBeUndefined();
     expect(idx.get("b")?.provenance).toBeUndefined();
+    expect(idx.get("s")?.source).toBe("plan");
+    expect(fs.existsSync(legacyFile())).toBe(false);
+    expect(fs.readFileSync(path.join(root, "hub", "runs", "runs-000000.jsonl"), "utf-8")).toBe(lines);
   });
 });

@@ -2,8 +2,7 @@
  * The Playtest Hub's simulated daemon: answers every HUB_ROUTES route and the
  * /qa routes the hub uses from a DemoState, and moves the state on as time
  * passes. Runs take their steps on a clock, manual steps wait for a verdict,
- * the queue starts plans one item at a time, fix loops settle, and schedules
- * come due. Status is worked out with the shared rules (checkHealth,
+ * the queue starts plans one item at a time, and fix loops settle. Status is worked out with the shared rules (checkHealth,
  * goalStatus and the rest), exactly as the agent does. Every change is
  * announced as the daemon would: script.*, studio.qa.changed and
  * studio.hub.changed. No DOM: the clock, the random source and the event sink
@@ -12,10 +11,11 @@
 import {
   CHECK_HEALTH_ORDER,
   DEFAULT_ACCEPTANCE,
+  DEFAULT_PLAN_OPTIONS,
   GOAL_ID,
   HUB_CHANGED,
+  HUB_EXPORT_FORMAT,
   HUB_LEASE,
-  HUB_GOALS_DIR,
   HUB_SCHEMA,
   NEEDS_PERSON,
   buildAttention,
@@ -23,11 +23,11 @@ import {
   checkStateOf,
   goalChecksDeep,
   goalSlug,
+  healthRuleProblem,
   isResult,
   leafName,
   loopIfRequired,
   needsPerson,
-  planOptionsFor,
   requirementsKey,
   requiresOf,
   rollUpGoals,
@@ -39,8 +39,9 @@ import {
   qaSummaryOf,
   trackerLinkOf,
   uniqueLinks,
-  type AcceptanceRule,
+  type AnyHubRecord,
   type CheckDetail,
+  type CheckMeta,
   type CheckRef,
   type CheckState,
   type Goal,
@@ -48,8 +49,13 @@ import {
   type GoalRequirement,
   type GoalState,
   type GoalUpdate,
+  type HealthRule,
   type HubChangedWhat,
+  type HubExport,
+  type HubImportReport,
   type HubOverview,
+  type HubRecordData,
+  type HubRecordType,
   type AttentionItem,
   type PlanItem,
   type PlanRequest,
@@ -63,8 +69,6 @@ import {
   type RunDetail,
   type RunRecord,
   type RunSource,
-  type Schedule,
-  type ScheduleDraft,
   type SignOff,
   type TrackerLink,
 } from "@ue-mcp-studio/shared";
@@ -75,7 +79,6 @@ import {
   DEMO_USER,
   demoEvidence,
   demoHash,
-  demoNextRun,
   demoProvenance,
   demoQaRun,
   demoRandom,
@@ -99,6 +102,8 @@ export interface DemoOptions {
 }
 
 const BASE = "/v1/ext/studio";
+/** The demo goal store's id, on what it exports. */
+const DEMO_ORIGIN = "demo-ember-hollow";
 const iso = (ms: number) => new Date(ms).toISOString();
 const ok = (body?: unknown, status = 200): DemoAnswer => ({ status, body });
 const refuse = (status: number, error: string): DemoAnswer => ({ status, body: { error } });
@@ -135,7 +140,7 @@ export class HubDemo {
 
   // ---------- Time ----------
 
-  /** Move the simulation to now: jobs due, the live run's next step, the queue, schedules. */
+  /** Move the simulation to now: jobs due, the live run's next step, the queue. */
   tick(): void {
     const now = this.now();
     const s = this.state;
@@ -144,7 +149,6 @@ export class HubDemo {
       if (job.kind === "loop") this.settleLoop(job.runId);
       else this.writeScripts(job.goalId);
     }
-    this.dueSchedules(now);
     if (s.live) {
       if (!s.live.blocked && s.editor && now >= s.live.nextAt) this.step();
       return;
@@ -215,11 +219,15 @@ export class HubDemo {
     if ((p = m("PUT", "/hub/goals/*/requires"))) return this.orderRequires(p[0], b.order);
     if ((p = m("DELETE", "/hub/goals/*/requires/*"))) return this.removeRequire(p[0], p[1]);
     if ((p = m("DELETE", "/hub/goals/*/checks/*"))) return this.removeCheck(p[0], p[1]);
-    if ((p = m("PUT", "/hub/goals/*/checks/*"))) return this.updateCheck(p[0], p[1], b);
+    if ((p = m("PUT", "/hub/goals/*/checks/*"))) return this.updateGoalCheck(p[0], p[1], b);
     if ((p = m("POST", "/hub/goals/*/sign-off"))) return this.signOff(p[0], typeof b.note === "string" ? b.note : undefined);
     if ((p = m("DELETE", "/hub/goals/*/sign-off"))) return this.signOff(p[0], undefined, true);
     if ((p = m("POST", "/hub/goals/*/write-playtests"))) return this.writePlaytests(p[0]);
     if ((p = m("GET", "/hub/checks/*"))) return this.checkDetail(p[0], q);
+    if ((p = m("PUT", "/hub/checks/*"))) return this.updateCheckMeta(p[0], b);
+    if (m("PUT", "/hub/rules")) return this.setRules(b);
+    if (m("GET", "/hub/store")) return ok(this.exportStore());
+    if (m("POST", "/hub/store")) return this.importStore(b);
     if ((p = m("POST", "/hub/checks/*/run"))) {
       const ref = this.checkRef(p[0]);
       if (!ref) return refuse(404, "No such check");
@@ -234,20 +242,10 @@ export class HubDemo {
     if ((p = m("DELETE", "/hub/runs/*/links"))) return this.runLink(p[0], null, q.get("url"));
     if (m("POST", "/hub/plans")) return this.plan(b as unknown as PlanRequest, "person");
     if ((p = m("POST", "/hub/plans/*/cancel"))) return this.cancelPlan(p[0]);
-    if ((p = m("POST", "/hub/plans/*/move"))) return this.movePlan(p[0], Number(b.to));
     if (m("PUT", "/hub/queue/paused")) return this.pause(b.paused === true);
     if (m("GET", "/hub/lease")) return ok({ lease: this.lease() });
     if (m("POST", "/hub/release")) return this.release();
-    if (m("POST", "/hub/schedules")) return this.createSchedule(b as unknown as ScheduleDraft);
-    if ((p = m("PUT", "/hub/schedules/*"))) return this.updateSchedule(p[0], b as Partial<ScheduleDraft>);
-    if ((p = m("DELETE", "/hub/schedules/*"))) {
-      const before = this.state.schedules.length;
-      this.state.schedules = this.state.schedules.filter((x) => x.id !== p![0]);
-      if (this.state.schedules.length === before) return refuse(404, "No such schedule");
-      this.hubChanged(["queue"]);
-      return ok(undefined, 204);
-    }
-    if (m("POST", "/hub/assign-failing")) return this.assignFailing(typeof b.goalId === "string" ? b.goalId : undefined);
+    if (m("POST", "/hub/fix")) return this.fix(typeof b.goalId === "string" ? b.goalId : undefined, typeof b.checkId === "string" ? b.checkId : undefined);
     // Playtests and runs.
     if (m("GET", "/qa/runs")) return ok({ runs: this.unownedRuns() });
     if (m("GET", "/qa/playtests")) return ok(this.playtests());
@@ -314,17 +312,19 @@ export class HubDemo {
     return parsed.kind === "script" && this.script(parsed.target) ? { kind: "script", target: qaScriptKey(parsed.target) } : null;
   }
 
-  private checkState(c: CheckRef, acceptance: AcceptanceRule = DEFAULT_ACCEPTANCE): { state: CheckState; runs: RunRecord[] } {
+  /** A check's state under the project's one health rule, the same whichever goal lists it. */
+  private checkState(c: CheckRef): { state: CheckState; runs: RunRecord[] } {
     const runs = this.runsOf(c);
-    const sc = c.kind === "script" ? this.script(c.target) : undefined;
+    const sc = this.script(c.target);
     const state = checkStateOf({
       check: c,
       runs,
-      missing: c.kind === "script" && (!sc || !!sc.missing),
-      acceptance,
+      missing: !sc || !!sc.missing,
+      rule: this.state.rules,
       current: this.state.workspace,
       now: this.now(),
       goalIds: this.goalIdsOf(checkId(c)),
+      meta: this.state.checkMetas[checkId(c)],
       name: sc?.name,
       map: sc?.map ?? null,
       steps: sc?.steps.length ?? null,
@@ -334,7 +334,7 @@ export class HubDemo {
 
   /** Every goal's state, rolled up through required goals with the shared rules, as the agent does. */
   private goalStates(): GoalState[] {
-    return rollUpGoals(this.liveGoals(), (g) => g.checks.map((c) => this.checkState(c, g.acceptance)), this.state.workspace, new Map(Object.entries(this.state.signOffs ?? {})));
+    return rollUpGoals(this.liveGoals(), (g) => g.checks.map((c) => this.checkState(c)), this.state.workspace, new Map(Object.entries(this.state.signOffs)));
   }
 
   private goalState(g: Goal): GoalState {
@@ -344,7 +344,7 @@ export class HubDemo {
   /** Every known check: the ones goals name, then the project's scripts no goal names. */
   private allChecks(): CheckState[] {
     const seen = new Map<string, CheckState>();
-    for (const g of this.liveGoals()) for (const c of g.checks) if (!seen.has(checkId(c))) seen.set(checkId(c), this.checkState(c, g.acceptance).state);
+    for (const g of this.liveGoals()) for (const c of g.checks) if (!seen.has(checkId(c))) seen.set(checkId(c), this.checkState(c).state);
     for (const sc of this.state.scripts) {
       const id = checkId({ kind: "script", target: sc.path });
       if (!sc.missing && !seen.has(id)) seen.set(id, this.checkState({ kind: "script", target: sc.path }).state);
@@ -356,13 +356,14 @@ export class HubDemo {
     const goals = this.goalStates();
     const checks = this.allChecks();
     return {
-      goalsDir: HUB_GOALS_DIR,
       goals,
       checks,
       attention: this.attention(goals, checks),
       queue: this.queueState(),
       recent: this.state.runs.slice(0, 30),
       evidence: { store: "local", current: this.state.workspace },
+      rules: this.state.rules,
+      imported: null,
       editor: { connected: this.state.editor },
       warnings: [],
     };
@@ -370,7 +371,7 @@ export class HubDemo {
 
   queueState(): QueueState {
     const s = this.state;
-    return { paused: s.paused, pausedBy: s.paused ? s.pausedBy ?? "person" : null, current: s.current, queued: s.queued, recent: s.recent.slice(0, 20), schedules: s.schedules, editor: { connected: s.editor }, lease: this.lease() };
+    return { paused: s.paused, pausedBy: s.paused ? s.pausedBy ?? "person" : null, current: s.current, queued: s.queued, recent: s.recent.slice(0, 20), editor: { connected: s.editor }, lease: this.lease() };
   }
 
   /** The hub's hold on the editor, as the agent's lease.ts keeps it: held while a plan's run is live. */
@@ -427,7 +428,7 @@ export class HubDemo {
     const ref = this.checkRef(id) ?? (parseCheckId(id) as CheckRef | null);
     if (!ref) return refuse(404, "No such check");
     const goal = this.liveGoals().find((g) => g.checks.some((c) => checkId(c) === id));
-    const { state, runs } = this.checkState(ref, goal?.acceptance);
+    const { state, runs } = this.checkState(ref);
     if (state.missing && runs.length === 0 && !goal) return refuse(404, "No such check");
     const sc = ref.kind === "script" ? this.script(ref.target) : undefined;
     const detail: CheckDetail = { state, ...this.page(runs, q), script: sc && !sc.missing ? this.draftOf(sc) : null };
@@ -591,14 +592,13 @@ export class HubDemo {
       kind: d.kind === "milestone" ? "milestone" : "goal",
       title,
       ...(d.description ? { description: d.description } : {}),
-      owner: d.owner ?? DEMO_USER,
-      priority: d.priority ?? "p2",
-      tags: d.tags ?? [],
-      due: d.due ?? null,
+      ...(d.owner ? { owner: d.owner } : {}),
+      ...(d.priority ? { priority: d.priority } : {}),
+      ...(d.due ? { due: d.due } : {}),
       ...(links.links.length ? { links: links.links } : {}),
       acceptance: { ...DEFAULT_ACCEPTANCE, ...d.acceptance },
       ...(requires.list.length ? { requires: requires.list } : {}),
-      checks: (d.checks ?? []).map((c) => ({ ...c, target: c.kind === "script" ? qaScriptKey(c.target) : c.target })),
+      checks: (d.checks ?? []).map((c) => ({ ...c, target: qaScriptKey(c.target) })),
     };
     const loop = this.loopOf([goal, ...this.parentFiles(id, parents)]);
     if (loop) return loop;
@@ -750,9 +750,14 @@ export class HubDemo {
       if (l.links.length) g.links = l.links;
       else delete g.links;
     }
-    Object.assign(g, rest);
+    // Null clears owner, priority and due, as the agent does.
+    const { priority, ...fields } = rest;
+    Object.assign(g, fields);
+    if (priority === null) delete g.priority;
+    else if (priority) g.priority = priority;
+    for (const k of ["owner", "due"] as const) if (g[k] === null || g[k] === "") delete g[k];
     if (acceptance) g.acceptance = { ...g.acceptance, ...acceptance };
-    if (checks) g.checks = checks.map((c) => ({ ...c, target: c.kind === "script" ? qaScriptKey(c.target) : c.target }));
+    if (checks) g.checks = checks.map((c) => ({ ...c, target: qaScriptKey(c.target) }));
     return this.touch(g, ["goals", "checks"]);
   }
 
@@ -760,6 +765,7 @@ export class HubDemo {
     const g = this.goal(id);
     if (!g) return refuse(404, "No such goal");
     this.state.goals = this.state.goals.filter((x) => x.id !== id);
+    delete this.state.signOffs[id];
     // Goals that required it stop requiring it; the goals it required stay.
     for (const x of this.state.goals) {
       if (!requiresOf(x).some((r) => r.goal === id)) continue;
@@ -775,8 +781,8 @@ export class HubDemo {
     const g = this.goal(id);
     if (!g) return refuse(404, "No such goal");
     for (const c of checks) {
-      if (!c || typeof c.target !== "string" || !c.kind) continue;
-      const ref = { ...c, target: c.kind === "script" ? qaScriptKey(c.target) : c.target };
+      if (!c || typeof c.target !== "string" || c.kind !== "script") continue;
+      const ref: CheckRef = { kind: "script", target: qaScriptKey(c.target) };
       if (!g.checks.some((x) => checkId(x) === checkId(ref))) g.checks.push(ref);
     }
     return this.touch(g, ["goals", "checks"]);
@@ -789,23 +795,95 @@ export class HubDemo {
     return this.touch(g, ["goals", "checks", "attention"]);
   }
 
-  /** PUT /hub/goals/:id/checks/:checkId: one check's title, required or links. */
-  private updateCheck(id: string, cid: string, u: Record<string, unknown>): DemoAnswer {
+  /** PUT /hub/goals/:id/checks/:checkId: whether the goal requires one of its checks. */
+  private updateGoalCheck(id: string, cid: string, u: Record<string, unknown>): DemoAnswer {
     const g = this.goal(id);
     if (!g) return refuse(404, "No such goal");
     const c = g.checks.find((x) => checkId(x) === cid);
     if (!c) return refuse(404, `goal ${id} has no check ${cid}`);
+    if (typeof u.required !== "boolean") return refuse(400, "body must be { required: boolean }");
+    if (u.required) delete c.required;
+    else c.required = false;
+    return this.touch(g, ["goals", "checks"]);
+  }
+
+  /** PUT /hub/checks/:checkId: what a playtest says about itself, its one record. */
+  private updateCheckMeta(cid: string, u: Record<string, unknown>): DemoAnswer {
+    if (!parseCheckId(cid)) return refuse(400, "a check id is script:<asset path>");
+    const next: CheckMeta = { ...this.state.checkMetas[cid] };
     if (u.links !== undefined) {
       const l = this.links(u.links);
       if ("error" in l) return refuse(400, l.error);
-      if (l.links.length) c.links = l.links;
-      else delete c.links;
+      if (l.links.length) next.links = l.links;
+      else delete next.links;
     }
-    if (typeof u.title === "string" && u.title.trim()) c.title = u.title.trim();
-    else if (u.title === null) delete c.title;
-    if (u.required === false) c.required = false;
-    else if (u.required === true) delete c.required;
-    return this.touch(g, ["goals", "checks"]);
+    if (typeof u.title === "string" && u.title.trim()) next.title = u.title.trim();
+    else if (u.title === null) delete next.title;
+    if (next.title || next.links?.length) this.state.checkMetas[cid] = next;
+    else delete this.state.checkMetas[cid];
+    this.hubChanged(["checks", "goals"]);
+    return ok({ meta: next });
+  }
+
+  /** PUT /hub/rules: the project's rule for flaky and stale. */
+  private setRules(u: Record<string, unknown>): DemoAnswer {
+    const problem = healthRuleProblem(u);
+    if (problem) return refuse(400, problem);
+    this.state.rules = { ...this.state.rules, ...(u as Partial<HealthRule>) };
+    this.hubChanged(["checks", "goals", "attention"]);
+    return ok({ rules: this.state.rules });
+  }
+
+  /** GET /hub/store: the demo's goals as the agent exports them. */
+  private exportStore(): HubExport {
+    const at = iso(this.now());
+    const rec = <T extends HubRecordType>(type: T, id: string, data: HubRecordData[T]) => ({ schema: HUB_SCHEMA, type, id, rev: 1, at, origin: DEMO_ORIGIN, data }) as AnyHubRecord;
+    return {
+      format: HUB_EXPORT_FORMAT,
+      schema: HUB_SCHEMA,
+      exportedAt: at,
+      origin: DEMO_ORIGIN,
+      records: [
+        ...this.state.goals.map((g) => rec("goal", g.id, g)),
+        ...Object.entries(this.state.checkMetas).map(([id, m]) => rec("check", id, { check: parseCheckId(id)!, ...m })),
+        ...Object.values(this.state.signOffs).map((s) => rec("signoff", `signoff-${s.goalId}`, s)),
+        rec("rules", "health", this.state.rules),
+      ],
+    };
+  }
+
+  /** POST /hub/store: merged by id, as the agent does; what is here and differs stays. */
+  private importStore(b: Record<string, unknown>): DemoAnswer {
+    if (b.format !== HUB_EXPORT_FORMAT || !Array.isArray(b.records)) return refuse(400, `this is not a goals file exported from Studio (format ${HUB_EXPORT_FORMAT})`);
+    const report: HubImportReport = { added: 0, unchanged: 0, conflicts: [] };
+    const same = (a: unknown, c: unknown) => JSON.stringify(a) === JSON.stringify(c);
+    for (const r of b.records as AnyHubRecord[]) {
+      if (r.type === "goal" && r.data) {
+        const here = this.state.goals.find((g) => g.id === r.id);
+        if (here) {
+          if (same(here, r.data)) report.unchanged++;
+          else report.conflicts.push({ type: "goal", id: r.id, title: here.title });
+          continue;
+        }
+        this.state.goals.push(r.data);
+        report.added++;
+      } else if (r.type === "check" && r.data) {
+        const here = this.state.checkMetas[r.id];
+        const { check: _c, ...meta } = r.data;
+        if (here) {
+          if (same(here, meta)) report.unchanged++;
+          else report.conflicts.push({ type: "check", id: r.id, title: here.title ?? leafName(r.id) });
+          continue;
+        }
+        this.state.checkMetas[r.id] = meta;
+        report.added++;
+      } else {
+        // The demo keeps one sign-off per goal and one rule: both are left as they are here.
+        report.unchanged++;
+      }
+    }
+    this.hubChanged(["goals", "checks", "attention"]);
+    return ok(report);
   }
 
   /** POST and DELETE /hub/runs/:runId/links. */
@@ -829,7 +907,7 @@ export class HubDemo {
   private signOff(id: string, note: string | undefined, clear = false): DemoAnswer {
     const g = this.goal(id);
     if (!g) return refuse(404, "No such goal");
-    const all = (this.state.signOffs ??= {});
+    const all = this.state.signOffs;
     if (clear) {
       delete all[id];
       this.hubChanged(["goals", "attention"], { goalId: id });
@@ -837,7 +915,7 @@ export class HubDemo {
     }
     const need = Math.max(1, g.acceptance.stableRuns);
     const runIds = g.checks
-      .filter((c) => c.required !== false && c.kind !== "manual")
+      .filter((c) => c.required !== false)
       .flatMap((c) => this.state.runs.filter((r) => checkId(r) === checkId(c) && isResult(r)).slice(0, need).map((r) => r.runId));
     const s: SignOff = { goalId: id, by: DEMO_USER, at: iso(this.now()), ...(note ? { note } : {}), revision: this.state.workspace.revision, runIds, requirements: requirementsKey(g) };
     all[id] = s;
@@ -866,7 +944,7 @@ export class HubDemo {
         path = `${DEMO_SCRIPTS_DIR}/Generated/${name}`;
       }
       const map = this.state.scripts[0]?.map ?? "/Game/EmberHollow/Maps/L_Ashwood";
-      this.state.scripts.push({ path, name, map, steps: d.steps, author: "Studio agent", tags: g.tags ?? [], profile: { fixable: true, flakyStep: this.random() < 0.3 ? 0 : null, flakyRate: 0.25 } });
+      this.state.scripts.push({ path, name, map, steps: d.steps, author: "Studio agent", tags: [], profile: { fixable: true, flakyStep: this.random() < 0.3 ? 0 : null, flakyRate: 0.25 } });
       g.checks.push({ kind: "script", target: path });
     }
     this.hubChanged(["checks", "goals"], { goalId });
@@ -934,21 +1012,21 @@ export class HubDemo {
       case "goal":
         return `Run ${goalTitle(scope.goalId) ?? "goal"}`;
       case "checks":
-        return refs.length === 1 ? `Run ${this.nameOf(refs[0])}` : `Run ${refs.length} checks`;
+        return refs.length === 1 ? `Run ${this.nameOf(refs[0])}` : `Run ${refs.length} playtests`;
       case "failing":
-        return scope.goalId ? `Run failing in ${goalTitle(scope.goalId) ?? "goal"}` : "Run failing checks";
+        return scope.goalId ? `Run what is failing in ${goalTitle(scope.goalId) ?? "goal"}` : "Run what is failing";
       case "stale":
-        return scope.goalId ? `Run stale in ${goalTitle(scope.goalId) ?? "goal"}` : "Run stale checks";
+        return scope.goalId ? `Run what is stale in ${goalTitle(scope.goalId) ?? "goal"}` : "Run what is stale";
       default:
-        return "Run every check";
+        return "Run all playtests";
     }
   }
 
   private nameOf(c: CheckRef): string {
-    return c.title ?? (c.kind === "script" ? this.script(c.target)?.name : undefined) ?? leafName(c.target);
+    return this.state.checkMetas[checkId(c)]?.title ?? this.script(c.target)?.name ?? leafName(c.target);
   }
 
-  private makePlan(req: PlanRequest, trigger: PlanTrigger, scheduleId: string | null = null): PlanRun | null {
+  private makePlan(req: PlanRequest, trigger: PlanTrigger): PlanRun | null {
     const refs = this.scopeChecks(req.scope);
     if (refs.length === 0) return null;
     const items: PlanItem[] = refs.map((c) => ({ check: c, name: this.nameOf(c), state: "queued" }));
@@ -956,11 +1034,10 @@ export class HubDemo {
       id: `plan-${this.state.counter++}`,
       title: req.title?.trim() || this.planTitle(req.scope, refs),
       scope: req.scope,
-      options: { ...planOptionsFor(trigger), ...req.options },
+      options: { ...DEFAULT_PLAN_OPTIONS, ...req.options },
       state: "queued",
       items,
       trigger,
-      scheduleId,
       createdAt: iso(this.now()),
       startedAt: null,
       endedAt: null,
@@ -989,17 +1066,6 @@ export class HubDemo {
     s.recent = [plan, ...s.recent].slice(0, 20);
     this.hubChanged(["queue", "runs"], { planRunId: id });
     return ok({ plan });
-  }
-
-  private movePlan(id: string, to: number): DemoAnswer {
-    const s = this.state;
-    const i = s.queued.findIndex((p) => p.id === id);
-    if (i < 0) return refuse(404, "No such plan waiting");
-    if (!Number.isFinite(to)) return refuse(400, "Say where to move it");
-    const [plan] = s.queued.splice(i, 1);
-    s.queued.splice(Math.max(0, Math.min(s.queued.length, Math.round(to))), 0, plan);
-    this.hubChanged(["queue"], { planRunId: id });
-    return ok(this.queueState());
   }
 
   private pause(paused: boolean): DemoAnswer {
@@ -1039,10 +1105,10 @@ export class HubDemo {
     }
     if (!s.editor) return;
     cur.state = "running";
-    const sc = item.check.kind === "script" ? this.script(item.check.target) : undefined;
+    const sc = this.script(item.check.target);
     if (!sc || sc.missing) {
       item.state = "skipped";
-      item.reason = item.check.kind === "script" ? "The script is missing from the project" : "This kind of check does not run yet";
+      item.reason = "the playtest is not on this checkout";
       this.hubChanged(["queue"], { planRunId: cur.id });
       return;
     }
@@ -1055,7 +1121,7 @@ export class HubDemo {
     }
     item.state = "running";
     item.startedAt = iso(this.now());
-    item.runId = this.startRun(sc, cur.trigger === "schedule" ? "schedule" : "plan", cur).runId;
+    item.runId = this.startRun(sc, "plan", cur).runId;
   }
 
   private finishPlan(cur: PlanRun): void {
@@ -1084,42 +1150,6 @@ export class HubDemo {
         p.state = "failed";
       }
     }
-  }
-
-  private dueSchedules(now: number): void {
-    for (const sch of this.state.schedules) {
-      if (!sch.enabled || !sch.nextRunAt || Date.parse(sch.nextRunAt) > now) continue;
-      if (!this.state.editor) sch.lastSkipped = "The editor was not connected";
-      else {
-        const plan = this.makePlan({ title: sch.title, scope: sch.scope, options: sch.options }, "schedule", sch.id);
-        if (plan) {
-          this.state.queued.push(plan);
-          sch.lastRunAt = iso(now);
-          sch.lastSkipped = null;
-        } else sch.lastSkipped = "Nothing to run";
-      }
-      sch.nextRunAt = demoNextRun(sch, now);
-      this.hubChanged(["queue"]);
-    }
-  }
-
-  private createSchedule(d: ScheduleDraft): DemoAnswer {
-    if (!d?.title?.trim() || !/^\d{2}:\d{2}$/.test(d.at ?? "") || !Array.isArray(d.days) || !d.scope?.kind) return refuse(400, "A schedule needs a title, a time (HH:MM), days and a scope");
-    const sch: Schedule = { id: `sched-${this.state.counter++}`, title: d.title.trim(), scope: d.scope, options: { ...planOptionsFor("schedule"), ...d.options }, at: d.at, days: d.days, enabled: d.enabled !== false, lastRunAt: null, lastSkipped: null, nextRunAt: null };
-    sch.nextRunAt = demoNextRun(sch, this.now());
-    this.state.schedules.push(sch);
-    this.hubChanged(["queue"]);
-    return ok({ schedule: sch });
-  }
-
-  private updateSchedule(id: string, u: Partial<ScheduleDraft>): DemoAnswer {
-    const sch = this.state.schedules.find((x) => x.id === id);
-    if (!sch) return refuse(404, "No such schedule");
-    if (u.at !== undefined && !/^\d{2}:\d{2}$/.test(u.at)) return refuse(400, "The time is HH:MM");
-    Object.assign(sch, u, u.options ? { options: { ...sch.options, ...u.options } } : {});
-    sch.nextRunAt = demoNextRun(sch, this.now());
-    this.hubChanged(["queue"]);
-    return ok({ schedule: sch });
   }
 
   // ---------- Runs ----------
@@ -1423,9 +1453,11 @@ export class HubDemo {
     return ok({ run });
   }
 
-  private assignFailing(goalId?: string): DemoAnswer {
+  /** Fix with an agent: a goal's failing playtests, the project's, or one. */
+  private fix(goalId?: string, one?: string): DemoAnswer {
     if (goalId && !this.goal(goalId)) return refuse(404, "No such goal");
-    const pool = goalId ? new Set(goalChecksDeep(this.liveGoals(), goalId).map(checkId)) : null;
+    if (one !== undefined && !parseCheckId(one)) return refuse(400, "checkId must be a playtest's id, script:<asset path>");
+    const pool = one ? new Set([one]) : goalId ? new Set(goalChecksDeep(this.liveGoals(), goalId).map(checkId)) : null;
     let queued = 0;
     for (const c of this.allChecks()) {
       if (c.health !== "failing" || !c.last || (pool && !pool.has(c.id))) continue;

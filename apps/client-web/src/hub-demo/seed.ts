@@ -1,18 +1,21 @@
 /**
  * The demo project for the Playtest Hub: "Ember Hollow", an original co-op
- * action-adventure, with its test scripts, goals, a month of run history,
- * schedules and a queue. Built from a seeded random source, relative to the
+ * action-adventure, with its test scripts, goals, a month of run history and
+ * a queue. Built from a seeded random source, relative to the
  * moment it is made, so the same seed gives the same project shape. Pure data:
  * no DOM, so the visual QA harnesses on both clients can import it.
  */
 import {
   DEFAULT_ACCEPTANCE,
   DEFAULT_PLAN_OPTIONS,
+  DEFAULT_HEALTH_RULE,
   HUB_SCHEMA,
-  planOptionsFor,
+  checkId,
   qaScriptKey,
+  type CheckMeta,
   type CurrentProvenance,
   type Goal,
+  type HealthRule,
   type PlanItem,
   type PlanRun,
   type QaLoop,
@@ -23,7 +26,6 @@ import {
   type RunProvenance,
   type RunRecord,
   type RunSource,
-  type Schedule,
   type SignOff,
 } from "@ue-mcp-studio/shared";
 
@@ -77,16 +79,20 @@ export interface DemoLive {
 }
 
 export interface DemoState {
-  /** 3: runs carry provenance and the workspace is modelled; a state saved before is seeded again. */
-  version: 3;
+  /** 4: goals are kept as the goal store keeps them (no schedules, playtests' own records, the health rule); a state saved before is seeded again. */
+  version: 4;
   seed: DemoSeed;
   /** The demo project's workspace: its newest commit, and the files a fix loop changed since. */
   workspace: CurrentProvenance;
   speed: number;
   editor: boolean;
   goals: Goal[];
-  /** Sign-offs by goal id, kept beside the runs as the agent keeps them; absent in a state saved before they were. */
-  signOffs?: Record<string, SignOff>;
+  /** Sign-offs by goal id, records in the goal store. */
+  signOffs: Record<string, SignOff>;
+  /** What each playtest says about itself, by check id. */
+  checkMetas: Record<string, CheckMeta>;
+  /** The project's rule for flaky and stale. */
+  rules: HealthRule;
   scripts: DemoScript[];
   /** Every run, newest first. */
   runs: RunRecord[];
@@ -101,7 +107,6 @@ export interface DemoState {
   current: PlanRun | null;
   queued: PlanRun[];
   recent: PlanRun[];
-  schedules: Schedule[];
   jobs: DemoJob[];
   /** Runs waiting for their fix loop: one loop at a time. */
   loopQueue: string[];
@@ -404,7 +409,7 @@ function history(scripts: DemoScript[], seeds: ScriptSeed[], now: number, rand: 
   scripts.forEach((script, k) => {
     const kind = seeds[k].history;
     const mine: RunRecord[] = [];
-    // A person's daytime run is now and then over uncommitted work; scheduled runs are on a clean workspace.
+    // A person's daytime run is now and then over uncommitted work; the evening batches run on a clean workspace.
     const add = (at: number, failed: number[], source: RunSource, planRunId: string | null = null, dirty = 0) => {
       if (at > now - 5 * MIN) return null;
       const r = record(script, at, failed, source, n++, demoProvenance(script, revisionAt(at), dirty), planRunId);
@@ -424,7 +429,7 @@ function history(scripts: DemoScript[], seeds: ScriptSeed[], now: number, rand: 
         if (kind === "flaky" && d === 1) failed = [0];
         if (kind === "flaky" && d === 0) failed = [];
         if (kind === "regressed") failed = d === 0 ? [1] : noise(script, d, 10);
-        add(at, failed, "schedule", nightlyId(d));
+        add(at, failed, "plan", nightlyId(d));
         // A person runs it during the day now and then.
         if (rand() < 0.15 && d > 0) add(night(d) + (9 + rand() * 8) * 3_600_000, noise(script, d, 10), "person", null, rand() < 0.3 ? 2 : 0);
       }
@@ -592,39 +597,34 @@ export const DEMO_LINKS = {
 
 function goals(): Goal[] {
   return [
-    goal({ id: "vertical-slice", kind: "milestone", title: "Vertical Slice", description: "The tutorial glade into Ashwood, played start to finish with lantern combat and a working pause menu. What we show at the December review.", owner: "Priya Raman", priority: "p0", tags: ["milestone"], due: "2026-12-18", requires: [{ goal: "tutorial-glade" }, { goal: "traversal-feel" }, { goal: "lantern-combat" }, { goal: "pause-settings" }], checks: [] }),
-    goal({ id: "tutorial-glade", kind: "goal", title: "A new player finishes the tutorial glade", description: "Walk, jump, light the lantern and leave the glade without help.", owner: "Ama Mensah", priority: "p0", tags: ["onboarding"], due: "2026-12-05", links: [{ url: DEMO_LINKS.tutorialIssue, title: "Tutorial glade: first-time player flow", rel: "counterpart" }], checks: [ref("Tutorial", "PT_Tutorial_Movement"), ref("Tutorial", "PT_Tutorial_Jump"), ref("Tutorial", "PT_Tutorial_LanternLight"), { ...ref("Tutorial", "PT_Tutorial_Exit"), links: [{ url: DEMO_LINKS.exitIssue, title: "Exit gate opens before the lantern is lit", rel: "related" }] }] }),
-    goal({ id: "traversal-feel", kind: "goal", title: "Traversal feels responsive", description: "Jump, dodge, ledge grab and sprint respond within a frame and hold up over repeated runs.", owner: "Jun Park", priority: "p1", tags: ["traversal", "feel"], due: "2026-12-12", acceptance: { stableRuns: 2 }, checks: [ref("Traversal", "PT_Jump_Height"), ref("Traversal", "PT_DodgeRoll"), ref("Traversal", "PT_LedgeGrab"), ref("Traversal", "PT_Sprint_Stamina"), ref("Tutorial", "PT_Tutorial_Jump")] }),
-    goal({ id: "lantern-combat", kind: "goal", title: "Lantern combat lands hits and staggers enemies", owner: "Mateo Silva", priority: "p0", tags: ["combat"], due: "2026-12-10", links: [{ url: DEMO_LINKS.combatEpic, title: "Lantern combat", rel: "counterpart" }], checks: [ref("Combat", "PT_Lantern_Strike"), { ...ref("Combat", "PT_Stagger_Wisp"), links: [{ url: DEMO_LINKS.staggerBug, title: "Elite wisps ignore stagger", rel: "blocks" }] }, ref("Combat", "PT_Player_Damage")] }),
-    goal({ id: "pause-settings", kind: "goal", title: "Pause and settings work mid-combat", owner: "Ama Mensah", priority: "p2", tags: ["ui"], due: "2026-12-15", checks: [ref("UI", "PT_PauseMenu_Open"), ref("UI", "PT_Settings_Apply"), ref("UI", "PT_Pause_Resume")] }),
+    goal({ id: "vertical-slice", kind: "milestone", title: "Vertical Slice", description: "The tutorial glade into Ashwood, played start to finish with lantern combat and a working pause menu. What we show at the December review.", owner: "Priya Raman", priority: "p0", due: "2026-12-18", requires: [{ goal: "tutorial-glade" }, { goal: "traversal-feel" }, { goal: "lantern-combat" }, { goal: "pause-settings" }], checks: [] }),
+    goal({ id: "tutorial-glade", kind: "goal", title: "A new player finishes the tutorial glade", description: "Walk, jump, light the lantern and leave the glade without help.", owner: "Ama Mensah", priority: "p0", due: "2026-12-05", links: [{ url: DEMO_LINKS.tutorialIssue, title: "Tutorial glade: first-time player flow", rel: "counterpart" }], checks: [ref("Tutorial", "PT_Tutorial_Movement"), ref("Tutorial", "PT_Tutorial_Jump"), ref("Tutorial", "PT_Tutorial_LanternLight"), ref("Tutorial", "PT_Tutorial_Exit")] }),
+    goal({ id: "traversal-feel", kind: "goal", title: "Traversal feels responsive", description: "Jump, dodge, ledge grab and sprint respond within a frame and hold up over repeated runs.", owner: "Jun Park", priority: "p1", due: "2026-12-12", acceptance: { stableRuns: 2 }, checks: [ref("Traversal", "PT_Jump_Height"), ref("Traversal", "PT_DodgeRoll"), ref("Traversal", "PT_LedgeGrab"), ref("Traversal", "PT_Sprint_Stamina"), ref("Tutorial", "PT_Tutorial_Jump")] }),
+    goal({ id: "lantern-combat", kind: "goal", title: "Lantern combat lands hits and staggers enemies", owner: "Mateo Silva", priority: "p0", due: "2026-12-10", links: [{ url: DEMO_LINKS.combatEpic, title: "Lantern combat", rel: "counterpart" }], checks: [ref("Combat", "PT_Lantern_Strike"), ref("Combat", "PT_Stagger_Wisp"), ref("Combat", "PT_Player_Damage")] }),
+    goal({ id: "pause-settings", kind: "goal", title: "Pause and settings work mid-combat", owner: "Ama Mensah", priority: "p2", due: "2026-12-15", checks: [ref("UI", "PT_PauseMenu_Open"), ref("UI", "PT_Settings_Apply"), ref("UI", "PT_Pause_Resume")] }),
     // Lantern combat is in both milestones: one goal, required by each, never a copy.
-    goal({ id: "coop-beta", kind: "milestone", title: "Co-op Beta", description: "Four friends can join, fight the Cinder Warden together, revive each other and split the loot.", owner: "Mateo Silva", priority: "p1", tags: ["milestone", "coop"], due: "2027-02-26", requires: [{ goal: "coop-join" }, { goal: "lantern-combat" }, { goal: "coop-revive" }, { goal: "shared-loot", required: false }, { goal: "warden-fight" }], checks: [] }),
-    goal({ id: "coop-join", kind: "goal", title: "Four players join a listen server", owner: "Priya Raman", priority: "p1", tags: ["network"], due: "2027-01-15", checks: [ref("Coop", "PT_Coop_Join_Listen"), ref("Coop", "PT_Coop_Join_Late"), ref("Coop", "PT_Coop_Lobby_Ready")] }),
-    goal({ id: "coop-revive", kind: "goal", title: "A downed player can be revived", owner: "Jun Park", priority: "p1", tags: ["combat", "network"], due: "2027-01-29", links: [{ url: DEMO_LINKS.reviveCard, title: "Revive a downed ally", rel: "counterpart" }], checks: [ref("Coop", "PT_Revive_Ally"), ref("Coop", "PT_Revive_Timer"), ref("Coop", "PT_Revive_Downed_Old")] }),
-    goal({ id: "shared-loot", kind: "goal", title: "Loot is shared fairly", owner: DEMO_USER, priority: "p2", tags: ["loot"], due: "2027-02-12", checks: [ref("Loot", "PT_Loot_Split"), ref("Loot", "PT_Loot_Pickup_Sync")] }),
-    goal({ id: "warden-fight", kind: "goal", title: "Two players can beat the Cinder Warden", owner: "Mateo Silva", priority: "p0", tags: ["boss"], due: "2027-01-30", checks: [ref("Boss", "PT_Boss_Phase1"), ref("Boss", "PT_Boss_Phase2")] }),
-    goal({ id: "ashwood-perf", kind: "goal", title: "Ashwood holds 60 fps on the min-spec machine", description: "Measured on the GTX 1060 laptop. A person signs off after watching the flythrough.", owner: "Jun Park", priority: "p1", tags: ["perf"], due: "2026-12-18", acceptance: { signOff: true, staleAfterDays: 7 }, checks: [ref("Perf", "PT_Perf_Ashwood_Flythrough")] }),
-    goal({ id: "save-load", kind: "goal", title: "Saves load back to the same spot", owner: DEMO_USER, priority: "p2", tags: ["save"], due: null, checks: [ref("Save", "PT_Save_Load_Checkpoint"), ref("Save", "PT_Save_Slot_Overwrite")] }),
+    goal({ id: "coop-beta", kind: "milestone", title: "Co-op Beta", description: "Four friends can join, fight the Cinder Warden together, revive each other and split the loot.", owner: "Mateo Silva", priority: "p1", due: "2027-02-26", requires: [{ goal: "coop-join" }, { goal: "lantern-combat" }, { goal: "coop-revive" }, { goal: "shared-loot", required: false }, { goal: "warden-fight" }], checks: [] }),
+    goal({ id: "coop-join", kind: "goal", title: "Four players join a listen server", owner: "Priya Raman", priority: "p1", due: "2027-01-15", checks: [ref("Coop", "PT_Coop_Join_Listen"), ref("Coop", "PT_Coop_Join_Late"), ref("Coop", "PT_Coop_Lobby_Ready")] }),
+    goal({ id: "coop-revive", kind: "goal", title: "A downed player can be revived", owner: "Jun Park", priority: "p1", due: "2027-01-29", links: [{ url: DEMO_LINKS.reviveCard, title: "Revive a downed ally", rel: "counterpart" }], checks: [ref("Coop", "PT_Revive_Ally"), ref("Coop", "PT_Revive_Timer"), ref("Coop", "PT_Revive_Downed_Old")] }),
+    goal({ id: "shared-loot", kind: "goal", title: "Loot is shared fairly", owner: DEMO_USER, priority: "p2", due: "2027-02-12", checks: [ref("Loot", "PT_Loot_Split"), ref("Loot", "PT_Loot_Pickup_Sync")] }),
+    goal({ id: "warden-fight", kind: "goal", title: "Two players can beat the Cinder Warden", owner: "Mateo Silva", priority: "p0", due: "2027-01-30", checks: [ref("Boss", "PT_Boss_Phase1"), ref("Boss", "PT_Boss_Phase2")] }),
+    goal({ id: "ashwood-perf", kind: "goal", title: "Ashwood holds 60 fps on the min-spec machine", description: "Measured on the GTX 1060 laptop. A person signs off after watching the flythrough.", owner: "Jun Park", priority: "p1", due: "2026-12-18", acceptance: { signOff: true }, checks: [ref("Perf", "PT_Perf_Ashwood_Flythrough")] }),
+    goal({ id: "save-load", kind: "goal", title: "Saves load back to the same spot", owner: DEMO_USER, priority: "p2", due: null, checks: [ref("Save", "PT_Save_Load_Checkpoint"), ref("Save", "PT_Save_Slot_Overwrite")] }),
   ];
 }
 
-// ---------- Schedules and plans ----------
-
-/** When a schedule next runs after `now`, in local time. */
-export function demoNextRun(s: Pick<Schedule, "at" | "days" | "enabled">, now: number): string | null {
-  if (!s.enabled || s.days.length === 0) return null;
-  const [h, m] = s.at.split(":").map(Number);
-  for (let d = 0; d <= 7; d++) {
-    const t = new Date(now);
-    t.setDate(t.getDate() + d);
-    t.setHours(h || 0, m || 0, 0, 0);
-    if (t.getTime() > now && s.days.includes(t.getDay())) return t.toISOString();
-  }
-  return null;
+/** What the demo's playtests say about themselves: the issues two of them are linked to. */
+function checkMetas(): Record<string, CheckMeta> {
+  return {
+    [checkId(ref("Tutorial", "PT_Tutorial_Exit"))]: { links: [{ url: DEMO_LINKS.exitIssue, title: "Exit gate opens before the lantern is lit", rel: "related" }] },
+    [checkId(ref("Combat", "PT_Stagger_Wisp"))]: { links: [{ url: DEMO_LINKS.staggerBug, title: "Elite wisps ignore stagger", rel: "blocks" }] },
+  };
 }
 
+// ---------- Plans ----------
+
 function plan(p: Partial<PlanRun> & Pick<PlanRun, "id" | "title" | "scope" | "items" | "createdAt">): PlanRun {
-  return { options: { ...DEFAULT_PLAN_OPTIONS }, state: "queued", trigger: "person", scheduleId: null, startedAt: null, endedAt: null, ...p };
+  return { options: { ...DEFAULT_PLAN_OPTIONS }, state: "queued", trigger: "person", startedAt: null, endedAt: null, ...p };
 }
 
 const itemFrom = (r: RunRecord): PlanItem => ({
@@ -641,8 +641,8 @@ const itemFrom = (r: RunRecord): PlanItem => ({
 export function demoState(seed: DemoSeed, now = Date.now(), randomSeed = 7): DemoState {
   const rand = demoRandom(randomSeed);
   const base: DemoState = {
-    version: 3, seed, workspace: { vcs: "git", revision: demoRevision(0), dirty: 0 }, speed: 1, editor: true, goals: [], scripts: [], runs: [], qa: {}, live: null, idleUntil: 0,
-    paused: false, current: null, queued: [], recent: [], schedules: [], jobs: [], loopQueue: [], loopActive: null, counter: 1,
+    version: 4, seed, workspace: { vcs: "git", revision: demoRevision(0), dirty: 0 }, speed: 1, editor: true, goals: [], signOffs: {}, checkMetas: {}, rules: { ...DEFAULT_HEALTH_RULE },
+    scripts: [], runs: [], qa: {}, live: null, idleUntil: 0, paused: false, current: null, queued: [], recent: [], jobs: [], loopQueue: [], loopActive: null, counter: 1,
   };
   if (seed === "fresh") return base;
   const seeds = seed === "full" ? SCRIPT_SEEDS : SCRIPT_SEEDS.filter((s) => s.history !== "gone");
@@ -660,27 +660,21 @@ export function demoState(seed: DemoSeed, now = Date.now(), randomSeed = 7): Dem
   if (seed === "empty") {
     // A solo developer's first look: scripts and runs, nothing organised yet.
     for (const r of runs) {
-      if (r.source === "schedule") r.source = "person";
+      if (r.source === "plan") r.source = "person";
       r.planRunId = null;
     }
     return { ...base, scripts, runs, qa };
   }
-  const schedules: Schedule[] = [
-    { id: "sched-nightly", title: "Nightly: Vertical Slice", scope: { kind: "goal", goalId: "vertical-slice" }, options: planOptionsFor("schedule"), at: "02:00", days: [0, 1, 2, 3, 4, 5, 6], enabled: true, lastRunAt: null, lastSkipped: null, nextRunAt: null },
-    { id: "sched-coop", title: "Co-op smoke test", scope: { kind: "goal", goalId: "coop-join" }, options: { ...planOptionsFor("schedule"), stopOnFailure: true }, at: "13:00", days: [1, 2, 3, 4, 5], enabled: true, lastRunAt: null, lastSkipped: "The editor was not connected", nextRunAt: null },
-  ];
   // The stagger bug was filed from the newest failing run of its check.
   const filed = runs.filter((r) => r.target.endsWith("/PT_Stagger_Wisp") && r.outcome === "failed").sort((a, b) => (a.startedAt < b.startedAt ? 1 : -1))[0];
   if (filed) filed.links = [{ url: DEMO_LINKS.staggerBug, title: "Elite wisps ignore stagger", rel: "filed-from-run" }];
-  const lastNight = [...nights.keys()].sort((a, b) => a - b)[0];
-  if (lastNight !== undefined) schedules[0].lastRunAt = nights.get(lastNight)![0]?.startedAt ?? null;
-  for (const s of schedules) s.nextRunAt = demoNextRun(s, now);
+  // Someone runs the Vertical Slice before leaving each evening.
   const recent = [...nights.entries()]
     .sort(([a], [b]) => a - b)
     .slice(0, 6)
     .map(([d, rs]) => {
       const items = rs.slice().sort((a, b) => (a.startedAt < b.startedAt ? -1 : 1)).map(itemFrom);
-      return plan({ id: nightlyId(d), title: "Nightly: Vertical Slice", scope: { kind: "goal", goalId: "vertical-slice" }, items, createdAt: items[0].startedAt!, startedAt: items[0].startedAt!, endedAt: items[items.length - 1].endedAt ?? null, state: "done", trigger: "schedule", scheduleId: "sched-nightly" });
+      return plan({ id: nightlyId(d), title: "Run Vertical Slice", scope: { kind: "goal", goalId: "vertical-slice" }, items, createdAt: items[0].startedAt!, startedAt: items[0].startedAt!, endedAt: items[items.length - 1].endedAt ?? null, state: "done" });
     });
   const queued = [
     plan({ id: "plan-seed-1", title: "Run Lantern combat lands hits and staggers enemies", scope: { kind: "goal", goalId: "lantern-combat" }, createdAt: iso(now - 2 * MIN), items: [
@@ -694,7 +688,8 @@ export function demoState(seed: DemoSeed, now = Date.now(), randomSeed = 7): Dem
       { check: ref("Coop", "PT_Coop_Lobby_Ready"), name: "PT_Coop_Lobby_Ready", state: "queued" },
     ] }),
   ];
-  return { ...base, goals: goals(), scripts, runs, qa, schedules, recent, queued };
+  // The team's rule: a pass not run for two weeks is stale.
+  return { ...base, goals: goals(), checkMetas: checkMetas(), rules: { ...DEFAULT_HEALTH_RULE, staleAfterDays: 14 }, scripts, runs, qa, recent, queued };
 }
 
 /** Steps for scripts an agent writes for a goal: a believable first draft. */

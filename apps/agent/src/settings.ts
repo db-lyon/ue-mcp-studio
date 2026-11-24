@@ -85,6 +85,8 @@ interface StoredSettings {
   modelChosen: boolean;
   /** Experimental features, each off until switched on in Settings > General. */
   experiments: StudioExperiments;
+  /** Unattended plans play in a runner editor when ue-mcp can run one (hub/runner.ts). On unless turned off. */
+  runnerEditor: boolean;
 }
 
 /** Every experiment off: a new install, and a file from before the field. */
@@ -218,10 +220,11 @@ export class SettingsStore {
         // Written before the field: the provider and model in it were the user's.
         modelChosen: raw.modelChosen !== false,
         experiments: experimentsOf(raw.experiments),
+        runnerEditor: raw.runnerEditor !== false,
       };
     } catch {
       // No settings yet: a new install, which asks before every kind of change and has picked no model.
-      return { provider: "anthropic", model: DEFAULT_MODEL, routeOrder: DEFAULT_ROUTE_ORDER, effort: DEFAULT_EFFORT, gatewayUrl: DEFAULT_GATEWAY_URL, theme: "ue-mcp", askBeforeChanges: true, reviewTurns: true, composerHeight: null, dialogPolicy: DEFAULT_DIALOG_POLICY, usage: { ...DEFAULT_USAGE }, approvals: { ...DEFAULT_APPROVALS }, modelChosen: false, experiments: { ...DEFAULT_EXPERIMENTS } };
+      return { provider: "anthropic", model: DEFAULT_MODEL, routeOrder: DEFAULT_ROUTE_ORDER, effort: DEFAULT_EFFORT, gatewayUrl: DEFAULT_GATEWAY_URL, theme: "ue-mcp", askBeforeChanges: true, reviewTurns: true, composerHeight: null, dialogPolicy: DEFAULT_DIALOG_POLICY, usage: { ...DEFAULT_USAGE }, approvals: { ...DEFAULT_APPROVALS }, modelChosen: false, experiments: { ...DEFAULT_EXPERIMENTS }, runnerEditor: true };
     }
   }
 
@@ -328,6 +331,10 @@ export class SettingsStore {
     if (u.reviewTurns !== undefined) {
       if (typeof u.reviewTurns !== "boolean") throw new Error("reviewTurns must be a boolean");
       s.reviewTurns = u.reviewTurns;
+    }
+    if (u.runnerEditor !== undefined) {
+      if (typeof u.runnerEditor !== "boolean") throw new Error("runnerEditor must be a boolean");
+      s.runnerEditor = u.runnerEditor;
     }
     if (u.composerHeight !== undefined) {
       if (u.composerHeight !== null && composerHeightOf(u.composerHeight) === null) throw new Error(`composerHeight must be null or a number from 1 to ${MAX_COMPOSER_HEIGHT}`);
@@ -476,6 +483,11 @@ export class SettingsStore {
   /** Review each turn's changes, for sessions that have not set their own. On unless turned off. */
   reviewTurns(): boolean {
     return this.stored().reviewTurns;
+  }
+
+  /** Unattended plans play in a runner editor when ue-mcp can run one. On unless turned off. */
+  runnerEditor(): boolean {
+    return this.stored().runnerEditor;
   }
 
   /** Experimental features switched on in Settings > General. */

@@ -1,15 +1,15 @@
 /**
- * The hub's dialogs: New and Edit goal, Add checks to a goal, and Add to
- * goal for checks picked in the library. Each closes on Escape or the scrim.
+ * The hub's dialogs: New and Edit goal, Add playtests to a goal, and Add to
+ * goal for playtests picked in the library. Each closes on Escape or the
+ * scrim.
  */
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
-import type { GoalPriority } from "@ue-mcp-studio/shared";
+import { GOAL_PRIORITIES, type GoalPriority } from "@ue-mcp-studio/shared";
 import {
   CHECK_HEALTH_LOOK,
   GOAL_STATUS_LOOK,
   GOAL_TITLE_MAX,
   HUB_COPY,
-  PRIORITIES,
   PRIORITY_LABEL,
   checksNotIn,
   fuzzyScore,
@@ -138,7 +138,7 @@ export function GoalDialog({ goalId, preset, onClose }: { goalId: string | null;
             {(a) => (
               <select {...a} value={f.priority} onChange={(e) => set("priority", e.target.value as GoalPriority | "")}>
                 <option value="">None</option>
-                {PRIORITIES.map((p) => <option key={p} value={p}>{PRIORITY_LABEL[p]}</option>)}
+                {GOAL_PRIORITIES.map((p) => <option key={p} value={p}>{PRIORITY_LABEL[p]}</option>)}
               </select>
             )}
           </HubField>
@@ -146,17 +146,11 @@ export function GoalDialog({ goalId, preset, onClose }: { goalId: string | null;
             {(a) => <input {...a} type="date" value={f.due} onChange={(e) => set("due", e.target.value)} />}
           </HubField>
         </div>
-        <HubField id="hub-goal-tags" label="Tags" error={shown.tags}>
-          {(a) => <input {...a} value={f.tags} onChange={(e) => set("tags", e.target.value)} placeholder="multiplayer, tutorial" />}
-        </HubField>
         <fieldset className="hub-fieldset">
           <legend>Done when</legend>
           <div className="hub-field-row">
             <HubField id="hub-goal-runs" label="Passing runs in a row" error={shown.stableRuns}>
               {(a) => <input {...a} inputMode="numeric" value={f.stableRuns} onChange={(e) => set("stableRuns", e.target.value)} />}
-            </HubField>
-            <HubField id="hub-goal-stale" label="Stale after days" error={shown.staleAfterDays}>
-              {(a) => <input {...a} inputMode="numeric" value={f.staleAfterDays} onChange={(e) => set("staleAfterDays", e.target.value)} placeholder="Never" />}
             </HubField>
           </div>
           <label className="hub-check-label"><input type="checkbox" checked={f.signOff} onChange={(e) => set("signOff", e.target.checked)} /> A person signs it off</label>
@@ -164,7 +158,6 @@ export function GoalDialog({ goalId, preset, onClose }: { goalId: string | null;
         <HubLinkRows rows={f.links} onChange={(rows) => set("links", rows)} error={shown.links} />
         {error && <div className="banner bad small" role="alert">{error}</div>}
         <div className="hub-form-actions">
-          <span className="small dim">{existing ? `${hub.o.goalsDir}/${existing.id}.json` : `Saved to ${hub.o.goalsDir}`}</span>
           <span className="spacer" />
           <button type="button" className="ghost" onClick={onClose}>Cancel</button>
           <button type="submit" className="primary" disabled={saving}>{existing ? "Save" : f.kind === "milestone" ? "Create milestone" : "Create goal"}</button>
@@ -196,7 +189,7 @@ export function CheckPicker({ goalId, onClose }: { goalId: string; onClose: () =
     setSaving(true);
     try {
       await api.hub.addChecks(goalId, checks);
-      hub.notify(`Added ${checks.length} ${checks.length === 1 ? "check" : "checks"} to ${g.goal.title}`);
+      hub.notify(`Added ${checks.length} ${checks.length === 1 ? "playtest" : "playtests"} to ${g.goal.title}`);
       hub.data.reload();
       onClose();
     } catch (e) {
@@ -205,11 +198,11 @@ export function CheckPicker({ goalId, onClose }: { goalId: string; onClose: () =
     }
   };
   return (
-    <Dialog label={`${HUB_COPY.addChecks} to ${g.goal.title}`} onClose={onClose} className="hub-picker">
-      <div className="overlay-head">{HUB_COPY.addChecks}<span className="dim small">to {g.goal.title}</span></div>
-      <input autoFocus value={q} onChange={(e) => setQ(e.target.value)} placeholder="Filter" aria-label="Filter checks" onKeyDown={(e) => { if (e.key === "Enter" && shown.length === 1) toggle(shown[0].id); }} />
-      <div className="hub-picker-list" role="group" aria-label="Checks">
-        {options.length === 0 && <p className="dim small">Every check in the project is in this goal already.</p>}
+    <Dialog label={`${HUB_COPY.addPlaytests} to ${g.goal.title}`} onClose={onClose} className="hub-picker">
+      <div className="overlay-head">{HUB_COPY.addPlaytests}<span className="dim small">to {g.goal.title}</span></div>
+      <input autoFocus value={q} onChange={(e) => setQ(e.target.value)} placeholder="Filter" aria-label="Filter playtests" onKeyDown={(e) => { if (e.key === "Enter" && shown.length === 1) toggle(shown[0].id); }} />
+      <div className="hub-picker-list" role="group" aria-label={HUB_COPY.playtests}>
+        {options.length === 0 && <p className="dim small">Every playtest in the project is in this goal already.</p>}
         {shown.map((c) => (
           <label key={c.id} className="hub-picker-row">
             <input type="checkbox" checked={picked.has(c.id)} onChange={() => toggle(c.id)} />
@@ -243,7 +236,7 @@ export function GoalPicker({ checkIds, onClose }: { checkIds: string[]; onClose:
     const title = goals.find((g) => g.goal.id === goalId)?.goal.title ?? goalId;
     try {
       await api.hub.addChecks(goalId, refs);
-      hub.notify(`Added ${refs.length} ${refs.length === 1 ? "check" : "checks"} to ${title}`);
+      hub.notify(`Added ${refs.length} ${refs.length === 1 ? "playtest" : "playtests"} to ${title}`);
       hub.data.reload();
       onClose();
     } catch (e) {
@@ -253,7 +246,7 @@ export function GoalPicker({ checkIds, onClose }: { checkIds: string[]; onClose:
   };
   return (
     <Dialog label={HUB_COPY.addToGoal} onClose={onClose} className="hub-picker">
-      <div className="overlay-head">{HUB_COPY.addToGoal}<span className="dim small">{refs.length} {refs.length === 1 ? "check" : "checks"}</span></div>
+      <div className="overlay-head">{HUB_COPY.addToGoal}<span className="dim small">{refs.length} {refs.length === 1 ? "playtest" : "playtests"}</span></div>
       <input autoFocus value={q} onChange={(e) => { setQ(e.target.value); setAt(0); }} placeholder="Filter goals" aria-label="Filter goals"
         onKeyDown={(e) => {
           if (e.key === "ArrowDown") { e.preventDefault(); setAt((i) => Math.min(shown.length - 1, i + 1)); }

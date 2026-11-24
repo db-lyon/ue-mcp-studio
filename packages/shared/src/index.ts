@@ -186,6 +186,12 @@ export interface StudioSettings {
   account: { login: string; via: "studio" | "ue-mcp-login"; email?: string | null; github?: string | null } | null;
   /** Experimental features switched on in Settings > General. Absent from an older agent: all off. */
   experiments?: StudioExperiments;
+  /**
+   * The Playtest Hub plays unattended plans in a runner editor of its own,
+   * when ue-mcp can run one (hub-runner.ts). Off: they run under the
+   * workspace editor's lease. Absent from an older agent.
+   */
+  runnerEditor?: boolean;
 }
 
 /** Experimental features, each off unless switched on. */
@@ -212,6 +218,7 @@ export interface StudioSettingsUpdate {
   reviewTurns?: boolean;
   composerHeight?: number | null;
   dialogPolicy?: DialogPolicy;
+  runnerEditor?: boolean;
   /** The fields given change; the rest stay. */
   usage?: Partial<UsageSettings>;
   keys?: Partial<Record<KeyProviderId, string>>;
@@ -1045,6 +1052,7 @@ export * from "./qa.js";
 export * from "./playtests.js";
 export * from "./hub.js";
 export * from "./hub-attention.js";
+export * from "./hub-runner.js";
 export * from "./agents.js";
 export * from "./review.js";
 export * from "./diff-tree.js";

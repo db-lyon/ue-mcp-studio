@@ -16,8 +16,8 @@
  *   editor. While held, the lease names what the hub may act on: the run its
  *   item started, and Play In Editor only when that run started it.
  *
- * Each editor has its own lease. Today that is the developer's editor
- * ("workspace"); a runner editor would hold one of its own.
+ * Each editor has its own lease: the developer's editor ("workspace") and,
+ * where ue-mcp can run one, the runner editor (runner.ts).
  */
 import type { BusyState, EditorLease as Lease, OccupancyReason, QaRun, QaRunState } from "@ue-mcp-studio/shared";
 

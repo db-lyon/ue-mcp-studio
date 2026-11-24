@@ -56,7 +56,7 @@ describe("the Playtest Hub gate", () => {
     render(<App />);
     const tab = await screen.findByRole("button", { name: /Playtests/ });
     expect(tabs()).toEqual(["Chat", "Playtests", "Plugins", "Settings"]);
-    await waitFor(() => expect(tab.querySelector(".tab-count")?.textContent).toBe("3"));
+    await waitFor(() => expect(tab.querySelector(".tab-count")?.textContent).toBe("2"));
     fireEvent.click(tab);
     expect(await screen.findByRole("heading", { level: 1, name: "Overview" })).toBeTruthy();
     expect(window.location.hash).toBe("#/playtests");

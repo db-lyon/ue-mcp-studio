@@ -35,7 +35,6 @@ export function GoalRow({ g, on, onPoint }: { g: GoalState; on?: boolean; onPoin
             <span className="hub-status-word">{look.label}</span>
             {g.goal.owner && <span>{g.goal.owner}</span>}
             {due && <span className={due.overdue ? "hub-overdue" : ""}>{due.text}</span>}
-            {(g.goal.tags ?? []).slice(0, 3).map((t) => <span key={t} className="hub-tag">#{t}</span>)}
             {g.unused && <span className="hub-unused">{HUB_COPY.notInMilestone}</span>}
           </span>
         </span>
@@ -68,9 +67,10 @@ export function CheckRow({ c, on, lead, actions, showGoals = true, onPoint }: { 
           {goals.slice(0, 2).map((g) => <span key={g.goal.id} className="hub-goal-chip"><StatusMark look={GOAL_STATUS_LOOK[g.status]} size={10} />{g.goal.title}</span>)}
           {goals.length > 2 && <span>+{goals.length - 2}</span>}
           {showGoals && c.unused && <span className="hub-unused">{HUB_COPY.notInGoal}</span>}
+          {c.renamedFrom && <span className="mono" title={c.renamedFrom}>{HUB_COPY.movedFrom(c.renamedFrom.split("/").pop()!)}</span>}
         </span>
       </HubLink>
-      {c.check.links?.length ? <span className="hub-row-links"><HubLinkChips links={c.check.links} max={1} compact /></span> : null}
+      {c.links?.length ? <span className="hub-row-links"><HubLinkChips links={c.links} max={1} compact /></span> : null}
       <span className="hub-row-spark"><WinLoss recent={c.recent} max={12} /></span>
       <span className="hub-row-num mono" title="Pass rate over recent runs">{passRateText(c.passRate)}</span>
       <span className="hub-row-when" title={c.last ? `${RUN_OUTCOME_LOOK[c.last.outcome].label} ${new Date(c.last.startedAt).toLocaleString()}` : "Never run"}>{c.last ? shortAgo(c.last.startedAt) : ""}</span>

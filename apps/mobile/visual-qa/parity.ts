@@ -332,10 +332,10 @@ export const PARITY: Record<string, ParityEntry> = {
   "hub-overview": {notOnPhone: HUB},
   "hub-overview-empty": {notOnPhone: HUB},
   "hub-goal": {notOnPhone: HUB},
+  "hub-goal-not-on-checkout": {notOnPhone: HUB},
   "hub-goal-milestone": {notOnPhone: HUB},
   "hub-library": {notOnPhone: HUB},
   "hub-check": {notOnPhone: HUB},
   "hub-run": {notOnPhone: HUB},
-  "hub-queue": {notOnPhone: HUB},
   "hub-editor-offline": {notOnPhone: HUB},
 };

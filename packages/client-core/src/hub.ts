@@ -9,9 +9,15 @@ import {
   CHECK_HEALTH_ORDER,
   DEFAULT_ACCEPTANCE,
   FAILING_ITEM_STATES,
+  FLAKY_WINDOW_MAX,
+  FLAKY_WINDOW_MIN,
+  GOAL_DUE,
+  GOAL_PRIORITIES,
   GOAL_STATUS_ORDER,
+  HUB_EXPORT_FORMAT,
   ATTENTION_ORDER,
   HUB_CHANGED,
+  STALE_DAYS_MAX,
   TRACKER_LINKS_MAX,
   TRACKER_LINK_RELS,
   checkId as checkIdOf,
@@ -19,29 +25,34 @@ import {
   leafName,
   loopIfRequired,
   linkHost,
-  planOptionsFor,
   ranDirty,
   trackerLinkOf,
   triggerOf,
   type CheckChange,
   type CheckDetail,
+  type CheckMeta,
+  type CheckMetaUpdate,
   type CurrentProvenance,
   type EvidenceScope,
+  type FixRequest,
+  type GoalCheckUpdate,
+  type HealthRule,
   type RunProvenance,
   type RunTrigger,
   type RunVcs,
-  type CheckUpdate,
   type TrackerLink,
   type CheckHealth,
-  type CheckKind,
   type CheckRef,
   type CheckState,
   type Goal,
   type GoalDraft,
+  type GoalImport,
   type GoalPriority,
   type GoalState,
   type GoalStatus,
   type GoalUpdate,
+  type HubExport,
+  type HubImportReport,
   type HubOverview,
   type AttentionItem,
   type AttentionKind,
@@ -50,16 +61,14 @@ import {
   type PlanRun,
   type PlanScope,
   type PlanState,
-  type QaRun,
   type QaVerdict,
+  type QaRun,
   type QueueState,
   type RunDetail,
   type RunOutcome,
   type RunRecord,
   type RunSource,
   type RunStepSpan,
-  type Schedule,
-  type ScheduleDraft,
   type SignOff,
   type SignOffLapse,
   type SignOffState,
@@ -97,7 +106,8 @@ export function hubApi(request: HubRequest) {
     deleteGoal: (id: string) => request<void>("DELETE", goal(id)),
     addChecks: (id: string, checks: CheckRef[]) => request<{ goal: Goal }>("POST", `${goal(id)}/checks`, { checks }),
     removeCheck: (id: string, checkId: string) => request<{ goal: Goal }>("DELETE", `${goal(id)}/checks/${enc(checkId)}`),
-    updateCheck: (id: string, checkId: string, u: CheckUpdate) => request<{ goal: Goal }>("PUT", `${goal(id)}/checks/${enc(checkId)}`, u),
+    /** What one goal says of a check: whether it is required. */
+    updateGoalCheck: (id: string, checkId: string, u: GoalCheckUpdate) => request<{ goal: Goal }>("PUT", `${goal(id)}/checks/${enc(checkId)}`, u),
     orderChecks: (id: string, order: string[]) => request<{ goal: Goal }>("PUT", `${goal(id)}/checks/order`, { order }),
     /** Make a goal require another, or change whether it is required. */
     addRequire: (id: string, goalId: string, required?: boolean) => request<{ goal: Goal }>("POST", `${goal(id)}/requires`, required === undefined ? { goal: goalId } : { goal: goalId, required }),
@@ -108,6 +118,13 @@ export function hubApi(request: HubRequest) {
     writePlaytests: (id: string, text?: string) => request<{ sessionId: string }>("POST", `${goal(id)}/write-playtests`, text ? { text } : {}),
     check: (checkId: string, page: { limit?: number; before?: string } = {}) =>
       request<CheckDetail>("GET", `${HUB_BASE}/checks/${enc(checkId)}${pageQuery(page)}`),
+    /** What a check says about itself (title, links), its one record. */
+    updateCheck: (checkId: string, u: CheckMetaUpdate) => request<{ meta: CheckMeta }>("PUT", `${HUB_BASE}/checks/${enc(checkId)}`, u),
+    rules: (r: Partial<HealthRule>) => request<{ rules: HealthRule }>("PUT", `${HUB_BASE}/rules`, r),
+    /** The whole goal store as one file, to move it to another computer. */
+    exportStore: () => request<HubExport>("GET", `${HUB_BASE}/store`),
+    /** A goals file merged in by id (HubImportReport). */
+    importStore: (file: unknown) => request<HubImportReport>("POST", `${HUB_BASE}/store`, file),
     runs: (q: { check?: string; limit?: number; before?: string } = {}) => request<{ runs: RunRecord[]; more: boolean }>("GET", `${HUB_BASE}/runs${pageQuery(q)}`),
     run: (runId: string) => request<RunDetail>("GET", `${HUB_BASE}/runs/${enc(runId)}`),
     addRunLink: (runId: string, link: TrackerLink) => request<{ record: RunRecord }>("POST", `${HUB_BASE}/runs/${enc(runId)}/links`, { link }),
@@ -115,17 +132,13 @@ export function hubApi(request: HubRequest) {
     queue: () => request<QueueState>("GET", `${HUB_BASE}/queue`),
     plan: (req: PlanRequest) => request<{ plan: PlanRun }>("POST", `${HUB_BASE}/plans`, req),
     cancelPlan: (id: string) => request<{ plan: PlanRun }>("POST", `${HUB_BASE}/plans/${enc(id)}/cancel`, {}),
-    movePlan: (id: string, to: number) => request<QueueState>("POST", `${HUB_BASE}/plans/${enc(id)}/move`, { to }),
-    pause: (paused: boolean) => request<QueueState>("PUT", `${HUB_BASE}/queue/paused`, { paused }),    createSchedule: (s: ScheduleDraft) => request<{ schedule: Schedule }>("POST", `${HUB_BASE}/schedules`, s),
-    updateSchedule: (id: string, s: Partial<ScheduleDraft>) => request<{ schedule: Schedule }>("PUT", `${HUB_BASE}/schedules/${enc(id)}`, s),
-    deleteSchedule: (id: string) => request<void>("DELETE", `${HUB_BASE}/schedules/${enc(id)}`),
-    assignFailing: (goalId?: string) => request<{ queued: number; plan: PlanRun | null }>("POST", `${HUB_BASE}/assign-failing`, goalId ? { goalId } : {}),
+    pause: (paused: boolean) => request<QueueState>("PUT", `${HUB_BASE}/queue/paused`, { paused }),
+    /** Fix with an agent: a fix plan, each check in a chat session of its own. */
+    fix: (req: FixRequest = {}) => request<{ queued: number; plan: PlanRun | null }>("POST", `${HUB_BASE}/fix`, req),
     runCheck: (checkId: string, replay?: boolean) => request<{ plan: PlanRun }>("POST", `${HUB_BASE}/checks/${enc(checkId)}/run`, replay ? { replay } : {}),
     /** A manual step's verdict: the existing playtest route, so the card in chat settles too. */
     verdict: (runId: string, step: number, verdict: QaVerdict, note?: string) =>
       request<{ run: QaRun }>("POST", `${QA_BASE}/runs/${enc(runId)}/verdict`, note ? { step, verdict, note } : { step, verdict }),
-    /** Hand a run's failure to a subagent: the existing fix loop. */
-    assign: (runId: string) => request<{ run: QaRun }>("POST", `${QA_BASE}/runs/${enc(runId)}/assign`, {}),
     resultsUrl: (runId: string) => `${QA_BASE}/runs/${enc(runId)}/results`,
   };
 }
@@ -137,14 +150,13 @@ export const hubApiOver = (transport: Transport): HubApi =>
 
 // ---------- Routes inside #/playtests ----------
 
-export type HubScreen = "overview" | "goal" | "library" | "check" | "run" | "queue";
+export type HubScreen = "overview" | "goal" | "library" | "check" | "run";
 export type HubRoute =
   | { screen: "overview" }
   | { screen: "goal"; goalId: string }
   | { screen: "library" }
   | { screen: "check"; checkId: string }
-  | { screen: "run"; runId: string }
-  | { screen: "queue" };
+  | { screen: "run"; runId: string };
 
 const decode = (s: string): string | null => {
   try {
@@ -157,15 +169,14 @@ const decode = (s: string): string | null => {
 
 /**
  * The hub's screen from what follows #/playtests/ (still encoded):
- * goals/<id>, checks, checks/<checkId>, runs/<runId>, queue. Anything else is
- * the overview.
+ * goals/<id>, checks, checks/<checkId>, runs/<runId>. Anything else is the
+ * overview.
  */
 export function parseHubPath(sub: string | null | undefined): HubRoute {
   const parts = (sub ?? "").split("/").filter(Boolean);
   const [head, id] = parts;
   const value = id ? decode(id) : null;
   switch (head) {
-    case "queue": return { screen: "queue" };
     case "checks": return value ? { screen: "check", checkId: value } : { screen: "library" };
     case "goals": return value ? { screen: "goal", goalId: value } : { screen: "overview" };
     case "runs": return value ? { screen: "run", runId: value } : { screen: "overview" };
@@ -177,7 +188,6 @@ export function parseHubPath(sub: string | null | undefined): HubRoute {
 export function hubPath(r: HubRoute): string {
   switch (r.screen) {
     case "overview": return "";
-    case "queue": return "queue";
     case "library": return "checks";
     case "goal": return `goals/${enc(r.goalId)}`;
     case "check": return `checks/${enc(r.checkId)}`;
@@ -192,8 +202,7 @@ export const hubHash = (r: HubRoute): string => {
 };
 
 /** Which rail entry a screen sits under. */
-export function hubSection(r: HubRoute): "overview" | "library" | "queue" {
-  if (r.screen === "queue") return "queue";
+export function hubSection(r: HubRoute): "overview" | "library" {
   if (r.screen === "library" || r.screen === "check") return "library";
   return "overview";
 }
@@ -211,9 +220,8 @@ export interface StatusLook {
 }
 
 export const CHECK_HEALTH_LOOK: Record<CheckHealth, StatusLook> = {
-  needs_you: { label: "Needs you", glyph: "needs", tone: "attention" },
   failing: { label: "Failing", glyph: "fail", tone: "bad" },
-  missing: { label: "Missing", glyph: "missing", tone: "bad" },
+  missing: { label: "Not on this checkout", glyph: "missing", tone: "idle" },
   running: { label: "Running", glyph: "running", tone: "run" },
   flaky: { label: "Flaky", glyph: "flaky", tone: "warn" },
   stale: { label: "Stale", glyph: "stale", tone: "warn" },
@@ -222,18 +230,20 @@ export const CHECK_HEALTH_LOOK: Record<CheckHealth, StatusLook> = {
 };
 
 export const GOAL_STATUS_LOOK: Record<GoalStatus, StatusLook> = {
-  needs_you: { label: "Needs you", glyph: "needs", tone: "attention" },
   failing: { label: "Failing", glyph: "fail", tone: "bad" },
+  ready_to_sign_off: { label: "Ready to sign off", glyph: "needs", tone: "attention" },
   at_risk: { label: "At risk", glyph: "risk", tone: "warn" },
   running: { label: "Running", glyph: "running", tone: "run" },
+  in_progress: { label: "In progress", glyph: "queued", tone: "idle" },
   not_started: { label: "Not started", glyph: "never", tone: "idle" },
   met: { label: "Met", glyph: "check", tone: "ok" },
 };
 
+/** "Needs you" is a run holding for a live verdict, on the Run screen and in the app bar; an error reads as Failed. */
 export const RUN_OUTCOME_LOOK: Record<RunOutcome, StatusLook> = {
   needs_you: { label: "Needs you", glyph: "needs", tone: "attention" },
   failed: { label: "Failed", glyph: "fail", tone: "bad" },
-  error: { label: "Error", glyph: "fail", tone: "bad" },
+  error: { label: "Failed", glyph: "fail", tone: "bad" },
   running: { label: "Running", glyph: "running", tone: "run" },
   incomplete: { label: "Incomplete", glyph: "risk", tone: "warn" },
   unjudged: { label: "Not judged", glyph: "skip", tone: "idle" },
@@ -241,21 +251,22 @@ export const RUN_OUTCOME_LOOK: Record<RunOutcome, StatusLook> = {
   passed: { label: "Passed", glyph: "check", tone: "ok" },
 };
 
+/** An error reads as Failed and a cancelled item as Stopped, as runs do. */
 export const PLAN_ITEM_LOOK: Record<PlanItemState, StatusLook> = {
   needs_you: { label: "Needs you", glyph: "needs", tone: "attention" },
   failed: { label: "Failed", glyph: "fail", tone: "bad" },
-  error: { label: "Error", glyph: "fail", tone: "bad" },
+  error: { label: "Failed", glyph: "fail", tone: "bad" },
   unjudged: { label: "Not judged", glyph: "skip", tone: "idle" },
   running: { label: "Running", glyph: "running", tone: "run" },
   queued: { label: "Queued", glyph: "queued", tone: "idle" },
   skipped: { label: "Skipped", glyph: "skip", tone: "idle" },
   crashed: { label: "Crashed", glyph: "fail", tone: "bad" },
-  cancelled: { label: "Cancelled", glyph: "stop", tone: "idle" },
+  cancelled: { label: "Stopped", glyph: "stop", tone: "idle" },
   passed: { label: "Passed", glyph: "check", tone: "ok" },
 };
 
 export const PLAN_STATE_LABEL: Record<PlanState, string> = {
-  queued: "Queued", running: "Running", paused: "Paused", done: "Done", cancelled: "Cancelled", failed: "Failed",
+  queued: "Queued", running: "Running", paused: "Paused", done: "Done", cancelled: "Stopped", failed: "Failed",
 };
 
 /** A step's status in the hub's ladder, for the run timeline. */
@@ -278,31 +289,20 @@ export const attentionRank = rank(ATTENTION_ORDER);
 
 // ---------- Labels ----------
 
-export const CHECK_KIND_LABEL: Record<CheckKind, string> = {
-  script: "Test script",
-  uat: "UAT scenario",
-  repro: "Reproduction test",
-  automation: "Automation filter",
-  manual: "Manual item",
-};
-
-export const PRIORITIES: readonly GoalPriority[] = ["p0", "p1", "p2", "p3"];
 export const PRIORITY_LABEL: Record<GoalPriority, string> = { p0: "P0 Urgent", p1: "P1 High", p2: "P2 Normal", p3: "P3 Low" };
 export const PRIORITY_SHORT: Record<GoalPriority, string> = { p0: "P0", p1: "P1", p2: "P2", p3: "P3" };
 
 export const ATTENTION_KIND_LABEL: Record<AttentionKind, string> = {
-  loop_blocked: "Fix loop stopped",
-  sign_off: "Sign-off",
+  loop_blocked: "Fix stopped",
+  sign_off: "Ready to sign off",
   regression: "Regression",
-  missing_check: "Missing check",
-  plan_failed: "Plan failed",
+  plan_failed: "Run failed",
 };
 
 export const RUN_SOURCE_LABEL: Record<RunSource, string> = {
   person: "Started by a person",
   agent: "Started by an agent",
-  plan: "Part of a plan",
-  schedule: "Scheduled",
+  plan: "Started from the hub",
   outside: "Started outside Studio",
 };
 
@@ -386,20 +386,26 @@ export const HUB_COPY = {
   overview: "Overview",
   attention: "Needs attention",
   goals: "Goals",
+  playtests: "Playtests",
+  /** What a check is called wherever a person reads it. */
+  playtest: "Playtest",
   library: "Library",
-  queue: "Queue",
+  nowRunning: "Now running",
+  finished: "Finished",
   newGoal: "New goal",
   editGoal: "Edit goal",
+  groupIntoGoal: "Group into a goal",
   runGoal: "Run goal",
   runFailing: "Run failing",
   runAll: "Run all",
   runSelected: "Run selected",
   addToGoal: "Add to goal",
-  addChecks: "Add checks",
-  assignFailing: "Fix failing with an agent",
-  /** After Fix failing with an agent: what was queued, and where the work happens. */
-  fixesQueued: (n: number) => (n ? `Queued ${n === 1 ? "a fix" : `${n} fixes`}. Each runs in its own chat session.` : "No failing checks to fix"),
-  /** A fix item's line: the chat session its agents work in. */
+  addPlaytests: "Add playtests",
+  fixFailing: "Fix failing with an agent",
+  fix: "Fix with an agent",
+  /** After a fix is asked for: what was queued, and where the work happens. */
+  fixesQueued: (n: number) => (n ? `Queued ${n === 1 ? "a fix" : `${n} fixes`}. Each runs in its own chat session.` : "Nothing is failing to fix."),
+  /** A fix item's line: the chat session its agent works in. */
   fixChat: "Open chat",
   writePlaytests: "Write playtests for this goal",
   signOff: "Sign off",
@@ -414,30 +420,44 @@ export const HUB_COPY = {
   notInGoal: "Not part of any goal",
   noRequiredGoals: "A goal can require other goals. It is met only when they are.",
   noGoalsInMilestone: "No goals in this milestone yet.",
-  unusedChecks: (n: number) => `${n} ${n === 1 ? "check is" : "checks are"} not part of any goal`,
+  noPlaytestsInGoal: "A goal is met when its required playtests pass. Add playtests the project has, or ask an agent to write them.",
+  unusedChecks: (n: number) => `${n} ${n === 1 ? "playtest is" : "playtests are"} not part of any goal`,
   attentionEmpty: "Nothing needs attention.",
-  attended: "Someone is there to judge manual steps",
-  attendedHelp: "Without someone there, checks with manual steps are skipped. With someone there, each run holds at its manual steps for a verdict.",
-  noGoalsTitle: "No goals yet",
-  noGoalsLead: "A goal is something the game must do, proven by the playtests linked to it. Its status follows their runs.",
-  noChecksLead: "This project has no test scripts yet. Ask for one in Chat with /playtest.",
-  scriptsFound: (n: number) => `${n} test ${n === 1 ? "script" : "scripts"} in this project`,
-  libraryEmpty: "No checks match.",
+  /** The overview without goals: goals are an opt-in layer over the playtests. */
+  goalsLead: "Select playtests and group them into a goal to track something the game must do. A goal's status follows its playtests' runs.",
+  noChecksTitle: "No playtests yet",
+  noChecksLead: "Ask for one in Chat with /playtest.",
+  libraryEmpty: "No playtests match.",
+  justBroke: "Just broke",
   queueIdle: "Nothing is running.",
-  queueEmpty: "Nothing queued.",
-  paused: "Paused: runs wait until the queue resumes.",
+  pause: "Pause",
+  resume: "Resume",
+  paused: "Paused: runs wait until you resume.",
   pausedByRelease: "Paused because you released the editor. Resume when Studio may use it again.",
   pausedByReconnect: "Paused because the editor reconnected. Resume when Studio may use it again.",
   waiting: (why: string) => `Waiting: ${why}`,
-  editorDown: "The editor is not connected. When it is back, resume the queue to go on.",
+  editorDown: "The editor is not connected. When it is back, resume to go on.",
   filterPlaceholder: "Filter by name, map or goal",
-  palettePlaceholder: "Jump to a goal, check or run, or type a command",
+  palettePlaceholder: "Jump to a goal, playtest or run, or type a command",
   paletteEmpty: "No matches.",
   failNoteLabel: "What went wrong?",
-  noSchedules: "No schedules.",
   shortcuts: "Keyboard shortcuts",
   evidenceLocal: "Status comes from the runs on this computer only, so a teammate may see another status for the same goal.",
+  /** Beside the "Not on this checkout" status: why that is no failure. */
+  notOnCheckout: "Goals keep it listed, since another branch may have it.",
+  /** A goal names a script by the path it had before it moved. */
+  movedFrom: (path: string) => `Moved from ${path}`,
+  unsupported: "Can't run here",
+  unsupportedLead: "These were imported with the goal. Studio can't run them, so they don't count toward it.",
+  owner: "Owner",
+  priority: "Priority",
+  due: "Due",
+  runFailingNone: "Nothing is failing.",
+  plans: "Runs",
 } as const;
+
+/** How far a batch of runs is, "3 of 6 done". People never read the word plan. */
+export const runsDone = (done: number, total: number): string => `${done} of ${total} done`;
 
 /** Why the queue is paused, in the words of whoever paused it. */
 export const queuePausedText = (q: Pick<QueueState, "pausedBy">): string =>
@@ -485,7 +505,7 @@ export function runLength(ms: number | null | undefined): string {
 
 /** A due date against today: "Due today", "Due in 3 days", "3 days overdue", or the date itself past two weeks. */
 export function dueText(due: string | null | undefined, now = Date.now()): { text: string; overdue: boolean } | null {
-  if (!due || !DATE.test(due)) return null;
+  if (!due || !GOAL_DUE.test(due)) return null;
   const today = new Date(now);
   const start = Date.UTC(today.getFullYear(), today.getMonth(), today.getDate());
   const [y, mo, d] = due.split("-").map(Number);
@@ -501,7 +521,7 @@ export function dueText(due: string | null | undefined, now = Date.now()): { tex
 
 const byText = (a: string, b: string): number => a.localeCompare(b, undefined, { sensitivity: "base", numeric: true });
 const dueKey = (g: Goal): string => g.due ?? "9999-99-99";
-const prioKey = (g: Goal): number => (g.priority ? PRIORITIES.indexOf(g.priority) : 2);
+const prioKey = (g: Goal): number => (g.priority ? GOAL_PRIORITIES.indexOf(g.priority) : 2);
 
 /** Goals worst first, then by priority, then due date, then title. */
 export function sortGoals(goals: readonly GoalState[]): GoalState[] {
@@ -532,8 +552,9 @@ export interface MilestoneGroup {
 }
 
 /**
- * Goals under their milestones, for the overview: milestones by due date then
- * worst status, each with the goals it requires in its own order. A goal two
+ * Goals under their milestones, for the overview: milestones worst first
+ * (then by priority and due date), each with the goals it requires in its
+ * own order. A goal two
  * milestones require is in both groups, as the same GoalState. Goals that
  * nothing requires come last; a goal required only by other goals shows on
  * their screens. Archived goals are left out.
@@ -542,9 +563,7 @@ export function milestoneGroups(all: readonly GoalState[]): MilestoneGroup[] {
   const live = all.filter((g) => !g.goal.archived);
   const byId = new Map(live.map((g) => [g.goal.id, g]));
   const milestones = live.filter((g) => g.goal.kind === "milestone");
-  const groups: MilestoneGroup[] = [...milestones]
-    .sort((a, b) => byText(dueKey(a.goal), dueKey(b.goal)) || goalStatusRank(a.status) - goalStatusRank(b.status) || byText(a.goal.title, b.goal.title))
-    .map((m) => ({ milestone: m, goals: requiredGoals(m, byId) }));
+  const groups: MilestoneGroup[] = sortGoals(milestones).map((m) => ({ milestone: m, goals: requiredGoals(m, byId) }));
   const loose = live.filter((g) => g.goal.kind !== "milestone" && g.parents.length === 0);
   if (loose.length) groups.push({ milestone: null, goals: sortGoals(loose) });
   return groups;
@@ -608,7 +627,7 @@ export function goalCounts(all: readonly GoalState[]): Record<GoalStatus, number
   return out;
 }
 
-/** The overview's one-line summary: "8 goals: 2 failing, 1 needs you, 5 met". */
+/** The overview's one-line summary: "8 goals: 2 failing, 1 ready to sign off, 5 met". */
 export function goalSummary(all: readonly GoalState[]): string {
   const counts = goalCounts(all);
   const total = GOAL_STATUS_ORDER.reduce((n, s) => n + counts[s], 0);
@@ -648,10 +667,76 @@ export function progressText(p: { met: number; total: number }): string {
 export function acceptanceText(goal: Pick<Goal, "acceptance">): string {
   const a = goal.acceptance;
   const runs = a.stableRuns <= 1 ? "passes its latest run" : `passes its last ${a.stableRuns} runs`;
-  const parts = [`Each required check ${runs}`];
-  parts.push(a.staleAfterDays === null ? "never stale" : `stale after ${a.staleAfterDays} ${a.staleAfterDays === 1 ? "day" : "days"}`);
-  if (a.signOff) parts.push("needs sign-off");
-  return parts.join(", ") + ".";
+  return `Each required playtest ${runs}${a.signOff ? ", then a person signs it off" : ""}.`;
+}
+
+// ---------- The health rule ----------
+
+/** The project's health rule in a sentence. */
+export function healthRuleText(r: HealthRule): string {
+  const stale = r.staleAfterDays === null ? "never by age" : `after ${r.staleAfterDays} ${r.staleAfterDays === 1 ? "day" : "days"} without a run`;
+  return `Flaky when the last ${r.flakyWindow} results on the same revision are mixed. Stale ${stale}.`;
+}
+
+/** The health rule as its inputs hold it. Empty days: never stale by age. */
+export interface HealthRuleForm {
+  staleAfterDays: string;
+  flakyWindow: string;
+}
+
+export const healthRuleFormOf = (r: HealthRule): HealthRuleForm => ({ staleAfterDays: r.staleAfterDays === null ? "" : String(r.staleAfterDays), flakyWindow: String(r.flakyWindow) });
+
+export function healthRuleErrors(f: HealthRuleForm): Partial<Record<keyof HealthRuleForm, string>> {
+  const e: Partial<Record<keyof HealthRuleForm, string>> = {};
+  const days = f.staleAfterDays.trim();
+  if (days && (!/^\d+$/.test(days) || Number(days) < 1 || Number(days) > STALE_DAYS_MAX)) e.staleAfterDays = `From 1 to ${STALE_DAYS_MAX} days, or empty for never.`;
+  const w = f.flakyWindow.trim();
+  if (!/^\d+$/.test(w) || Number(w) < FLAKY_WINDOW_MIN || Number(w) > FLAKY_WINDOW_MAX) e.flakyWindow = `From ${FLAKY_WINDOW_MIN} to ${FLAKY_WINDOW_MAX} runs.`;
+  return e;
+}
+
+export const healthRuleOf = (f: HealthRuleForm): HealthRule => ({ staleAfterDays: f.staleAfterDays.trim() ? Number(f.staleAfterDays) : null, flakyWindow: Number(f.flakyWindow) });
+
+export const HEALTH_RULE_COPY = {
+  title: "Health rule",
+  edit: "Change",
+  flakyLabel: "Results to compare for flaky",
+  staleLabel: "Stale after days without a run",
+  stalePlaceholder: "Never",
+  save: "Save",
+  cancel: "Cancel",
+} as const;
+
+// ---------- Moving goals between computers ----------
+
+export const HUB_STORE_COPY = {
+  menu: "Goals",
+  export: "Export goals",
+  import: "Import goals",
+  /** What the export's file is called: the day it was made. */
+  fileName: (iso: string) => `goals-${iso.slice(0, 10)}.json`,
+  exported: "Saved the goals file.",
+  notAFile: "That file isn't a goals file exported from Studio.",
+  /** Where goals are kept, said once near the export, so nobody looks for them in the repo. */
+  where: "Goals are kept by Studio on this computer, not in the project. Export them to move them to another computer.",
+} as const;
+
+/** What an import did, in a sentence: "Added 4. 2 were already here. 1 differs here and was kept as it is: Jump." */
+export function importReportText(r: HubImportReport): string {
+  const parts = [r.added ? `Added ${r.added}.` : "Added nothing."];
+  if (r.unchanged) parts.push(`${r.unchanged} ${r.unchanged === 1 ? "was" : "were"} already here.`);
+  if (r.conflicts.length) parts.push(`${r.conflicts.length} ${r.conflicts.length === 1 ? "differs here and was" : "differ here and were"} kept as ${r.conflicts.length === 1 ? "it is" : "they are"}: ${r.conflicts.map((c) => c.title).join(", ")}.`);
+  return parts.join(" ");
+}
+
+/** Whether a parsed file looks like an export, before it is sent; the agent checks every record. */
+export const isGoalsFile = (v: unknown): v is HubExport => !!v && typeof v === "object" && (v as { format?: unknown }).format === HUB_EXPORT_FORMAT;
+
+/** The one-time import of QA/Goals in a sentence, or null when it never happened. */
+export function importedText(i: GoalImport | null): string | null {
+  if (!i) return null;
+  const n = i.goals.length;
+  return `${n} ${n === 1 ? "goal was" : "goals were"} brought in from ${i.from} on ${i.at.slice(0, 10)}. Studio no longer reads that folder, and it was left as it was.`;
 }
 
 // ---------- Sparklines and charts ----------
@@ -732,22 +817,22 @@ export function runTimeline(steps: readonly RunStepSpan[]): { bars: TimelineBar[
 
 // ---------- Library filters ----------
 
-export type HealthFilter = "all" | "attention" | "failing" | "at_risk" | "never_run" | "passing" | "unlinked";
+export type HealthFilter = "all" | "failing" | "at_risk" | "never_run" | "passing" | "missing" | "unlinked";
 export const HEALTH_FILTERS: ReadonlyArray<{ id: HealthFilter; label: string }> = [
   { id: "all", label: "All" },
-  { id: "attention", label: "Needs you" },
   { id: "failing", label: "Failing" },
   { id: "at_risk", label: "Flaky or stale" },
   { id: "never_run", label: "Never run" },
   { id: "passing", label: "Passing" },
+  { id: "missing", label: "Not on this checkout" },
   { id: "unlinked", label: "Not part of any goal" },
 ];
 
 export function matchesHealth(c: CheckState, f: HealthFilter): boolean {
   switch (f) {
     case "all": return true;
-    case "attention": return c.health === "needs_you";
-    case "failing": return c.health === "failing" || c.health === "missing";
+    case "missing": return c.health === "missing";
+    case "failing": return c.health === "failing";
     case "at_risk": return c.health === "flaky" || c.health === "stale";
     case "never_run": return c.health === "never_run";
     case "passing": return c.health === "passing";
@@ -759,7 +844,6 @@ export interface CheckQuery {
   health?: HealthFilter;
   /** A goal id, "none" for checks in no goal, or empty for any. */
   goalId?: string;
-  kind?: CheckKind | "";
   text?: string;
 }
 
@@ -770,7 +854,6 @@ export function filterChecks(checks: readonly CheckState[], q: CheckQuery, goals
   return sortChecks(checks.filter((c) => {
     if (q.health && !matchesHealth(c, q.health)) return false;
     if (q.goalId === "none" ? c.goalIds.length > 0 : q.goalId && !c.goalIds.includes(q.goalId)) return false;
-    if (q.kind && c.check.kind !== q.kind) return false;
     if (words.length) {
       const hay = [c.name, c.check.target, c.map ?? "", ...c.goalIds.map((id) => title.get(id) ?? id)].join(" ").toLowerCase();
       if (!words.every((w) => hay.includes(w))) return false;
@@ -781,32 +864,6 @@ export function filterChecks(checks: readonly CheckState[], q: CheckQuery, goals
 
 export const healthCounts = (checks: readonly CheckState[]): Record<HealthFilter, number> =>
   Object.fromEntries(HEALTH_FILTERS.map((f) => [f.id, checks.filter((c) => matchesHealth(c, f.id)).length])) as Record<HealthFilter, number>;
-
-// ---------- Getting started ----------
-
-export interface GoalProposal {
-  title: string;
-  checks: CheckRef[];
-}
-
-/**
- * Goals a project with scripts but no goals could start from: the scripts in
- * no goal, one goal per map they play in, and the rest together. A solo
- * developer gets a working overview in one click and renames later.
- */
-export function proposeGoals(checks: readonly CheckState[]): GoalProposal[] {
-  const loose = checks.filter((c) => c.goalIds.length === 0 && !c.missing && c.check.kind === "script");
-  const byMap = new Map<string, CheckState[]>();
-  for (const c of loose) {
-    const key = c.map ? leafName(c.map) : "";
-    byMap.set(key, [...(byMap.get(key) ?? []), c]);
-  }
-  const named = [...byMap.entries()].filter(([k]) => k).sort(([a], [b]) => byText(a, b));
-  const out: GoalProposal[] = named.map(([map, cs]) => ({ title: `${map} plays through`, checks: cs.map((c) => c.check) }));
-  const rest = byMap.get("");
-  if (rest?.length) out.push({ title: named.length ? "Other playtests" : "Playtests pass", checks: rest.map((c) => c.check) });
-  return out;
-}
 
 // ---------- Plans and the queue ----------
 
@@ -835,58 +892,12 @@ export function scopeText(scope: PlanScope, goals: readonly GoalState[] = []): s
   const goalTitle = (id?: string) => (id ? goals.find((g) => g.goal.id === id)?.goal.title ?? id : null);
   switch (scope.kind) {
     case "goal": return `Goal: ${goalTitle(scope.goalId)}`;
-    case "checks": return `${scope.checks.length} ${scope.checks.length === 1 ? "check" : "checks"}`;
-    case "failing": return scope.goalId ? `Failing in ${goalTitle(scope.goalId)}` : "Every failing check";
-    case "stale": return scope.goalId ? `Stale in ${goalTitle(scope.goalId)}` : "Every stale check";
-    case "all": return "Every check";
+    case "checks": return `${scope.checks.length} ${scope.checks.length === 1 ? "playtest" : "playtests"}`;
+    case "failing": return scope.goalId ? `Failing in ${goalTitle(scope.goalId)}` : "Every failing playtest";
+    case "stale": return scope.goalId ? `Stale in ${goalTitle(scope.goalId)}` : "Every stale playtest";
+    case "all": return "Every playtest";
   }
 }
-
-/** The queue with a plan moved, as the server will order it, for an optimistic reorder. */
-export function moveQueued(q: QueueState, id: string, to: number): QueueState {
-  const from = q.queued.findIndex((p) => p.id === id);
-  if (from < 0) return q;
-  const next = q.queued.slice();
-  const [p] = next.splice(from, 1);
-  next.splice(Math.max(0, Math.min(next.length, to)), 0, p);
-  return { ...q, queued: next };
-}
-
-// ---------- Schedules ----------
-
-export const DAY_SHORT = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"] as const;
-const WEEKDAYS = [1, 2, 3, 4, 5];
-
-/** When a schedule runs: "Every day at 02:00", "Weekdays at 02:00", "Mon, Thu at 18:30". */
-export function scheduleText(s: Pick<Schedule, "days" | "at">): string {
-  const days = [...new Set(s.days)].filter((d) => d >= 0 && d <= 6).sort();
-  const when = days.length === 7 ? "Every day"
-    : days.length === 5 && WEEKDAYS.every((d) => days.includes(d)) ? "Weekdays"
-    : days.length === 2 && days.includes(0) && days.includes(6) ? "Weekends"
-    : days.length === 0 ? "Never"
-    : days.map((d) => DAY_SHORT[d]).join(", ");
-  return `${when} at ${s.at}`;
-}
-
-const TIME = /^([01]\d|2[0-3]):[0-5]\d$/;
-
-export function scheduleErrors(s: Pick<ScheduleDraft, "title" | "at" | "days" | "scope">): Partial<Record<"title" | "at" | "days" | "scope", string>> {
-  const e: Partial<Record<"title" | "at" | "days" | "scope", string>> = {};
-  if (!s.title.trim()) e.title = "Give the schedule a name.";
-  if (!TIME.test(s.at)) e.at = "Use a 24-hour time, such as 02:00.";
-  if (s.days.length === 0) e.days = "Pick at least one day.";
-  if (s.scope.kind === "goal" && !s.scope.goalId) e.scope = "Pick a goal.";
-  return e;
-}
-
-export const blankSchedule = (): ScheduleDraft => ({
-  title: "Nightly",
-  scope: { kind: "all" },
-  options: planOptionsFor("schedule"),
-  at: "02:00",
-  days: [0, 1, 2, 3, 4, 5, 6],
-  enabled: true,
-});
 
 // ---------- The goal form ----------
 
@@ -895,15 +906,15 @@ export interface GoalForm {
   title: string;
   description: string;
   kind: Goal["kind"];
-  /** The goals and milestones this goal is part of: saving writes their files. */
+  /** The goals and milestones this goal is part of: saving changes them too. */
   parents: string[];
+  /** The checks a new goal starts with (Group into a goal); an edit leaves the goal's checks alone. */
+  checks: CheckRef[];
   owner: string;
   priority: GoalPriority | "";
+  /** YYYY-MM-DD, or empty. */
   due: string;
-  tags: string;
   stableRuns: string;
-  /** Empty: never stale. */
-  staleAfterDays: string;
   signOff: boolean;
   /** The goal's links as typed, one row each; a row with no URL is left out. */
   links: LinkRow[];
@@ -911,11 +922,16 @@ export interface GoalForm {
 
 export type GoalFormErrors = Partial<Record<keyof GoalForm, string>>;
 
-const DATE = /^\d{4}-\d{2}-\d{2}$/;
-const TAG = /^[\p{Letter}\p{Number}][\p{Letter}\p{Number}._-]{0,31}$/u;
 export const GOAL_TITLE_MAX = 120;
 
-/** The form for a goal, or a blank one; `parents` from its GoalState, since the goal's own file does not hold them. */
+function validDate(s: string): boolean {
+  if (!GOAL_DUE.test(s)) return false;
+  const [y, m, d] = s.split("-").map(Number);
+  const t = new Date(Date.UTC(y, m - 1, d));
+  return t.getUTCFullYear() === y && t.getUTCMonth() === m - 1 && t.getUTCDate() === d;
+}
+
+/** The form for a goal, or a blank one; `parents` from its GoalState, since the goal itself does not hold them. */
 export function goalFormOf(g?: Partial<Goal> | null, parents: readonly string[] = []): GoalForm {
   const a = g?.acceptance ?? DEFAULT_ACCEPTANCE;
   return {
@@ -923,32 +939,14 @@ export function goalFormOf(g?: Partial<Goal> | null, parents: readonly string[] 
     description: g?.description ?? "",
     kind: g?.kind ?? "goal",
     parents: [...parents],
+    checks: [],
     owner: g?.owner ?? "",
     priority: g?.priority ?? "",
     due: g?.due ?? "",
-    tags: (g?.tags ?? []).join(", "),
     stableRuns: String(a.stableRuns),
-    staleAfterDays: a.staleAfterDays === null ? "" : String(a.staleAfterDays),
     signOff: a.signOff,
     links: (g?.links ?? []).map(linkRowOf),
   };
-}
-
-/** Tags from what was typed: split on commas and spaces, a leading # dropped, duplicates removed. */
-export function parseTags(text: string): string[] {
-  const out: string[] = [];
-  for (const t of text.split(/[,\s]+/)) {
-    const tag = t.replace(/^#/, "").trim();
-    if (tag && !out.includes(tag)) out.push(tag);
-  }
-  return out;
-}
-
-function validDate(s: string): boolean {
-  if (!DATE.test(s)) return false;
-  const [y, m, d] = s.split("-").map(Number);
-  const t = new Date(Date.UTC(y, m - 1, d));
-  return t.getUTCFullYear() === y && t.getUTCMonth() === m - 1 && t.getUTCDate() === d;
 }
 
 /** What is wrong with the form, field by field; empty when it can be saved. */
@@ -960,12 +958,6 @@ export function goalFormErrors(f: GoalForm, ctx: { selfId?: string; goals?: read
   if (f.due && !validDate(f.due)) e.due = "Use a date, such as 2026-12-31.";
   const runs = Number(f.stableRuns);
   if (!/^\d+$/.test(f.stableRuns.trim()) || runs < 1 || runs > 10) e.stableRuns = "From 1 to 10 runs.";
-  if (f.staleAfterDays.trim()) {
-    const days = Number(f.staleAfterDays);
-    if (!/^\d+$/.test(f.staleAfterDays.trim()) || days < 1 || days > 365) e.staleAfterDays = "From 1 to 365 days, or empty for never.";
-  }
-  const bad = parseTags(f.tags).find((t) => !TAG.test(t));
-  if (bad) e.tags = `"${bad}" is not a tag: letters, numbers, dots, dashes and underscores, up to 32.`;
   if (f.parents.length) {
     const goals = ctx.goals?.map((g) => g.goal);
     const self = f.parents.find((p) => p === ctx.selfId);
@@ -989,23 +981,19 @@ export function goalDraftOf(f: GoalForm): GoalDraft {
     kind: f.kind,
     ...(f.description.trim() ? { description: f.description.trim() } : {}),
     parents: [...f.parents],
+    ...(f.checks.length ? { checks: f.checks.map((c) => ({ kind: c.kind, target: c.target })) } : {}),
     owner: f.owner.trim() || null,
     ...(f.priority ? { priority: f.priority } : {}),
     due: f.due || null,
-    tags: parseTags(f.tags),
-    acceptance: {
-      stableRuns: Number(f.stableRuns),
-      staleAfterDays: f.staleAfterDays.trim() ? Number(f.staleAfterDays) : null,
-      signOff: f.signOff,
-    },
+    acceptance: { stableRuns: Number(f.stableRuns), signOff: f.signOff },
     links: f.links.filter((r) => r.url.trim()).map(linkFromRow).flatMap((r) => ("link" in r ? [r.link] : [])),
   };
 }
 
-/** The update for an existing goal from a valid form: every field the form holds, so clearing one clears it. */
+/** The update for an existing goal from a valid form: every field the form holds, so clearing one clears it. Its checks are left alone. */
 export function goalUpdateOf(f: GoalForm): GoalUpdate {
-  const d = goalDraftOf(f);
-  return { ...d, description: d.description ?? "", priority: d.priority };
+  const { checks: _checks, ...d } = goalDraftOf(f);
+  return { ...d, description: d.description ?? "", priority: d.priority ?? null };
 }
 
 // ---------- Tracker links ----------
@@ -1070,20 +1058,6 @@ export function linkChip(l: TrackerLink): { host: string; label: string; tip: st
   return { host, label, tip: [rel, l.title?.trim(), l.url].filter(Boolean).join("\n") };
 }
 
-/** Every link the goals that list a check give it, each URL once, with the goals that have it. */
-export function checkLinks(checkId: string, goals: readonly GoalState[]): Array<{ link: TrackerLink; goalIds: string[] }> {
-  const out = new Map<string, { link: TrackerLink; goalIds: string[] }>();
-  for (const g of goals) {
-    const ref = g.goal.checks.find((c) => `${c.kind}:${c.target}` === checkId);
-    for (const l of ref?.links ?? []) {
-      const had = out.get(l.url);
-      if (had) had.goalIds.push(g.goal.id);
-      else out.set(l.url, { link: l, goalIds: [g.goal.id] });
-    }
-  }
-  return [...out.values()];
-}
-
 export const HUB_LINK_COPY = {
   links: "Links",
   addLink: "Add link",
@@ -1097,17 +1071,14 @@ export const HUB_LINK_COPY = {
   relPlaceholder: "Relationship (optional)",
   remove: (label: string) => `Remove link ${label}`,
   opens: "Opens in your browser",
-  /** A check's links live in the goals that list it. */
-  checkNeedsGoal: "Add this check to a goal to link it.",
 } as const;
 
 // ---------- Needs attention ----------
 
-/** Where an item that needs attention leads when opened. */
+/** Where an item that needs attention leads when opened in the hub. A blocked fix opens its chat session instead (AttentionItem.sessionId). */
 export function attentionTarget(item: AttentionItem): HubRoute {
   if (item.kind === "sign_off" && item.goalIds[0]) return { screen: "goal", goalId: item.goalIds[0] };
-  if (item.kind === "missing_check" && item.checkId) return { screen: "check", checkId: item.checkId };
-  if (item.kind === "plan_failed") return { screen: "queue" };
+  if (item.kind === "plan_failed") return item.runId ? { screen: "run", runId: item.runId } : { screen: "overview" };
   if (item.runId) return { screen: "run", runId: item.runId };
   if (item.checkId) return { screen: "check", checkId: item.checkId };
   if (item.goalIds[0]) return { screen: "goal", goalId: item.goalIds[0] };
@@ -1117,9 +1088,9 @@ export function attentionTarget(item: AttentionItem): HubRoute {
 // ---------- Keyboard ----------
 
 export type HubKeyAction =
-  | { type: "go"; to: "overview" | "library" | "queue" }
+  | { type: "go"; to: "overview" | "library" }
   | { type: "next" } | { type: "prev" } | { type: "open" }
-  | { type: "run" } | { type: "assign" } | { type: "select" }
+  | { type: "run" } | { type: "fix" } | { type: "select" }
   | { type: "filter" } | { type: "help" } | { type: "palette" } | { type: "newGoal" };
 
 export interface HubKey {
@@ -1135,13 +1106,12 @@ export const HUB_SHORTCUTS: ReadonlyArray<{ keys: string[]; label: string; group
   { keys: ["Ctrl K"], label: "Command palette", group: "Go to" },
   { keys: ["g", "o"], label: "Overview", group: "Go to" },
   { keys: ["g", "l"], label: "Library", group: "Go to" },
-  { keys: ["g", "q"], label: "Queue", group: "Go to" },
   { keys: ["j"], label: "Next row", group: "Move" },
   { keys: ["k"], label: "Previous row", group: "Move" },
   { keys: ["Enter"], label: "Open the row", group: "Move" },
   { keys: ["/"], label: "Filter", group: "Move" },
-  { keys: ["r"], label: "Run the row, or the goal or check on screen", group: "Act" },
-  { keys: ["a"], label: "Assign a failing check to a subagent", group: "Act" },
+  { keys: ["r"], label: "Run the row, or the goal or playtest on screen", group: "Act" },
+  { keys: ["a"], label: "Fix the goal's failing playtests with an agent", group: "Act" },
   { keys: ["x"], label: "Select the row", group: "Act" },
   { keys: ["c"], label: "New goal", group: "Act" },
   { keys: ["?"], label: "This list", group: "Act" },
@@ -1151,12 +1121,12 @@ const SINGLE: Record<string, HubKeyAction> = {
   j: { type: "next" }, ArrowDown: { type: "next" },
   k: { type: "prev" }, ArrowUp: { type: "prev" },
   Enter: { type: "open" }, o: { type: "open" },
-  r: { type: "run" }, a: { type: "assign" }, x: { type: "select" },
+  r: { type: "run" }, a: { type: "fix" }, x: { type: "select" },
   "/": { type: "filter" }, "?": { type: "help" }, c: { type: "newGoal" },
 };
 const AFTER_G: Record<string, HubKeyAction> = {
   o: { type: "go", to: "overview" }, g: { type: "go", to: "overview" },
-  l: { type: "go", to: "library" }, q: { type: "go", to: "queue" },
+  l: { type: "go", to: "library" },
 };
 /** A `g` waits this long for its second key. */
 export const CHORD_MS = 1200;
@@ -1220,10 +1190,9 @@ export function paletteEntries(o: Pick<HubOverview, "goals" | "checks" | "recent
   const out: PaletteEntry[] = [
     { id: "cmd:new-goal", kind: "command", label: HUB_COPY.newGoal, command: "newGoal", hint: "c" },
     { id: "cmd:run-failing", kind: "command", label: HUB_COPY.runFailing, command: "runFailing" },
-    { id: "cmd:run-all", kind: "command", label: "Run every check", command: "runAll" },
+    { id: "cmd:run-all", kind: "command", label: HUB_COPY.runAll, command: "runAll" },
     { id: "screen:overview", kind: "screen", label: "Go to Overview", route: { screen: "overview" }, hint: "g o" },
     { id: "screen:library", kind: "screen", label: "Go to Library", route: { screen: "library" }, hint: "g l" },
-    { id: "screen:queue", kind: "screen", label: "Go to Queue", route: { screen: "queue" }, hint: "g q" },
     { id: "cmd:shortcuts", kind: "command", label: HUB_COPY.shortcuts, command: "shortcuts", hint: "?" },
   ];
   for (const g of sortGoals(o.goals.filter((g) => !g.goal.archived))) {
@@ -1233,8 +1202,8 @@ export function paletteEntries(o: Pick<HubOverview, "goals" | "checks" | "recent
   }
   for (const c of sortChecks(o.checks)) {
     const look = CHECK_HEALTH_LOOK[c.health];
-    out.push({ id: `check:${c.id}`, kind: "check", label: c.name, hint: CHECK_KIND_LABEL[c.check.kind], route: { screen: "check", checkId: c.id }, look });
-    out.push({ id: `run-check:${c.id}`, kind: "command", label: `Run ${c.name}`, hint: "Run check", command: { runCheck: c.id }, look });
+    out.push({ id: `check:${c.id}`, kind: "check", label: c.name, hint: HUB_COPY.playtest, route: { screen: "check", checkId: c.id }, look });
+    out.push({ id: `run-check:${c.id}`, kind: "command", label: `Run ${c.name}`, hint: "Run playtest", command: { runCheck: c.id }, look });
   }
   for (const r of o.recent.slice(0, 15)) {
     out.push({ id: `run:${r.runId}`, kind: "run", label: `${r.name} run`, hint: `${RUN_OUTCOME_LOOK[r.outcome].label}, ${shortAgo(r.startedAt)}`, route: { screen: "run", runId: r.runId }, look: RUN_OUTCOME_LOOK[r.outcome] });

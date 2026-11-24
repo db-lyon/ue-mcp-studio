@@ -3,7 +3,7 @@
  * into its status, and reading ue-mcp's answers.
  */
 import type { ActionResult } from "ue-mcp/daemon";
-import { TRACKER_LINKS_MAX, parseCheckId, trackerLinkOf, uniqueLinks, type CheckKind, type CheckRef, type TrackerLink } from "@ue-mcp-studio/shared";
+import { TRACKER_LINKS_MAX, parseCheckId, trackerLinkOf, uniqueLinks, type CheckRef, type TrackerLink } from "@ue-mcp-studio/shared";
 
 /** A refusal with the HTTP status its route answers: 400 a bad body, 404 nothing by that id, 409 not now. */
 export class HubError extends Error {
@@ -42,29 +42,16 @@ export function failureOf(r: ActionResult): string | null {
   return null;
 }
 
-const KINDS: readonly CheckKind[] = ["script", "uat", "repro", "automation", "manual"];
-
-/** A check reference from a body or a goal file, normalized; null when it is not one. */
+/** A check reference from a body or a record, normalized: a script by its asset path without the object name, however it was written. Null when it is not one. */
 export function checkRefOf(v: unknown): CheckRef | null {
   if (!v || typeof v !== "object" || Array.isArray(v)) return null;
   const o = v as Record<string, unknown>;
-  if (!KINDS.includes(o.kind as CheckKind) || typeof o.target !== "string" || !o.target.trim()) return null;
-  const kind = o.kind as CheckKind;
+  if (o.kind !== "script" || typeof o.target !== "string") return null;
   let target = o.target.trim();
-  // A script is its asset path without the object name, however it was written.
-  if (kind === "script") {
-    if (!target.startsWith("/")) return null;
-    const dot = target.lastIndexOf(".");
-    if (dot > target.lastIndexOf("/")) target = target.slice(0, dot);
-  }
-  const { links } = readLinks(o.links);
-  return {
-    kind,
-    target,
-    ...(typeof o.title === "string" && o.title.trim() ? { title: o.title.trim() } : {}),
-    ...(o.required === false ? { required: false } : {}),
-    ...(links.length ? { links } : {}),
-  };
+  if (!target.startsWith("/")) return null;
+  const dot = target.lastIndexOf(".");
+  if (dot > target.lastIndexOf("/")) target = target.slice(0, dot);
+  return { kind: "script", target, ...(o.required === false ? { required: false } : {}) };
 }
 
 /** Links from a request body: every one valid, or a 400 naming the first that is not. */

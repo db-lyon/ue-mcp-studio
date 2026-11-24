@@ -1,7 +1,8 @@
 /**
- * One check: what it does step by step, every run it has had (newest first,
- * a page at a time), how often its result flips, and the goals that rely on
- * it. A test script's steps are edited in the playtest card's own editor.
+ * One playtest: what it does step by step, every run it has had (newest
+ * first, a page at a time), how often its result flips, the goals that rely
+ * on it, and its own links, wherever it is listed. Its steps are edited in
+ * the playtest card's own editor.
  */
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { CheckDetail, QaRun, RunRecord, TrackerLink } from "@ue-mcp-studio/shared";
@@ -9,11 +10,8 @@ import { HubLinks } from "./links";
 import {
   CHECK_CHANGE_LOOK,
   CHECK_HEALTH_LOOK,
-  CHECK_KIND_LABEL,
   GOAL_STATUS_LOOK,
   HUB_COPY,
-  HUB_LINK_COPY,
-  checkLinks,
   withLink,
   withoutLink,
   RUN_OUTCOME_LOOK,
@@ -82,7 +80,7 @@ export function CheckScreen({ checkId }: { checkId: string }) {
   if (!state) {
     return (
       <div className="hub-screen">
-        {error ? <Empty title="This check is not known" actions={<button onClick={() => go({ screen: "library" })}>Go to Library</button>}>{error}</Empty> : <Placeholder />}
+        {error ? <Empty title="This playtest is not known" actions={<button onClick={() => go({ screen: "library" })}>Go to Library</button>}>{error}</Empty> : <Placeholder />}
       </div>
     );
   }
@@ -93,16 +91,20 @@ export function CheckScreen({ checkId }: { checkId: string }) {
   const median = durations.length ? durations[Math.floor(durations.length / 2)] : null;
   const flipCount = flips(state.recent);
   const script: QaRun | null = detail?.script ?? null;
-  // A check's links live in the goals that list it: shown together, added to each, removed from each that has it.
-  const links = checkLinks(checkId, goals);
-  const saveCheckLinks = async (goalIds: string[], change: (had: TrackerLink[] | undefined) => TrackerLink[]) => {
+  // A playtest's links are its own record, the same on every goal that lists it.
+  const saveLinks = async (links: TrackerLink[]) => {
     try {
-      for (const id of goalIds) {
-        const ref = o.goals.find((g) => g.goal.id === id)?.goal.checks.find((c) => `${c.kind}:${c.target}` === checkId);
-        if (ref) await api.hub.updateCheck(id, checkId, { links: change(ref.links) });
-      }
+      await api.hub.updateCheck(checkId, { links });
     } finally {
       data.reload();
+    }
+  };
+  const fix = async () => {
+    try {
+      hub.notify(HUB_COPY.fixesQueued((await api.hub.fix({ checkId })).queued));
+      data.reload();
+    } catch (e) {
+      hub.notify((e as Error).message, "bad");
     }
   };
 
@@ -110,7 +112,7 @@ export function CheckScreen({ checkId }: { checkId: string }) {
     <div className="hub-screen hub-check">
       <ScreenHead
         back={{ label: HUB_COPY.library, route: { screen: "library" } }}
-        eyebrow={CHECK_KIND_LABEL[state.check.kind]}
+        eyebrow={HUB_COPY.playtest}
         title={state.name}
         sub={<>
           <StatusPill look={look} />
@@ -120,11 +122,13 @@ export function CheckScreen({ checkId }: { checkId: string }) {
         </>}
         actions={<>
           <button className="primary" onClick={() => void hub.runCheck(checkId, state.name)} disabled={state.missing} title="Run (r)"><HubIcon name="play" size={12} /> Run</button>
+          {state.health === "failing" && <button onClick={() => void fix()} title="An agent fixes it in a chat session of its own"><HubIcon name="assign" size={12} /> {HUB_COPY.fix}</button>}
           <button onClick={() => hub.addToGoal([checkId])}><HubIcon name="goal" size={12} /> {HUB_COPY.addToGoal}</button>
-          {script && state.check.kind === "script" && <button className="ghost" aria-expanded={editing} onClick={() => setEditing((e) => !e)}><HubIcon name="edit" size={12} /> {editing ? "Done editing" : "Edit steps"}</button>}
+          {script && <button className="ghost" aria-expanded={editing} onClick={() => setEditing((e) => !e)}><HubIcon name="edit" size={12} /> {editing ? "Done editing" : "Edit steps"}</button>}
         </>}
       />
-      {state.missing && <div className="banner bad small">The script no longer resolves in the project. Goals keep it listed until it is removed or relinked.</div>}
+      {state.missing && <div className="banner small">{HUB_COPY.notOnCheckout}</div>}
+      {state.renamedFrom && <p className="dim small mono">{HUB_COPY.movedFrom(state.renamedFrom)}</p>}
       <div className="hub-stats">
         <div className="hub-stat"><span className="hub-stat-value">{passRateText(state.passRate)}</span><span className="hub-stat-label">Pass rate</span></div>
         <div className="hub-stat"><span className="hub-stat-value">{flipCount}</span><span className="hub-stat-label">{flipCount === 1 ? "Flip" : "Flips"} in {state.recent.length} runs</span></div>
@@ -141,10 +145,9 @@ export function CheckScreen({ checkId }: { checkId: string }) {
         ))}
       </div>
       <HubLinks
-        links={links.map((l) => l.link)}
-        onAdd={goals.length ? (l) => saveCheckLinks(goals.map((g) => g.goal.id), (had) => withLink(had, l)) : undefined}
-        onRemove={goals.length ? (url) => void saveCheckLinks(links.find((x) => x.link.url === url)?.goalIds ?? [], (had) => withoutLink(had, url)).catch((e: Error) => hub.notify(e.message, "bad")) : undefined}
-        note={HUB_LINK_COPY.checkNeedsGoal}
+        links={state.links}
+        onAdd={(l) => saveLinks(withLink(state.links, l))}
+        onRemove={(url) => void saveLinks(withoutLink(state.links, url)).catch((e: Error) => hub.notify(e.message, "bad"))}
       />
 
       {editing && script ? (

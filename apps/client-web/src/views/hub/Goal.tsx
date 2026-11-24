@@ -1,13 +1,14 @@
 /**
  * One goal: its status and why, the goals and milestones it is part of, who
  * owns it and when it is due, its acceptance rule and sign-off, the goals it
- * requires and the checks that prove it, each list in the goal's own order
- * with up and down to change it. Run goal queues every check the goal stands
- * for, its required goals' included; Write playtests asks an agent for more.
+ * requires and the playtests that prove it, each list in the goal's own
+ * order with up and down to change it. Run goal queues every playtest the
+ * goal stands for, its required goals' included; Write playtests and Fix
+ * with an agent each work in a named chat session.
  */
 import { useMemo, useRef, useState } from "react";
 import {
-  CHECK_KIND_LABEL,
+  CHECK_HEALTH_LOOK,
   GOAL_STATUS_LOOK,
   HUB_COPY,
   PRIORITY_LABEL,
@@ -59,11 +60,12 @@ export function GoalScreen({ goalId }: { goalId: string }) {
 
   const failing = checks.filter((c) => c.health === "failing").length;
   const runGoal = () => g && void hub.runPlan({ scope: { kind: "goal", goalId: g.goal.id } }, g.goal.title);
-  const assignFailing = async () => {
-    if (!g) return;
+  /** Fix with an agent: the goal's failing playtests, or one; each in a chat session of its own. */
+  const fix = async (req: { goalId: string } | { checkId: string }) => {
     try {
-      const r = await api.hub.assignFailing(g.goal.id);
+      const r = await api.hub.fix(req);
       hub.notify(HUB_COPY.fixesQueued(r.queued));
+      hub.data.reload();
     } catch (e) {
       hub.notify((e as Error).message, "bad");
     }
@@ -74,7 +76,7 @@ export function GoalScreen({ goalId }: { goalId: string }) {
     else if (a.type === "prev") move(-1);
     else if (a.type === "open" && checks[at]) go({ screen: "check", checkId: checks[at].id });
     else if (a.type === "run") runGoal();
-    else if (a.type === "assign" && failing > 0) void assignFailing();
+    else if (a.type === "fix" && g && failing > 0) void fix({ goalId: g.goal.id });
     else return false;
     return true;
   });
@@ -82,8 +84,8 @@ export function GoalScreen({ goalId }: { goalId: string }) {
   if (!g) {
     return (
       <div className="hub-screen">
-        <Empty title="This goal is not in the project" actions={<button onClick={() => go({ screen: "overview" })}>Go to Overview</button>}>
-          Its file may have been deleted or renamed in {o.goalsDir}.
+        <Empty title="This goal is gone" actions={<button onClick={() => go({ screen: "overview" })}>Go to Overview</button>}>
+          It was deleted, or the link is from another computer's goals.
         </Empty>
       </div>
     );
@@ -135,14 +137,6 @@ export function GoalScreen({ goalId }: { goalId: string }) {
     hub.data.patch((ov) => ({ ...ov, goals: ov.goals.map((x) => (x.goal.id === goal.id ? { ...x, requires: x.requires.filter((r) => r.goal !== id) } : x)) }));
     void act(() => api.hub.removeRequire(goal.id, id));
   };
-  const assignOne = async (runId: string) => {
-    try {
-      await api.hub.assign(runId);
-      hub.notify("Assigned to a subagent");
-    } catch (e) {
-      hub.notify((e as Error).message, "bad");
-    }
-  };
   const writePlaytests = async () => {
     setWriting(true);
     try {
@@ -190,8 +184,8 @@ export function GoalScreen({ goalId }: { goalId: string }) {
         title={goal.title}
         sub={<><StatusPill look={look} /><span className="dim">{progressText(g.progress)}</span><EvidenceScope /></>}
         actions={<>
-          <button className="primary" onClick={runGoal} disabled={runnable === 0} title="Run every check in order, the required goals' first (r)"><HubIcon name="play" size={12} /> {HUB_COPY.runGoal}</button>
-          {failing > 0 && <button onClick={() => void assignFailing()} title="Each failing check goes to a fix loop in its own chat session, one at a time (a)"><HubIcon name="assign" size={12} /> {HUB_COPY.assignFailing}</button>}
+          <button className="primary" onClick={runGoal} disabled={runnable === 0} title="Run every playtest in order, the required goals' first (r)"><HubIcon name="play" size={12} /> {HUB_COPY.runGoal}</button>
+          {failing > 0 && <button onClick={() => void fix({ goalId: goal.id })} title="An agent fixes each failing playtest in its own chat session, one at a time (a)"><HubIcon name="assign" size={12} /> {HUB_COPY.fixFailing}</button>}
           <button className="ghost" onClick={() => hub.editGoal(goal.id)} title={HUB_COPY.editGoal}><HubIcon name="edit" size={12} /> Edit</button>
         </>}
       />
@@ -208,10 +202,9 @@ export function GoalScreen({ goalId }: { goalId: string }) {
       ) : g.unused && <div className="hub-part-of small dim">{HUB_COPY.notInMilestone}</div>}
       <Progress met={g.progress.met} total={g.progress.total} label={progressText(g.progress)} />
       <dl className="hub-facts">
-        <div><dt>Owner</dt><dd>{goal.owner || <span className="dim">Nobody</span>}</dd></div>
-        <div><dt>Priority</dt><dd>{goal.priority ? <span className={`hub-prio ${goal.priority}`}>{PRIORITY_LABEL[goal.priority]}</span> : <span className="dim">None</span>}</dd></div>
-        <div><dt>Due</dt><dd>{due ? <span className={due.overdue ? "hub-overdue" : ""} title={goal.due ?? ""}>{due.text}</span> : <span className="dim">No date</span>}</dd></div>
-        {(goal.tags ?? []).length > 0 && <div><dt>Tags</dt><dd>{goal.tags!.map((t) => <span key={t} className="hub-tag">#{t}</span>)}</dd></div>}
+        <div><dt>{HUB_COPY.owner}</dt><dd>{goal.owner || <span className="dim">Nobody</span>}</dd></div>
+        <div><dt>{HUB_COPY.priority}</dt><dd>{goal.priority ? <span className={`hub-prio ${goal.priority}`}>{PRIORITY_LABEL[goal.priority]}</span> : <span className="dim">None</span>}</dd></div>
+        <div><dt>{HUB_COPY.due}</dt><dd>{due ? <span className={due.overdue ? "hub-overdue" : ""} title={goal.due ?? ""}>{due.text}</span> : <span className="dim">No date</span>}</dd></div>
       </dl>
       <HubLinks links={goal.links} onAdd={(l) => saveLinks(withLink(goal.links, l))} onRemove={(url) => void saveLinks(withoutLink(goal.links, url)).catch((e: Error) => hub.notify(e.message, "bad"))} />
       {goal.description && <p className="hub-description">{goal.description}</p>}
@@ -262,27 +255,40 @@ export function GoalScreen({ goalId }: { goalId: string }) {
 
       <section className="hub-section">
         <div className="hub-section-head">
-          <h2>Checks <span className="dim">{checks.length}</span></h2>
+          <h2>{HUB_COPY.playtests} <span className="dim">{checks.length}</span></h2>
           <span className="spacer" />
-          <button className="ghost" onClick={() => hub.addChecks(goal.id)}><HubIcon name="plus" size={12} /> {HUB_COPY.addChecks}</button>
-          <button className="ghost" disabled={writing} onClick={() => void writePlaytests()} title="An agent writes test scripts for this goal in a new session, and links them here"><HubIcon name="sparkle" size={12} /> {HUB_COPY.writePlaytests}</button>
+          <button className="ghost" onClick={() => hub.addChecks(goal.id)}><HubIcon name="plus" size={12} /> {HUB_COPY.addPlaytests}</button>
+          <button className="ghost" disabled={writing} onClick={() => void writePlaytests()} title="An agent writes playtests for this goal in a new chat session, and adds them here"><HubIcon name="sparkle" size={12} /> {HUB_COPY.writePlaytests}</button>
         </div>
         {checks.length === 0 ? (
-          <Empty title="No checks yet" actions={<>
-            <button onClick={() => hub.addChecks(goal.id)}>{HUB_COPY.addChecks}</button>
+          <Empty title="No playtests yet" actions={<>
+            <button onClick={() => hub.addChecks(goal.id)}>{HUB_COPY.addPlaytests}</button>
             <button onClick={() => void writePlaytests()} disabled={writing}>{HUB_COPY.writePlaytests}</button>
-          </>}>A goal is met when its required checks pass. Link test scripts the project has, or ask an agent to write them.</Empty>
+          </>}>{HUB_COPY.noPlaytestsInGoal}</Empty>
         ) : (
           <div className="hub-list" ref={list}>
             {checks.map((c, i) => (
               <CheckRow key={c.id} c={c} on={i === at} onPoint={() => setAt(i)} showGoals={false} actions={<>
-                <span className="hub-kind small dim">{CHECK_KIND_LABEL[c.check.kind]}</span>
-                <button className="ghost icon-button" aria-label={`Run ${c.name}`} title="Run" onClick={() => void hub.runCheck(c.id, c.name)}><HubIcon name="play" size={12} /></button>
-                {c.health === "failing" && c.last && <button className="ghost icon-button" aria-label={`Assign ${c.name} to a subagent`} title="Assign to a subagent" onClick={() => void assignOne(c.last!.runId)}><HubIcon name="assign" size={12} /></button>}
+                <button className="ghost icon-button" aria-label={`Run ${c.name}`} title={c.missing ? CHECK_HEALTH_LOOK.missing.label : "Run"} disabled={c.missing} onClick={() => void hub.runCheck(c.id, c.name)}><HubIcon name="play" size={12} /></button>
+                {c.health === "failing" && <button className="ghost icon-button" aria-label={`${HUB_COPY.fix}: ${c.name}`} title={HUB_COPY.fix} onClick={() => void fix({ checkId: c.id })}><HubIcon name="assign" size={12} /></button>}
                 <OrderButtons name={c.name} at={i} count={checks.length} onMove={(by) => moveCheck(c.id, by)} />
                 <button className="ghost icon-button" aria-label={`Remove ${c.name} from this goal`} title="Remove from this goal" onClick={() => void removeCheck(c.id)}><HubIcon name="close" size={12} /></button>
               </>} />
             ))}
+          </div>
+        )}
+        {(goal.unsupported ?? []).length > 0 && (
+          <div className="hub-unsupported">
+            <p className="dim small">{HUB_COPY.unsupportedLead}</p>
+            <ul className="hub-list">
+              {goal.unsupported!.map((u) => (
+                <li key={`${u.kind}:${u.target}`} className="hub-row hub-mini-row">
+                  <span className="pill">{HUB_COPY.unsupported}</span>
+                  <span className="hub-row-title">{u.target}</span>
+                  <span className="dim small mono">{u.kind}</span>
+                </li>
+              ))}
+            </ul>
           </div>
         )}
       </section>
@@ -290,7 +296,7 @@ export function GoalScreen({ goalId }: { goalId: string }) {
       <section className="hub-danger">
         {confirmDelete ? (
           <span className="hub-confirm">
-            <span className="small">Delete {o.goalsDir}/{goal.id}.json? The checks and their runs stay, and goals that required it stop requiring it.</span>
+            <span className="small">Delete {goal.title}? Its playtests and their runs stay, and goals that required it stop requiring it.</span>
             <button className="danger-button" onClick={() => void remove()}>Delete goal</button>
             <button className="ghost" onClick={() => setConfirmDelete(false)}>Cancel</button>
           </span>

@@ -154,7 +154,12 @@ const refusedRun = (): ActionResult => ({ isError: true, content: [{ type: "text
 interface Inflight {
   sessionId: string;
   action: string;
+  /** The editor the call was routed to (ue-mcp's `editor` parameter); absent: the project's own. */
+  editor?: string;
 }
+
+/** ue-mcp's routing parameter that sends a call to the editor a run plays on (QaRun.editor); nothing for the project's own editor. */
+const onEditor = (editor: string | undefined): { editor?: string } => (editor ? { editor } : {});
 
 function text(r: ActionResult): string {
   return r.content.map((c) => c.text ?? "").join("\n");
@@ -283,14 +288,14 @@ export class QaBroker {
       if (category !== "pie" || !STARTS.has(action)) return host.callAction(category, action, args, turn);
       // Manual: the agent's own run is refused; the card's Start playtest and an assigned subagent are the user's.
       if (!opts.assigned && this.o.playtests?.runs() === "manual") return refusedRun();
-      const call: Inflight = { sessionId, action };
+      const call: Inflight = { sessionId, action, ...onEditor(typeof args.editor === "string" ? args.editor : undefined) };
       this.inflight.push(call);
       try {
         const r = await host.callAction(category, action, keepRunFields(args), turn);
         const body = json(r);
         // An answer that still has no script names the one the call ran.
         const script = typeof args.script === "string" && args.script ? args.script : null;
-        if (!failure(r, body) && body) this.started(sessionId, action, body.script === undefined && script ? { ...body, script } : body);
+        if (!failure(r, body) && body) this.started(sessionId, action, body.script === undefined && script ? { ...body, script } : body, onEditor(call.editor));
         return r;
       } finally {
         this.inflight.splice(this.inflight.indexOf(call), 1);
@@ -308,15 +313,16 @@ export class QaBroker {
     };
   }
 
-  /** A session's call started a run: its answer is the card's first state, with the PIE setup Studio applied first. */
-  private started(sessionId: string, action: string, answer: Record<string, unknown>, pieSetup?: QaRun["pieSetup"]): void {
+  /** A session's call started a run: its answer is the card's first state, with the PIE setup Studio applied first and the editor the call went to. */
+  private started(sessionId: string, action: string, answer: Record<string, unknown>, extra: Pick<QaRun, "pieSetup" | "editor"> = {}): void {
     const runId = typeof answer.run_id === "string" ? answer.run_id : null;
     if (!runId) return;
     const had = this.runs.get(runId);
     const fresh = qaRunFromAnswer(answer, { ...this.ownerOf(sessionId, action), seenAt: this.now() });
     if (!fresh) return;
     let run: QaRun = had ? { ...qaMergeAnswer(had, answer), ...this.ownerOf(sessionId, action, had) } : fresh;
-    if (pieSetup) run = { ...run, pieSetup };
+    if (extra.pieSetup) run = { ...run, pieSetup: extra.pieSetup };
+    if (extra.editor) run = { ...run, editor: extra.editor };
     // A run a subagent the user assigned starts shows that subagent too: its Cancel and its thread.
     if (!run.assignment) {
       const parent = this.callParent(sessionId, run.toolUseId);
@@ -359,7 +365,7 @@ export class QaBroker {
   async status(runId: string, sinceSeq?: number): Promise<{ answer: Record<string, unknown>; run: QaRun | null } | { error: string }> {
     const had = this.runs.get(runId);
     const owned = !!had?.sessionId;
-    const args: Record<string, unknown> = { run_id: runId };
+    const args: Record<string, unknown> = { run_id: runId, ...onEditor(had?.editor) };
     if (owned && typeof sinceSeq === "number") args.since_seq = sinceSeq;
     const r = await this.o.host.callAction("pie", owned ? "script_status" : "script_results", args, this.callOptions(had?.sessionId));
     const body = json(r);
@@ -410,7 +416,7 @@ export class QaBroker {
       had = started.run;
       runId = had.runId;
     }
-    const r = await this.o.host.callAction("pie", "verdict", { run_id: runId, step: b.step, verdict: b.verdict, ...(note ? { note } : {}) });
+    const r = await this.o.host.callAction("pie", "verdict", { run_id: runId, step: b.step, verdict: b.verdict, ...(note ? { note } : {}), ...onEditor(had?.editor) });
     const answer = json(r);
     const error = failure(r, answer);
     if (error) return { error, status: 409 };
@@ -533,8 +539,10 @@ export class QaBroker {
    * Start playtest on a draft's card: PIE set to the players asked for, then
    * pie(script_run) of its script. The run takes the draft's card, so the same
    * card goes live. Auto steps watch the player the first of them is for.
+   * `on.editor` plays it on another editor of the project (the hub's runner
+   * editor); never taken from a client's body.
    */
-  async runScript(runId: string, body: unknown): Promise<{ run: QaRun } | { error: string; status: number }> {
+  async runScript(runId: string, body: unknown, on: { editor?: string } = {}): Promise<{ run: QaRun } | { error: string; status: number }> {
     const run = this.runs.get(runId);
     if (!run || run.script === "inline" || run.deleted) return { error: "only a saved script can be run from its card", status: 409 };
     if (!qaIsDraft(run) && !qaEnded(run.state) && !run.manual) return { error: "the playtest is running", status: 409 };
@@ -542,28 +550,28 @@ export class QaBroker {
     if (!sessionId) return { error: "the playtest has no session", status: 409 };
     // Start playtest on a manual run's card: that run ends, with the verdicts it has, and a full run with PIE takes the card.
     if (run.manual && !qaEnded(run.state)) {
-      const stop = await this.o.host.callAction("pie", "script_stop", { run_id: run.runId, reason: "Start playtest started a full run" });
+      const stop = await this.o.host.callAction("pie", "script_stop", { run_id: run.runId, reason: "Start playtest started a full run", ...onEditor(run.editor) });
       const error = failure(stop, json(stop));
       if (error) return { error: `the manual run could not be ended: ${error}`, status: 409 };
     }
     const o = (body ?? {}) as QaRunOptions;
     const players = Number.isInteger(o.players) && (o.players as number) > 0 ? (o.players as number) : 1;
     if (players > 1 || o.listen) {
-      const c = await this.o.host.callAction("editor", "configure_pie", { numClients: players, netMode: o.listen ? "listen" : "standalone" });
+      const c = await this.o.host.callAction("editor", "configure_pie", { numClients: players, netMode: o.listen ? "listen" : "standalone", ...onEditor(on.editor) });
       const error = failure(c, json(c));
       if (error) return { error: `PIE could not be set to ${players} players: ${error}`, status: 409 };
     }
     const watched = run.steps.find((s) => s.judge === "auto" && s.player)?.player;
     const instance = players > 1 ? qaPieInstance(watched) : undefined;
-    const args: Record<string, unknown> = { script: run.script, start_pie: o.startPie !== false, record: o.record !== false, ...(instance !== undefined ? { pie_instance: instance } : {}) };
-    const call: Inflight = { sessionId, action: "script_run" };
+    const args: Record<string, unknown> = { script: run.script, start_pie: o.startPie !== false, record: o.record !== false, ...(instance !== undefined ? { pie_instance: instance } : {}), ...onEditor(on.editor) };
+    const call: Inflight = { sessionId, action: "script_run", ...onEditor(on.editor) };
     this.inflight.push(call);
     try {
       const r = await this.o.host.callAction("pie", "script_run", args, this.callOptions(sessionId));
       const answer = json(r);
       const error = failure(r, answer);
       if (error || !answer) return { error: error ?? "ue-mcp's answer was not JSON", status: 409 };
-      this.started(sessionId, "script_run", answer, players > 1 || o.listen ? { players, netMode: o.listen ? "listen" : "standalone" } : undefined);
+      this.started(sessionId, "script_run", answer, { ...(players > 1 || o.listen ? { pieSetup: { players, netMode: o.listen ? "listen" : "standalone" } } : {}), ...onEditor(on.editor) });
       const id = typeof answer.run_id === "string" ? answer.run_id : "";
       return { run: this.runs.get(id) ?? run };
     } finally {
@@ -719,11 +727,11 @@ export class QaBroker {
     if (!run || qaIsDraft(run) || qaEnded(run.state)) return { error: "only a run that is going can be stopped", status: 409 };
     if (run.assignment?.state === "running") return { error: "a subagent is running this playtest: cancel it instead", status: 409 };
     const endsPie = this.hold.stopping(runId);
-    const r = await this.o.host.callAction("pie", "script_stop", { run_id: runId, reason });
+    const r = await this.o.host.callAction("pie", "script_stop", { run_id: runId, reason, ...onEditor(run.editor) });
     const error = failure(r, json(r));
     if (error) return { error, status: 409 };
     if (endsPie) {
-      const pie = await this.o.host.callAction("editor", "play_in_editor", { pieAction: "stop" }).catch((e: Error) => ({ isError: true, content: [{ type: "text", text: e.message }] }) as ActionResult);
+      const pie = await this.o.host.callAction("editor", "play_in_editor", { pieAction: "stop", ...onEditor(run.editor) }).catch((e: Error) => ({ isError: true, content: [{ type: "text", text: e.message }] }) as ActionResult);
       const pieError = failure(pie, json(pie));
       if (pieError && !/alreadyStopped|already/i.test(pieError)) this.o.host.log.warn(`playtest: PIE did not stop with ${run.scriptName}: ${pieError}`);
     }
@@ -793,7 +801,7 @@ export class QaBroker {
         // Being rewritten by a verdict on the ended run: ask ue-mcp instead.
       }
     }
-    const r = await this.o.host.callAction("pie", "script_results", { run_id: runId });
+    const r = await this.o.host.callAction("pie", "script_results", { run_id: runId, ...onEditor(this.runs.get(runId)?.editor) });
     const body = json(r);
     const error = failure(r, body);
     return error || !body ? { error: error ?? "ue-mcp's answer was not JSON" } : body;
@@ -835,7 +843,7 @@ export class QaBroker {
     try {
       // A Studio call's run is read with its status, carrying the session's form; another's with its results, which leave its follower alone.
       const r = await (call
-        ? this.o.host.callAction("pie", "script_status", { run_id: runId }, this.callOptions(call.sessionId))
+        ? this.o.host.callAction("pie", "script_status", { run_id: runId, ...onEditor(call.editor) }, this.callOptions(call.sessionId))
         : this.o.host.callAction("pie", "script_results", { run_id: runId })).catch(() => null);
       const body = r ? json(r) : null;
       const owner = call ? this.ownerOf(call.sessionId, call.action) : { sessionId: null, toolUseId: null };
@@ -844,6 +852,7 @@ export class QaBroker {
       // The call's own answer may have landed while this read.
       const landed = this.runs.get(runId);
       if (landed) run = landed;
+      else if (call?.editor) run = { ...run, editor: call.editor };
       for (const e of queued) run = qaApplyStreamEvent(run, e.type, e.data);
       this.save(run);
     } finally {

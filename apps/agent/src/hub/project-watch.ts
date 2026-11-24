@@ -80,4 +80,14 @@ export class ProjectWatch {
   following(runId: string): boolean {
     return this.started.has(runId);
   }
+
+  /** The changes seen so far, to compare with later (changedSince). */
+  mark(): number {
+    return this.seq;
+  }
+
+  /** Whether project files changed after `mark` was taken. */
+  changedSince(mark: number): boolean {
+    return this.seq > mark;
+  }
 }

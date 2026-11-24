@@ -2,6 +2,7 @@
 import { describe, expect, it } from "vitest";
 import {
   DEFAULT_ACCEPTANCE,
+  DEFAULT_HEALTH_RULE,
   RESULT_OUTCOMES,
   checkHealth,
   checkId,
@@ -25,8 +26,8 @@ import {
   trackerLinkOf,
   trackerUrlProblem,
   uniqueLinks,
-  type AcceptanceRule,
   type CheckRef,
+  type HealthRule,
   type CurrentProvenance,
   type Goal,
   type QaStep,
@@ -83,22 +84,22 @@ const tested = (rs: RunRecord[], ...over: Array<Partial<RunRecord> | null>): Run
 const goal = (over: Partial<Goal> = {}): Goal => ({
   schema: 1, id: "g", kind: "goal", title: "G", acceptance: { ...DEFAULT_ACCEPTANCE }, checks: [script], ...over,
 });
-const state = (rs: RunRecord[], ref: CheckRef = script, acceptance: AcceptanceRule = DEFAULT_ACCEPTANCE, missing = false) =>
-  ({ state: checkStateOf({ check: ref, runs: rs, acceptance, now: NOW, goalIds: ["g"], missing }), runs: rs });
+const state = (rs: RunRecord[], ref: CheckRef = script, rule: HealthRule = DEFAULT_HEALTH_RULE, missing = false) =>
+  ({ state: checkStateOf({ check: ref, runs: rs, rule, now: NOW, goalIds: ["g"], missing }), runs: rs });
+const staleAfter14: HealthRule = { ...DEFAULT_HEALTH_RULE, staleAfterDays: 14 };
 
 describe("checkHealth", () => {
   it("missing first, whatever the runs say", () => {
     expect(checkHealth({ check: script, runs: runs("passed"), missing: true, now: NOW })).toBe("missing");
   });
 
-  it("a live run that waits for a verdict, or runs, says so", () => {
-    expect(checkHealth({ check: script, runs: runs("needs_you", "passed"), now: NOW })).toBe("needs_you");
+  it("a live run is running, also while it waits for a verdict: the verdict is asked for live, never as a status", () => {
+    expect(checkHealth({ check: script, runs: runs("needs_you", "passed"), now: NOW })).toBe("running");
     expect(checkHealth({ check: script, runs: runs("running", "failed"), now: NOW })).toBe("running");
   });
 
   it("never run with no finished run", () => {
     expect(checkHealth({ check: script, runs: [], now: NOW })).toBe("never_run");
-    expect(checkHealth({ check: { kind: "manual", target: "Looks right" }, runs: [], now: NOW })).toBe("never_run");
   });
 
   it("failing when the newest result did not pass, incomplete included", () => {
@@ -114,17 +115,17 @@ describe("checkHealth", () => {
     expect(checkHealth({ check: script, runs: runs("stopped"), now: NOW })).toBe("never_run");
   });
 
-  it("flaky when a failure sits in the window behind a pass", () => {
+  it("flaky when a failure sits in the project's window behind a pass, whichever goal looks", () => {
     expect(checkHealth({ check: script, runs: runs("passed", "failed", "passed"), now: NOW })).toBe("flaky");
-    // The window is max(3, stableRuns + 2): a failure four runs back is outside it by default.
+    // The window is the project's rule, 3 by default: a failure four runs back is outside it.
     expect(checkHealth({ check: script, runs: runs("passed", "passed", "passed", "failed"), now: NOW })).toBe("passing");
-    expect(checkHealth({ check: script, runs: runs("passed", "passed", "passed", "failed"), acceptance: { ...DEFAULT_ACCEPTANCE, stableRuns: 2 }, now: NOW })).toBe("flaky");
+    expect(checkHealth({ check: script, runs: runs("passed", "passed", "passed", "failed"), rule: { ...DEFAULT_HEALTH_RULE, flakyWindow: 4 }, now: NOW })).toBe("flaky");
   });
 
-  it("stale when the newest pass is older than staleAfterDays, never with null", () => {
+  it("stale when the newest pass is older than the rule's days, and never by age by default", () => {
     const old: RunRecord = { ...runs("passed")[0], startedAt: new Date(NOW - 20 * DAY).toISOString(), endedAt: new Date(NOW - 20 * DAY).toISOString() };
-    expect(checkHealth({ check: script, runs: [old], now: NOW })).toBe("stale");
-    expect(checkHealth({ check: script, runs: [old], acceptance: { ...DEFAULT_ACCEPTANCE, staleAfterDays: null }, now: NOW })).toBe("passing");
+    expect(checkHealth({ check: script, runs: [old], now: NOW })).toBe("passing");
+    expect(checkHealth({ check: script, runs: [old], rule: staleAfter14, now: NOW })).toBe("stale");
   });
 });
 
@@ -204,7 +205,7 @@ describe("provenance", () => {
     expect(checkSatisfied(tested(runs("passed"), { provenance: prov({ revision: null }) }), DEFAULT_ACCEPTANCE, HEAD)).toBe(false);
     // Unknown never matches, so mixed old results are a change, not flakiness.
     expect(checkHealth({ check: script, runs: tested(runs("passed", "failed"), null, null), now: NOW })).toBe("passing");
-    expect(goalStatus(goal(), [{ state: checkStateOf({ check: script, runs: old, now: NOW, goalIds: ["g"], current: HEAD }), runs: old }], [], [], HEAD).status).toBe("at_risk");
+    expect(goalStatus(goal(), [{ state: checkStateOf({ check: script, runs: old, now: NOW, goalIds: ["g"], current: HEAD }), runs: old }], [], [], HEAD).status).toBe("in_progress");
   });
 
   it("is stale when a dependency changed since the pass, where both have fingerprints, else by age", () => {
@@ -213,8 +214,8 @@ describe("provenance", () => {
     expect(checkHealth({ check: script, runs: pass, now: NOW, current: { ...HEAD, dependencies: { "/Game/BP_Door": "c" } } })).toBe("stale");
     const oldPass = tested(pass, { startedAt: new Date(NOW - 20 * DAY).toISOString(), endedAt: new Date(NOW - 20 * DAY).toISOString() });
     // Fingerprints that say nothing changed outweigh age; none at all fall back to it.
-    expect(checkHealth({ check: script, runs: oldPass, now: NOW, current: { ...HEAD, dependencies: { "/Game/BP_Door": "b" } } })).toBe("passing");
-    expect(checkHealth({ check: script, runs: oldPass, now: NOW, current: HEAD })).toBe("stale");
+    expect(checkHealth({ check: script, runs: oldPass, now: NOW, rule: staleAfter14, current: { ...HEAD, dependencies: { "/Game/BP_Door": "b" } } })).toBe("passing");
+    expect(checkHealth({ check: script, runs: oldPass, now: NOW, rule: staleAfter14, current: HEAD })).toBe("stale");
   });
 });
 
@@ -241,45 +242,36 @@ describe("goalStatus", () => {
     expect(r).toEqual({ status: "met", progress: { met: 1, total: 1 } });
   });
 
-  it("failing when a required check fails or is missing; an optional one does not count", () => {
+  it("failing when a required check fails; an optional one does not count", () => {
     expect(goalStatus(goal(), [state(runs("failed"))]).status).toBe("failing");
-    expect(goalStatus(goal(), [state(runs("passed"), script, DEFAULT_ACCEPTANCE, true)]).status).toBe("failing");
     const optional: CheckRef = { kind: "script", target: "/Game/Tests/Extra", required: false };
     const g = goal({ checks: [script, optional] });
     expect(goalStatus(g, [state(runs("passed")), state(runs("failed"), optional)]).status).toBe("met");
   });
 
-  it("needs you above failing", () => {
+  it("a required check missing on this checkout fails nothing: the goal waits for it", () => {
     const other: CheckRef = { kind: "script", target: "/Game/Tests/Other" };
-    expect(goalStatus(goal({ checks: [script, other] }), [state(runs("needs_you")), state(runs("failed"), other)]).status).toBe("needs_you");
+    expect(goalStatus(goal(), [state(runs("passed"), script, DEFAULT_HEALTH_RULE, true)]).status).toBe("not_started");
+    expect(goalStatus(goal({ checks: [script, other] }), [state(runs("passed")), state(runs("passed"), other, DEFAULT_HEALTH_RULE, true)])).toEqual({ status: "in_progress", progress: { met: 1, total: 2 } });
   });
 
-  it("at risk when met but flaky or stale, or when only some evidence is in", () => {
+  it("failing above a run that holds for a verdict, which is only running", () => {
+    const other: CheckRef = { kind: "script", target: "/Game/Tests/Other" };
+    expect(goalStatus(goal({ checks: [script, other] }), [state(runs("needs_you")), state(runs("failed"), other)]).status).toBe("failing");
+    expect(goalStatus(goal({ checks: [script, other] }), [state(runs("needs_you")), state(runs("passed"), other)]).status).toBe("running");
+  });
+
+  it("at risk only when met but flaky or stale; partial evidence is in progress", () => {
     expect(goalStatus(goal(), [state(runs("passed", "failed", "passed"))]).status).toBe("at_risk");
     const other: CheckRef = { kind: "script", target: "/Game/Tests/Other" };
-    expect(goalStatus(goal({ checks: [script, other] }), [state(runs("passed")), state([], other)]).status).toBe("at_risk");
+    expect(goalStatus(goal({ checks: [script, other] }), [state(runs("passed")), state([], other)]).status).toBe("in_progress");
   });
 
-  it("sign-off: needs you once everything passes, met once given", () => {
+  it("sign-off: ready to sign off once everything passes, met once given", () => {
     const g = goal({ acceptance: { ...DEFAULT_ACCEPTANCE, signOff: true } });
-    expect(goalStatus(g, [state(runs("passed"))]).status).toBe("needs_you");
+    expect(needsSignOff(g)).toBe(true);
+    expect(goalStatus(g, [state(runs("passed"))]).status).toBe("ready_to_sign_off");
     expect(goalStatus(g, [state(runs("passed"))], [], [], undefined, true).status).toBe("met");
-  });
-
-  it("a manual check is satisfied by the goal's sign-off", () => {
-    const manual: CheckRef = { kind: "manual", target: "The door looks right" };
-    const g = goal({ checks: [script, manual] });
-    expect(goalStatus(g, [state(runs("passed")), state([], manual)]).progress).toEqual({ met: 1, total: 2 });
-    expect(goalStatus(g, [state(runs("passed")), state([], manual)], [], [], undefined, true)).toEqual({ status: "met", progress: { met: 2, total: 2 } });
-  });
-
-  it("waits on a person when only a required manual check's sign-off is missing, without the sign-off rule", () => {
-    const manual: CheckRef = { kind: "manual", target: "The door looks right" };
-    expect(needsSignOff(goal({ checks: [script, manual] }))).toBe(true);
-    expect(goalStatus(goal({ checks: [script, manual] }), [state(runs("passed")), state([], manual)]).status).toBe("needs_you");
-    expect(goalStatus(goal({ checks: [manual] }), [state([], manual)]).status).toBe("needs_you");
-    // Automated evidence still missing: not yet a sign-off.
-    expect(goalStatus(goal({ checks: [script, manual] }), [state([]), state([], manual)]).status).toBe("not_started");
   });
 
   it("a milestone follows its goals", () => {
@@ -290,10 +282,9 @@ describe("goalStatus", () => {
     expect(goalStatus(m, [], ["not_started"]).status).toBe("not_started");
   });
 
-  it("an optional goal never blocks, but a verdict or run in it shows", () => {
+  it("an optional goal never blocks, but a run in it shows", () => {
     const m = goal({ id: "m", kind: "milestone", checks: [] });
     expect(goalStatus(m, [], ["met"], ["failing"]).status).toBe("met");
-    expect(goalStatus(m, [], ["met"], ["needs_you"]).status).toBe("needs_you");
     expect(goalStatus(m, [], ["met"], ["running"]).status).toBe("running");
   });
 });
@@ -433,7 +424,9 @@ describe("goalSlug and ids", () => {
 
   it("check ids round-trip, and a bad one is null", () => {
     expect(parseCheckId(checkId(script))).toEqual({ kind: "script", target: "/Game/Tests/Door" });
-    expect(parseCheckId("manual:Has: a colon")).toEqual({ kind: "manual", target: "Has: a colon" });
+    expect(parseCheckId("script:/Game/Has: a colon")).toEqual({ kind: "script", target: "/Game/Has: a colon" });
+    // Only playtests are checks this Studio knows.
+    expect(parseCheckId("manual:Looks right")).toBeNull();
     expect(parseCheckId("nope:x")).toBeNull();
     expect(parseCheckId("script:")).toBeNull();
   });

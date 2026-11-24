@@ -1,6 +1,7 @@
 /**
- * The Playtest Hub on the Playtests tab: goals the game must meet, the checks
- * that prove them, their runs and the queue that runs them. A rail on wide
+ * The Playtest Hub on the Playtests tab: goals the game must meet, the
+ * playtests that prove them, and their runs; what runs now is a strip on the
+ * Overview. A rail on wide
  * screens and a segmented bar on narrow ones move between the screens; each
  * screen has its own URL under #/playtests, so Back works and every goal,
  * check and run can be linked. Keyboard first: j and k move, Enter opens,
@@ -34,7 +35,6 @@ import { GoalScreen } from "./Goal";
 import { LibraryScreen } from "./Library";
 import { CheckScreen } from "./Check";
 import { RunScreen } from "./Run";
-import { QueueScreen } from "./Queue";
 import { CheckPicker, GoalDialog, GoalPicker, RequirePicker } from "./dialogs";
 import type { GoalPreset } from "./state";
 import "./hub.css";
@@ -90,7 +90,7 @@ export function HubView({ data, narrow, onOpenChat, onChat }: {
     try {
       const { plan } = await api.hub.plan(req);
       const n = plan.items.length;
-      notify(`Queued ${what ?? plan.title}: ${n} ${n === 1 ? "check" : "checks"}`);
+      notify(`Queued ${what ?? plan.title}: ${n} ${n === 1 ? "playtest" : "playtests"}`);
       data.reload();
     } catch (e) {
       notify((e as Error).message, "bad");
@@ -99,7 +99,7 @@ export function HubView({ data, narrow, onOpenChat, onChat }: {
   const runCheck = async (checkId: string, name?: string) => {
     try {
       await api.hub.runCheck(checkId);
-      notify(`Queued ${name ?? "the check"}`);
+      notify(`Queued ${name ?? "the playtest"}`);
       data.reload();
     } catch (e) {
       notify((e as Error).message, "bad");
@@ -170,7 +170,6 @@ export function HubView({ data, narrow, onOpenChat, onChat }: {
       case "library": return <LibraryScreen />;
       case "check": return <CheckScreen key={route.checkId} checkId={route.checkId} />;
       case "run": return <RunScreen key={route.runId} runId={route.runId} />;
-      case "queue": return <QueueScreen />;
     }
   })();
 
@@ -194,16 +193,15 @@ export function HubView({ data, narrow, onOpenChat, onChat }: {
   );
 }
 
-const SECTIONS: ReadonlyArray<{ id: "overview" | "library" | "queue"; label: string; icon: HubIconName; keys: string }> = [
+const SECTIONS: ReadonlyArray<{ id: "overview" | "library"; label: string; icon: HubIconName; keys: string }> = [
   { id: "overview", label: HUB_COPY.overview, icon: "overview", keys: "g o" },
   { id: "library", label: HUB_COPY.library, icon: "library", keys: "g l" },
-  { id: "queue", label: HUB_COPY.queue, icon: "queue", keys: "g q" },
 ];
 
 function sectionCount(id: string, ctx: Pick<HubContextValue, "o">): ReactNode {
   const { o } = ctx;
   if (id === "overview" && o.attention.length) return <span className="tab-count warn" aria-label={`${o.attention.length} need attention`}>{o.attention.length}</span>;
-  if (id === "queue" && o.queue.current) return <span className="hub-live-dot" aria-label="Running" title="Running" />;
+  if (id === "overview" && o.queue.current) return <span className="hub-live-dot" aria-label={HUB_COPY.nowRunning} title={HUB_COPY.nowRunning} />;
   if (id === "library") return <span className="hub-rail-count">{o.checks.length}</span>;
   return null;
 }

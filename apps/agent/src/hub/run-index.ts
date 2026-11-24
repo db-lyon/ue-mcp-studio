@@ -1,8 +1,21 @@
 /**
- * The hub's run history, per machine: <dataDir>/hub/runs.jsonl, one RunRecord
- * per line, appended as runs change and finish. The newest line for a run
- * wins. On start the file is compacted to one line per run, the newest
- * MAX_RUNS of them, so it never grows without end. The local EvidenceStore.
+ * The hub's run history, per machine, the local EvidenceStore: an append-only
+ * log of RunRecords in time-ordered segments, <dataDir>/hub/runs/
+ * runs-<seq>.jsonl, one record per line, appended as runs change and finish.
+ * The newest line for a run wins. A line is never rewritten:
+ *
+ * - A segment that reaches SEGMENT_LINES is closed and the next line starts
+ *   a new one.
+ * - When more than MAX_RUNS runs are held, the oldest closed segment is
+ *   archived, moved whole into runs/archive/. Its runs leave the history,
+ *   except a run someone linked to a tracker item, whose record is appended
+ *   to the open segment first.
+ * - A line cut short by a crash is skipped.
+ * - runs.jsonl, the single file an earlier Studio kept, is moved in as the
+ *   first segment.
+ *
+ * Moved scripts (aliases) are kept beside the segments, in aliases.json,
+ * written whole and atomically: { "<from check id>": "<to check id>" }.
  *
  * Studio's own runs are recorded as the QaBroker saves them. Runs ue-mcp has a
  * record of (pie(script_runs), or results.json without it) are backfilled, so
@@ -17,7 +30,6 @@ import {
   qaEnded,
   qaIsDraft,
   qaScriptKey,
-  type CheckKind,
   type QaRun,
   type RunOutcome,
   type RunProvenance,
@@ -32,12 +44,15 @@ import { readLinks } from "./util.js";
 
 export type { RunTag } from "./evidence-store.js";
 
-/** The most runs kept. */
+/** The most runs kept before the oldest segment is archived. */
 export const MAX_RUNS = 5000;
+/** Lines a segment holds before the next starts. */
+export const SEGMENT_LINES = 1000;
 const OUTCOMES: readonly RunOutcome[] = ["passed", "failed", "needs_you", "running", "incomplete", "unjudged", "stopped", "error"];
-const SOURCES: readonly RunSource[] = ["person", "agent", "plan", "schedule", "outside"];
-const KINDS: readonly CheckKind[] = ["script", "uat", "repro", "automation", "manual"];
+const SOURCES: readonly RunSource[] = ["person", "agent", "plan", "outside"];
 const TRIGGERS: readonly RunTrigger[] = ["run", "replay", "loop"];
+const SEGMENT = /^runs-(\d{6})\.jsonl$/;
+const segmentName = (seq: number): string => `runs-${String(seq).padStart(6, "0")}.jsonl`;
 
 /** What started a run, as far as its QaRun tells: no session is outside Studio; a subagent or tool call is an agent; a card's button is a person. */
 export function sourceOf(run: QaRun): RunSource {
@@ -72,8 +87,8 @@ export function recordOf(run: QaRun, o: { prev?: RunRecord; times?: { startedAt?
   const startedAt = prev?.startedAt ?? o.times?.startedAt ?? run.seenAt;
   const endedAt = ended ? prev?.endedAt ?? o.times?.endedAt ?? o.now : null;
   const ms = endedAt ? Date.parse(endedAt) - Date.parse(startedAt) : NaN;
-  // A plan's or a schedule's run stays theirs; otherwise the better-informed QaRun says.
-  const source = o.tag?.source ?? (prev && (prev.source === "plan" || prev.source === "schedule") ? prev.source : sourceOf(run));
+  // A plan's run stays the plan's; otherwise the better-informed QaRun says.
+  const source = o.tag?.source ?? (prev?.source === "plan" ? prev.source : sourceOf(run));
   const failedSteps = run.steps.filter((s) => s.status === "failed").map((s) => s.index);
   return {
     runId: run.runId,
@@ -105,11 +120,14 @@ function recordFrom(v: unknown): RunRecord | null {
   if (!v || typeof v !== "object") return null;
   const r = v as Partial<RunRecord>;
   if (typeof r.runId !== "string" || !r.runId || typeof r.target !== "string" || typeof r.name !== "string" || typeof r.startedAt !== "string") return null;
-  if (!KINDS.includes(r.kind as CheckKind) || !OUTCOMES.includes(r.outcome as RunOutcome) || !SOURCES.includes(r.source as RunSource)) return null;
+  // Schedules are gone: a schedule's run was a plan's.
+  const source = (r.source as string) === "schedule" ? "plan" : r.source;
+  if (r.kind !== "script" || !OUTCOMES.includes(r.outcome as RunOutcome) || !SOURCES.includes(source as RunSource)) return null;
   const { links: rawLinks, trigger, provenance, ...rest } = r as RunRecord;
   const links = rawLinks === undefined ? [] : readLinks(rawLinks).links;
   return {
     ...rest,
+    source: source as RunSource,
     ...(TRIGGERS.includes(trigger as RunTrigger) ? { trigger } : {}),
     ...(provenance && typeof provenance === "object" && !Array.isArray(provenance) ? { provenance } : {}),
     ...(links.length ? { links } : {}),
@@ -122,6 +140,7 @@ const newest = (a: RunRecord, b: RunRecord): number => (a.startedAt < b.startedA
 export interface RunIndexOptions {
   dataDir: string;
   max?: number;
+  segmentLines?: number;
   now?: () => string;
   /** A record was added or changed. */
   changed?: (runId: string) => void;
@@ -131,61 +150,133 @@ export interface RunIndexOptions {
 export class RunIndex implements EvidenceStore {
   readonly scope = "local" as const;
   private readonly runs = new Map<string, RunRecord>();
+  /** The segment each run's newest line is in. */
+  private readonly segmentOf = new Map<string, number>();
+  /** Segments held, oldest first; the last is open. */
+  private segments: number[] = [];
+  /** Lines in the open segment. */
+  private openLines = 0;
   /** Runs by check id, newest first; rebuilt when a record changes. */
   private byCheckCache: Map<string, RunRecord[]> | null = null;
   private sortedCache: RunRecord[] | null = null;
   /** Hub runs' tags, kept until their record takes them. */
   private readonly tags = new Map<string, RunTag>();
-  private readonly file: string;
+  private readonly moved = new Map<string, string>();
+  private readonly dir: string;
   private readonly max: number;
+  private readonly segmentLines: number;
   private readonly now: () => string;
-  /** Lines appended since the file was last compacted. */
-  private appended = 0;
-  /** Linked runs the last compaction kept past the cap. */
-  private beyond = 0;
 
   constructor(private readonly o: RunIndexOptions) {
-    this.file = path.join(o.dataDir, "hub", "runs.jsonl");
+    this.dir = path.join(o.dataDir, "hub", "runs");
     this.max = o.max ?? MAX_RUNS;
+    this.segmentLines = o.segmentLines ?? SEGMENT_LINES;
     this.now = o.now ?? (() => new Date().toISOString());
     this.load();
-    this.compact();
+    this.archiveOld();
+  }
+
+  private segmentFile(seq: number): string {
+    return path.join(this.dir, segmentName(seq));
   }
 
   private load(): void {
-    let text: string;
+    // The single file an earlier Studio kept becomes the first segment, moved, not rewritten.
+    const legacy = path.join(this.o.dataDir, "hub", "runs.jsonl");
     try {
-      text = fs.readFileSync(this.file, "utf-8");
-    } catch {
-      return;
-    }
-    for (const line of text.split("\n")) {
-      if (!line.trim()) continue;
-      try {
-        const r = recordFrom(JSON.parse(line));
-        if (r) this.runs.set(r.runId, r);
-      } catch {
-        // A line cut short by a crash: the rest of the file still counts.
+      if (fs.existsSync(legacy)) {
+        fs.mkdirSync(this.dir, { recursive: true });
+        if (!fs.existsSync(this.segmentFile(0))) fs.renameSync(legacy, this.segmentFile(0));
       }
+    } catch (e) {
+      this.o.log?.warn("hub: the earlier run history could not be moved in", e);
+    }
+    let names: string[] = [];
+    try {
+      names = fs.readdirSync(this.dir);
+    } catch {
+      // No history yet.
+    }
+    this.segments = names.map((n) => SEGMENT.exec(n)).filter((m): m is RegExpExecArray => !!m).map((m) => Number(m[1])).sort((a, b) => a - b);
+    for (const seq of this.segments) {
+      let text = "";
+      try {
+        text = fs.readFileSync(this.segmentFile(seq), "utf-8");
+      } catch {
+        continue;
+      }
+      let lines = 0;
+      for (const line of text.split("\n")) {
+        if (!line.trim()) continue;
+        lines++;
+        try {
+          const r = recordFrom(JSON.parse(line));
+          if (r) {
+            this.runs.set(r.runId, r);
+            this.segmentOf.set(r.runId, seq);
+          }
+        } catch {
+          // A line cut short by a crash: the rest of the segment still counts.
+        }
+      }
+      this.openLines = lines;
+    }
+    try {
+      const saved = JSON.parse(fs.readFileSync(path.join(this.o.dataDir, "hub", "aliases.json"), "utf-8")) as unknown;
+      if (saved && typeof saved === "object" && !Array.isArray(saved)) {
+        for (const [from, to] of Object.entries(saved)) if (typeof to === "string") this.moved.set(from, to);
+      }
+    } catch {
+      // No script has moved.
     }
   }
 
-  /** The file rewritten with one line per run, the newest `max` of them. */
-  private compact(): void {
-    // A run someone linked to a tracker item stays past the cap.
-    const keep = [...this.runs.values()].sort(newest).filter((r, i) => i < this.max || !!r.links?.length);
-    if (keep.length < this.runs.size) {
-      this.runs.clear();
-      for (const r of keep) this.runs.set(r.runId, r);
+  /**
+   * Past the cap, the oldest closed segments are archived whole. A linked run
+   * whose newest line is in one is appended to the open segment first, so
+   * it stays.
+   */
+  private archiveOld(): void {
+    while (this.segments.length > 1 && this.runs.size > this.max) {
+      const seq = this.segments[0];
+      const kept: RunRecord[] = [];
+      for (const [id, at] of this.segmentOf) {
+        if (at !== seq) continue;
+        const r = this.runs.get(id)!;
+        if (r.links?.length) kept.push(r);
+        else {
+          this.runs.delete(id);
+          this.segmentOf.delete(id);
+        }
+      }
+      for (const r of kept) this.append(r);
+      try {
+        fs.mkdirSync(path.join(this.dir, "archive"), { recursive: true });
+        fs.renameSync(this.segmentFile(seq), path.join(this.dir, "archive", segmentName(seq)));
+      } catch (e) {
+        this.o.log?.warn("hub: a full segment of the run history could not be archived", e);
+      }
+      this.segments.shift();
+      this.dirty();
+      // Only linked runs were left in it: archiving more would not bring the count down.
+      if (kept.length && this.segments.length === 1) break;
     }
-    this.beyond = Math.max(0, keep.length - this.max);
-    this.dirty();
+  }
+
+  /** One line onto the open segment, starting a new one when it is full. */
+  private append(r: RunRecord): void {
+    if (this.segments.length === 0 || this.openLines >= this.segmentLines) {
+      this.segments.push(this.segments.length ? this.segments[this.segments.length - 1] + 1 : 1);
+      this.openLines = 0;
+    }
+    const seq = this.segments[this.segments.length - 1];
     try {
-      fs.mkdirSync(path.dirname(this.file), { recursive: true });
-      writeFileAtomic(this.file, keep.reverse().map((r) => JSON.stringify(r)).join("\n") + (keep.length ? "\n" : ""));
-      this.appended = 0;
+      fs.mkdirSync(this.dir, { recursive: true });
+      fs.appendFileSync(this.segmentFile(seq), `${JSON.stringify(r)}\n`);
+      this.openLines++;
+      this.segmentOf.set(r.runId, seq);
     } catch (e) {
-      this.o.log?.warn("hub: the run history could not be compacted", e);
+      this.o.log?.warn("hub: a run could not be added to the history", e);
     }
   }
 
@@ -194,23 +285,33 @@ export class RunIndex implements EvidenceStore {
     this.sortedCache = null;
   }
 
-  /** Keep a record; a change is appended to the file and announced. Returns whether anything changed. */
+  /** Keep a record; a change is appended to the log and announced. Returns whether anything changed. */
   put(r: RunRecord): boolean {
     const had = this.runs.get(r.runId);
-    const line = JSON.stringify(r);
-    if (had && JSON.stringify(had) === line) return false;
+    if (had && JSON.stringify(had) === JSON.stringify(r)) return false;
     this.runs.set(r.runId, r);
     this.dirty();
-    try {
-      fs.mkdirSync(path.dirname(this.file), { recursive: true });
-      fs.appendFileSync(this.file, `${line}\n`);
-      this.appended++;
-    } catch (e) {
-      this.o.log?.warn("hub: a run could not be added to the history", e);
-    }
-    if (this.runs.size > this.max + this.beyond || this.appended > this.max) this.compact();
+    const before = this.segments.length;
+    this.append(r);
+    if (this.segments.length > before) this.archiveOld();
     this.o.changed?.(r.runId);
     return true;
+  }
+
+  alias(from: string, to: string): void {
+    if (from === to || this.moved.get(from) === to) return;
+    this.moved.set(from, to);
+    this.dirty();
+    try {
+      fs.mkdirSync(path.join(this.o.dataDir, "hub"), { recursive: true });
+      writeFileAtomic(path.join(this.o.dataDir, "hub", "aliases.json"), `${JSON.stringify(Object.fromEntries(this.moved), null, 2)}\n`);
+    } catch (e) {
+      this.o.log?.warn("hub: a moved script could not be recorded", e);
+    }
+  }
+
+  aliases(): ReadonlyMap<string, string> {
+    return this.moved;
   }
 
   /** What a run tested. Returns the record, or undefined for a run not held. */
@@ -238,7 +339,7 @@ export class RunIndex implements EvidenceStore {
     return this.runs.get(runId);
   }
 
-  /** Mark a run the hub started as a plan's or a schedule's, now or when its record is first made. */
+  /** Mark a run the hub started as a plan's, now or when its record is first made. */
   tag(runId: string, tag: RunTag): void {
     this.tags.set(runId, tag);
     const had = this.runs.get(runId);
@@ -282,8 +383,23 @@ export class RunIndex implements EvidenceStore {
     return this.sortedCache;
   }
 
-  /** One check's runs, newest first. */
+  /** One check's runs, newest first, with the runs of every check that moved to it, at any remove. */
   byCheck(id: string): RunRecord[] {
+    const own = this.ownRuns();
+    const from = [...this.moved].filter(([, to]) => to === id).map(([f]) => f);
+    if (from.length === 0) return own.get(id) ?? [];
+    const seen = new Set<string>([id]);
+    const lists = [own.get(id) ?? []];
+    for (let f = from.pop(); f !== undefined; f = from.pop()) {
+      if (seen.has(f)) continue;
+      seen.add(f);
+      lists.push(own.get(f) ?? []);
+      for (const [g, to] of this.moved) if (to === f) from.push(g);
+    }
+    return lists.flat().sort(newest);
+  }
+
+  private ownRuns(): Map<string, RunRecord[]> {
     if (!this.byCheckCache) {
       const m = new Map<string, RunRecord[]>();
       for (const r of this.all()) {
@@ -294,13 +410,12 @@ export class RunIndex implements EvidenceStore {
       }
       this.byCheckCache = m;
     }
-    return this.byCheckCache.get(id) ?? [];
+    return this.byCheckCache;
   }
 
-  /** Every check id that has runs. */
+  /** Every check id that has runs of its own. */
   checkIds(): string[] {
-    this.byCheck("");
-    return [...this.byCheckCache!.keys()];
+    return [...this.ownRuns().keys()];
   }
 
   /**

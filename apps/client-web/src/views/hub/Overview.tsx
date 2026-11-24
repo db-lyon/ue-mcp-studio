@@ -1,30 +1,37 @@
 /**
- * The overview: every goal under its milestone, worst first, with what needs
- * a person, what runs now and what just broke beside it. A project with
- * scripts and no goals gets them listed, with a one-click start.
+ * The overview, useful with no goals at all: what runs now (the strip at the
+ * top, with the runs waiting and the ones that finished under it), every
+ * playtest with its health, Run all and Run failing, what needs a person and
+ * what just broke. Goals are a layer on top: each under its milestone,
+ * worst first. The Goals menu moves the goal store to another computer.
  */
 import { useMemo, useRef, useState } from "react";
-import type { GoalStatus } from "@ue-mcp-studio/shared";
+import type { GoalStatus, PlanRun } from "@ue-mcp-studio/shared";
 import { GOAL_STATUS_ORDER } from "@ue-mcp-studio/shared";
 import {
-  CHECK_HEALTH_LOOK,
   GOAL_STATUS_LOOK,
   ATTENTION_KIND_LABEL,
   HUB_COPY,
+  HUB_STORE_COPY,
   PLAN_ITEM_LOOK,
+  PLAN_STATE_LABEL,
   attentionTarget,
   RUN_OUTCOME_LOOK,
   dueText,
   goalCounts,
   goalSummary,
   hubHash,
+  importReportText,
+  importedText,
+  isGoalsFile,
   milestoneGroups,
   planProgress,
   queuePausedText,
   playingRuns,
   progressText,
-  proposeGoals,
   regressions,
+  runsDone,
+  scopeText,
   shortAgo,
   sortAttention,
   sortChecks,
@@ -32,7 +39,8 @@ import {
 import { api } from "../../api";
 import { useCursor, useHub } from "./state";
 import { Empty, EvidenceScope, HubIcon, HubLink, Progress, ScreenHead, StatusMark, StatusPill } from "./parts";
-import { GoalRow } from "./rows";
+import { CheckRow, GoalRow } from "./rows";
+import { RunnerStatus } from "./RunnerStatus";
 
 export function OverviewScreen({ onChat }: { onChat?: () => void }) {
   const hub = useHub();
@@ -47,7 +55,8 @@ export function OverviewScreen({ onChat }: { onChat?: () => void }) {
   const list = useRef<HTMLDivElement>(null);
   const [at, setAt, move] = useCursor(flat.length, list);
   const failing = o.checks.filter((c) => c.health === "failing").length;
-  const unusedChecks = o.checks.filter((c) => c.unused && !c.missing).length;
+  const runnable = o.checks.filter((c) => !c.missing).length;
+  const imported = importedText(o.imported);
 
   hub.onKeys((a) => {
     if (a.type === "next") move(1);
@@ -66,15 +75,19 @@ export function OverviewScreen({ onChat }: { onChat?: () => void }) {
         title={HUB_COPY.overview}
         sub={<><span>{goalSummary(o.goals)}</span><EvidenceScope /></>}
         actions={<>
-          {failing > 0 && <button onClick={() => void hub.runPlan({ scope: { kind: "failing" } }, "every failing check")} title="Queue every failing check"><HubIcon name="play" size={12} /> {HUB_COPY.runFailing} <span className="hub-btn-count">{failing}</span></button>}
+          {failing > 0 && <button onClick={() => void hub.runPlan({ scope: { kind: "failing" } }, "every failing playtest")}><HubIcon name="play" size={12} /> {HUB_COPY.runFailing} <span className="hub-btn-count">{failing}</span></button>}
+          {runnable > 0 && <button onClick={() => void hub.runPlan({ scope: { kind: "all" } }, "every playtest")}><HubIcon name="play" size={12} /> {HUB_COPY.runAll}</button>}
           <button className="primary" onClick={() => hub.editGoal(null)} title="New goal (c)"><HubIcon name="plus" size={12} /> {HUB_COPY.newGoal}</button>
+          <GoalsMenu />
         </>}
       />
+      {imported && <p className="dim small hub-imported">{imported}</p>}
       {o.warnings.map((w) => <div key={w} className="banner warn small">{w}</div>)}
       {!o.editor.connected && <div className="banner warn small hub-editor-down">{HUB_COPY.editorDown}</div>}
+      <NowRunning />
       <div className="hub-overview-grid">
         <section className="hub-overview-goals" aria-label={HUB_COPY.goals}>
-          {noGoals ? <GettingStarted onChat={onChat} /> : <>
+          {!noGoals && <>
             <div className="hub-chips" role="group" aria-label="Show goals">
               <button className={`filter-chip ${only === null ? "active" : ""}`} aria-pressed={only === null} onClick={() => setOnly(null)}>All <span className="filter-count">{GOAL_STATUS_ORDER.reduce((n, s) => n + counts[s], 0)}</span></button>
               {GOAL_STATUS_ORDER.filter((s) => counts[s] > 0).map((s) => (
@@ -88,6 +101,7 @@ export function OverviewScreen({ onChat }: { onChat?: () => void }) {
                 const m = gr.milestone;
                 // A goal under two milestones is a row in each: the cursor counts rows, not goals.
                 const first = shownGroups.slice(0, gi).reduce((n, x) => n + x.goals.length, 0);
+                const due = m ? dueText(m.goal.due) : null;
                 return (
                   <section key={m?.goal.id ?? "none"} className="hub-group">
                     {m ? (
@@ -95,7 +109,7 @@ export function OverviewScreen({ onChat }: { onChat?: () => void }) {
                         <HubIcon name="milestone" />
                         <span className="hub-group-title">{m.goal.title}</span>
                         <StatusPill look={GOAL_STATUS_LOOK[m.status]} />
-                        {dueText(m.goal.due) && <span className={`small ${dueText(m.goal.due)!.overdue ? "hub-overdue" : "dim"}`}>{dueText(m.goal.due)!.text}</span>}
+                        {due && <span className={`small ${due.overdue ? "hub-overdue" : "dim"}`}>{due.text}</span>}
                         <span className="spacer" />
                         <Progress met={m.progress.met} total={m.progress.total} label={progressText(m.progress)} />
                       </HubLink>
@@ -113,14 +127,11 @@ export function OverviewScreen({ onChat }: { onChat?: () => void }) {
                 );
               })}
             </div>
-            {unusedChecks > 0 && (
-              <HubLink className="small dim hub-unused-line" href={hubHash({ screen: "library" })} onGo={() => go({ screen: "library" })}>{HUB_COPY.unusedChecks(unusedChecks)}</HubLink>
-            )}
           </>}
+          <Playtests noGoals={noGoals} onChat={onChat} />
         </section>
         <aside className="hub-side">
           <AttentionCard />
-          <QueueCard />
           <RegressionsCard />
         </aside>
       </div>
@@ -128,18 +139,65 @@ export function OverviewScreen({ onChat }: { onChat?: () => void }) {
   );
 }
 
-/** No goals yet: the scripts the project has, and ways to put them under goals at once. */
-function GettingStarted({ onChat }: { onChat?: () => void }) {
+/** Every playtest with its health, the overview's answer before any goal exists. */
+function Playtests({ noGoals, onChat }: { noGoals: boolean; onChat?: () => void }) {
+  const { o, go } = useHub();
+  const checks = useMemo(() => sortChecks(o.checks), [o.checks]);
+  if (checks.length === 0) {
+    return (
+      <Empty title={HUB_COPY.noChecksTitle} actions={onChat && <button onClick={onChat}>Go to Chat</button>}>
+        <p>{HUB_COPY.noChecksLead}</p>
+      </Empty>
+    );
+  }
+  return (
+    <section className="hub-section hub-overview-playtests" aria-label={HUB_COPY.playtests}>
+      <div className="hub-section-head">
+        <h2>{HUB_COPY.playtests} <span className="dim">{checks.length}</span></h2>
+        <span className="spacer" />
+        <HubLink className="small" href={hubHash({ screen: "library" })} onGo={() => go({ screen: "library" })}>Open {HUB_COPY.library}</HubLink>
+      </div>
+      {noGoals && <p className="dim small">{HUB_COPY.goalsLead}</p>}
+      <div className="hub-list">
+        {checks.map((c) => <CheckRow key={c.id} c={c} />)}
+      </div>
+    </section>
+  );
+}
+
+/** Export the goal store as one file, or import one; where goals live is said here once. */
+function GoalsMenu() {
   const hub = useHub();
-  const { o, go } = hub;
-  const scripts = useMemo(() => sortChecks(o.checks), [o.checks]);
-  const proposals = useMemo(() => proposeGoals(o.checks), [o.checks]);
+  const file = useRef<HTMLInputElement>(null);
   const [busy, setBusy] = useState(false);
-  const create = async () => {
+  const exportGoals = async () => {
     setBusy(true);
     try {
-      for (const p of proposals) await api.hub.createGoal({ title: p.title, checks: p.checks });
-      hub.notify(`Created ${proposals.length} ${proposals.length === 1 ? "goal" : "goals"}. Rename them as you like.`);
+      const data = await api.hub.exportStore();
+      const url = URL.createObjectURL(new Blob([`${JSON.stringify(data, null, 2)}\n`], { type: "application/json" }));
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = HUB_STORE_COPY.fileName(data.exportedAt);
+      a.click();
+      setTimeout(() => URL.revokeObjectURL(url), 1000);
+      hub.notify(HUB_STORE_COPY.exported);
+    } catch (e) {
+      hub.notify((e as Error).message, "bad");
+    } finally {
+      setBusy(false);
+    }
+  };
+  const importGoals = async (f: File) => {
+    setBusy(true);
+    try {
+      let parsed: unknown;
+      try {
+        parsed = JSON.parse(await f.text());
+      } catch {
+        parsed = null;
+      }
+      if (!isGoalsFile(parsed)) return hub.notify(HUB_STORE_COPY.notAFile, "bad");
+      hub.notify(importReportText(await api.hub.importStore(parsed)));
       hub.data.reload();
     } catch (e) {
       hub.notify((e as Error).message, "bad");
@@ -147,50 +205,152 @@ function GettingStarted({ onChat }: { onChat?: () => void }) {
       setBusy(false);
     }
   };
-  if (scripts.length === 0) {
-    return (
-      <Empty title={HUB_COPY.noGoalsTitle} actions={<>
-        <button className="primary" onClick={() => hub.editGoal(null)}>{HUB_COPY.newGoal}</button>
-        {onChat && <button onClick={onChat}>Go to Chat</button>}
-      </>}>
-        <p>{HUB_COPY.noGoalsLead}</p>
-        <p>{HUB_COPY.noChecksLead}</p>
-      </Empty>
-    );
-  }
   return (
-    <div className="hub-start">
-      <Empty title={HUB_COPY.noGoalsTitle} actions={<>
-        {proposals.length > 0 && (
-          <button className="primary" disabled={busy} onClick={() => void create()} title={proposals.map((p) => `${p.title} (${p.checks.length})`).join("\n")}>
-            {proposals.length === 1 ? `Create "${proposals[0].title}"` : `Create ${proposals.length} goals, one per map`}
+    <details className="hub-menu">
+      <summary className="button ghost">{HUB_STORE_COPY.menu} <HubIcon name="down" size={12} /></summary>
+      <div className="hub-menu-list" role="menu">
+        <p className="dim small">{HUB_STORE_COPY.where}</p>
+        <button role="menuitem" className="ghost" disabled={busy} onClick={() => void exportGoals()}>{HUB_STORE_COPY.export}</button>
+        <button role="menuitem" className="ghost" disabled={busy} onClick={() => file.current?.click()}>{HUB_STORE_COPY.import}</button>
+        <input ref={file} type="file" accept="application/json,.json" hidden aria-hidden="true" onChange={(e) => {
+          const f = e.target.files?.[0];
+          e.target.value = "";
+          if (f) void importGoals(f);
+        }} />
+      </div>
+    </details>
+  );
+}
+
+/**
+ * Now running: the run on the editor and how far its batch is, the runner
+ * editor, why the queue waits or is paused, then the runs waiting and the
+ * ones that finished. Release the editor is the app's bar (held.tsx LeaseBar).
+ */
+function NowRunning() {
+  const hub = useHub();
+  const { o, go } = hub;
+  const q = o.queue;
+  const cur = q.current;
+  const p = cur ? planProgress(cur) : null;
+  const playing = playingRuns(o)[0] ?? null;
+  // A run outside any batch (from Chat, or a fix) plays too: named here, since the batch line does not.
+  const solo = playing && !cur?.items.some((i) => i.runId === playing.runId) ? playing : null;
+  const setQueue = (next: typeof q) => hub.data.patch((ov) => ({ ...ov, queue: next }));
+  const pause = async () => {
+    const want = !q.paused;
+    setQueue({ ...q, paused: want });
+    try {
+      setQueue(await api.hub.pause(want));
+    } catch (e) {
+      setQueue({ ...q, paused: !want });
+      hub.notify((e as Error).message, "bad");
+    }
+  };
+  const cancel = async (plan: PlanRun) => {
+    if (cur?.id !== plan.id) setQueue({ ...q, queued: q.queued.filter((x) => x.id !== plan.id) });
+    try {
+      await api.hub.cancelPlan(plan.id);
+      hub.notify(`Stopped ${plan.title}`);
+    } catch (e) {
+      hub.notify((e as Error).message, "bad");
+    }
+    hub.data.reload();
+  };
+  const idle = !cur && !solo && q.queued.length === 0;
+  return (
+    <section className="hub-card hub-now-strip" aria-label={HUB_COPY.nowRunning}>
+      <div className="hub-card-head">
+        <HubIcon name="queue" />
+        <span>{HUB_COPY.nowRunning}</span>
+        {q.paused && <span className="pill warn" title={queuePausedText(q)}>{PLAN_STATE_LABEL.paused}</span>}
+        <span className="spacer" />
+        {(!idle || q.paused) && (
+          <button className="ghost small-button" aria-pressed={q.paused} onClick={() => void pause()}>
+            <HubIcon name={q.paused ? "play" : "pause"} size={12} /> {q.paused ? HUB_COPY.resume : HUB_COPY.pause}
           </button>
         )}
-        <button onClick={() => hub.editGoal(null)}>{HUB_COPY.newGoal}</button>
-        <button className="ghost" onClick={() => void hub.runPlan({ scope: { kind: "all" } }, "every check")}><HubIcon name="play" size={12} /> {HUB_COPY.runAll}</button>
-      </>}>
-        <p>{HUB_COPY.noGoalsLead}</p>
-      </Empty>
-      <div className="hub-start-list">
-        <div className="hub-card-head"><span>{HUB_COPY.scriptsFound(scripts.length)}</span><span className="spacer" /><HubLink className="small" href={hubHash({ screen: "library" })} onGo={() => go({ screen: "library" })}>Open Library</HubLink></div>
-        <div className="hub-list">
-          {scripts.slice(0, 10).map((c) => (
-            <HubLink key={c.id} className="hub-row hub-mini-row" href={hubHash({ screen: "check", checkId: c.id })} onGo={() => go({ screen: "check", checkId: c.id })}>
-              <StatusMark look={CHECK_HEALTH_LOOK[c.health]} label={CHECK_HEALTH_LOOK[c.health].label} />
-              <span className="hub-row-title">{c.name}</span>
-              <span className="dim small">{c.last ? shortAgo(c.last.startedAt) : CHECK_HEALTH_LOOK[c.health].label}</span>
-            </HubLink>
-          ))}
-        </div>
-        {scripts.length > 10 && <p className="dim small">And {scripts.length - 10} more in the Library.</p>}
       </div>
+      <RunnerStatus />
+      {q.paused && <div className="dim small">{queuePausedText(q)}</div>}
+      {q.waiting && <div className="dim small">{HUB_COPY.waiting(q.waiting)}</div>}
+      {solo && (
+        <HubLink className="hub-now-line" href={hubHash({ screen: "run", runId: solo.runId })} onGo={() => go({ screen: "run", runId: solo.runId })}>
+          <StatusMark look={RUN_OUTCOME_LOOK.running} />
+          <span className="hub-row-title">{solo.name}</span>
+        </HubLink>
+      )}
+      {cur && p && <PlanCard plan={cur} onCancel={() => void cancel(cur)} live />}
+      {idle && <p className="dim small">{HUB_COPY.queueIdle}</p>}
+      {q.queued.length > 0 && (
+        <ol className="hub-list hub-queued">
+          {q.queued.map((plan) => (
+            <li key={plan.id} className="hub-row hub-queued-row">
+              <span className="dim small">Next</span>
+              <span className="hub-row-main">
+                <span className="hub-row-title">{plan.title}</span>
+                <span className="hub-row-meta"><span>{scopeText(plan.scope, o.goals)}</span><span>{plan.items.length} {plan.items.length === 1 ? "playtest" : "playtests"}</span></span>
+              </span>
+              <span className="hub-row-actions">
+                <button className="ghost icon-button" aria-label={`Stop ${plan.title}`} onClick={() => void cancel(plan)}><HubIcon name="close" size={12} /></button>
+              </span>
+            </li>
+          ))}
+        </ol>
+      )}
+      {q.recent.length > 0 && (
+        <details className="hub-finished">
+          <summary className="small dim">{HUB_COPY.finished} <span className="filter-count">{q.recent.length}</span></summary>
+          <div className="hub-list">{q.recent.map((plan) => <PlanCard key={plan.id} plan={plan} />)}</div>
+        </details>
+      )}
+    </section>
+  );
+}
+
+/** A batch of runs: its title and scope, progress, and each playtest's state; open by default while it runs. */
+function PlanCard({ plan, onCancel, live = false }: { plan: PlanRun; onCancel?: () => void; live?: boolean }) {
+  const { o, go, openChat } = useHub();
+  const p = planProgress(plan);
+  const [open, setOpen] = useState(live);
+  return (
+    <div className={`hub-plan ${live ? "live" : ""}`}>
+      <div className="hub-plan-head">
+        <button className="ghost hub-plan-toggle" aria-expanded={open} onClick={() => setOpen((x) => !x)}>
+          <HubIcon name="chevron" size={12} />
+          <span className="hub-row-title">{live && p.current ? p.current.name : plan.title}</span>
+        </button>
+        <span className="small dim">{live ? plan.title : scopeText(plan.scope, o.goals)}</span>
+        {!live && <span className="pill">{PLAN_STATE_LABEL[plan.state]}</span>}
+        {p.failed > 0 && <span className="pill bad">{p.failed} failed</span>}
+        <span className="spacer" />
+        {!live && plan.endedAt && <span className="small dim">{shortAgo(plan.endedAt)}</span>}
+        {live && p.current?.sessionId && <button className="ghost small-button" onClick={() => openChat(p.current!.sessionId!)}>{HUB_COPY.fixChat}</button>}
+        {onCancel && <button className="ghost small-button" onClick={onCancel}>Stop</button>}
+      </div>
+      <Progress met={p.done} total={p.total} label={runsDone(p.done, p.total)} />
+      {open && (
+        <ol className="hub-plan-items">
+          {plan.items.map((it, i) => {
+            const look = PLAN_ITEM_LOOK[it.state];
+            return (
+              <li key={i} className={`hub-plan-item ${it.state}`}>
+                <StatusMark look={look} label={look.label} />
+                {it.runId && plan.work !== "fix" ? <HubLink href={hubHash({ screen: "run", runId: it.runId })} onGo={() => go({ screen: "run", runId: it.runId! })}>{it.name}</HubLink> : <span>{it.name}</span>}
+                <span className="small dim">{look.label}{it.reason ? `: ${it.reason}` : ""}</span>
+                {it.sessionId && <button className="ghost small-button" onClick={() => openChat(it.sessionId!)}>{HUB_COPY.fixChat}</button>}
+              </li>
+            );
+          })}
+        </ol>
+      )}
     </div>
   );
 }
 
-/** What waits for a person and does not need the game playing: each item links to where it is dealt with. */
+/** What waits for a person and does not need the game playing: each item links to where it is dealt with; a stopped fix opens its chat. */
 function AttentionCard() {
-  const { o, go } = useHub();
+  const { o, go, openChat } = useHub();
   const items = useMemo(() => sortAttention(o.attention), [o.attention]);
   return (
     <section className="hub-card" aria-label={HUB_COPY.attention}>
@@ -202,7 +362,7 @@ function AttentionCard() {
       {items.length === 0 ? <p className="dim small">{HUB_COPY.attentionEmpty}</p> : (
         <div className="hub-list">
           {items.map((it) => (
-            <HubLink key={it.id} className={`hub-row hub-mini-row hub-attention-row kind-${it.kind}`} href={hubHash(attentionTarget(it))} onGo={() => go(attentionTarget(it))} title={it.detail}>
+            <HubLink key={it.id} className={`hub-row hub-mini-row hub-attention-row kind-${it.kind}`} href={hubHash(attentionTarget(it))} onGo={() => (it.sessionId ? openChat(it.sessionId, it.runId) : go(attentionTarget(it)))} title={it.detail}>
               <span className="hub-attention-kind">{ATTENTION_KIND_LABEL[it.kind]}</span>
               <span className="hub-row-title">{it.title}</span>
               <span className="dim small">{shortAgo(it.at)}</span>
@@ -214,56 +374,13 @@ function AttentionCard() {
   );
 }
 
-/** What runs now and what is next, one line each. */
-function QueueCard() {
-  const { o, go, openChat } = useHub();
-  const q = o.queue;
-  const cur = q.current;
-  const p = cur ? planProgress(cur) : null;
-  const playing = playingRuns(o)[0] ?? null;
-  // A run outside any plan (from Chat, or a fix loop) plays too: named here, since the plan line does not.
-  const solo = playing && !cur?.items.some((i) => i.runId === playing.runId) ? playing : null;
-  return (
-    <section className="hub-card" aria-label={HUB_COPY.queue}>
-      <div className="hub-card-head">
-        <HubIcon name="queue" />
-        <HubLink href={hubHash({ screen: "queue" })} onGo={() => go({ screen: "queue" })}>{HUB_COPY.queue}</HubLink>
-        {q.paused && <span className="pill warn" title={queuePausedText(q)}>Paused</span>}
-      </div>
-      {q.waiting && <div className="dim small">{HUB_COPY.waiting(q.waiting)}</div>}
-      {solo && (
-        <HubLink className="hub-now-line" href={hubHash({ screen: "run", runId: solo.runId })} onGo={() => go({ screen: "run", runId: solo.runId })}>
-          <StatusMark look={RUN_OUTCOME_LOOK.running} />
-          <span className="hub-row-title">{solo.name}</span>
-        </HubLink>
-      )}
-      {cur && p ? (
-        <div className="hub-now">
-          <div className="hub-now-line">
-            <StatusMark look={PLAN_ITEM_LOOK.running} />
-            <span className="hub-row-title">{p.current?.name ?? cur.title}</span>
-            <span className="mono small">{p.done}/{p.total}</span>
-            {p.current?.sessionId && <button className="ghost small-button" onClick={() => openChat(p.current!.sessionId!)}>{HUB_COPY.fixChat}</button>}
-          </div>
-          <div className="dim small">{cur.title}</div>
-          <Progress met={p.done} total={p.total} label={`${p.done} of ${p.total} checks done`} />
-        </div>
-      ) : !solo && <p className="dim small">{HUB_COPY.queueIdle}</p>}
-      {q.queued.slice(0, 3).map((plan) => (
-        <div key={plan.id} className="hub-next small"><span className="dim">Next</span> {plan.title} <span className="dim">({plan.items.length})</span></div>
-      ))}
-      {q.queued.length > 3 && <div className="dim small">{q.queued.length - 3} more queued</div>}
-    </section>
-  );
-}
-
 function RegressionsCard() {
   const { o, go } = useHub();
   const broke = useMemo(() => regressions(o.checks), [o.checks]);
   if (broke.length === 0) return null;
   return (
-    <section className="hub-card" aria-label="Recent regressions">
-      <div className="hub-card-head"><StatusMark look={RUN_OUTCOME_LOOK.failed} /><span>Just broke</span></div>
+    <section className="hub-card" aria-label={HUB_COPY.justBroke}>
+      <div className="hub-card-head"><StatusMark look={RUN_OUTCOME_LOOK.failed} /><span>{HUB_COPY.justBroke}</span></div>
       <div className="hub-list">
         {broke.slice(0, 5).map((c) => {
           const r = c.last ? { screen: "run" as const, runId: c.last.runId } : { screen: "check" as const, checkId: c.id };

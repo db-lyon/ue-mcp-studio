@@ -54,13 +54,13 @@ const ledge = checkId({ kind: "script", target: `${DEMO_SCRIPTS_DIR}/Traversal/P
 const staggerRun = full.state.runs.find((r) => r.name === "PT_Stagger_Wisp" && r.outcome === "failed")!.runId;
 
 export const HUB_SCENARIOS: Record<string, Scenario> = {
-  "hub-overview": hub("Playtest Hub overview: milestones and goals by status, Needs attention (a blocked fix loop, a sign-off, a regression, a missing script), a plan running on the editor", "#/playtests", full),
-  "hub-overview-empty": hub("Playtest Hub overview on a project with scripts and no goals yet: the first goal offered", "#/playtests", empty),
-  "hub-goal": hub("A failing goal: its checks with health and history, Run goal and Write playtests", "#/playtests/goals/lantern-combat", full),
+  "hub-overview": hub("Playtest Hub overview: Now running with the runs waiting and finished, milestones and goals by status, every playtest, Needs attention and what just broke", "#/playtests", full),
+  "hub-overview-empty": hub("Playtest Hub overview on a project with playtests and no goals: every playtest with its health, Run all and Run failing", "#/playtests", empty),
+  "hub-goal": hub("A failing goal: its playtests with health and history, owner, priority and due date, Run goal, Fix with an agent and Write playtests", "#/playtests/goals/lantern-combat", full),
+  "hub-goal-not-on-checkout": hub("A goal with a playtest that is not on this checkout: shown as such, the goal in progress rather than failing", "#/playtests/goals/coop-revive", full),
   "hub-goal-milestone": hub("A milestone: its goals' statuses rolled up, with progress", "#/playtests/goals/vertical-slice", full),
-  "hub-library": hub("The check library: every script with its health, goals and pass rate", "#/playtests/checks", full),
-  "hub-check": hub("A flaky check: its definition and every run, newest first", `#/playtests/checks/${enc(ledge)}`, full),
+  "hub-library": hub("The library: every playtest with its health, goals and pass rate", "#/playtests/checks", full),
+  "hub-check": hub("A flaky playtest: its steps, its own links and every run, newest first", `#/playtests/checks/${enc(ledge)}`, full),
   "hub-run": hub("A failed run: the step timeline, the observed values, the log and the comparison with the last pass", `#/playtests/runs/${enc(staggerRun)}`, full),
-  "hub-queue": hub("The queue: a plan running, one waiting, recent plans and the schedules", "#/playtests/queue", full),
-  "hub-editor-offline": hub("The hub with the editor closed: the queue waits for it", "#/playtests", offline),
+  "hub-editor-offline": hub("The hub with the editor closed: Now running waits for it", "#/playtests", offline),
 };

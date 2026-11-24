@@ -54,7 +54,7 @@ import { NO_EFFECTS, SESSION_KEY, approvalKind, editorPreview, flowStepCall, flo
 import { AGENT_TOOL } from "./tools.js";
 import { AGENT_STOPPED, SUBAGENT_TOOLS, fromAgent, isFromAgent, isSubagentTool, runSubagentTool } from "./subagent-tools.js";
 import { NoticeLimit, USER_TOOLS, isUserTool, runUserTool } from "./user-tools.js";
-import { HUB_TOOLS, hubPreview, isHubTool, runHubTool, type HubToolTarget } from "./hub-tools.js";
+import { HUB_TOOLS, isHubTool, runHubTool, type HubToolTarget } from "./hub-tools.js";
 import type { FormBroker } from "./forms.js";
 import { SKILL_TOOL, agentTool, skillResult, skillsSection, type NativeHelper, type NativeRun } from "./native-runtime.js";
 import { DurableTurns } from "./durable/runtime.js";
@@ -3200,8 +3200,7 @@ ${result}`);
     if (!asks) return null;
     if (s.allowed?.includes(SESSION_KEY[kind])) return null;
     // Code a ue-mcp action runs asks as a shell command, shown as the call it is.
-    const hub = isHubTool(name) ? this.o.hub?.() ?? null : null;
-    const preview = (kind === "shell" || kind === "files" ? (hub ? hubPreview(hub, name, input) : approvalFor(this.o.host.projectDir, name, input)) : null) ?? editorPreview(name, input);
+    const preview = (kind === "shell" || kind === "files" ? approvalFor(this.o.host.projectDir, name, input) : null) ?? editorPreview(name, input);
     if (!preview) return null;
     if (signal.aborted) return { stopped: true };
 

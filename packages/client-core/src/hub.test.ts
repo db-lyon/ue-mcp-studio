@@ -9,6 +9,7 @@ import {
   goalDraftOf,
   goalFormErrors,
   goalFormOf,
+  goalUpdateOf,
   goalSummary,
   signOffText,
   hubApi,
@@ -17,7 +18,6 @@ import {
   hubPath,
   milestoneGroups,
   moveId,
-  moveQueued,
   goalCheckIds,
   parentCandidates,
   parentGoals,
@@ -25,17 +25,16 @@ import {
   requiredRows,
   paletteEntries,
   parseHubPath,
-  parseTags,
   planProgress,
-  proposeGoals,
   regressions,
+  importReportText,
+  importedText,
+  isGoalsFile,
   evidenceLabel,
   provenanceParts,
   revisionText,
   runMarks,
   runTimeline,
-  scheduleErrors,
-  scheduleText,
   searchPalette,
   sortChecks,
   sortGoals,
@@ -50,7 +49,6 @@ import {
   runPlaying,
   type HubLiveInput,
   type HubRoute,
-  checkLinks,
   linkChip,
   linkFromRow,
   typedUrl,
@@ -76,7 +74,7 @@ const check = (name: string, health: CheckState["health"], over: Partial<CheckSt
 describe("hub routes", () => {
   it("round-trips every screen through the hash, encoding ids", () => {
     const routes: HubRoute[] = [
-      { screen: "overview" }, { screen: "library" }, { screen: "queue" },
+      { screen: "overview" }, { screen: "library" },
       { screen: "goal", goalId: "tutorial" },
       { screen: "check", checkId: "script:/Game/Tests/Jump Test" },
       { screen: "run", runId: "run/42:a" },
@@ -114,15 +112,16 @@ describe("the status ladder", () => {
   });
 
   it("sorts goals worst first, then by priority, due date and title", () => {
-    const sorted = sortGoals([gs("b", "met"), gs("a", "failing", { priority: "p2" }), gs("c", "needs_you"), gs("d", "failing", { priority: "p0" }), gs("e", "at_risk")]);
-    expect(sorted.map((g) => g.goal.id)).toEqual(["c", "d", "a", "e", "b"]);
+    const sorted = sortGoals([gs("b", "met"), gs("a", "failing", { priority: "p2" }), gs("c", "ready_to_sign_off"), gs("d", "failing", { priority: "p0" }), gs("e", "at_risk"), gs("f", "in_progress")]);
+    // Ready to sign off waits below Failing; partial evidence is progress, not risk.
+    expect(sorted.map((g) => g.goal.id)).toEqual(["d", "a", "c", "e", "f", "b"]);
   });
 
   it("sorts checks worst first, then the most recently run", () => {
     const older = { runId: "1", kind: "script" as const, target: "", name: "", outcome: "failed" as const, startedAt: "2026-01-01T00:00:00Z", source: "person" as const };
     const newer = { ...older, runId: "2", startedAt: "2026-02-01T00:00:00Z" };
-    const sorted = sortChecks([check("p", "passing"), check("f1", "failing", { last: older }), check("f2", "failing", { last: newer }), check("n", "needs_you")]);
-    expect(sorted.map((c) => c.name)).toEqual(["n", "f2", "f1", "p"]);
+    const sorted = sortChecks([check("p", "passing"), check("m", "missing"), check("f1", "failing", { last: older }), check("f2", "failing", { last: newer }), check("r", "running")]);
+    expect(sorted.map((c) => c.name)).toEqual(["f2", "f1", "r", "m", "p"]);
   });
 
   it("puts blocked loops first in Needs attention, oldest first within a kind", () => {
@@ -212,14 +211,13 @@ describe("overview models", () => {
     expect(sparkBars(["failed", "passed", "stopped"]).map((b) => b.dir)).toEqual(["mid", "up", "down"]);
   });
 
-  it("proposes one goal per map for scripts in no goal", () => {
-    const p = proposeGoals([
-      check("a", "passing", { map: "/Game/Maps/Arena" }),
-      check("b", "failing", { map: "/Game/Maps/Arena" }),
-      check("c", "never_run"),
-      check("d", "passing", { goalIds: ["x"], map: "/Game/Maps/Hub" }),
-    ]);
-    expect(p.map((x) => [x.title, x.checks.length])).toEqual([["Arena plays through", 2], ["Other playtests", 1]]);
+  it("says what moving goals between computers did", () => {
+    expect(importReportText({ added: 4, unchanged: 2, conflicts: [{ type: "goal", id: "j", title: "Jump" }] })).toBe("Added 4. 2 were already here. 1 differs here and was kept as it is: Jump.");
+    expect(importReportText({ added: 0, unchanged: 1, conflicts: [] })).toBe("Added nothing. 1 was already here.");
+    expect(isGoalsFile({ format: "ue-mcp-studio.goals" })).toBe(true);
+    expect(isGoalsFile({ title: "x" })).toBe(false);
+    expect(importedText(null)).toBeNull();
+    expect(importedText({ from: "QA/Goals", at: "2026-11-23T10:00:00.000Z", goals: ["a", "b"], problems: [] })).toContain("2 goals were brought in from QA/Goals on 2026-11-23");
   });
 });
 
@@ -227,6 +225,8 @@ describe("library filters", () => {
   const all = [check("Jump", "failing", { goalIds: ["move"], map: "/Game/Maps/Arena" }), check("Swim", "flaky"), check("Menu", "never_run")];
   it("filters by health, goal and words, matching goal titles too", () => {
     expect(filterChecks(all, { health: "at_risk" }).map((c) => c.name)).toEqual(["Swim"]);
+    expect(filterChecks([...all, check("Gone", "missing")], { health: "missing" }).map((c) => c.name)).toEqual(["Gone"]);
+    expect(filterChecks([...all, check("Gone", "missing")], { health: "failing" }).map((c) => c.name)).toEqual(["Jump"]);
     expect(filterChecks(all, { goalId: "none" }).map((c) => c.name)).toEqual(["Swim", "Menu"]);
     expect(filterChecks(all, { text: "arena" }).map((c) => c.name)).toEqual(["Jump"]);
     expect(filterChecks(all, { text: "movement" }, [gs("move", "failing", { title: "Movement feels right" })]).map((c) => c.name)).toEqual(["Jump"]);
@@ -249,9 +249,9 @@ describe("timeline", () => {
 
 describe("the goal form", () => {
   it("needs a title and checks every number and date", () => {
-    const f = { ...goalFormOf(), title: " ", stableRuns: "0", staleAfterDays: "abc", due: "2026-02-30", tags: "ok, bad tag!" };
+    const f = { ...goalFormOf(), title: " ", stableRuns: "0", due: "2026-02-30" };
     const e = goalFormErrors(f);
-    expect(Object.keys(e).sort()).toEqual(["due", "stableRuns", "staleAfterDays", "tags", "title"]);
+    expect(Object.keys(e).sort()).toEqual(["due", "stableRuns", "title"]);
   });
 
   it("takes any goals as parents, but not itself, an unknown one, or one it requires", () => {
@@ -266,9 +266,10 @@ describe("the goal form", () => {
   });
 
   it("makes a draft from what was typed", () => {
-    const d = goalDraftOf({ ...goalFormOf(), title: "  Four players join ", tags: "#net, multiplayer net", stableRuns: "3", staleAfterDays: "", signOff: true, priority: "p1" });
-    expect(d).toMatchObject({ title: "Four players join", tags: ["net", "multiplayer"], priority: "p1", acceptance: { stableRuns: 3, staleAfterDays: null, signOff: true } });
-    expect(parseTags("a, a b")).toEqual(["a", "b"]);
+    const d = goalDraftOf({ ...goalFormOf(), title: "  Four players join ", owner: " Ama ", due: "2026-12-05", stableRuns: "3", signOff: true, priority: "p1" });
+    expect(d).toMatchObject({ title: "Four players join", owner: "Ama", due: "2026-12-05", priority: "p1", acceptance: { stableRuns: 3, signOff: true } });
+    // Cleared on an edit, they are cleared on the goal.
+    expect(goalUpdateOf({ ...goalFormOf({ owner: "Ama", priority: "p1", due: "2026-12-05" }), title: "x", owner: "", priority: "", due: "" })).toMatchObject({ owner: null, priority: null, due: null });
   });
 
   it("says when a goal is due against today", () => {
@@ -280,18 +281,8 @@ describe("the goal form", () => {
   });
 });
 
-describe("schedules and the queue", () => {
-  it("says when a schedule runs and what is wrong with one", () => {
-    expect(scheduleText({ days: [0, 1, 2, 3, 4, 5, 6], at: "02:00" })).toBe("Every day at 02:00");
-    expect(scheduleText({ days: [5, 1, 2, 3, 4], at: "18:30" })).toBe("Weekdays at 18:30");
-    expect(scheduleText({ days: [4, 1], at: "09:00" })).toBe("Mon, Thu at 09:00");
-    expect(Object.keys(scheduleErrors({ title: "", at: "25:00", days: [], scope: { kind: "all" } })).sort()).toEqual(["at", "days", "title"]);
-  });
-
-  it("moves a queued plan and counts a plan's progress", () => {
-    const plan = (id: string): PlanRun => ({ id, title: id, scope: { kind: "all" }, options: { attended: true, stopOnFailure: false, replay: false }, state: "queued", items: [], trigger: "person", createdAt: "" });
-    const q: QueueState = { paused: false, current: null, queued: [plan("a"), plan("b"), plan("c")], recent: [], schedules: [], editor: { connected: true } };
-    expect(moveQueued(q, "c", 0).queued.map((p) => p.id)).toEqual(["c", "a", "b"]);
+describe("runs in the queue", () => {
+  it("counts a run's progress", () => {
     const p = planProgress({ items: [
       { check: { kind: "script", target: "a" }, name: "a", state: "passed" },
       { check: { kind: "script", target: "b" }, name: "b", state: "running" },
@@ -307,10 +298,10 @@ describe("keys", () => {
     const k = hubKeymap(() => t);
     expect(k.press({ key: "g" })).toBeNull();
     expect(k.pending()).toBe(true);
-    expect(k.press({ key: "q" })).toEqual({ type: "go", to: "queue" });
+    expect(k.press({ key: "l" })).toEqual({ type: "go", to: "library" });
     k.press({ key: "g" });
     t = 5000;
-    expect(k.press({ key: "q" })).toBeNull();
+    expect(k.press({ key: "l" })).toBeNull();
     expect(k.press({ key: "j" })).toEqual({ type: "next" });
     expect(k.press({ key: "k", ctrl: true })).toEqual({ type: "palette" });
     expect(k.press({ key: "r", ctrl: true })).toBeNull();
@@ -348,7 +339,7 @@ describe("the hub API", () => {
     await api.removeCheck("tut", "script:/Game/A");
     await api.check("script:/Game/A", { limit: 30 });
     await api.runs({ check: "script:/Game/A", before: "r1" });
-    await api.movePlan("p1", 2);
+    await api.fix({ checkId: "script:/Game/A" });
     await api.verdict("r 1", 3, "fail", "fell through");
     await api.addRequire("m", "a b");
     await api.addRequire("m", "a", false);
@@ -367,7 +358,7 @@ describe("the hub API", () => {
       ["DELETE", "/v1/ext/studio/hub/goals/tut/checks/script%3A%2FGame%2FA", undefined],
       ["GET", "/v1/ext/studio/hub/checks/script%3A%2FGame%2FA?limit=30", undefined],
       ["GET", "/v1/ext/studio/hub/runs?check=script%3A%2FGame%2FA&before=r1", undefined],
-      ["POST", "/v1/ext/studio/hub/plans/p1/move", { to: 2 }],
+      ["POST", "/v1/ext/studio/hub/fix", { checkId: "script:/Game/A" }],
       ["POST", "/v1/ext/studio/qa/runs/r%201/verdict", { step: 3, verdict: "fail", note: "fell through" }],
     ]);
   });
@@ -377,7 +368,7 @@ describe("the live viewport in the hub", () => {
   const rec = (runId: string, name: string, outcome: RunRecord["outcome"], endedAt: string | null = null): RunRecord => ({
     runId, kind: "script", target: `/Game/T/${name}`, name, outcome, startedAt: "2026-11-23T10:00:00Z", endedAt, source: "plan",
   });
-  const idle: QueueState = { paused: false, current: null, queued: [], recent: [], schedules: [], editor: { connected: true } };
+  const idle: QueueState = { paused: false, current: null, queued: [], recent: [], editor: { connected: true } };
   const over = (recent: RunRecord[], queue: QueueState = idle, connected = true) => ({ recent, queue, editor: { connected } });
 
   it("counts a run as playing until it ends, including one holding for a person's verdict", () => {
@@ -464,12 +455,6 @@ describe("tracker links", () => {
     expect(withoutLink(a, issue.url)).toEqual([]);
   });
 
-  it("gathers a check's links across the goals that list it", () => {
-    const ref = (links?: Array<{ url: string }>) => ({ kind: "script" as const, target: "/Game/T/A", ...(links ? { links } : {}) });
-    const goals = [gs("a", "met", { checks: [ref([issue])] }), gs("b", "met", { checks: [ref([issue, { url: "jira://X-1" }])] }), gs("c", "met", { checks: [ref()] })];
-    expect(checkLinks("script:/Game/T/A", goals)).toEqual([{ link: issue, goalIds: ["a", "b"] }, { link: { url: "jira://X-1" }, goalIds: ["b"] }]);
-  });
-
   it("the goal form carries links, and says what is wrong with one", () => {
     const f = { ...goalFormOf({ links: [issue] }), title: "x" };
     expect(f.links).toEqual([{ url: issue.url, title: "", rel: "" }]);
@@ -483,11 +468,11 @@ describe("tracker links", () => {
       calls.push([m, p, b]);
       return {} as T;
     });
-    await api.updateCheck("tut", "script:/Game/A", { links: [issue] });
+    await api.updateCheck("script:/Game/A", { links: [issue] });
     await api.addRunLink("r 1", issue);
     await api.removeRunLink("r 1", issue.url);
     expect(calls).toEqual([
-      ["PUT", "/v1/ext/studio/hub/goals/tut/checks/script%3A%2FGame%2FA", { links: [issue] }],
+      ["PUT", "/v1/ext/studio/hub/checks/script%3A%2FGame%2FA", { links: [issue] }],
       ["POST", "/v1/ext/studio/hub/runs/r%201/links", { link: issue }],
       ["DELETE", `/v1/ext/studio/hub/runs/r%201/links?url=${encodeURIComponent(issue.url)}`, undefined],
     ]);
