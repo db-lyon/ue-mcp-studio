@@ -299,6 +299,11 @@ export class PlaytestIndex {
     return this.o.broker.readScriptAt(script);
   }
 
+  /** A script created outside this index: the next list asks the editor for its scripts again. */
+  created(): void {
+    this.list = null;
+  }
+
   /** Edit saved on any script: the next list reads it again. */
   async saveScript(req: unknown): Promise<{ script: string } | { error: string; status: number }> {
     const b = (req ?? {}) as { script?: unknown; steps?: unknown; map?: unknown };

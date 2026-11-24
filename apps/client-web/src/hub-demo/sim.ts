@@ -75,6 +75,7 @@ import {
   type TrackerLink,
 } from "@ue-mcp-studio/shared";
 import { HUB_BASE, obj } from "@ue-mcp-studio/client-core";
+import { demoCatalog, demoValidate } from "./drafting";
 import {
   DEMO_PROJECT,
   DEMO_SCRIPTS_DIR,
@@ -249,6 +250,19 @@ export class HubDemo {
     if (m("GET", "/hub/lease")) return ok({ lease: this.lease() });
     if (m("POST", "/hub/release")) return this.release();
     if (m("POST", "/hub/fix")) return this.fix(typeof b.goalId === "string" ? b.goalId : undefined, typeof b.checkId === "string" ? b.checkId : undefined);
+    // The playtest editor.
+    if (m("GET", "/qa/drafting/catalog")) return this.state.editor ? ok(demoCatalog()) : refuse(409, "the editor is not connected");
+    if (m("GET", "/qa/drafting/script")) {
+      const sc = this.script(q.get("script") ?? "");
+      if (!sc || sc.missing) return refuse(409, "No such script");
+      return ok({ script: { path: sc.path, name: sc.name, map: sc.map, default_within_ms: 5000, steps: sc.steps }, players: {} });
+    }
+    if (m("POST", "/qa/drafting/validate")) {
+      if (!this.state.editor) return refuse(409, "the editor is not connected");
+      const errors = demoValidate(b.steps, typeof b.map === "string" ? b.map : "", b.manual_only === true);
+      return ok({ valid: errors.length === 0, errors });
+    }
+    if (m("POST", "/qa/drafting/create")) return this.createScript(b);
     // Playtests and runs.
     if (m("GET", "/qa/runs")) return ok({ runs: this.unownedRuns() });
     if (m("GET", "/qa/playtests")) return ok(this.playtests());
@@ -971,6 +985,24 @@ export class HubDemo {
     }
     this.hubChanged(["checks", "goals"]);
     return by === "run" ? ok({ run: this.draftOf(sc) }) : ok({ script: sc.path });
+  }
+
+  /** The editor's Save on a new playtest: pie(script_create) with onConflict error. */
+  private createScript(b: Record<string, unknown>): DemoAnswer {
+    if (!this.state.editor) return refuse(409, "the editor is not connected, so the playtest cannot be saved");
+    const name = typeof b.name === "string" ? b.name.trim() : "";
+    if (!/^[A-Za-z0-9_]+$/.test(name)) return refuse(400, "name must be letters, digits and underscores");
+    if (!Array.isArray(b.steps) || b.steps.length === 0) return refuse(400, "body must be { name, steps: [...] } with at least one step");
+    const path = `${DEMO_SCRIPTS_DIR}/${name}`;
+    const had = this.script(path);
+    if (had && !had.missing) return refuse(409, `A test script already exists at ${path}`);
+    const findings = demoValidate(b.steps, typeof b.map === "string" ? b.map : "", b.manual_only === true);
+    const steps = (b.steps as QaScriptStep[]).map((st) => ({ ...st, instruction: String(st.instruction ?? ""), judge: st.judge === "manual" ? "manual" as const : "auto" as const }));
+    const map = typeof b.map === "string" && b.map ? b.map : "/Game/EmberHollow/Maps/L_Ashwood";
+    if (had) Object.assign(had, { steps, map, missing: undefined });
+    else this.state.scripts.push({ path, name, map, steps, author: DEMO_USER, tags: [], profile: { fixable: true } });
+    this.hubChanged(["checks", "goals"]);
+    return ok({ path, warnings: findings });
   }
 
   private deleteScript(idOrPath: string, by: "path" | "run"): DemoAnswer {

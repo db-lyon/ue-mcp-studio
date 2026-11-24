@@ -136,7 +136,7 @@ export interface QaRunOptions {
 }
 
 /** A step from a call or a card: its player taken out, ue-mcp's fields left. */
-function splitPlayers(steps: unknown): { steps: unknown[]; players: Record<number, string> } | null {
+export function splitPlayers(steps: unknown): { steps: unknown[]; players: Record<number, string> } | null {
   if (!Array.isArray(steps)) return null;
   const players: Record<number, string> = {};
   const clean = steps.map((x, i) => {

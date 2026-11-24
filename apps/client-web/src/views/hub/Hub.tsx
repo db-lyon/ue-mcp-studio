@@ -7,7 +7,7 @@
  * check and run can be linked. Keyboard first: j and k move, Enter opens,
  * r runs, g then a letter jumps, Ctrl+K finds anything, ? lists the keys.
  */
-import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { useEffect, useMemo, useRef, useState, type MutableRefObject, type ReactNode } from "react";
 import type { PlanRequest } from "@ue-mcp-studio/shared";
 import {
   GOAL_STATUS_LOOK,
@@ -27,15 +27,16 @@ import {
   type PaletteEntry,
 } from "@ue-mcp-studio/client-core";
 import { api } from "../../api";
-import { pushLocation, readLocation } from "../../location";
-import { HubContext, useHub, type HubContextValue, type HubData } from "./state";
+import { pushLocation, readLocation, writeLocation } from "../../location";
+import { HubContext, useHub, type HubContextValue, type HubData, type LeaveGuard } from "./state";
 import { HubIcon, HubLink, Kbd, Placeholder, StatusMark, type HubIconName } from "./parts";
 import { OverviewScreen } from "./Overview";
 import { GoalScreen } from "./Goal";
 import { LibraryScreen } from "./Library";
 import { CheckScreen } from "./Check";
 import { RunScreen } from "./Run";
-import { CheckPicker, DeleteDialog, GoalDialog, GoalPicker, RequirePicker } from "./dialogs";
+import { DraftScreen } from "./Draft";
+import { CheckPicker, DeleteDialog, DescribeDialog, GoalDialog, GoalPicker, LeaveDialog, RequirePicker } from "./dialogs";
 import type { GoalPreset } from "./state";
 import "./hub.css";
 
@@ -46,20 +47,36 @@ type Overlay =
   | { kind: "addChecks"; goalId: string }
   | { kind: "require"; goalId: string }
   | { kind: "addToGoal"; checkIds: string[] }
-  | { kind: "delete"; checkIds: string[]; onDone?: (deleted: string[]) => void };
+  | { kind: "delete"; checkIds: string[]; onDone?: (deleted: string[]) => void }
+  | { kind: "describe" };
 
-/** The hub screen the hash names, read again on every hashchange (Back, Forward, a pasted link). */
-function useHubRoute(): [HubRoute, (r: HubRoute) => void] {
+/**
+ * The hub screen the hash names, read again on every hashchange (Back,
+ * Forward, a pasted link). While a screen has unsaved changes (`guard`), a
+ * hashchange away puts the hash back and asks through `onBlocked` instead.
+ */
+function useHubRoute(guard: MutableRefObject<LeaveGuard | null>, onBlocked: (r: HubRoute) => void): [HubRoute, (r: HubRoute) => void] {
   const [route, setRoute] = useState<HubRoute>(() => parseHubPath(readLocation().sub));
+  const current = useRef(route);
   useEffect(() => {
     const follow = () => {
       const at = readLocation();
-      if (at.tab === "Playtests") setRoute(parseHubPath(at.sub));
+      if (at.tab !== "Playtests") return;
+      const next = parseHubPath(at.sub);
+      if (hubPath(next) === hubPath(current.current)) return;
+      if (guard.current?.dirty()) {
+        writeLocation({ tab: "Playtests", sub: hubPath(current.current) || null });
+        onBlocked(next);
+        return;
+      }
+      current.current = next;
+      setRoute(next);
     };
     window.addEventListener("hashchange", follow);
     return () => window.removeEventListener("hashchange", follow);
   }, []);
   const go = (r: HubRoute) => {
+    current.current = r;
     setRoute(r);
     pushLocation({ tab: "Playtests", sub: hubPath(r) || null });
   };
@@ -74,7 +91,14 @@ export function HubView({ data, narrow, onOpenChat, onChat }: {
   /** Go to the Chat tab, where a playtest is asked for. */
   onChat?: () => void;
 }) {
-  const [route, go] = useHubRoute();
+  const guard = useRef<LeaveGuard | null>(null);
+  const [leaving, setLeaving] = useState<HubRoute | null>(null);
+  const [route, moveTo] = useHubRoute(guard, setLeaving);
+  // Every way to another screen asks first while the editor has unsaved changes.
+  const go = (r: HubRoute) => {
+    if (guard.current?.dirty() && hubPath(r) !== hubPath(route)) setLeaving(r);
+    else moveTo(r);
+  };
   const [overlay, setOverlay] = useState<Overlay | null>(null);
   const [toast, setToast] = useState<{ text: string; tone: "ok" | "bad"; n: number } | null>(null);
   const screenKeys = useRef<((a: HubKeyAction) => boolean) | null>(null);
@@ -160,8 +184,12 @@ export function HubView({ data, narrow, onOpenChat, onChat }: {
     requireGoal: (goalId) => setOverlay({ kind: "require", goalId }),
     addToGoal: (checkIds) => setOverlay({ kind: "addToGoal", checkIds }),
     deleteChecks: (checkIds, onDone) => setOverlay({ kind: "delete", checkIds, onDone }),
+    describePlaytest: () => setOverlay({ kind: "describe" }),
     onKeys: (h) => {
       screenKeys.current = h;
+    },
+    guardLeave: (g) => {
+      guard.current = g;
     },
   };
 
@@ -172,6 +200,7 @@ export function HubView({ data, narrow, onOpenChat, onChat }: {
       case "library": return <LibraryScreen />;
       case "check": return <CheckScreen key={route.checkId} checkId={route.checkId} />;
       case "run": return <RunScreen key={route.runId} runId={route.runId} />;
+      case "draft": return <DraftScreen key={hubPath(route)} checkId={route.checkId} goalId={route.goalId} />;
     }
   })();
 
@@ -191,6 +220,20 @@ export function HubView({ data, narrow, onOpenChat, onChat }: {
         {overlay?.kind === "require" && <RequirePicker goalId={overlay.goalId} onClose={() => setOverlay(null)} />}
         {overlay?.kind === "addToGoal" && <GoalPicker checkIds={overlay.checkIds} onClose={() => setOverlay(null)} />}
         {overlay?.kind === "delete" && <DeleteDialog checkIds={overlay.checkIds} onDone={overlay.onDone} onClose={() => setOverlay(null)} />}
+        {overlay?.kind === "describe" && <DescribeDialog onClose={() => setOverlay(null)} />}
+        {leaving && (
+          <LeaveDialog
+            isNew={route.screen === "draft" && !route.checkId}
+            onStay={() => setLeaving(null)}
+            onDiscard={() => {
+              const to = leaving;
+              guard.current?.discard();
+              guard.current = null;
+              setLeaving(null);
+              moveTo(to);
+            }}
+          />
+        )}
       </div>
     </HubContext.Provider>
   );

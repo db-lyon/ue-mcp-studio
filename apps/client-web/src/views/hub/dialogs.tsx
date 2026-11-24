@@ -7,6 +7,7 @@ import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { GOAL_PRIORITIES, type GoalPriority } from "@ue-mcp-studio/shared";
 import {
   CHECK_HEALTH_LOOK,
+  DRAFT_COPY,
   GOAL_STATUS_LOOK,
   GOAL_TITLE_MAX,
   HUB_COPY,
@@ -344,6 +345,68 @@ export function DeleteDialog({ checkIds, onDone, onClose }: { checkIds: string[]
             <button className="danger-button" disabled={running || items.length === 0} onClick={() => void run()}>{HUB_COPY.delete}</button>
           </>
         )}
+      </div>
+    </Dialog>
+  );
+}
+
+/** Draft with an agent: what the playtest should check, handed to the /playtest flow in a new chat session. */
+export function DescribeDialog({ onClose }: { onClose: () => void }) {
+  const hub = useHub();
+  const [text, setText] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const go = async () => {
+    if (!text.trim() || busy) return;
+    setBusy(true);
+    setError(null);
+    try {
+      const session = await api.newSession();
+      await api.playtest(session.id, { text: text.trim() });
+      onClose();
+      hub.openChat(session.id);
+    } catch (e) {
+      setError((e as Error).message);
+      setBusy(false);
+    }
+  };
+  return (
+    <Dialog label={DRAFT_COPY.draftWithAgentTitle} onClose={onClose} className="hub-describe">
+      <form onSubmit={(e) => { e.preventDefault(); void go(); }}>
+        <div className="overlay-head">{DRAFT_COPY.draftWithAgentTitle}</div>
+        <p className="small muted hub-describe-lead">{DRAFT_COPY.draftWithAgentLead}</p>
+        <textarea
+          autoFocus
+          rows={4}
+          value={text}
+          aria-label={DRAFT_COPY.draftWithAgentTitle}
+          placeholder={DRAFT_COPY.draftWithAgentPlaceholder}
+          onChange={(e) => setText(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) { e.preventDefault(); void go(); }
+          }}
+        />
+        {error && <span className="hub-error" role="alert">{error}</span>}
+        <div className="hub-form-actions">
+          <span className="spacer" />
+          <button type="button" className="ghost" onClick={onClose}>{DRAFT_COPY.cancel}</button>
+          <button type="submit" className="primary" disabled={!text.trim() || busy}><HubIcon name="sparkle" size={12} /> {DRAFT_COPY.draftWithAgentGo}</button>
+        </div>
+      </form>
+    </Dialog>
+  );
+}
+
+/** Leaving the playtest editor with unsaved changes. */
+export function LeaveDialog({ isNew, onStay, onDiscard }: { isNew: boolean; onStay: () => void; onDiscard: () => void }) {
+  return (
+    <Dialog label={DRAFT_COPY.discardTitle} onClose={onStay} className="hub-leave">
+      <div className="overlay-head">{DRAFT_COPY.discardTitle}</div>
+      <p className="small muted">{isNew ? DRAFT_COPY.discardNewLead : DRAFT_COPY.discardLead}</p>
+      <div className="hub-form-actions">
+        <span className="spacer" />
+        <button className="ghost" autoFocus onClick={onStay}>{DRAFT_COPY.keepEditing}</button>
+        <button className="danger-button" onClick={onDiscard}>{DRAFT_COPY.discard}</button>
       </div>
     </Dialog>
   );

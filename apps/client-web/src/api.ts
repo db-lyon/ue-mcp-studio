@@ -76,7 +76,7 @@ import type {
   ViewportStatus,
 } from "@ue-mcp-studio/shared";
 import { alive, fromUeMcp, recordDiag } from "./diag";
-import { hubApi, notificationsOf, playtestsQuery, threadQuery, uploadChunked, uploadInParts } from "@ue-mcp-studio/client-core";
+import { draftingApi, hubApi, notificationsOf, playtestsQuery, threadQuery, uploadChunked, uploadInParts } from "@ue-mcp-studio/client-core";
 import { FILE_REVEAL_PATH } from "@ue-mcp-studio/shared";
 import type { AgentThreadPage, Notice, NotifyDelivery, NotifyDevice, ProjectNotifyUpdate } from "@ue-mcp-studio/shared";
 import { agentSettingsOf, catalogOf, contextOf, healthOf, installOf, nativeOf, settingsOf } from "./normalize";
@@ -372,6 +372,8 @@ export const api = {
   sendFeedback: (report: FeedbackReport) => call<FeedbackResult>("POST", "/v1/ext/studio/feedback", report),
   /** The Playtest Hub's routes (client-core hubApi), over this page's fetch. */
   hub: hubApi(<T,>(method: string, url: string, body?: unknown) => call<T>(method, url, body)),
+  /** The hub's playtest editor (client-core draftingApi). */
+  drafting: draftingApi(<T,>(method: string, url: string, body?: unknown) => call<T>(method, url, body)),
 };
 
 /** A stream whose response head has not come back this long is stalled: abort and ask again. */

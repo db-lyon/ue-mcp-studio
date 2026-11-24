@@ -1,16 +1,20 @@
 /**
  * One playtest: what it does step by step, every run it has had (newest
  * first, a page at a time), how often its result flips, the goals that rely
- * on it, and its own links, wherever it is listed. Its steps are edited in
- * the playtest card's own editor.
+ * on it, and its own links, wherever it is listed. Edit steps opens the
+ * playtest editor (Draft.tsx), the same screen New playtest opens.
  */
 import { useEffect, useMemo, useRef, useState } from "react";
-import type { CheckDetail, QaRun, RunRecord, TrackerLink } from "@ue-mcp-studio/shared";
+import { qaScriptSteps, type CheckDetail, type QaRun, type RunRecord, type TrackerLink } from "@ue-mcp-studio/shared";
 import { HubLinks } from "./links";
 import {
   CHECK_CHANGE_LOOK,
   CHECK_HEALTH_LOOK,
+  EMPTY_CATALOG,
   GOAL_STATUS_LOOK,
+  draftFromScript,
+  sentenceText,
+  stepSentence,
   HUB_COPY,
   withLink,
   withoutLink,
@@ -26,7 +30,6 @@ import {
   shortAgo,
 } from "@ue-mcp-studio/client-core";
 import { api } from "../../api";
-import { QaCard, QaContext, savedScriptActions, type QaLive } from "../../chat/Qa";
 import { useCursor, useHub } from "./state";
 import { Empty,HubIcon, HubLink, Placeholder, ScreenHead, StatusMark, StatusPill, WinLoss } from "./parts";
 
@@ -39,7 +42,6 @@ export function CheckScreen({ checkId }: { checkId: string }) {
   const [older, setOlder] = useState<RunRecord[]>([]);
   const [more, setMore] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [editing, setEditing] = useState(false);
   useEffect(() => {
     let live = true;
     api.hub.check(checkId, { limit: PAGE }).then((d) => {
@@ -56,6 +58,13 @@ export function CheckScreen({ checkId }: { checkId: string }) {
   const runs = useMemo(() => [...(detail?.runs ?? []), ...older.filter((r) => !detail?.runs.some((d) => d.runId === r.runId))], [detail, older]);
   const list = useRef<HTMLDivElement>(null);
   const [at, setAt, move] = useCursor(runs.length, list);
+  // Each step as the editor reads it, beside what the player is told.
+  const sentences = useMemo(() => {
+    const run = detail?.script;
+    if (!run) return [];
+    const steps = qaScriptSteps(run).map((st, i) => (st.expect ? { ...st, expect: { ...st.expect, within_ms: st.expect.within_ms ?? run.steps[i]?.withinMs } } : st));
+    return draftFromScript({ steps }).steps.map((s) => sentenceText(stepSentence(s, EMPTY_CATALOG)));
+  }, [detail?.script]);
 
   const loadOlder = () => {
     const last = runs[runs.length - 1];
@@ -74,8 +83,6 @@ export function CheckScreen({ checkId }: { checkId: string }) {
     else return false;
     return true;
   });
-
-  const live: QaLive = useMemo(() => ({ events: [], streaming: true, forms: [], sessionId: null }), []);
 
   if (!state) {
     return (
@@ -124,7 +131,7 @@ export function CheckScreen({ checkId }: { checkId: string }) {
           {state.health === "failing" && <button onClick={() => void fix()} title="An agent fixes it in a chat session of its own"><HubIcon name="assign" size={12} /> {HUB_COPY.fix}</button>}
           <button onClick={() => hub.addToGoal([checkId])}><HubIcon name="goal" size={12} /> {HUB_COPY.addToGoal}</button>
           <button className="danger-button" disabled={state.missing} title={state.missing ? "Not on this checkout" : "Delete the script asset"} onClick={() => hub.deleteChecks([checkId], () => go({ screen: "library" }))}><HubIcon name="close" size={12} /> {HUB_COPY.delete}</button>
-          {script && <button className="ghost" aria-expanded={editing} onClick={() => setEditing((e) => !e)}><HubIcon name="edit" size={12} /> {editing ? "Done editing" : "Edit steps"}</button>}
+          {!state.missing && <button className="ghost" onClick={() => go({ screen: "draft", checkId })}><HubIcon name="edit" size={12} /> Edit steps</button>}
         </>}
       />
       {state.missing && <div className="banner small">{HUB_COPY.notOnCheckout}</div>}
@@ -150,11 +157,7 @@ export function CheckScreen({ checkId }: { checkId: string }) {
         onRemove={(url) => void saveLinks(withoutLink(state.links, url)).catch((e: Error) => hub.notify(e.message, "bad"))}
       />
 
-      {editing && script ? (
-        <QaContext.Provider value={live}>
-          <div className="hub-editor"><QaCard run={script} actions={{ script: savedScriptActions(state.check.target, () => data.reload()) }} slotted /></div>
-        </QaContext.Provider>
-      ) : script && script.steps.length > 0 ? (
+      {script && script.steps.length > 0 ? (
         <section className="hub-section">
           <div className="hub-section-head"><h2>Steps <span className="dim">{script.steps.length}</span></h2>{script.map && <span className="mono small dim">{script.map.split("/").pop()}</span>}</div>
           <ol className="hub-steps">
@@ -163,7 +166,7 @@ export function CheckScreen({ checkId }: { checkId: string }) {
                 <span className="hub-step-num mono">{s.index + 1}</span>
                 <span className="hub-step-text">{s.instruction}</span>
                 <span className="hub-step-judge small dim">{judgeLabel(s)}</span>
-                {s.expect && <span className="hub-step-expect mono small">{s.expect.value} {s.expect.op}{s.expect.target !== undefined ? ` ${s.expect.target}` : ""}{s.withinMs ? ` within ${s.withinMs} ms` : ""}</span>}
+                {sentences[s.index] && sentences[s.index] !== s.instruction && <span className="hub-step-expect small">{sentences[s.index]}</span>}
               </li>
             ))}
           </ol>
