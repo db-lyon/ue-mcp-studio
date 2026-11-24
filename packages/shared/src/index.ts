@@ -1043,8 +1043,7 @@ export interface StudioPluginUpdate {
 }
 export * from "./qa.js";
 export * from "./playtests.js";
-export * from "./hub.js";
-export * from "./hub-attention.js";
+export * from "./hub-contract.js";
 export * from "./agents.js";
 export * from "./review.js";
 export * from "./diff-tree.js";
