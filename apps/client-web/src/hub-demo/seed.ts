@@ -696,7 +696,7 @@ export function demoState(seed: DemoSeed, now = Date.now(), randomSeed = 7): Dem
   // A nightly run of the slice, and a weekday co-op check that waited for the editor and gave up.
   const schedules: Schedule[] = [
     { id: "sched-nightly", title: "Nightly: Vertical Slice", scope: { kind: "goal", goalId: "vertical-slice" }, options: planOptionsFor("schedule"), at: "02:00", days: [0, 1, 2, 3, 4, 5, 6], enabled: true, lastRunAt: null, lastSkipped: null, waiting: null, nextRunAt: null },
-    { id: "sched-coop", title: "Co-op smoke test", scope: { kind: "goal", goalId: "coop-join" }, options: { ...planOptionsFor("schedule"), stopOnFailure: true }, at: "13:00", days: [1, 2, 3, 4, 5], enabled: true, lastRunAt: null, lastSkipped: "waited an hour: The editor is not connected", waiting: null, nextRunAt: null },
+    { id: "sched-coop", title: "Co-op smoke test", scope: { kind: "goal", goalId: "coop-join" }, options: { ...planOptionsFor("schedule"), stopOnFailure: true }, at: "13:00", days: [1, 2, 3, 4, 5], enabled: true, lastRunAt: null, lastSkipped: "waited an hour while the editor is not connected", waiting: null, nextRunAt: null },
   ];
   for (const s of schedules) s.nextRunAt = demoNextRun(s, now);
   // The team's rule: a pass not run for two weeks is stale.

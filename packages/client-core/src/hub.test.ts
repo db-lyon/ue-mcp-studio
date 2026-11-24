@@ -354,8 +354,10 @@ describe("schedules and the queue", () => {
   });
 
   it("says where a person's Run went, and offers Run next only behind other queued runs", () => {
-    expect(runFeedback("Run Tutorial", { state: "started", position: 0, ahead: 0, resumed: true }, 3)).toEqual({ text: "Running Run Tutorial: 3 playtests", tone: "ok" });
+    expect(runFeedback("Tutorial completes", { state: "started", position: 0, ahead: 0, resumed: true }, 3)).toEqual({ text: "Running Tutorial completes (3 playtests)", tone: "ok" });
+    expect(runFeedback("every playtest", { state: "started", position: 0, ahead: 0 }, 3).text).toBe("Running every playtest");
     expect(runFeedback("Jump", { state: "waiting", position: 1, ahead: 0, reason: "Play In Editor is in use" })).toEqual({ text: "Jump is next. Play In Editor is in use.", tone: "bad", openQueue: true });
+    expect(runFeedback("Jump", { state: "waiting", position: 1, ahead: 0, reason: "Claude Code holds the editor: is this safe?" }).text).toBe("Jump is next. Claude Code holds the editor: is this safe.");
     expect(runFeedback("Jump", { state: "queued", position: 1, ahead: 1 })).toEqual({ text: "Queued Jump, 1 run ahead", tone: "ok", runNext: false, openQueue: true });
     expect(runFeedback("Jump", { state: "queued", position: 3, ahead: 3 })).toMatchObject({ text: "Queued Jump, 3 runs ahead", runNext: true });
     // A daemon that predates placements.

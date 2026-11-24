@@ -1170,7 +1170,7 @@ export class HubDemo {
         }
         continue;
       }
-      if (blocked) sch.lastSkipped = `waited an hour: ${blocked}`;
+      if (blocked) sch.lastSkipped = `waited an hour while ${blocked[0].toLowerCase()}${blocked.slice(1)}`;
       else {
         const plan = this.makePlan({ title: sch.title, scope: sch.scope, options: sch.options }, "schedule", sch.id);
         if (plan) {

@@ -383,7 +383,7 @@ describe("a person's Run", () => {
     o.queue = { ...o.queue, paused: true, pausedBy: "release" };
     render(<Harness start={o} />);
     runAll();
-    await waitFor(() => expect(toast().textContent).toContain("Running every playtest: 3 playtests"));
+    await waitFor(() => expect(toast().textContent).toContain("Running every playtest"));
     expect(within(toast()).queryByRole("button", { name: "Run next" })).toBeNull();
   });
 
@@ -392,7 +392,7 @@ describe("a person's Run", () => {
     m.hub.movePlan.mockResolvedValue(hubFixture().queue);
     render(<Harness start={hubFixture()} />);
     runAll();
-    await waitFor(() => expect(toast().textContent).toContain("Queued every playtest: 1 playtest, 2 runs ahead"));
+    await waitFor(() => expect(toast().textContent).toContain("Queued every playtest, 2 runs ahead"));
     fireEvent.click(within(toast()).getByRole("button", { name: "Run next" }));
     await waitFor(() => expect(m.hub.movePlan).toHaveBeenCalledWith("p9", 0));
     runAll();
@@ -450,7 +450,7 @@ describe("the queue", () => {
   it("says schedules need a newer ue-mcp when the daemon has none", () => {
     window.location.hash = "#/playtests/queue";
     render(<Harness start={hubFixture()} />);
-    expect(screen.getByText("Schedules need a newer ue-mcp.")).toBeTruthy();
+    expect(screen.getByText("Update ue-mcp to use schedules.")).toBeTruthy();
     expect(screen.queryByRole("button", { name: /New schedule/ })).toBeNull();
   });
 });

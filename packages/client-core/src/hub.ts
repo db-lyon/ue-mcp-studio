@@ -426,9 +426,9 @@ export const HUB_COPY = {
   runNext: "Run next",
   schedules: "Schedules",
   newSchedule: "New schedule",
-  noSchedules: "A schedule runs playtests on the days and at the time you pick, once nobody else is using the editor.",
+  noSchedules: "A schedule runs playtests on the days and at the time you pick, when the editor is free and nobody is at the computer.",
   /** Shown where schedules would be, by a daemon that has none. */
-  schedulesUnavailable: "Schedules need a newer ue-mcp.",
+  schedulesUnavailable: "Update ue-mcp to use schedules.",
   attended: "Someone is there to judge manual steps",
   attendedHelp: "Without someone there, playtests with manual steps are skipped.",
   stopOnFailure: "Stop at the first failure",
@@ -528,24 +528,27 @@ export interface RunFeedback {
 }
 
 const sentence = (s: string): string => (s ? s[0].toUpperCase() + s.slice(1) : s);
+/** A reason as a sentence of its own, ended once. */
+const ended = (s: string): string => `${sentence(s.trim().replace(/[.!?:;,]+$/, ""))}.`;
 
 /**
  * The line after a person's Run, from where the daemon put the plan. Without
  * a placement (a daemon that predates it) it says only that it was queued.
+ * The count is left out when the title already says playtests.
  */
 export function runFeedback(title: string, placement: PlanPlacement | undefined, count?: number): RunFeedback {
-  const what = count === undefined ? title : `${title}: ${count} ${count === 1 ? "playtest" : "playtests"}`;
+  const what = count === undefined || /playtest/i.test(title) ? title : `${title} (${count} ${count === 1 ? "playtest" : "playtests"})`;
   if (!placement) return { text: `Queued ${what}`, tone: "ok", openQueue: true };
   switch (placement.state) {
     case "started":
       return { text: `Running ${what}`, tone: "ok" };
     case "waiting":
       return placement.reason
-        ? { text: `${sentence(title)} is next. ${sentence(placement.reason)}.`, tone: "bad", openQueue: true }
+        ? { text: `${sentence(title)} is next. ${ended(placement.reason)}`, tone: "bad", openQueue: true }
         : { text: `${sentence(title)} starts next`, tone: "ok", openQueue: true };
     case "queued":
       return placement.reason
-        ? { text: `Queued ${what}. ${sentence(placement.reason)}.`, tone: "bad", openQueue: true }
+        ? { text: `Queued ${what}. ${ended(placement.reason)}`, tone: "bad", openQueue: true }
         : { text: `Queued ${what}, ${placement.ahead} ${placement.ahead === 1 ? "run" : "runs"} ahead`, tone: "ok", runNext: placement.position > 1, openQueue: true };
   }
 }

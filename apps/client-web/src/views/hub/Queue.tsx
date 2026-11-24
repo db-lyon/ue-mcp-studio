@@ -132,7 +132,7 @@ export function QueueScreen() {
                     <span><HubIcon name="calendar" size={11} /> {scheduleText(s)}</span>
                     <span>{scopeText(s.scope, o.goals)}</span>
                     {s.waiting ? <span className="hub-warn-text">{HUB_COPY.scheduleWaiting(s.waiting)}</span>
-                      : s.nextRunAt && s.enabled && <span>Next {new Date(s.nextRunAt).toLocaleString(undefined, { weekday: "short", hour: "2-digit", minute: "2-digit" })}</span>}
+                      : s.nextRunAt && s.enabled && <span>Next {new Date(s.nextRunAt).toLocaleString(undefined, { weekday: "short", hour: "2-digit", minute: "2-digit", hourCycle: "h23" })}</span>}
                     {s.lastSkipped && <span className="hub-bad-text" title={s.lastRunAt ?? ""}>{HUB_COPY.scheduleSkipped(s.lastSkipped)}</span>}
                   </span>
                 </span>
