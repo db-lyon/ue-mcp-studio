@@ -7,7 +7,7 @@
  * The daemon computes it; clients only format it (client-core).
  */
 import type { ContextUsage } from "./context.js";
-import type { QaRun } from "./qa.js";
+import type { QaRun } from "ue-mcp/hub";
 import { qaActive, qaNeedsYou } from "./playtests.js";
 import type { ToolCallRecord, TranscriptEntry, TurnStatus } from "./index.js";
 

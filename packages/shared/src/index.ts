@@ -6,7 +6,7 @@
 /** Name the agent registers its routes under: /v1/ext/studio/... */
 export const EXTENSION_NAME = "studio";
 
-import type { QaRun } from "./qa.js";
+import type { QaRun } from "ue-mcp/hub";
 import type { TimelineMark, TurnReview } from "./review.js";
 import type { PlaytestRequest, PlaytestStage } from "./commands.js";
 import type { FlowRunState, FlowStepProgress } from "./flows.js";
@@ -1041,7 +1041,6 @@ export interface StudioPluginUpdate {
   /** The installed plugin is older than this Studio needs, or built for another engine than the project's. */
   required?: boolean;
 }
-export * from "./qa.js";
 export * from "./playtests.js";
 export * from "./hub-contract.js";
 export * from "./agents.js";

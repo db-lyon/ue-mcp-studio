@@ -75,19 +75,19 @@ export class HubBridge {
   private broker(): HubBroker {
     const qa = this.o.qa;
     return {
-      all: () => qa.all() as unknown as ReturnType<HubBroker["all"]>,
-      get: (runId) => qa.get(runId) as unknown as ReturnType<HubBroker["get"]>,
-      onSaved: (listener) => qa.onSaved(listener as unknown as Parameters<QaBroker["onSaved"]>[0]),
-      status: (runId) => qa.status(runId) as unknown as ReturnType<HubBroker["status"]>,
-      readScriptAt: (script) => qa.readScriptAt(script) as unknown as ReturnType<HubBroker["readScriptAt"]>,
+      all: () => qa.all(),
+      get: (runId) => qa.get(runId),
+      onSaved: (listener) => qa.onSaved(listener),
+      status: (runId) => qa.status(runId),
+      readScriptAt: (script) => qa.readScriptAt(script),
       startScript: async (script, start) => {
         const card = await this.cardFor(script, start.planRunId, start.title);
         if ("error" in card) return card;
         const r = await qa.runScript(card.runId, { startPie: true });
-        return "error" in r ? { error: r.error } : ({ run: r.run } as unknown as { run: ReturnType<HubBroker["all"]>[number] });
+        return "error" in r ? { error: r.error } : { run: r.run };
       },
-      stopRun: (runId, reason) => qa.stopRun(runId, reason) as unknown as ReturnType<HubBroker["stopRun"]>,
-      setPlanWait: (wait) => qa.setPlanWait(wait as unknown as Parameters<QaBroker["setPlanWait"]>[0]),
+      stopRun: (runId, reason) => qa.stopRun(runId, reason),
+      setPlanWait: (wait) => qa.setPlanWait(wait),
     };
   }
 
