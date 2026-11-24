@@ -162,6 +162,8 @@ export const PARITY: Record<string, ParityEntry> = {
   "settings-project-rebuild": {owner: "agent-b"},
   "settings-project-yaml": {owner: "agent-b", clicks: ["Advanced: ue-mcp.yml"], scroll: "Advanced"},
   "settings-general": {owner: "agent-b"},
+  "settings-experiments": {owner: "agent-b"},
+  "settings-experiments-on": {owner: "agent-b"},
   "settings-whats-new-card": {owner: "agent-b"},
   "settings-whats-new": {owner: "agent-b", clicks: ["What's new", "Editor dialogs"]},
   "settings-general-signed-in": {owner: "agent-b"},

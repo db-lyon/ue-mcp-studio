@@ -6,12 +6,12 @@
 import { CONTEXT_STRATEGY_INFO, anythingConnected, type ClientContextStrategy, type ModelCatalog, type StudioSettings } from "@ue-mcp-studio/shared";
 
 /** Settings sections, grouped by the decision being made. */
-export type BuiltinSection = "agents" | "models" | "approvals" | "project" | "general" | "notifications" | "remote" | "diagnostics";
+export type BuiltinSection = "agents" | "models" | "approvals" | "project" | "general" | "notifications" | "remote" | "experiments" | "diagnostics";
 /** A section an extension adds: `ext:<extension>:<contribution id>`. */
 export type ExtensionSection = `ext:${string}:${string}`;
 export type SettingsSection = BuiltinSection | ExtensionSection;
 /** Remote control is listed only while it is offered; the hub opens General for it otherwise. */
-export const SETTINGS_SECTIONS: readonly BuiltinSection[] = ["agents", "models", "approvals", "project", "general", "notifications", "remote", "diagnostics"];
+export const SETTINGS_SECTIONS: readonly BuiltinSection[] = ["agents", "models", "approvals", "project", "general", "notifications", "remote", "experiments", "diagnostics"];
 
 const EXT = /^ext:[A-Za-z0-9_-]{1,64}:[A-Za-z0-9_-]{1,64}$/;
 export const extensionSection = (ext: string, id: string): ExtensionSection => `ext:${ext}:${id}`;
@@ -32,6 +32,7 @@ const MOVED: Record<string, BuiltinSection> = {
   logs: "diagnostics",
   notify: "notifications",
   notification: "notifications",
+  experiment: "experiments",
 };
 
 /** A section from a location: null when there is none, an extension's kept as written, General for any other unknown name. */
@@ -54,7 +55,7 @@ export const REMOTE_ITEM: SettingsItem = { id: "remote", name: "Remote control",
 export const SETTINGS_GROUPS: ReadonlyArray<{ label: string; items: SettingsItem[] }> = [
   {
     label: "Studio",
-    items: [{ id: "general", name: "General", sub: "Account, appearance and updates" }, { id: "notifications", name: "Notifications", sub: "Events, mutes and quiet hours" }, REMOTE_ITEM],
+    items: [{ id: "general", name: "General", sub: "Account, appearance and updates" }, { id: "notifications", name: "Notifications", sub: "Events, mutes and quiet hours" }, REMOTE_ITEM, { id: "experiments", name: "Experiments", sub: "Features you switch on before they are finished" }],
   },
   {
     label: "Work",

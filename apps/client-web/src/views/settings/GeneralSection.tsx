@@ -4,13 +4,12 @@ import { THEME_CHOICES } from "@ue-mcp-studio/client-core";
 import { api } from "../../api";
 import { UpdatesCard } from "../Updates";
 import { Head } from "../SettingsHub";
-import { Card, Row, Switch, useMessage } from "./controls";
-import { announceExperiments } from "../hub/state";
+import { Card, useMessage } from "./controls";
 import { AccountCard } from "./AccountCard";
 
 export const THEMES = THEME_CHOICES;
 
-/** General: the ue-mcp account, how Studio looks, its updates, and experiments to switch on. */
+/** General: the ue-mcp account, how Studio looks, and its updates. */
 export function GeneralSection({ onTheme }: { onTheme: (t: StudioTheme) => void }) {
   const [settings, setSettings] = useState<StudioSettings | null>(null);
   const msg = useMessage();
@@ -22,16 +21,9 @@ export function GeneralSection({ onTheme }: { onTheme: (t: StudioTheme) => void 
     onTheme(theme);
     api.saveSettings({ theme }).then(setSettings, msg.fail);
   };
-  // The tabs follow at once: the app hears the change rather than waiting for a reload.
-  const setHub = (playtestHub: boolean) => {
-    api.saveSettings({ experiments: { playtestHub } }).then((s) => {
-      setSettings(s);
-      announceExperiments(s.experiments ?? { playtestHub });
-    }, msg.fail);
-  };
   return (
     <>
-      <Head title="General" lead="Your ue-mcp account, theme, and updates for Studio and the editor plugin." />
+      <Head title="General" lead="Your ue-mcp account, the theme, and updates for Studio and the editor plugin." />
       {msg.node}
       <Card label="Appearance">
         <div className="themes">
@@ -45,11 +37,6 @@ export function GeneralSection({ onTheme }: { onTheme: (t: StudioTheme) => void 
         </div>
       </Card>
       <UpdatesCard />
-      <Card label="Experiments">
-        <Row title="Playtest Hub" help="Adds a Playtests tab for goals, the playtests that prove them and their runs. Studio keeps goals on this computer, not in the project.">
-          <Switch on={settings?.experiments?.playtestHub === true} onChange={setHub} label="Playtest Hub" disabled={!settings} />
-        </Row>
-      </Card>
       <AccountCard />
     </>
   );

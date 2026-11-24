@@ -17,6 +17,7 @@ import { pageScroll } from "./controls";
 import { GeneralSection } from "./GeneralSection";
 import { RemoteSection } from "./RemoteSection";
 import { NotificationsSection } from "./NotificationsSection";
+import { ExperimentsSection } from "./ExperimentsSection";
 import { AgentsSection } from "./AgentsSection";
 import { ModelsSection } from "./ModelsSection";
 import { ApprovalsSection } from "./ApprovalsSection";
@@ -31,6 +32,7 @@ const ICONS: Record<BuiltinSection, string> = {
   general: "M8 10a2 2 0 1 0 0-4 2 2 0 0 0 0 4zM8 1.5v2M8 12.5v2M1.5 8h2M12.5 8h2M3.4 3.4l1.4 1.4M11.2 11.2l1.4 1.4M3.4 12.6l1.4-1.4M11.2 4.8l1.4-1.4",
   notifications: "M4 11.5V7a4 4 0 0 1 8 0v4.5l1.5 1.5h-11zM6.5 13.5a1.5 1.5 0 0 0 3 0",
   remote: "M5 1.5h6v13H5zM7.3 12.5h1.4",
+  experiments: "M6 1.5h4M6.5 1.5v4.5L2.6 12.8a1.2 1.2 0 0 0 1 1.7h8.8a1.2 1.2 0 0 0 1-1.7L9.5 6V1.5M4.3 10h7.4",
   diagnostics: "M1.5 8.5h3l2-5 3 9 2-4h3",
 };
 
@@ -149,6 +151,7 @@ function Section({ id, daemon, onSection, onTheme }: { id: BuiltinSection; daemo
   if (id === "general") body = <GeneralSection onTheme={onTheme} />;
   else if (id === "remote") body = <RemoteSection />;
   else if (id === "notifications") body = <NotificationsSection />;
+  else if (id === "experiments") body = <ExperimentsSection />;
   else if (id === "agents") body = <AgentsSection onSection={onSection} />;
   else if (id === "models") body = <ModelsSection />;
   else if (id === "approvals") body = <ApprovalsSection />;

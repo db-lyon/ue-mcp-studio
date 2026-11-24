@@ -8,6 +8,7 @@ import { ApprovalsSection } from "./settings/ApprovalsSection";
 import { ProjectSection } from "./settings/ProjectSection";
 import { GeneralSection } from "./settings/GeneralSection";
 import { NotificationsSection } from "./settings/NotificationsSection";
+import { ExperimentsSection } from "./settings/ExperimentsSection";
 import { RemoteSection, RemoteSignIn, RemoteUpsell } from "./settings/RemoteSection";
 import { useRemoteAvailable } from "./settings/remote-available";
 import { StatusView } from "./Status";
@@ -28,6 +29,7 @@ const ICONS: Record<BuiltinSection, string> = {
   general: "M8 10a2 2 0 1 0 0-4 2 2 0 0 0 0 4zM8 1.5v2M8 12.5v2M1.5 8h2M12.5 8h2M3.4 3.4l1.4 1.4M11.2 11.2l1.4 1.4M3.4 12.6l1.4-1.4M11.2 4.8l1.4-1.4",
   notifications: "M4 11.5V7a4 4 0 0 1 8 0v4.5l1.5 1.5h-11zM6.5 13.5a1.5 1.5 0 0 0 3 0",
   remote: "M5 1.5h6v13H5zM7.3 12.5h1.4",
+  experiments: "M6 1.5h4M6.5 1.5v4.5L2.6 12.8a1.2 1.2 0 0 0 1 1.7h8.8a1.2 1.2 0 0 0 1-1.7L9.5 6V1.5M4.3 10h7.4",
   diagnostics: "M1.5 8.5h3l2-5 3 9 2-4h3",
 };
 const EXTENSION_ICON = "M2.5 2.5h4.5v4.5H2.5zM9 2.5h4.5v4.5H9zM2.5 9h4.5v4.5H2.5zM9 9h4.5v4.5H9z";
@@ -105,6 +107,7 @@ export function SettingsHub({ daemon, section, onSection, onTheme, updates = 0, 
   else if (open === "project") body = <ProjectSection onSection={onSection} />;
   else if (open === "general") body = <GeneralSection onTheme={onTheme} />;
   else if (open === "notifications") body = <NotificationsSection remote={remote.surface} />;
+  else if (open === "experiments") body = <ExperimentsSection />;
   else if (open === "remote" && remote.surface === "working") body = <RemoteSection onUnavailable={remote.recheck} />;
   else if (open === "remote" && remote.surface === "upsell") body = <RemoteUpsell />;
   else if (open === "remote" && remote.surface === "signin") body = <RemoteSignIn onDone={remote.recheck} />;
