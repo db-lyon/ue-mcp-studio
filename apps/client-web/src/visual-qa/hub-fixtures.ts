@@ -42,6 +42,12 @@ function hub(title: string, hash: string, d: HubDemo, extra: Partial<Scenario> =
       const a = d.handle("GET", p, url.searchParams);
       return a && a.status < 400 ? a.body : undefined;
     },
+    // The playtest editor's check of a draft, which changes nothing.
+    post: (p, body) => {
+      if (!p.endsWith("/qa/drafting/validate")) return undefined;
+      const a = d.handle("POST", p, new URLSearchParams(), body);
+      return a ? { status: a.status, body: a.body } : undefined;
+    },
     ...extra,
   };
 }
@@ -52,6 +58,24 @@ const empty = snapshot("empty", 0);
 const enc = encodeURIComponent;
 const ledge = checkId({ kind: "script", target: `${DEMO_SCRIPTS_DIR}/Traversal/PT_LedgeGrab` });
 const staggerRun = full.state.runs.find((r) => r.name === "PT_Stagger_Wisp" && r.outcome === "failed")!.runId;
+const editOf = (path: string) => `#/playtests/checks/${enc(checkId({ kind: "script", target: path }))}/edit`;
+
+/** A project with a playtest whose first step names a value the pawn does not have: the editor's finding and its fixes. */
+const typo = snapshot("full", 0);
+const TYPO = `${DEMO_SCRIPTS_DIR}/Traversal/PT_Jump_Count`;
+typo.state.scripts.push({
+  path: TYPO,
+  name: "PT_Jump_Count",
+  map: "/Game/EmberHollow/Maps/L_Ashwood",
+  author: "Sam Okafor",
+  tags: [],
+  profile: {},
+  steps: [
+    { instruction: "Press Jump, then JumpCurentCount is greater than 0 within 1 s", judge: "auto", act: [{ press: { action: "/Game/EmberHollow/Input/IA_Jump" } }], expect: { value: "JumpCurentCount", op: "gt", target: 0, within_ms: 1000 } },
+    { instruction: "Hold Sprint and the stamina ring shows", judge: "auto", act: [{ hold: { action: "/Game/EmberHollow/Input/IA_Sprint", value: 1, ms: 1500 } }], expect: { value: "WBP_StaminaRing", op: "visible", within_ms: 2000 } },
+    { instruction: "The jump arc looks smooth, with no snap at the peak", judge: "manual", agent_judgeable: false },
+  ],
+});
 
 export const HUB_SCENARIOS: Record<string, Scenario> = {
   "hub-overview": hub("Playtest Hub overview: Now running with the runs waiting and finished, milestones and goals by status, every playtest, Needs attention and what just broke", "#/playtests", full),
@@ -63,4 +87,10 @@ export const HUB_SCENARIOS: Record<string, Scenario> = {
   "hub-check": hub("A flaky playtest: its steps, its own links and every run, newest first", `#/playtests/checks/${enc(ledge)}`, full),
   "hub-run": hub("A failed run: the step timeline, the observed values, the log and the comparison with the last pass", `#/playtests/runs/${enc(staggerRun)}`, full),
   "hub-editor-offline": hub("The hub with the editor closed: Now running waits for it", "#/playtests", offline),
+  "hub-draft-new": hub("New playtest: a name, the level it plays in, and a first step to fill in", "#/playtests/checks/new", full),
+  "hub-draft-picker": hub("New playtest with the value picker open: the pawn's values, movement channels, actors, widgets and input actions, each with its type", "#/playtests/checks/new", full, { clicks: [".hub-draft-check .hub-draft-pick"] }),
+  "hub-draft-edit": hub("Editing a saved playtest: each step as a sentence, the first open with its value, operator, target and time limit", editOf(`${DEMO_SCRIPTS_DIR}/Traversal/PT_LedgeGrab`), full),
+  "hub-draft-problem": hub("A step whose value the pawn does not have: the editor's finding on the value, with its candidates as one-click fixes", editOf(TYPO), typo),
+  "hub-draft-manual": hub("A person step open: what a person checks, and that only a person may judge it", editOf(TYPO), typo, { clicks: [".hub-draft-step:nth-child(3) .hub-draft-step-toggle"] }),
+  "hub-draft-offline": hub("The playtest editor with the editor closed: the steps can still be written, and nothing is checked", "#/playtests/checks/new", offline),
 };
