@@ -560,6 +560,21 @@ describe("Fix failing playtests with an agent", () => {
     expect(window.location.hash).toBe("#/settings/approvals");
   });
 
+  it("lists the a shortcut only while it is on", async () => {
+    window.location.hash = "#/playtests/goals/movement";
+    const { unmount } = render(<Harness start={hubFixture()} />);
+    key("?");
+    expect(await screen.findByText("Fix the goal's failing playtests with an agent")).toBeTruthy();
+    unmount();
+    m.agentSettings.mockResolvedValue({ agentFixes: false });
+    render(<Harness start={hubFixture()} />);
+    key("?");
+    await screen.findByRole("dialog", { name: "Keyboard shortcuts" });
+    await waitFor(() => expect(m.agentSettings).toHaveBeenCalled());
+    expect(screen.getByText("New goal")).toBeTruthy();
+    expect(screen.queryByText("Fix the goal's failing playtests with an agent")).toBeNull();
+  });
+
   it("offers Fix while it is on", async () => {
     m.hub.fix.mockResolvedValue({ queued: 1, plan: null });
     window.location.hash = "#/playtests/goals/movement";
