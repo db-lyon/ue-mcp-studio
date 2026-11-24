@@ -22,7 +22,6 @@ import { useSettingsApi } from "./screens/settings/hooks";
 import { Banner, Button, font, PageGlow, T, useInsets, useSetTheme, useStyles, useTheme, type Theme } from "./ui";
 import { Chat } from "./views/Chat";
 import { PlaytestsView, usePlaytestIndex } from "./views/Playtests";
-import { PluginsView } from "./views/Plugins";
 import { LiveButton, PieStatusContext, ViewportSheet, useOwnPieStatus } from "./chat/PieLive";
 import { SettingsHub } from "./views/SettingsHub";
 import { sectionOf, type SettingsSection } from "./views/settings/sections";
@@ -46,7 +45,7 @@ import { HeldBar, HeldContext, LeaseBar, useHeld, useLease } from "./held";
 // Ways out of the project the drawer offers at all times: the projects list and pairing.
 import { Exits } from "./exits";
 
-const TABS = ["Chat", "Playtests", "Plugins", "Settings"] as const;
+const TABS = ["Chat", "Playtests", "Settings"] as const;
 type Tab = (typeof TABS)[number];
 
 const THEMES: StudioTheme[] = ["ue-mcp", "editor", "editor-orange"];
@@ -237,7 +236,6 @@ function Studio({ daemon, initial, onBack, device }: { daemon: ReturnType<typeof
           <View style={[s.main, tab !== "Playtests" && s.padded]}>
             <ErrorBoundary what={tab} resetKey={tab}>
               {tab === "Playtests" ? <PlaytestsView daemon={daemon} index={playtests} onOpenSession={openPlaytest} onChat={() => setTab("Chat")} /> : null}
-              {tab === "Plugins" ? <PluginsView daemon={daemon} remote /> : null}
               {tab === "Settings" ? <SettingsHub daemon={daemon} section={section} onSection={setSection} onTheme={(x: StudioTheme) => THEMES.includes(x) && setTheme(x)} updates={updates} narrow /> : null}
             </ErrorBoundary>
           </View>

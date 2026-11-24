@@ -152,9 +152,14 @@ describe("back inside a project", () => {
     expect(drawer()).toBe("none");
 
     fireEvent.click(screen.getByLabelText("Open navigation"));
-    fireEvent.click(screen.getAllByLabelText("Plugins")[0]);
+    fireEvent.click(screen.getAllByLabelText("Settings")[0]);
     await settle();
-    expect(screen.getAllByText("Plugins").length).toBeGreaterThan(0);
+    fireEvent.click(screen.getByLabelText("Plugins"));
+    await settle();
+    expect(screen.getByLabelText("All settings")).toBeTruthy();
+    expect(back()).toBe(true);
+    await settle();
+    expect(screen.getByLabelText("Settings sections")).toBeTruthy();
     expect(back()).toBe(true);
     await settle();
     expect(screen.getAllByText("Chat").length).toBeGreaterThan(0);

@@ -4,7 +4,6 @@ import { api } from "./api";
 import { applyTheme } from "./theme";
 import { useDaemon, type DaemonState } from "./state";
 import { openDocs } from "./native";
-import { PluginsView } from "./views/Plugins";
 import { useUpdateCount } from "./views/Updates";
 import { UpdateRunner } from "./views/UpdateOverlay";
 import { FeedbackDialog } from "./views/Feedback";
@@ -43,7 +42,7 @@ import { Slot } from "./extensions/Slot";
 
 const NO_CTX = {};
 
-const TABS = ["Chat", "Playtests", "Plugins", "Settings"] as const;
+const TABS = ["Chat", "Playtests", "Settings"] as const;
 // Playtests shows only with the Playtest Hub experiment on; otherwise its old page stays reachable by URL alone.
 const WITHOUT_PLAYTESTS: readonly (typeof TABS)[number][] = TABS.filter((t) => t !== "Playtests");
 type Tab = (typeof TABS)[number];
@@ -272,7 +271,6 @@ function Studio({ daemon }: { daemon: DaemonState }) {
                   // A hub link before the setting has been read waits for it rather than flashing the old page.
                   : experiments === null && readLocation().sub ? null
                   : <PlaytestsView daemon={daemon} index={playtests} onOpenSession={openPlaytest} onChat={() => setTab("Chat")} />)}
-                {tab === "Plugins" && <PluginsView daemon={daemon} />}
                 {tab === "Settings" && <SettingsHub daemon={daemon} section={section} onSection={setSection} onTheme={(t: StudioTheme) => void applyTheme(t)} updates={updates} narrow={narrow} />}
               </ErrorBoundary>
             </main>

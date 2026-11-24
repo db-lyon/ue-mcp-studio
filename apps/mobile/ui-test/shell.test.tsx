@@ -353,7 +353,7 @@ describe("the navigation drawer", () => {
   it("says so when there are no sessions", async () => {
     const api = fakeApi();
     api.sessions.mockResolvedValue({ sessions: [] });
-    renderInProject(<NavDrawer open onClose={() => undefined} tab="Plugins" session={null} updates={0} onTab={() => undefined} onSession={() => undefined} onNewSession={() => undefined} />, api);
+    renderInProject(<NavDrawer open onClose={() => undefined} tab="Settings" session={null} updates={0} onTab={() => undefined} onSession={() => undefined} onNewSession={() => undefined} />, api);
     await settle();
     expect(screen.getByText("No sessions yet.")).toBeTruthy();
   });
@@ -449,15 +449,14 @@ describe("the app shell", () => {
     const themes: string[] = [];
     render(
       <ThemeProvider name="ue-mcp" onChange={(n) => themes.push(n)}>
-        <AppShell device={{ id: "d", name: "Lyra", online: true, computerKey: "k", lastSeen: "" }} transport={t} initial={{ tab: "Plugins", session: null, section: null }} onBack={() => undefined} onUnpaired={() => undefined} />
+        <AppShell device={{ id: "d", name: "Lyra", online: true, computerKey: "k", lastSeen: "" }} transport={t} initial={{ tab: "Settings", session: null, section: "plugins" }} onBack={() => undefined} onUnpaired={() => undefined} />
       </ThemeProvider>,
     );
     await settle();
     await settle();
     expect(themes).toEqual(["editor"]);
-    // The bar names the tab; the page under it says Plugins too, as an older ue-mcp has no plugins route.
-    // The closed drawer stays mounted, hidden, as the web's does: its Plugins item is the third.
-    expect(screen.getAllByText("Plugins").length).toBe(3);
+    // The Plugins section is open under the Settings bar; an older ue-mcp has no plugins route, so its card says Plugins.
+    expect(screen.getAllByText("Plugins").length).toBe(1);
     expect(screen.getByLabelText("Open navigation")).toBeTruthy();
   });
 });

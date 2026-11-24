@@ -1,7 +1,7 @@
 /**
  * Where the panel is: its tab, the Settings section, the open session and the
  * hub screen, kept in the URL's hash (#/chat/<session>, #/settings/<section>,
- * #/playtests/<screen>, #/plugins). A reload reads it back, and Studio's window carries the hash
+ * #/playtests/<screen>, #/settings/plugins). A reload reads it back, and Studio's window carries the hash
  * to the daemon's new address when ue-mcp restarts on another port, so the
  * panel comes back where it was. The draft lives with the session, agent side.
  */

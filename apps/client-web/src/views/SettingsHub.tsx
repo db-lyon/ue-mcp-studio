@@ -13,6 +13,7 @@ import { RemoteSection, RemoteSignIn, RemoteUpsell } from "./settings/RemoteSect
 import { useRemoteAvailable } from "./settings/remote-available";
 import { StatusView } from "./Status";
 import { LogsView } from "./Logs";
+import { PluginsView } from "./Plugins";
 
 import { extensionSection, isExtensionSection, sectionOf, type BuiltinSection, type SettingsSection } from "./settings/sections";
 import { SECTION_NAMES, SETTINGS_GROUPS, sectionStatus, strategyLine } from "@ue-mcp-studio/client-core";
@@ -26,6 +27,7 @@ const ICONS: Record<BuiltinSection, string> = {
   models: "M4 4h8v8H4zM6 1.5V4M10 1.5V4M6 12v2.5M10 12v2.5M1.5 6H4M1.5 10H4M12 6h2.5M12 10h2.5",
   approvals: "M8 1.5l5 2v4c0 3.2-2.2 5.6-5 7-2.8-1.4-5-3.8-5-7v-4zM5.5 8l1.7 1.7L10.7 6",
   project: "M1.5 4.5h4l1.5 1.5h7.5v7.5h-13z",
+  plugins: "M6 2.5v3M10 2.5v3M4 5.5h8v2.5a4 4 0 0 1-8 0zM8 12v1.5",
   general: "M8 10a2 2 0 1 0 0-4 2 2 0 0 0 0 4zM8 1.5v2M8 12.5v2M1.5 8h2M12.5 8h2M3.4 3.4l1.4 1.4M11.2 11.2l1.4 1.4M3.4 12.6l1.4-1.4M11.2 4.8l1.4-1.4",
   notifications: "M4 11.5V7a4 4 0 0 1 8 0v4.5l1.5 1.5h-11zM6.5 13.5a1.5 1.5 0 0 0 3 0",
   remote: "M5 1.5h6v13H5zM7.3 12.5h1.4",
@@ -105,6 +107,12 @@ export function SettingsHub({ daemon, section, onSection, onTheme, updates = 0, 
   else if (open === "models") body = <ModelsSection />;
   else if (open === "approvals") body = <ApprovalsSection />;
   else if (open === "project") body = <ProjectSection onSection={onSection} />;
+  else if (open === "plugins") body = (
+    <>
+      <Head title="Plugins" lead="Installed plugins and the registry catalog." />
+      <PluginsView daemon={daemon} />
+    </>
+  );
   else if (open === "general") body = <GeneralSection onTheme={onTheme} />;
   else if (open === "notifications") body = <NotificationsSection remote={remote.surface} />;
   else if (open === "experiments") body = <ExperimentsSection />;
