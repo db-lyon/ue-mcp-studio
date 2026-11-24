@@ -44,9 +44,10 @@ describe("the navigation drawer", () => {
   });
 
   it("lists the tabs, marks the current one, and carries the bar's tools", () => {
-    setup(true, "Plugins", 2);
-    expect(screen.getByText("Plugins").closest("button")?.getAttribute("aria-current")).toBe("page");
+    setup(true, "Settings", 2);
+    expect(screen.getByText("Settings").closest("button")?.getAttribute("aria-current")).toBe("page");
     expect(screen.getByText("Chat").closest("button")?.getAttribute("aria-current")).toBeNull();
+    expect(screen.queryByText("Plugins")).toBeNull();
     expect(screen.getByText("Settings").closest("button")?.querySelector(".tab-dot")).not.toBeNull();
     expect(screen.getByText("Docs")).toBeTruthy();
     // The live viewport opens from a playtest card, not a tab.
@@ -86,8 +87,8 @@ describe("the navigation drawer", () => {
     const p = setup();
     fireEvent.click(await screen.findByText("Glowing material"));
     expect(p.onSession).toHaveBeenCalledWith("a");
-    fireEvent.click(screen.getByText("Plugins"));
-    expect(p.onTab).toHaveBeenCalledWith("Plugins");
+    fireEvent.click(screen.getByText("Settings"));
+    expect(p.onTab).toHaveBeenCalledWith("Settings");
     fireEvent.click(screen.getByText("New session"));
     expect(p.onNewSession).toHaveBeenCalledOnce();
     expect(p.onClose).toHaveBeenCalledTimes(3);

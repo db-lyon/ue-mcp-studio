@@ -4,7 +4,7 @@
  * only, under the note that changes run on the computer. Install, update and
  * remove are refused to a paired client, so none is offered.
  */
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { Linking, Pressable, ScrollView, View } from "react-native";
 import { HttpError, REMOTE_PLUGINS_NOTE, catalogDetails, isInstalled, searchCatalog, type CatalogPlugin, type InstalledPlugin } from "@ue-mcp-studio/client-core";
 import { Banner, Button, Card, Input, labelFont, Markdown, NavBarBacking, Pill, Spacer, T, bannerText, useSheetInsets, useTheme } from "../../ui";
@@ -13,7 +13,7 @@ import { useSettingsApi } from "../settings/hooks";
 import type { DaemonState } from "../../state";
 import { AskComputer } from "../../views/AskComputer";
 
-export function PluginsScreen({ daemon }: { daemon: DaemonState }) {
+export function PluginsScreen({ daemon, embedded = false }: { daemon: DaemonState; embedded?: boolean }) {
   const api = useSettingsApi();
   const t = useTheme();
   // The page's end scrolls clear of the navigation bar, or of the keyboard while the search has it up.
@@ -45,8 +45,7 @@ export function PluginsScreen({ daemon }: { daemon: DaemonState }) {
 
   if (unsupported) {
     return (
-      <>
-        <ScrollView testID="plugins" style={[{ flex: 1, margin: -6 }, pageScroll]} contentContainerStyle={{ padding: 6, paddingBottom: end }}>
+      <Frame embedded={embedded} end={end}>
           <Card>
             <CardLabel>Plugins</CardLabel>
             <Txt tone="muted" style={{ marginBottom: para }}>
@@ -54,16 +53,12 @@ export function PluginsScreen({ daemon }: { daemon: DaemonState }) {
             </Txt>
             <AskComputer what="update" />
           </Card>
-        </ScrollView>
-        <NavBarBacking />
-      </>
+      </Frame>
     );
   }
 
   return (
-    // The page scrolls under the shell's 6px padding, as the web page's main does: the padding goes inside the scroller.
-    <>
-    <ScrollView testID="plugins" style={[{ flex: 1, margin: -6 }, pageScroll]} contentContainerStyle={{ padding: 6, paddingBottom: end, gap: 14 }} keyboardShouldPersistTaps="handled">
+    <Frame embedded={embedded} end={end} gap={14}>
       {error ? (
         <Pressable accessibilityRole="alert" onPress={() => setError(null)}>
           <Banner kind="bad">
@@ -149,8 +144,20 @@ export function PluginsScreen({ daemon }: { daemon: DaemonState }) {
           })}
         </View>
       </Card>
-    </ScrollView>
-    <NavBarBacking />
+    </Frame>
+  );
+}
+
+/** The page on its own scroller, or, inside a Settings section, just its content: the section's page already scrolls. */
+function Frame({ embedded, end, gap, children }: { embedded?: boolean; end: number; gap?: number; children: ReactNode }) {
+  if (embedded) return <View testID="plugins" style={{ gap: 14 }}>{children}</View>;
+  return (
+    // The page scrolls under the shell's 6px padding, as the web page's main does: the padding goes inside the scroller.
+    <>
+      <ScrollView testID="plugins" style={[{ flex: 1, margin: -6 }, pageScroll]} contentContainerStyle={{ padding: 6, paddingBottom: end, gap }} keyboardShouldPersistTaps="handled">
+        {children}
+      </ScrollView>
+      <NavBarBacking />
     </>
   );
 }

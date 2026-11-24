@@ -59,25 +59,25 @@ export const PAIRED_SCENARIOS: Record<string, Scenario> = {
   "update-running-remote": updateRun("An update running on the computer, followed from a paired browser", { steps: [{ key: "ueMcp", state: "done" }, { key: "plugin", state: "active" }, { key: "studio", state: "pending" }], target: "1.4.11", detail: "Closing the editor" }),
   "update-failed-remote": updateRun("An update that stopped on the computer", { steps: [{ key: "ueMcp", state: "done" }, { key: "plugin", state: "failed" }, { key: "studio", state: "pending" }], target: "1.4.11", error: "The editor plugin is still 0.1.6; 0.1.7 did not install. Update tries again." }),
   "update-done-remote": updateRun("An update finished on the computer: what is installed now", { steps: [{ key: "ueMcp", state: "done" }, { key: "studio", state: "done" }], target: "1.4.11", summary: "Studio 0.1.25-beta.30, editor plugin 0.1.7, bridge plugin 1.4.11, ue-mcp 1.4.11." }),
-  "plugins-remote-details": page("Plugins in a paired browser with a catalog entry's details open: its readme, Source and Homepage", "#/plugins", {
+  "plugins-remote-details": page("Plugins in a paired browser with a catalog entry's details open: its readme, Source and Homepage", "#/settings/plugins", {
     get: (p) => (p === "/v1/plugins" ? { plugins: PLUGINS } : p === "/v1/plugins/catalog" ? { plugins: CATALOG } : undefined),
     clicks: [".plugin-card button.ghost"],
   }),
-  "plugins-remote-details-description": page("Plugins in a paired browser with the details open on a catalog entry the registry sends with an empty readme: its description", "#/plugins", {
+  "plugins-remote-details-description": page("Plugins in a paired browser with the details open on a catalog entry the registry sends with an empty readme: its description", "#/settings/plugins", {
     get: (p) => (p === "/v1/plugins" ? { plugins: PLUGINS } : p === "/v1/plugins/catalog" ? { plugins: CATALOG_NO_README } : undefined),
     clicks: [".plugin-card button.ghost"],
   }),
-  "plugins-remote-empty": page("Plugins in a paired browser with none installed and an empty catalog", "#/plugins", {
+  "plugins-remote-empty": page("Plugins in a paired browser with none installed and an empty catalog", "#/settings/plugins", {
     get: (p) => (p === "/v1/plugins" ? { plugins: [] } : p === "/v1/plugins/catalog" ? { plugins: [] } : undefined),
   }),
-  "plugins-remote-search": page("Plugins in a paired browser searched for something no plugin matches", "#/plugins", {
+  "plugins-remote-search": page("Plugins in a paired browser searched for something no plugin matches", "#/settings/plugins", {
     get: (p) => (p === "/v1/plugins" ? { plugins: PLUGINS } : p === "/v1/plugins/catalog" ? { plugins: CATALOG } : undefined),
     type: { into: ".plugin-search", text: "voxel" },
   }),
-  "plugins-remote-error": page("Plugins in a paired browser whose catalog could not be read", "#/plugins", {
+  "plugins-remote-error": page("Plugins in a paired browser whose catalog could not be read", "#/settings/plugins", {
     get: (p) => (p === "/v1/plugins" ? { plugins: PLUGINS } : undefined),
   }),
-  "plugins-remote-unsupported": page("Plugins in a paired browser on a ue-mcp from before the plugins route", "#/plugins", { missing: ["/v1/plugins"] }),
+  "plugins-remote-unsupported": page("Plugins in a paired browser on a ue-mcp from before the plugins route", "#/settings/plugins", { missing: ["/v1/plugins"] }),
   "settings-diagnostics-filtered": {
     ...page("Diagnostics with the event log filtered", "#/settings/diagnostics", { height: 2600 }),
     events: [

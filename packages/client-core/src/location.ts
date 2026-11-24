@@ -2,11 +2,12 @@
  * Where the panel is: its tab, the Settings section, the open session and,
  * on Playtests, the hub screen, as the web client keeps it in the URL's hash
  * (#/chat/<session>, #/settings/<section>, #/playtests,
- * #/playtests/goals/<id>, #/plugins). The mobile app reads the same shape,
+ * #/playtests/goals/<id>). The mobile app reads the same shape,
  * so a location means the same screen on both. A hash that names no tab,
- * such as the old #/viewport, lands on Chat.
+ * such as the old #/viewport, lands on Chat. The old #/plugins opens
+ * Settings, Plugins.
  */
-export type Tab = "Chat" | "Playtests" | "Plugins" | "Settings";
+export type Tab = "Chat" | "Playtests" | "Settings";
 
 export interface PanelLocation {
   tab: Tab;
@@ -16,7 +17,7 @@ export interface PanelLocation {
   sub?: string | null;
 }
 
-const TABS: Record<string, Tab> = { chat: "Chat", playtests: "Playtests", plugins: "Plugins", settings: "Settings" };
+const TABS: Record<string, Tab> = { chat: "Chat", playtests: "Playtests", settings: "Settings" };
 
 /** A session id or section name as it may appear in the hash; a section may also be an extension's. */
 const SAFE = /^[A-Za-z0-9_-]{1,128}$/;
@@ -26,6 +27,7 @@ const HUB_SUB = /^(?:queue|checks|goals|runs)(?:\/[A-Za-z0-9%._~!*'()-]{1,600})?
 
 export function parseLocation(hash: string): PanelLocation {
   const parts = hash.replace(/^#\/?/, "").split("/").filter(Boolean);
+  if (parts[0]?.toLowerCase() === "plugins") return { tab: "Settings", session: null, section: "plugins" };
   const tab = TABS[parts[0]?.toLowerCase() ?? ""] ?? "Chat";
   const rest = parts[1] ?? "";
   const sub = tab === "Playtests" ? parts.slice(1, 3).join("/") : "";

@@ -47,7 +47,7 @@ describe("the Playtest Hub gate", () => {
     m.settings.mockResolvedValue({ theme: "ue-mcp", experiments: { playtestHub: false } });
     render(<App />);
     await waitFor(() => expect(m.settings).toHaveBeenCalled());
-    expect(tabs()).toEqual(["Chat", "Plugins", "Settings"]);
+    expect(tabs()).toEqual(["Chat", "Settings"]);
     expect(m.hub.overview).not.toHaveBeenCalled();
   });
 
@@ -55,7 +55,7 @@ describe("the Playtest Hub gate", () => {
     m.settings.mockResolvedValue({ theme: "ue-mcp", experiments: { playtestHub: true } });
     render(<App />);
     const tab = await screen.findByRole("button", { name: /Playtests/ });
-    expect(tabs()).toEqual(["Chat", "Playtests", "Plugins", "Settings"]);
+    expect(tabs()).toEqual(["Chat", "Playtests", "Settings"]);
     await waitFor(() => expect(tab.querySelector(".tab-count")?.textContent).toBe("2"));
     fireEvent.click(tab);
     expect(await screen.findByRole("heading", { level: 1, name: "Overview" })).toBeTruthy();

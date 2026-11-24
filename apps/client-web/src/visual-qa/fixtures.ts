@@ -964,7 +964,7 @@ export const SCENARIOS: Record<string, Scenario> = {
   },
   "plugins-remote": {
     title: "Plugins in a paired browser: the installed list and the catalog read only, with the note that changes run on the computer",
-    hash: "#/plugins",
+    hash: "#/settings/plugins",
     index: { playtests: [], listed: true },
     remotePage: true,
     get: (p) =>

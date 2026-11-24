@@ -158,7 +158,7 @@ describe("the live viewport, on the computer and on a paired device", () => {
     await screen.findByPlaceholderText(COMPOSER);
     await waitFor(() => expect(m.sessions).toHaveBeenCalled());
     expect(screen.queryByRole("button", { name: "Viewport" })).toBeNull();
-    expect(screen.getByRole("button", { name: "Plugins" })).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "Plugins" })).toBeNull();
     expect(m.viewport).not.toHaveBeenCalled();
     expect(document.querySelector(".composer-pie")).toBeNull();
   });

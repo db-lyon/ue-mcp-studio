@@ -29,8 +29,8 @@ export const askNotice = (what: RemoteAskKind, project: string): string =>
   })[what];
 
 /** The notice's button, and where in Studio it goes: a tab or a settings section. */
-export const ASK_OPEN: Record<RemoteAskKind, { label: string; tab: "Plugins" | "Settings"; section?: SettingsSection }> = {
+export const ASK_OPEN: Record<RemoteAskKind, { label: string; tab: "Settings"; section?: SettingsSection }> = {
   update: { label: "Open Updates", tab: "Settings", section: "general" },
-  plugins: { label: "Open Plugins", tab: "Plugins" },
+  plugins: { label: "Open Plugins", tab: "Settings", section: "plugins" },
   models: { label: "Open Models", tab: "Settings", section: "models" },
 };

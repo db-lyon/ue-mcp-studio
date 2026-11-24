@@ -6,12 +6,12 @@
 import { CONTEXT_STRATEGY_INFO, anythingConnected, type ClientContextStrategy, type ModelCatalog, type StudioSettings } from "@ue-mcp-studio/shared";
 
 /** Settings sections, grouped by the decision being made. */
-export type BuiltinSection = "agents" | "models" | "approvals" | "project" | "general" | "notifications" | "remote" | "experiments" | "diagnostics";
+export type BuiltinSection = "agents" | "models" | "approvals" | "project" | "plugins" | "general" | "notifications" | "remote" | "experiments" | "diagnostics";
 /** A section an extension adds: `ext:<extension>:<contribution id>`. */
 export type ExtensionSection = `ext:${string}:${string}`;
 export type SettingsSection = BuiltinSection | ExtensionSection;
 /** Remote control is listed only while it is offered; the hub opens General for it otherwise. */
-export const SETTINGS_SECTIONS: readonly BuiltinSection[] = ["agents", "models", "approvals", "project", "general", "notifications", "remote", "experiments", "diagnostics"];
+export const SETTINGS_SECTIONS: readonly BuiltinSection[] = ["agents", "models", "approvals", "project", "plugins", "general", "notifications", "remote", "experiments", "diagnostics"];
 
 const EXT = /^ext:[A-Za-z0-9_-]{1,64}:[A-Za-z0-9_-]{1,64}$/;
 export const extensionSection = (ext: string, id: string): ExtensionSection => `ext:${ext}:${id}`;
@@ -33,6 +33,7 @@ const MOVED: Record<string, BuiltinSection> = {
   notify: "notifications",
   notification: "notifications",
   experiment: "experiments",
+  plugin: "plugins",
 };
 
 /** A section from a location: null when there is none, an extension's kept as written, General for any other unknown name. */
@@ -69,6 +70,7 @@ export const SETTINGS_GROUPS: ReadonlyArray<{ label: string; items: SettingsItem
     label: "Project",
     items: [
       { id: "project", name: "Project", sub: "ue-mcp setup for this project" },
+      { id: "plugins", name: "Plugins", sub: "Installed plugins and the catalog" },
       { id: "diagnostics", name: "Diagnostics", sub: "Status and logs" },
     ],
   },
