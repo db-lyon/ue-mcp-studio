@@ -14,11 +14,11 @@ import {
   GOAL_STATUS_LOOK,
   HUB_COPY,
   HUB_RECENT_KEY,
-  HUB_SHORTCUTS,
   hubHash,
   hubKeymap,
   hubPath,
   hubSection,
+  hubShortcuts,
   paletteEntries,
   parseHubPath,
   parseRecent,
@@ -35,7 +35,7 @@ import {
 } from "@ue-mcp-studio/client-core";
 import { api } from "../../api";
 import { historyState, pushLocation, readLocation, writeLocation } from "../../location";
-import { HubContext, useHub, type HubContextValue, type HubData, type LeaveGuard } from "./state";
+import { HubContext, useAgentFixes, useHub, type HubContextValue, type HubData, type LeaveGuard } from "./state";
 import { HubIcon, HubLink, Kbd, Placeholder, StatusMark, type HubIconName } from "./parts";
 import { OverviewScreen } from "./Overview";
 import { GoalScreen } from "./Goal";
@@ -455,6 +455,7 @@ function Palette({ onClose, onShortcuts, onNewGoal }: { onClose: () => void; onS
 
 /** ?: every key the hub answers to. */
 function Shortcuts({ onClose }: { onClose: () => void }) {
+  const shortcuts = hubShortcuts(useAgentFixes());
   useEffect(() => {
     const esc = (e: KeyboardEvent) => {
       if (e.key === "Escape" || e.key === "?") {
@@ -475,7 +476,7 @@ function Shortcuts({ onClose }: { onClose: () => void }) {
             <section key={g}>
               <h2>{g}</h2>
               <dl>
-                {HUB_SHORTCUTS.filter((s) => s.group === g).map((s) => (
+                {shortcuts.filter((s) => s.group === g).map((s) => (
                   <div key={s.label} className="hub-shortcut">
                     <dt>{s.keys.map((k, i) => <Kbd key={i}>{k}</Kbd>)}</dt>
                     <dd>{s.label}</dd>

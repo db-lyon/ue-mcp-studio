@@ -1198,6 +1198,11 @@ export const HUB_SHORTCUTS: ReadonlyArray<{ keys: string[]; label: string; group
   { keys: ["?"], label: "This list", group: "Act" },
 ];
 
+/** The shortcuts sheet without the fix key unless Fix failing playtests with an agent is on (null, not yet known, counts as off). */
+export function hubShortcuts(agentFixes: boolean | null): typeof HUB_SHORTCUTS {
+  return agentFixes === true ? HUB_SHORTCUTS : HUB_SHORTCUTS.filter((s) => !s.keys.includes("a"));
+}
+
 const SINGLE: Record<string, HubKeyAction> = {
   j: { type: "next" }, ArrowDown: { type: "next" },
   k: { type: "prev" }, ArrowUp: { type: "prev" },

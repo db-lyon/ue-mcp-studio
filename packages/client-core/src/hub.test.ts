@@ -3,6 +3,8 @@ import { DEFAULT_ACCEPTANCE, type CheckState, type Goal, type GoalState, type At
 import {
   CHECK_HEALTH_LOOK,
   GOAL_STATUS_LOOK,
+  HUB_SHORTCUTS,
+  hubShortcuts,
   dueText,
   filterChecks,
   flips,
@@ -520,5 +522,15 @@ describe("tracker links", () => {
       ["POST", "/v1/hub/runs/r%201/links", { link: issue }],
       ["DELETE", `/v1/hub/runs/r%201/links?url=${encodeURIComponent(issue.url)}`, undefined],
     ]);
+  });
+});
+
+describe("hubShortcuts", () => {
+  const fix = (list: typeof HUB_SHORTCUTS) => list.some((s) => s.keys.includes("a"));
+  it("lists the fix key only while Fix failing playtests with an agent is on", () => {
+    expect(fix(hubShortcuts(true))).toBe(true);
+    expect(fix(hubShortcuts(false))).toBe(false);
+    expect(fix(hubShortcuts(null))).toBe(false);
+    expect(hubShortcuts(false)).toHaveLength(HUB_SHORTCUTS.length - 1);
   });
 });
