@@ -146,13 +146,15 @@ export const hubApiOver = (transport: Transport): HubApi =>
 
 // ---------- Routes inside #/playtests ----------
 
-export type HubScreen = "overview" | "goal" | "library" | "check" | "run";
+export type HubScreen = "overview" | "goal" | "library" | "check" | "run" | "draft";
 export type HubRoute =
   | { screen: "overview" }
   | { screen: "goal"; goalId: string }
   | { screen: "library" }
   | { screen: "check"; checkId: string }
-  | { screen: "run"; runId: string };
+  | { screen: "run"; runId: string }
+  /** The playtest editor: a saved playtest's (checkId), or a new one, added to a goal when goalId names one. */
+  | { screen: "draft"; checkId?: string; goalId?: string };
 
 const decode = (s: string): string | null => {
   try {
@@ -165,16 +167,22 @@ const decode = (s: string): string | null => {
 
 /**
  * The hub's screen from what follows #/playtests/ (still encoded):
- * goals/<id>, checks, checks/<checkId>, runs/<runId>. Anything else is the
+ * goals/<id>, checks, checks/<checkId>, runs/<runId>, and the editor at
+ * checks/new, checks/<checkId>/edit and goals/<id>/new. Anything else is the
  * overview.
  */
 export function parseHubPath(sub: string | null | undefined): HubRoute {
   const parts = (sub ?? "").split("/").filter(Boolean);
-  const [head, id] = parts;
+  const [head, id, then] = parts;
   const value = id ? decode(id) : null;
   switch (head) {
-    case "checks": return value ? { screen: "check", checkId: value } : { screen: "library" };
-    case "goals": return value ? { screen: "goal", goalId: value } : { screen: "overview" };
+    case "checks":
+      if (id === "new") return { screen: "draft" };
+      if (value && then === "edit") return { screen: "draft", checkId: value };
+      return value ? { screen: "check", checkId: value } : { screen: "library" };
+    case "goals":
+      if (value && then === "new") return { screen: "draft", goalId: value };
+      return value ? { screen: "goal", goalId: value } : { screen: "overview" };
     case "runs": return value ? { screen: "run", runId: value } : { screen: "overview" };
     default: return { screen: "overview" };
   }
@@ -188,6 +196,7 @@ export function hubPath(r: HubRoute): string {
     case "goal": return `goals/${enc(r.goalId)}`;
     case "check": return `checks/${enc(r.checkId)}`;
     case "run": return `runs/${enc(r.runId)}`;
+    case "draft": return r.checkId ? `checks/${enc(r.checkId)}/edit` : r.goalId ? `goals/${enc(r.goalId)}/new` : "checks/new";
   }
 }
 
@@ -200,6 +209,7 @@ export const hubHash = (r: HubRoute): string => {
 /** Which rail entry a screen sits under. */
 export function hubSection(r: HubRoute): "overview" | "library" {
   if (r.screen === "library" || r.screen === "check") return "library";
+  if (r.screen === "draft") return r.goalId ? "overview" : "library";
   return "overview";
 }
 
@@ -1130,6 +1140,7 @@ export interface PaletteEntry {
 export function paletteEntries(o: Pick<HubOverview, "goals" | "checks" | "recent">): PaletteEntry[] {
   const out: PaletteEntry[] = [
     { id: "cmd:new-goal", kind: "command", label: HUB_COPY.newGoal, command: "newGoal", hint: "c" },
+    { id: "screen:new-playtest", kind: "screen", label: "New playtest", route: { screen: "draft" } },
     { id: "cmd:run-failing", kind: "command", label: HUB_COPY.runFailing, command: "runFailing" },
     { id: "cmd:run-all", kind: "command", label: HUB_COPY.runAll, command: "runAll" },
     { id: "screen:overview", kind: "screen", label: "Go to Overview", route: { screen: "overview" }, hint: "g o" },
