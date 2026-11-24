@@ -8,6 +8,8 @@
  * ue-mcp lacks is added, one it has is left as it is. Nothing is deleted or
  * changed in the old folder. Run history and the queue are per computer and
  * are not part of an export; ue-mcp fills history from the runs it has on disk.
+ * The schedules kept in the old queue file move by moveSchedules, once ue-mcp
+ * has schedules, recorded in <dataDir>/hub-schedules-moved.json.
  *
  * The result is recorded in <dataDir>/hub-moved.json, so the import never
  * repeats. A daemon that cannot take it now (no hub route, not reachable)
@@ -15,7 +17,7 @@
  */
 import * as fs from "node:fs";
 import * as path from "node:path";
-import { HUB_EXPORT_FORMAT, HUB_SCHEMA, type AnyHubRecord, type HubExport, type HubImportReport, type HubRecordType } from "@ue-mcp-studio/shared";
+import { HUB_EXPORT_FORMAT, HUB_SCHEMA, type AnyHubRecord, type HubExport, type HubImportReport, type HubRecordType, type Schedule, type ScheduleDraft } from "@ue-mcp-studio/shared";
 import { writeFileAtomic } from "./atomic-write.js";
 import type { DaemonEndpoint } from "./playtest-flow.js";
 
@@ -103,6 +105,7 @@ export function startHubMove(o: HubMoveOptions, retryMs: readonly number[] = RET
   let stopped = false;
   const attempt = (n: number) => {
     void moveHubStore(o)
+      .then(async (r) => ((await moveSchedules(o)) === "later" ? "later" : r))
       .then((r) => {
         if (r === "later" && !stopped && n < retryMs.length) {
           timer = setTimeout(() => attempt(n + 1), retryMs[n]);
@@ -116,6 +119,91 @@ export function startHubMove(o: HubMoveOptions, retryMs: readonly number[] = RET
     stopped = true;
     if (timer) clearTimeout(timer);
   };
+}
+
+/** The record of the schedules' move, beside HUB_MOVED_FILE. */
+export const SCHEDULES_MOVED_FILE = "hub-schedules-moved.json";
+
+export interface SchedulesMoved {
+  at: string;
+  /** Schedules found in the old queue file. */
+  found: number;
+  /** Created in ue-mcp's hub. */
+  created: number;
+  /** Already there by name, time and days, so left alone. */
+  existing: number;
+  /** Each schedule ue-mcp refused, with why. */
+  refused?: string[];
+}
+
+/** A schedule as Studio's old queue file kept it, read as a draft ue-mcp takes. */
+function oldScheduleDrafts(dataDir: string): ScheduleDraft[] {
+  try {
+    const raw = JSON.parse(fs.readFileSync(path.join(dataDir, "hub", "queue.json"), "utf-8")) as { schedules?: unknown };
+    if (!Array.isArray(raw.schedules)) return [];
+    return raw.schedules.flatMap((s): ScheduleDraft[] => {
+      if (!s || typeof s !== "object") return [];
+      const v = s as Partial<Schedule>;
+      if (typeof v.title !== "string" || typeof v.at !== "string" || !Array.isArray(v.days) || !v.scope || !v.options) return [];
+      return [{ title: v.title, scope: v.scope, options: v.options, at: v.at, days: v.days, enabled: v.enabled !== false }];
+    });
+  } catch {
+    return [];
+  }
+}
+
+/**
+ * Bring the schedules Studio kept in its old queue file (<dataDir>/hub/queue.json)
+ * into ue-mcp's hub, once. A schedule ue-mcp already has, by name, time and
+ * days, is left alone. A daemon without schedules (an older ue-mcp) records
+ * nothing, and the move is tried again at the next start. The old file is
+ * never changed.
+ */
+export async function moveSchedules(o: HubMoveOptions): Promise<HubMoveResult> {
+  const marker = path.join(o.dataDir, SCHEDULES_MOVED_FILE);
+  if (fs.existsSync(marker)) return "already";
+  const iso = o.now ?? (() => new Date().toISOString());
+  const record = (m: Omit<SchedulesMoved, "at">) => writeFileAtomic(marker, `${JSON.stringify({ at: iso(), ...m }, null, 2)}\n`);
+  const drafts = oldScheduleDrafts(o.dataDir);
+  if (drafts.length === 0) {
+    record({ found: 0, created: 0, existing: 0 });
+    return "empty";
+  }
+  const end = o.endpoint();
+  if (!end) return "later";
+  const call = (method: string, route: string, body?: unknown) => (o.fetchImpl ?? fetch)(`http://127.0.0.1:${end.port}/v1/hub${route}`, {
+    method,
+    headers: { authorization: `Bearer ${end.token}`, "content-type": "application/json" },
+    ...(body === undefined ? {} : { body: JSON.stringify(body) }),
+  });
+  try {
+    const q = (await (await call("GET", "/queue")).json().catch(() => null)) as { schedules?: Schedule[] } | null;
+    // A hub without schedules: try again once ue-mcp has them.
+    if (!q || !Array.isArray(q.schedules)) return "later";
+    const key = (s: Pick<Schedule, "title" | "at" | "days">) => `${s.title}\n${s.at}\n${[...s.days].sort().join(",")}`;
+    const have = new Set(q.schedules.map(key));
+    let created = 0;
+    let existing = 0;
+    const refused: string[] = [];
+    for (const d of drafts) {
+      if (have.has(key(d))) {
+        existing++;
+        continue;
+      }
+      const res = await call("POST", "/schedules", d);
+      if (res.status === 404) return "later";
+      if (res.ok) created++;
+      else {
+        const body = (await res.json().catch(() => null)) as { error?: unknown } | null;
+        refused.push(`${d.title}: ${typeof body?.error === "string" ? body.error : `ue-mcp answered ${res.status}`}`);
+      }
+    }
+    record({ found: drafts.length, created, existing, ...(refused.length ? { refused } : {}) });
+    return "moved";
+  } catch (e) {
+    o.log.warn("hub: Studio's old schedules could not be sent to ue-mcp yet", e);
+    return "later";
+  }
 }
 
 /** Move Studio's old hub store into ue-mcp's, once. */
