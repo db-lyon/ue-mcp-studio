@@ -3,6 +3,7 @@ import { breakable } from "./breakable";
 import { ApiError, api } from "../api";
 import { native } from "../native";
 import { splitText, stepParts, useAssetLink } from "./asset-links";
+import { HubAnchor, useHubRecord } from "./HubRecordLink";
 
 /** How long the inline note after a click stays up. */
 export const TOAST_MS = 2500;
@@ -39,7 +40,14 @@ export function AssetToken({ token, code }: { token: string; code: boolean }) {
   return <AssetButton token={token} code={code} paths={state.paths} />;
 }
 
+/** One asset path, or the Playtest Hub's record when the path is a playtest's script the hub knows. */
 function AssetButton({ token, code, paths }: { token: string; code: boolean; paths: string[] }) {
+  const record = useHubRecord(paths.length === 1 ? paths[0] : null);
+  if (record) return <HubAnchor route={record.route} open={record.open} code={code}>{token}</HubAnchor>;
+  return <EditorAssetButton token={token} code={code} paths={paths} />;
+}
+
+function EditorAssetButton({ token, code, paths }: { token: string; code: boolean; paths: string[] }) {
   const [toast, setToast] = useState<string | null>(null);
   const [choosing, setChoosing] = useState(false);
   const box = useRef<HTMLSpanElement>(null);

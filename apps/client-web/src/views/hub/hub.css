@@ -81,6 +81,13 @@ nav.hub-seg { flex: 1; min-width: 0; height: auto; gap: 2px; padding: 2px; borde
 .hub-eyebrow { font: var(--label-font); text-transform: var(--label-case); letter-spacing: var(--label-spacing); color: var(--label-color); margin-bottom: 2px; }
 .hub-back { display: inline-flex; align-items: center; gap: 4px; margin-bottom: 6px; color: var(--muted); }
 .hub-back:hover { color: var(--text); }
+.hub-crumbs { display: flex; flex-wrap: wrap; align-items: center; gap: 4px; margin-bottom: 6px; color: var(--muted); min-width: 0; }
+.hub-crumbs .hub-back { margin-bottom: 0; }
+.hub-crumb { display: inline-flex; align-items: center; gap: 4px; min-width: 0; max-width: 100%; }
+.hub-crumb a, .hub-crumb [aria-current] { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 24ch; }
+.hub-crumb a { color: var(--muted); }
+.hub-crumb a:hover { color: var(--text); text-decoration: underline; }
+.hub-crumb [aria-current] { color: var(--text); }
 .hub-head-actions { display: flex; gap: 6px; flex-wrap: wrap; }
 .hub-btn-count { font: 600 10.5px/1 var(--mono); color: var(--bad); }
 button.primary .hub-btn-count { color: inherit; }

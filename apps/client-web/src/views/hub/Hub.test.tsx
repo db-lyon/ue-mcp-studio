@@ -6,13 +6,14 @@ import type { HubOverview } from "@ue-mcp-studio/shared";
 
 const m = vi.hoisted(() => ({
   del: vi.fn(),
+  open: vi.fn(async () => ({})),
   hub: {
     overview: vi.fn(), verdict: vi.fn(), plan: vi.fn(), runCheck: vi.fn(), createGoal: vi.fn(), updateGoal: vi.fn(), check: vi.fn(), run: vi.fn(),
     runs: vi.fn(), addChecks: vi.fn(), removeCheck: vi.fn(), fix: vi.fn(), writePlaytests: vi.fn(), resultsUrl: (id: string) => `/r/${id}`,
     addRequire: vi.fn(), removeRequire: vi.fn(), orderRequires: vi.fn(), orderChecks: vi.fn(), cancelPlan: vi.fn(), pause: vi.fn(),
   },
 }));
-vi.mock("../../api", () => ({ api: { hub: m.hub, qaCaptureUrl: () => "", qaPlaytestDelete: m.del, settings: () => new Promise(() => {}) } }));
+vi.mock("../../api", () => ({ ApiError: class extends Error {}, api: { hub: m.hub, openAsset: m.open, qaCaptureUrl: () => "", qaPlaytestDelete: m.del, settings: () => new Promise(() => {}) } }));
 import { HubView } from "./Hub";
 import type { HubData } from "./state";
 import { hubFixture } from "./test-data";
@@ -467,5 +468,74 @@ describe("tracker links", () => {
     await waitFor(() => expect(m.hub.updateGoal).toHaveBeenCalledWith("movement", { links: [{ url: issue, title: "Movement", rel: "counterpart" }, { url: "https://trello.com/c/abc", title: "Card" }] }));
     fireEvent.click(screen.getByRole("button", { name: "Remove link Movement" }));
     await waitFor(() => expect(m.hub.updateGoal).toHaveBeenLastCalledWith("movement", { links: [{ url: "https://trello.com/c/abc", title: "Card" }] }));
+  });
+});
+
+describe("going back", () => {
+  const crumbs = () => Array.from(screen.getByRole("navigation", { name: "Where you came from" }).querySelectorAll(".hub-crumb")).map((c) => c.textContent?.replace(/^\//, ""));
+
+  it("follows the way taken, not the hub's map: from a milestone into a playtest, back returns to each screen before it", async () => {
+    m.hub.check.mockResolvedValue({ state: hubFixture().checks[0], runs: [], more: false, script: null });
+    window.location.hash = "#/playtests/goals/alpha";
+    render(<Harness start={hubFixture()} />);
+    expect(heading()).toBe("Alpha");
+    // A milestone's run covers its required goals' playtests and says how many.
+    expect(screen.getByRole("button", { name: "Run all (2)" })).toBeTruthy();
+    const required = screen.getByRole("region", { name: "Required goals" });
+    fireEvent.click(within(required).getByText("Movement feels right"));
+    expect(heading()).toBe("Movement feels right");
+    fireEvent.click(screen.getAllByText("Jump").find((e) => e.closest("a[href]"))!);
+    expect(heading()).toBe("Jump");
+    expect(crumbs()).toEqual(["Alpha", "Movement feels right", "Jump"]);
+    // The map would send Back to the Playtests list; the way taken sends it to the goal, then the milestone.
+    fireEvent.click(screen.getByRole("link", { name: "Back: Movement feels right" }));
+    await waitFor(() => expect(heading()).toBe("Movement feels right"));
+    expect(crumbs()).toEqual(["Alpha", "Movement feels right"]);
+    fireEvent.click(screen.getByRole("link", { name: "Back: Alpha" }));
+    await waitFor(() => expect(heading()).toBe("Alpha"));
+  });
+
+  it("goes straight back to an earlier screen from its crumb, and Forward brings the trail back", async () => {
+    m.hub.check.mockResolvedValue({ state: hubFixture().checks[0], runs: [], more: false, script: null });
+    window.location.hash = "#/playtests/goals/alpha";
+    render(<Harness start={hubFixture()} />);
+    fireEvent.click(within(screen.getByRole("region", { name: "Required goals" })).getByText("Movement feels right"));
+    fireEvent.click(screen.getAllByText("Jump").find((e) => e.closest("a[href]"))!);
+    const nav = screen.getByRole("navigation", { name: "Where you came from" });
+    fireEvent.click(within(nav).getByRole("link", { name: "Alpha" }));
+    await waitFor(() => expect(heading()).toBe("Alpha"));
+    act(() => window.history.go(2));
+    await waitFor(() => expect(heading()).toBe("Jump"));
+    expect(crumbs()).toEqual(["Alpha", "Movement feels right", "Jump"]);
+  });
+
+  it("falls back to the screen's parent in the map for a deep link opened fresh", () => {
+    m.hub.check.mockResolvedValue({ state: hubFixture().checks[0], runs: [], more: false, script: null });
+    window.history.replaceState(null, "", "#/playtests/checks/" + encodeURIComponent("script:/Game/Tests/Jump"));
+    render(<Harness start={hubFixture()} />);
+    expect(heading()).toBe("Jump");
+    expect(screen.queryByRole("navigation", { name: "Where you came from" })).toBeNull();
+    expect(screen.getByText("Playtests", { selector: ".hub-back" }).getAttribute("href")).toBe("#/playtests/checks");
+  });
+
+  it("returns to the tab a link was followed from", async () => {
+    m.hub.check.mockResolvedValue({ state: hubFixture().checks[0], runs: [], more: false, script: null });
+    window.history.replaceState(null, "", "#/chat/s1");
+    window.location.hash = "#/playtests/checks/" + encodeURIComponent("script:/Game/Tests/Jump");
+    window.history.replaceState({ hubTrail: { routes: [{ screen: "check", checkId: "script:/Game/Tests/Jump" }], from: "Chat" } }, "");
+    render(<Harness start={hubFixture()} />);
+    expect(crumbs()).toEqual(["Chat", "Jump"]);
+    fireEvent.click(screen.getByRole("link", { name: "Back: Chat" }));
+    await waitFor(() => expect(window.location.hash).toBe("#/chat/s1"));
+  });
+});
+
+describe("a playtest's script", () => {
+  it("opens in Unreal from the playtest's screen", async () => {
+    m.hub.check.mockResolvedValue({ state: hubFixture().checks[0], runs: [], more: false, script: null });
+    window.location.hash = "#/playtests/checks/" + encodeURIComponent("script:/Game/Tests/Jump");
+    render(<Harness start={hubFixture()} />);
+    fireEvent.click(screen.getByRole("button", { name: "Open in Unreal" }));
+    await waitFor(() => expect(m.open).toHaveBeenCalledWith("/Game/Tests/Jump.Jump"));
   });
 });

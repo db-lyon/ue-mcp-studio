@@ -8,7 +8,8 @@
 import { useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
 import { Linking, Pressable, StyleSheet, View } from "react-native";
 import Svg, { Path } from "react-native-svg";
-import { studioApi, viewportAllowed, type PanelLocation, type Transport } from "@ue-mcp-studio/client-core";
+import { hubRecordLocation, hubRouteScript, parseHubPath, playtestRecordIndex, studioApi, viewportAllowed, type PanelLocation, type Transport } from "@ue-mcp-studio/client-core";
+import { HubRecordsContext, type HubRecords } from "./chat/HubRecordLink";
 import { playtestMatches, type StudioTheme } from "@ue-mcp-studio/shared";
 import { BackLayer, useBack } from "./back";
 import { useProject } from "./connection";
@@ -170,6 +171,28 @@ function Studio({ daemon, initial, onBack, device }: { daemon: ReturnType<typeof
   const playtests = usePlaytestIndex(daemon);
   const playtestsWaiting = (playtests.index?.playtests ?? []).filter((e) => playtestMatches(e, "needs-you")).length;
   const openPlaytest = (sessionId: string) => openChat(sessionId);
+  // The Playtest Hub experiment, read from the computer's settings and again when they change.
+  const [hubOn, setHubOn] = useState(false);
+  const settingsChanged = [...daemon.events].reverse().find((e) => e.type === "studio.settings.changed" || e.type === "settings.changed");
+  useEffect(() => {
+    api.settings().then((x) => setHubOn(x?.experiments?.playtestHub === true), () => undefined);
+  }, [api, settingsChanged?.id]);
+  // The playtest card a hub link or a start location asked for; `n` tells requests apart.
+  const [focus, setFocus] = useState<{ script: string; n: number } | null>(() => {
+    const script = hubRouteScript(parseHubPath(readLocation().sub));
+    return script ? { script, n: 0 } : null;
+  });
+  // While the hub is on, a link to one of its records opens it on the Playtests page: a playtest at its card.
+  const playtestList = playtests.index?.playtests;
+  const hubRecords = useMemo<HubRecords | null>(() => (hubOn ? {
+    index: playtestList ? playtestRecordIndex(playtestList) : null,
+    open: (route) => {
+      writeLocation(hubRecordLocation(route));
+      setTab("Playtests");
+      const script = hubRouteScript(route);
+      setFocus((f) => (script ? { script, n: (f?.n ?? 0) + 1 } : null));
+    },
+  } : null), [hubOn, playtestList]);
   // Runs holding at a manual step for a verdict, PIE paused: the bar under the top bar, and the cards' Resume and watch.
   const held = useHeld(daemon);
   // While the Playtest Hub holds the editor: the bar that says so, with Release the editor.
@@ -181,6 +204,7 @@ function Studio({ daemon, initial, onBack, device }: { daemon: ReturnType<typeof
   useBack(tab === "Chat" ? null : () => (tab === "Settings" && section ? setSection(null) : setTab("Chat")));
 
   return (
+    <HubRecordsContext.Provider value={hubRecords}>
     <PieStatusContext.Provider value={pie}>
     <HeldContext.Provider value={held}>
     <View style={s.app}>
@@ -235,7 +259,7 @@ function Studio({ daemon, initial, onBack, device }: { daemon: ReturnType<typeof
           // The Playtests page pads inside its own scroller, as the web main scrolls with its padding.
           <View style={[s.main, tab !== "Playtests" && s.padded]}>
             <ErrorBoundary what={tab} resetKey={tab}>
-              {tab === "Playtests" ? <PlaytestsView daemon={daemon} index={playtests} onOpenSession={openPlaytest} onChat={() => setTab("Chat")} /> : null}
+              {tab === "Playtests" ? <PlaytestsView daemon={daemon} index={playtests} onOpenSession={openPlaytest} onChat={() => setTab("Chat")} focus={focus} /> : null}
               {tab === "Settings" ? <SettingsHub daemon={daemon} section={section} onSection={setSection} onTheme={(x: StudioTheme) => THEMES.includes(x) && setTheme(x)} updates={updates} narrow /> : null}
             </ErrorBoundary>
           </View>
@@ -264,6 +288,7 @@ function Studio({ daemon, initial, onBack, device }: { daemon: ReturnType<typeof
     </View>
     </HeldContext.Provider>
     </PieStatusContext.Provider>
+    </HubRecordsContext.Provider>
   );
 }
 

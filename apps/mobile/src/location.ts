@@ -18,7 +18,7 @@ export function readLocation(): PanelLocation {
 /** Merge a change into where the panel is. */
 export function writeLocation(change: Partial<PanelLocation>): void {
   const next = { ...current, ...change };
-  const moved = next.tab !== current.tab || next.session !== current.session || next.section !== current.section;
+  const moved = next.tab !== current.tab || next.session !== current.session || next.section !== current.section || (next.sub ?? null) !== (current.sub ?? null);
   current = next;
   if (moved) for (const l of listeners) l();
 }

@@ -28,12 +28,21 @@ import { readDaemonPicture } from "./daemon-picture";
 import { Picture } from "./Picture";
 import { AssetToken, ExactAssetLink } from "./AssetLink";
 import { FileLink } from "./FileLink";
+import { HubAnchor, HubRecordLink, useHubRecord } from "./HubRecordLink";
 import { breakable } from "./breakable";
 
 export const renderReplyMark = (mark: LinkMark, children: ReactNode, key: number): ReactNode =>
   mark.kind === "exact" ? <ExactAssetLink key={key} path={mark.path} label={mark.label} />
     : mark.kind === "token" ? <AssetToken key={key} token={mark.token} code={mark.code} />
-    : <FileLink key={key} path={mark.path} line={mark.line}>{children}</FileLink>;
+    : mark.kind === "hub" ? <HubRecordLink key={key} address={mark.address}>{children}</HubRecordLink>
+    : <FileOrRecordLink key={key} path={mark.path} line={mark.line}>{children}</FileOrRecordLink>;
+
+/** A link to a bare name: a playtest id the hub knows opens its card; anything else is a project file. */
+function FileOrRecordLink({ path, line, children }: { path: string; line?: number; children: ReactNode }) {
+  const record = useHubRecord(line ? null : path);
+  if (record) return <HubAnchor open={record.open}>{children}</HubAnchor>;
+  return <FileLink path={path} line={line}>{children}</FileLink>;
+}
 
 /** What the daemon sent of the reply's images, by path; absent for a reply from an older Studio, and in the file viewer. */
 export const ReplyImagesContext = createContext<Record<string, ReplyImageInfo> | undefined>(undefined);

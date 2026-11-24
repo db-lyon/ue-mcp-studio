@@ -5,7 +5,7 @@
  * playtest editor (Draft.tsx), the same screen New playtest opens.
  */
 import { useEffect, useMemo, useRef, useState } from "react";
-import { qaScriptSteps, type CheckDetail, type QaRun, type RunRecord, type TrackerLink } from "@ue-mcp-studio/shared";
+import { objectPathOf, qaScriptSteps, type CheckDetail, type QaRun, type RunRecord, type TrackerLink } from "@ue-mcp-studio/shared";
 import { HubLinks } from "./links";
 import {
   CHECK_CHANGE_LOOK,
@@ -16,6 +16,7 @@ import {
   sentenceText,
   stepSentence,
   HUB_COPY,
+  HUB_RECORD_COPY,
   withLink,
   withoutLink,
   RUN_OUTCOME_LOOK,
@@ -30,6 +31,7 @@ import {
   shortAgo,
 } from "@ue-mcp-studio/client-core";
 import { api } from "../../api";
+import { openInEditor } from "../../chat/AssetLink";
 import { useCursor, useHub } from "./state";
 import { Empty,HubIcon, HubLink, Placeholder, ScreenHead, StatusMark, StatusPill, WinLoss } from "./parts";
 
@@ -132,6 +134,7 @@ export function CheckScreen({ checkId }: { checkId: string }) {
           <button onClick={() => hub.addToGoal([checkId])}><HubIcon name="goal" size={12} /> {HUB_COPY.addToGoal}</button>
           <button className="danger-button" disabled={state.missing} title={state.missing ? "Not on this checkout" : "Delete the script asset"} onClick={() => hub.deleteChecks([checkId], () => go({ screen: "library" }))}><HubIcon name="close" size={12} /> {HUB_COPY.delete}</button>
           {!state.missing && <button className="ghost" onClick={() => go({ screen: "draft", checkId })}><HubIcon name="edit" size={12} /> Edit steps</button>}
+          {!state.missing && <button className="ghost" title={HUB_RECORD_COPY.openInUnrealTip} onClick={() => void openInEditor(objectPathOf(state.check.target)).then((e) => e && hub.notify(e, "bad"))}>{HUB_RECORD_COPY.openInUnreal}</button>}
         </>}
       />
       {state.missing && <div className="banner small">{HUB_COPY.notOnCheckout}</div>}

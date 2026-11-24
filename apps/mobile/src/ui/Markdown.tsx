@@ -22,7 +22,7 @@ import { useTheme } from "./ThemeProvider";
 import type { Theme } from "./theme";
 
 /** What remarkReplyLinks marked: an exact asset link from the model, a token to resolve, or a project file. */
-export type LinkMark = { kind: "exact"; path: string; label: string } | { kind: "token"; token: string; code: boolean } | { kind: "file"; path: string; line?: number };
+export type LinkMark = { kind: "exact"; path: string; label: string } | { kind: "token"; token: string; code: boolean } | { kind: "file"; path: string; line?: number } | { kind: "hub"; address: string };
 
 export interface MarkdownProps {
   text: string;
@@ -653,7 +653,9 @@ function inline(ctx: Ctx, n: HNode, key: number, lineStart: boolean): ReactNode 
           ? { kind: "token", token: String(p["data-asset"]), code: false }
           : p["data-file-path"]
             ? { kind: "file", path: String(p["data-file-path"]), ...(p["data-file-line"] ? { line: Number(p["data-file-line"]) } : {}) }
-            : null;
+            : p["data-hub-address"]
+              ? { kind: "hub", address: String(p["data-hub-address"]) }
+              : null;
       return <Text key={key}>{mark && ctx.renderMark ? ctx.renderMark(mark, children, key) : children}</Text>;
     }
     case "a": {

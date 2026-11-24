@@ -9,6 +9,7 @@ import { font, inlineCode, Sheet, T, useTheme } from "../ui";
 import { useProjectNav } from "../nav";
 import { breakable } from "./breakable";
 import { splitText, stepParts, useAssetLink } from "./asset-links";
+import { HubAnchor, useHubRecord } from "./HubRecordLink";
 
 /** How long the inline note after a press stays up. */
 export const TOAST_MS = 2500;
@@ -46,7 +47,14 @@ export function AssetToken({ token, code }: { token: string; code: boolean }) {
 /** `.md code` and `.asset-link.code`: the markdown's inline code, at the mono font's own line height. */
 const codeStyle = inlineCode;
 
+/** One asset path, or the playtest's card when the path is a playtest's script the hub knows. */
 function AssetButton({ token, code, paths }: { token: string; code: boolean; paths: string[] }) {
+  const record = useHubRecord(paths.length === 1 ? paths[0] : null);
+  if (record) return <HubAnchor open={record.open} code={code}>{code ? breakable(token) : token}</HubAnchor>;
+  return <EditorAssetButton token={token} code={code} paths={paths} />;
+}
+
+function EditorAssetButton({ token, code, paths }: { token: string; code: boolean; paths: string[] }) {
   const t = useTheme();
   const { api } = useProjectNav();
   const [toast, setToast] = useState<string | null>(null);

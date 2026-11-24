@@ -1,4 +1,5 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { HubRecordsContext, type HubRecords } from "./chat/HubRecordLink";
 import type { StudioTheme } from "@ue-mcp-studio/shared";
 import { api } from "./api";
 import { applyTheme } from "./theme";
@@ -26,7 +27,7 @@ import { HubView } from "./views/hub/Hub";
 import { useExperiments, useHubOverview } from "./views/hub/state";
 import { playtestMatches } from "@ue-mcp-studio/shared";
 import { NARROW, useMedia } from "./layout";
-import { readLocation, writeLocation } from "./location";
+import { historyState, pushLocation, readLocation, writeLocation } from "./location";
 import { useSessionFocus } from "./focus";
 import { focusRun } from "./attention";
 import { useNotifications, usePresence, useWebPush } from "./notify";
@@ -34,7 +35,7 @@ import { replaceStaleWindow } from "./window-version";
 import { RefusalPending, RefusedScreen, useRefusal } from "./views/Refused";
 import { ErrorBoundary } from "./views/ErrorBoundary";
 import { onRemotePage } from "./connection";
-import { HUB_COPY, playingRuns, projectListUrl, viewportAllowed } from "@ue-mcp-studio/client-core";
+import { HUB_COPY, freshTrail, parseHubPath, trailOf, trailPush, hubRecordIndex, hubRecordLocation, playingRuns, projectListUrl, viewportAllowed } from "@ue-mcp-studio/client-core";
 import { HeldBar, LeaseBar, useHeld, useLease } from "./held";
 import { HeldContext } from "./held-context";
 import { BarProjectSwitch } from "./views/ProjectSwitch";
@@ -149,6 +150,18 @@ function Studio({ daemon }: { daemon: DaemonState }) {
   const hubOn = experiments?.playtestHub === true;
   const hub = useHubOverview(daemon, hubOn);
   const shownTabs = hubOn ? TABS : WITHOUT_PLAYTESTS;
+  // While the hub is on, a link to one of its records (in a reply, a tool result, a card) opens it on the Playtests tab.
+  const recordIndex = useMemo(() => (hub.overview ? hubRecordIndex(hub.overview) : null), [hub.overview]);
+  const hubRecords = useMemo<HubRecords | null>(() => (hubOn ? {
+    index: recordIndex,
+    // A history entry whose trail starts at the tab the link was on, so Back and the hub's crumbs return there.
+    open: (route) => {
+      // From inside the hub, the trail grows from the screen on show.
+      const here = parseHubPath(readLocation().sub);
+      pushLocation(hubRecordLocation(route), { hubTrail: tab === "Playtests" ? trailPush(trailOf(historyState(), here), route) : freshTrail(route, tab) });
+      setTab("Playtests");
+    },
+  } : null), [hubOn, recordIndex, tab]);
   const playtestsWaiting = hubOn
     ? hub.overview?.attention.length ?? 0
     : (playtests.index?.playtests ?? []).filter((e) => playtestMatches(e, "needs-you")).length;
@@ -281,7 +294,7 @@ function Studio({ daemon }: { daemon: DaemonState }) {
       </div>
     </FileViewerProvider>
   );
-  const withHeld = <HeldContext.Provider value={held}>{studio}</HeldContext.Provider>;
+  const withHeld = <HeldContext.Provider value={held}><HubRecordsContext.Provider value={hubRecords}>{studio}</HubRecordsContext.Provider></HeldContext.Provider>;
   return liveAllowed ? <LiveProvider daemon={daemon} onSettings={settingsFromChat}>{withHeld}</LiveProvider> : withHeld;
 }
 
