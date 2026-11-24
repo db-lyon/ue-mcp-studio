@@ -93,12 +93,6 @@ export const MAX_REQUEST_BYTES = 8 * 1024 * 1024;
 
 /** Request headers a browser's request carries to the daemon. Credentials, cookies and origin never do. */
 export const FORWARDED_REQUEST_HEADERS = ["accept", "content-type", "last-event-id"] as const;
-/**
- * Set by the computer on a paired browser's request to the daemon: the name
- * the browser paired with, URI-encoded, so a route can say which device acted
- * (a sign-off). A browser cannot send it itself, since it is not forwarded.
- */
-export const PAIRED_DEVICE_HEADER = "x-ue-mcp-paired-device";
 /** Response headers the daemon's response carries back. */
 export const FORWARDED_RESPONSE_HEADERS = ["content-type", "cache-control", "content-disposition", "etag", "last-modified"] as const;
 

@@ -9,7 +9,6 @@ import {
   FORWARDED_REQUEST_HEADERS,
   FORWARDED_RESPONSE_HEADERS,
   MAX_REQUEST_BYTES,
-  PAIRED_DEVICE_HEADER,
   PAIR_APPROVAL_TTL_MS,
   PAIR_SECRET_TTL_MS,
   ReplayGuard,
@@ -29,6 +28,7 @@ import {
   type PlainRequest,
   type SealedRequest,
 } from "@ue-mcp-studio/remote";
+import { DAEMON_HEADERS } from "ue-mcp/daemon";
 import * as fs from "node:fs";
 import * as path from "node:path";
 import { writeFileAtomic } from "../atomic-write.js";
@@ -344,7 +344,8 @@ export class RemoteService {
     const headers = forwardHeaders(req);
     headers["authorization"] = `Bearer ${daemon.token}`;
     const device = this.o.keys.phones().find((p) => p.id === sealed.phone);
-    headers[PAIRED_DEVICE_HEADER] = encodeURIComponent(device?.label ?? "Paired device");
+    // The device this request came through, which a hub sign-off records. A browser cannot send it itself, since it is not forwarded.
+    headers[DAEMON_HEADERS.via] = encodeURIComponent(device?.label ?? "Paired device");
 
     let res: Response;
     try {

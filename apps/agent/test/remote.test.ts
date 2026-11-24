@@ -13,7 +13,7 @@ import * as zlib from "node:zlib";
 import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
 import { ComputerKeys } from "../src/remote/keys.js";
 import { WebSocketServer, type WebSocket } from "ws";
-import type { DaemonExtensionApi, ExtensionHandler } from "ue-mcp/daemon";
+import { DAEMON_HEADERS, type DaemonExtensionApi, type ExtensionHandler } from "ue-mcp/daemon";
 import {
   ResponseOpener,
   decodeChunk,
@@ -79,9 +79,10 @@ async function until(check: () => boolean, ms = 5000): Promise<void> {
 }
 
 // ── The daemon a browser's requests reach ─────────────────────────
-const daemonHits: Array<{ method: string; url: string; auth?: string; cookie?: string }> = [];
+const daemonHits: Array<{ method: string; url: string; auth?: string; cookie?: string; via?: string }> = [];
 const daemon = http.createServer((req, res) => {
-  daemonHits.push({ method: req.method!, url: req.url!, auth: req.headers.authorization, cookie: req.headers.cookie });
+  const via = req.headers[DAEMON_HEADERS.via];
+  daemonHits.push({ method: req.method!, url: req.url!, auth: req.headers.authorization, cookie: req.headers.cookie, ...(typeof via === "string" ? { via: decodeURIComponent(via) } : {}) });
   if (req.headers.authorization !== `Bearer ${DAEMON_TOKEN}`) return void res.writeHead(401).end();
   if (req.url === "/ui/") return void res.writeHead(200, { "content-type": "text/html", "set-cookie": "leak=1" }).end(`<!doctype html><title>Studio ${MARKER}</title>`);
   if (req.url === "/v1/events?silent=1") {
@@ -496,12 +497,13 @@ describe("remote control, sealed end to end", () => {
     expect(again.failed?.status).toBe(403);
 
     // Requests reach the daemon with its token, and nothing of theirs crosses the relay in the clear.
-    const ui = await browser.request({ path: "/ui/", headers: { cookie: "relay=1", accept: "text/html" } });
+    const ui = await browser.request({ path: "/ui/", headers: { cookie: "relay=1", accept: "text/html", [DAEMON_HEADERS.via]: "Someone else" } });
     expect(ui.head).toEqual({ status: 200, headers: { "content-type": "text/html" } });
     expect(ui.text()).toContain(MARKER);
     expect(ui.opener.finished).toBe(true);
     const hit = daemonHits.at(-1)!;
-    expect(hit).toMatchObject({ method: "GET", url: "/ui/", auth: `Bearer ${DAEMON_TOKEN}` });
+    // The daemon hears which device it came through from the computer, never from the browser.
+    expect(hit).toMatchObject({ method: "GET", url: "/ui/", auth: `Bearer ${DAEMON_TOKEN}`, via: "Android" });
     expect(hit.cookie).toBeUndefined();
     const echo = await browser.request({ method: "POST", path: "/v1/ext/studio/echo", headers: { "content-type": "application/json" }, body: Buffer.from(JSON.stringify({ m: MARKER })).toString("base64") });
     expect(JSON.parse(echo.text())).toEqual({ m: MARKER });
