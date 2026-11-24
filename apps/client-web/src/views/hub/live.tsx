@@ -29,6 +29,7 @@ import {
 } from "@ue-mcp-studio/client-core";
 import { LiveContext, type LiveValue } from "../../chat/PieLive";
 import { runViewportAction } from "../Viewport";
+import { EditorConsent, useEditorConsent } from "../EditorConsent";
 import { HubIcon, HubLink } from "./parts";
 import { HubContext } from "./state";
 
@@ -114,6 +115,7 @@ export function HubViewer({ viewer, overlay, linkRun = true, className = "" }: {
   }, [stream]);
   const [busy, setBusy] = useState<string | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
+  const consent = useEditorConsent();
   // Only while the run plays, or for the moment its last frame shows after: never an idle card.
   if (!ctx || (!line.run && view !== "ended")) return null;
 
@@ -121,7 +123,7 @@ export function HubViewer({ viewer, overlay, linkRun = true, className = "" }: {
     setActionError(null);
     setBusy(a.id);
     try {
-      await runViewportAction(a, { check: ctx.pie.check, setStatus: ctx.pie.setStatus, onSettings: ctx.onSettings, watch: ctx.retry, remote: true });
+      await runViewportAction(a, { check: ctx.pie.check, setStatus: ctx.pie.setStatus, onSettings: ctx.onSettings, watch: ctx.retry, remote: true, restart: () => consent.run("restart") });
     } catch (e) {
       setActionError(e instanceof Error ? e.message : String(e));
     } finally {
@@ -172,6 +174,20 @@ export function HubViewer({ viewer, overlay, linkRun = true, className = "" }: {
               </button>
             ))}
           </div>
+        )}
+        {consent.ask && (
+          <EditorConsent
+            ask={consent.ask}
+            onApprove={() => {
+              setBusy("restart-editor");
+              setActionError(null);
+              void consent.approve().then(
+                (r) => (r ? ctx.pie.check() : undefined),
+                (e: unknown) => setActionError(e instanceof Error ? e.message : String(e)),
+              ).finally(() => setBusy(null));
+            }}
+            onCancel={consent.cancel}
+          />
         )}
         {actionError && <p className="small hub-bad-text">{actionError}</p>}
       </div>

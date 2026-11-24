@@ -179,6 +179,40 @@ describe("Studio updates", () => {
     expect(u.pluginVersion()).toBe("0.1.0-beta.4");
   });
 
+  it("hands the plugin step to the person when other sessions hold the editor, with nothing moved", async () => {
+    const dir = project("0.1.0-beta.4");
+    const zip = pluginZip("0.1.0-beta.9");
+    const host = fakeHost(dir);
+    const request = { id: "r-1a2b", op: "stop", state: "pending", requester: { id: "http:the user in Studio", label: "the user in Studio" }, answers: [] };
+    const asked: Array<[string, unknown]> = [];
+    const u = new Updater(host, "0.1.0-beta.9", () => {}, manifestFetch({
+      version: "0.1.0-beta.9", url: "s", sha256: "x",
+      plugin: { version: "0.1.0-beta.9", files: { "5.8": { url: "https://x/p.zip", sha256: zip.sha256 } } },
+    }, fs.readFileSync(zip.file)));
+    u.usePersonOps(async (op, consent) => (asked.push([op, consent]), { op, steps: [{ step: "consent", ok: false, reason: "Claude Code is busy" }], request }));
+    expect(await u.updatePlugin()).toEqual({ ok: false, error: "Claude Code is busy", request });
+    expect(asked).toEqual([["stop", {}]]);
+    // The editor was never asked through the extension API, and the plugin was left as it is.
+    expect(host.ops).toEqual([]);
+    expect(u.pluginVersion()).toBe("0.1.0-beta.4");
+  });
+
+  it("carries the person's Update anyway to the stop", async () => {
+    const dir = project("0.1.0-beta.4");
+    const zip = pluginZip("0.1.0-beta.9");
+    const host = fakeHost(dir);
+    const asked: Array<[string, unknown]> = [];
+    const u = new Updater(host, "0.1.0-beta.9", () => {}, manifestFetch({
+      version: "0.1.0-beta.9", url: "s", sha256: "x",
+      plugin: { version: "0.1.0-beta.9", files: { "5.8": { url: "https://x/p.zip", sha256: zip.sha256 } } },
+    }, fs.readFileSync(zip.file)));
+    u.usePersonOps(async (op, consent) => (asked.push([op, consent]), { op, steps: [] }));
+    expect(await u.updatePlugin({ force: true })).toEqual({ ok: true, version: "0.1.0-beta.9" });
+    expect(asked).toEqual([["stop", { force: true }]]);
+    // Starting the editor again takes nothing from anyone, so it still goes through the extension API.
+    expect(host.ops).toEqual(["start"]);
+  });
+
   it("stages outside Plugins/ and clears the copies an earlier updater left there", async () => {
     const dir = project("0.1.0-beta.4");
     for (const spare of [".UE_MCP_Studio.update", ".UE_MCP_Studio.previous"]) {

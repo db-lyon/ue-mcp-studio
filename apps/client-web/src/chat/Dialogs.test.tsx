@@ -33,19 +33,21 @@ const base: EditorDialog = {
   asking: { since: T0, minHumanMs: 1000, policy: { kind: "agent", minutes: 2 }, deadline: T0 + 120_000, safeButton: "Cancel" },
   held: null,
   outcome: null,
-  steps: [{ at: T0, text: "Asked you. The agent decides if nobody answers in 2 min." }],
+  steps: [{ at: T0, text: "Asked you" }],
 };
 
 const button = (name: string) => screen.getByRole("button", { name }) as HTMLButtonElement;
 
 describe("a dialog card", () => {
-  it("shows the dialog, the call and subagent that met it, and what happens if nobody answers", () => {
+  it("heads the card with its kind and title, keeps the call that met it to the tooltip, and says what happens if nobody answers", () => {
     render(<DialogCards dialogs={[base]} now={T0 + 18_000} />);
-    expect(screen.getByText("Save Content")).toBeTruthy();
+    const heading = document.querySelector(".dialog-heading") as HTMLElement;
+    expect(heading.textContent).toBe("Editor dialog·Save Content");
+    expect(heading.title).toBe("Met by editor(stop_editor) in subagent Tidy the level");
+    expect(screen.queryByText(/met by/i)).toBeNull();
     expect(screen.getByText("Save these?")).toBeTruthy();
-    expect(screen.getByText("met by editor(stop_editor) in subagent Tidy the level")).toBeTruthy();
-    expect(screen.getByRole("status").textContent).toBe("Waiting for you. The agent decides in 1:42.");
-    expect(screen.getByText(/Asked you. The agent decides if nobody answers in 2 min./)).toBeTruthy();
+    expect(screen.getByRole("status").textContent).toBe("Waiting for you · agent decides in 1:42");
+    expect(screen.getByText("Asked you")).toBeTruthy();
   });
 
   it("keeps its buttons off until there has been time to read it", () => {
@@ -85,10 +87,18 @@ describe("a dialog card", () => {
     expect(button("Cancel").disabled).toBe(false);
   });
 
-  it("counts down a destructive answer the agent chose, with Press now and an override for each other button", async () => {
-    const held: EditorDialog = { ...base, mode: "auto", asking: null, held: { button: "Don't Save", until: T0 + 10_000 } };
+  it("counts down a destructive answer the agent chose on its row, with Press now and an override for each other button", async () => {
+    const steps = [{ at: T0 - 5_000, text: "Opened" }, { at: T0, text: "Decision: Don't Save (agent)" }];
+    const held: EditorDialog = { ...base, mode: "auto", asking: null, held: { button: "Don't Save", until: T0 + 10_000 }, steps };
+    const { rerender } = render(<DialogCards dialogs={[held]} now={T0 + 2_100} />);
+    expect(screen.getByText("Decision: Don't Save (agent) · 8 s to override")).toBeTruthy();
+    expect(screen.queryByRole("status")).toBeNull();
+    // Once pressed, the row collapses to what was recorded.
+    rerender(<DialogCards dialogs={[{ ...held, held: null, outcome: { kind: "pressed", button: "Don't Save", by: "agent", at: T0 + 10_000 }, steps: [...steps, { at: T0 + 10_000, text: "Pressed: Don't Save (agent)" }] }]} now={T0 + 11_000} />);
+    expect(screen.getByText("Decision: Don't Save (agent)")).toBeTruthy();
+    expect(screen.queryByText(/to override/)).toBeNull();
+    cleanup();
     render(<DialogCards dialogs={[held]} now={T0 + 2_100} />);
-    expect(screen.getByRole("status").textContent).toBe("The agent chose Don't Save, pressing in 0:08 (Override).");
     await act(async () => fireEvent.click(button("Cancel instead")));
     expect(api.answerDialog).toHaveBeenCalledWith("d1", { answer: "press", button: "Cancel" });
     cleanup();
@@ -99,13 +109,13 @@ describe("a dialog card", () => {
 
   it("says to answer in the editor when the project defers dialogs", () => {
     render(<DialogCards dialogs={[{ ...base, mode: "defer", asking: null }]} now={T0} />);
-    expect(screen.getByRole("status").textContent).toBe("Waiting for an answer in the editor.");
+    expect(screen.getByRole("status").textContent).toBe("Waiting for an answer in the editor");
     expect(screen.queryByRole("button")).toBeNull();
   });
 
   it("says the agent is deciding in auto mode, and still lets the user answer", async () => {
     render(<DialogCards dialogs={[{ ...base, mode: "auto", asking: null }]} now={T0} />);
-    expect(screen.getByRole("status").textContent).toBe("The agent is deciding.");
+    expect(screen.getByRole("status").textContent).toBe("Agent deciding");
     await act(async () => fireEvent.click(button("Cancel")));
     expect(api.answerDialog).toHaveBeenCalledWith("d1", { answer: "press", button: "Cancel" });
   });
@@ -113,7 +123,7 @@ describe("a dialog card", () => {
   it("says the agent is deciding once the deadline handed it over, never waiting for you", () => {
     const handed: EditorDialog = { ...base, asking: null, outcome: { kind: "delegated", by: "policy", at: T0 + 120_000 } };
     render(<DialogCards dialogs={[handed]} now={T0 + 121_000} />);
-    expect(screen.getByRole("status").textContent).toBe("Nobody answered in time, so the agent is deciding.");
+    expect(screen.getByRole("status").textContent).toBe("Agent deciding (timeout)");
     expect(screen.queryByText(/Waiting for you/)).toBeNull();
     expect(screen.queryByRole("button", { name: "Let the agent decide" })).toBeNull();
   });
@@ -201,38 +211,44 @@ describe("a dialog's body as ue-mcp read it (#1891)", () => {
 describe("a dialog in the transcript and the banner", () => {
   it("says how it ended", () => {
     const at = T0;
-    expect(outcomeLine({ ...base, outcome: { kind: "pressed", button: "Cancel", by: "you", at } })).toBe("You pressed Cancel.");
-    expect(outcomeLine({ ...base, outcome: { kind: "pressed", button: "Save Selected", by: "agent", at } })).toBe("The agent pressed Save Selected.");
-    expect(outcomeLine({ ...base, outcome: { kind: "pressed", button: "Cancel", by: "policy", at } })).toBe("Nobody answered in time, so Cancel was pressed.");
-    expect(outcomeLine({ ...base, outcome: { kind: "closed", at } })).toBe("Closed in the editor.");
+    expect(outcomeLine({ ...base, outcome: { kind: "pressed", button: "Cancel", by: "you", at } })).toBe("Pressed: Cancel (you)");
+    expect(outcomeLine({ ...base, outcome: { kind: "pressed", button: "Save Selected", by: "agent", at } })).toBe("Pressed: Save Selected (agent)");
+    expect(outcomeLine({ ...base, outcome: { kind: "pressed", button: "Cancel", by: "policy", at } })).toBe("Pressed: Cancel (timeout)");
+    expect(outcomeLine({ ...base, outcome: { kind: "closed", at } })).toBe("Closed in editor");
     expect(outcomeLine(base)).toBe("");
   });
 
-  it("renders as a line in the transcript", () => {
-    render(<Entry entry={{ kind: "dialog", dialog: { ...base, asking: null, outcome: { kind: "pressed", button: "Cancel", by: "you", at: T0 } } }} />);
-    expect(screen.getByText("Save Content")).toBeTruthy();
-    expect(screen.getByText("You pressed Cancel.")).toBeTruthy();
-    cleanup();
-    render(<DialogLine dialog={base} />);
-    expect(screen.getByText(/Asked you. The agent decides/)).toBeTruthy();
+  it("renders as a terse line in the transcript: a heading and one row per step, nothing repeated under them", () => {
+    const steps = [
+      { at: T0, text: "Opened" },
+      { at: T0 + 27_000, text: "Decision: Don't Save (agent)" },
+      { at: T0 + 38_000, text: "Pressed: Don't Save (agent)" },
+    ];
+    render(<Entry entry={{ kind: "dialog", dialog: { ...base, mode: "auto", asking: null, outcome: { kind: "pressed", button: "Don't Save", by: "agent", at: T0 + 38_000 }, steps } }} />);
+    const line = document.querySelector(".dialog-line") as HTMLElement;
+    expect(line.querySelector(".dialog-heading")?.textContent).toBe("Editor dialog·Save Content");
+    expect(line.textContent).not.toMatch(/met by/i);
+    const rows = [...line.querySelectorAll(".dialog-steps li")].map((li) => li.lastElementChild?.textContent);
+    expect(rows).toEqual(["Opened", "Decision: Don't Save (agent)", "Pressed: Don't Save (agent)"]);
+    expect(screen.getAllByText("Pressed: Don't Save (agent)")).toHaveLength(1);
   });
 
   it("puts the dialog in the banner, so a stalled turn is never silent", () => {
     render(<DialogBannerLine dialog={base} now={T0 + 60_000} />);
-    expect(screen.getByRole("status").textContent).toBe("Editor waiting on a dialog: Save Content Waiting for you. The agent decides in 1:00.");
+    expect(screen.getByRole("status").textContent).toBe("Editor waiting on a dialog: Save Content Waiting for you · agent decides in 1:00");
   });
 
   it("tells the truth about who decides, in every state", () => {
     // Waiting for you only with nothing else to answer it, and with the deadline when there is one.
-    expect(statusLine({ ...base, asking: { ...base.asking!, policy: { kind: "wait" }, deadline: null } }, T0)).toBe("Waiting for you.");
-    expect(statusLine(base, T0 + 15_000)).toBe("Waiting for you. The agent decides in 1:45.");
-    expect(statusLine({ ...base, asking: { ...base.asking!, policy: { kind: "safe", minutes: 2 } } }, T0 + 90_000)).toBe("Waiting for you. Cancel is pressed in 0:30.");
-    expect(statusLine({ ...base, asking: { ...base.asking!, policy: { kind: "safe", minutes: 2 }, deadline: null, safeButton: null } }, T0)).toBe("Waiting for you. It has no Cancel or Keep, so nothing is pressed for you.");
-    expect(statusLine({ ...base, asking: null, outcome: { kind: "delegated", by: "policy", at: T0 } }, T0)).toBe("Nobody answered in time, so the agent is deciding.");
-    expect(statusLine({ ...base, asking: null, outcome: { kind: "delegated", by: "you", at: T0 } }, T0)).toBe("Handed to the agent. The agent is deciding.");
-    expect(statusLine({ ...base, asking: null, mode: "auto" }, T0)).toBe("The agent is deciding.");
-    expect(statusLine({ ...base, asking: null, held: { button: "Don't Save", until: T0 + 8_000 } }, T0)).toBe("The agent chose Don't Save, pressing in 0:08 (Override).");
-    expect(statusLine({ ...base, asking: null, outcome: { kind: "pressed", button: "Cancel", by: "policy", at: T0 } }, T0)).toBe("Nobody answered in time, so Cancel was pressed.");
+    expect(statusLine({ ...base, asking: { ...base.asking!, policy: { kind: "wait" }, deadline: null } }, T0)).toBe("Waiting for you");
+    expect(statusLine(base, T0 + 15_000)).toBe("Waiting for you · agent decides in 1:45");
+    expect(statusLine({ ...base, asking: { ...base.asking!, policy: { kind: "safe", minutes: 2 } } }, T0 + 90_000)).toBe("Waiting for you · Cancel in 0:30");
+    expect(statusLine({ ...base, asking: { ...base.asking!, policy: { kind: "safe", minutes: 2 }, deadline: null, safeButton: null } }, T0)).toBe("Waiting for you · no Cancel or Keep to press for you");
+    expect(statusLine({ ...base, asking: null, outcome: { kind: "delegated", by: "policy", at: T0 } }, T0)).toBe("Agent deciding (timeout)");
+    expect(statusLine({ ...base, asking: null, outcome: { kind: "delegated", by: "you", at: T0 } }, T0)).toBe("Agent deciding");
+    expect(statusLine({ ...base, asking: null, mode: "auto" }, T0)).toBe("Agent deciding");
+    expect(statusLine({ ...base, asking: null, held: { button: "Don't Save", until: T0 + 8_000 } }, T0)).toBe("Decision: Don't Save (agent) · 8 s to override");
+    expect(statusLine({ ...base, asking: null, outcome: { kind: "pressed", button: "Cancel", by: "policy", at: T0 } }, T0)).toBe("Pressed: Cancel (timeout)");
     expect(statusLine({ ...base, asking: null, mode: "interactive" }, T0)).toMatch(/^Not put to Studio yet/);
     expect(decider(base)).toBe("you");
     expect(decider({ ...base, asking: null, outcome: { kind: "delegated", by: "policy", at: T0 } })).toBe("agent");
@@ -297,7 +313,7 @@ describe("a native Windows dialog's card", () => {
     expect(screen.getByText("GPU device lost")).toBeTruthy();
     expect(screen.getByText(/the editor exits when OK is pressed/)).toBeTruthy();
     expect(screen.getByText("Once the editor has exited, start it again from the editor banner.")).toBeTruthy();
-    expect(screen.getByRole("status").textContent).toBe("Waiting for your answer, here or in the editor.");
+    expect(screen.getByRole("status").textContent).toBe("Waiting for you, here or in the editor");
     const details = document.querySelector("details.dialog-details") as HTMLDetailsElement;
     expect(details.open).toBe(false);
     expect(details.querySelector("summary")?.textContent).toBe("From the editor log (2)");
@@ -312,14 +328,14 @@ describe("a native Windows dialog's card", () => {
   });
 
   it("leads the banner and the transcript line with what kind of dialog it is", () => {
-    render(<><DialogBannerLine dialog={gpu} now={T0} /><DialogLine dialog={{ ...gpu, outcome: { kind: "pressed", button: "OK", by: "you", at: T0 } }} /></>);
+    render(<><DialogBannerLine dialog={gpu} now={T0} /><DialogLine dialog={{ ...gpu, outcome: { kind: "pressed", button: "OK", by: "you", at: T0 }, steps: [{ at: T0, text: "Pressed: OK (you)" }] }} /></>);
     expect(screen.getByText("The editor lost its GPU device:")).toBeTruthy();
     expect(screen.getAllByText("GPU device lost")).toHaveLength(1);
-    expect(screen.getByText("You pressed OK.")).toBeTruthy();
+    expect(screen.getByText("Pressed: OK (you)")).toBeTruthy();
   });
 
   it("shows no buttons once it is answered, and the agent's line in auto", () => {
-    expect(statusLine({ ...gpu, mode: "auto" }, T0)).toBe("The agent is deciding. You can answer it here too.");
+    expect(statusLine({ ...gpu, mode: "auto" }, T0)).toBe("Agent deciding · you can answer here too");
     render(<DialogCards dialogs={[{ ...gpu, outcome: { kind: "pressed", button: "OK", by: "you", at: T0 } }]} now={T0} />);
     expect(screen.queryByRole("button", { name: "OK" })).toBeNull();
   });

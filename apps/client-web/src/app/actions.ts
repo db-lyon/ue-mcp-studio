@@ -5,6 +5,8 @@
  * started on the list is still shown on the project's detail, and back.
  */
 import { useEffect, useSyncExternalStore } from "react";
+import type { StatusReport } from "ue-mcp/daemon";
+import { beforeLaunch, consentAskOf, readRebuild, type ConsentAsk, type ProblemCopy } from "@ue-mcp-studio/client-core";
 import type { Machine } from "./App";
 import { follow, host, type IdeInfo, type JobState } from "./native";
 import { installedKey, updatesOf, type MachineProject } from "./model";
@@ -12,7 +14,7 @@ import { installedKey, updatesOf, type MachineProject } from "./model";
 /** Where a project's Studio opens to run its update: Settings, General, the Updates card. */
 export const UPDATES_LOCATION = "#/settings/general";
 
-export type WorkKind = "install" | "launch" | "studio" | "start" | "stop" | "update" | "ide" | "projectfiles";
+export type WorkKind = "install" | "launch" | "studio" | "start" | "stop" | "update" | "ide" | "projectfiles" | "rebuild";
 
 /** Open in IDE found no solution for Visual Studio: what the page can offer instead. */
 export interface NeedsFiles {
@@ -36,6 +38,62 @@ export interface Work {
   /** Update was handed to the project's Studio, and the list is read again until its versions change. */
   watching?: boolean;
   needsFiles?: NeedsFiles;
+  /** Launch editor found a problem that makes Unreal ask to rebuild on launch, and waits for Rebuild or Launch anyway. */
+  beforeLaunch?: ProblemCopy;
+  /** Rebuild is held by other sessions using the editor, and waits for Rebuild anyway or Cancel. */
+  consent?: ConsentAsk;
+}
+
+/**
+ * Each project's install report (ue-mcp status), by key. ue-mcp reads it from
+ * the project's files, so it names problems the editor never gets far enough
+ * to report, such as a bridge built for another engine build.
+ */
+let reports: Record<string, StatusReport> = {};
+const reportListeners = new Set<() => void>();
+/** One read at a time: each is a ue-mcp process, and a long list would otherwise start them all at once. */
+let reportQueue: Promise<unknown> = Promise.resolve();
+
+/** Read a project's install report again; null when the host cannot (an older host, no Node.js, a failed read). */
+export function loadReport(p: MachineProject): Promise<StatusReport | null> {
+  const read = reportQueue.then(async () => {
+    const h = host();
+    if (!h?.status || !p.ueMcp.setUp) return null;
+    const r = await h.status({ uproject: p.uproject }).catch(() => null);
+    let parsed: StatusReport | null = null;
+    try {
+      parsed = r?.ok && r.report ? (JSON.parse(r.report) as StatusReport) : null;
+    } catch {
+      parsed = null;
+    }
+    if (!parsed || !Array.isArray(parsed.problems)) return null;
+    reports = { ...reports, [p.key]: parsed };
+    reportListeners.forEach((l) => l());
+    return parsed;
+  });
+  reportQueue = read.catch(() => null);
+  return read;
+}
+
+/** A project's install report: the last read at once, read again when `when` changes. */
+export function useInstallReport(p: MachineProject, when: unknown): StatusReport | null {
+  const report = useSyncExternalStore(
+    (l) => {
+      reportListeners.add(l);
+      return () => reportListeners.delete(l);
+    },
+    () => reports[p.key] ?? null,
+  );
+  useEffect(() => {
+    if (p.ueMcp.setUp) void loadReport(p);
+  }, [p.key, p.uproject, p.ueMcp.setUp, when]);
+  return report;
+}
+
+/** Forget every project's install report, for tests. */
+export function resetReports(): void {
+  reports = {};
+  reportQueue = Promise.resolve();
 }
 
 /** The IDEs and project files the host found, by project key, read again whenever a view asks. */
@@ -144,10 +202,49 @@ export function projectActions(p: MachineProject, m: Machine, current: Work | nu
       set(r?.ok ? null : { kind: "studio", error: r?.error ?? "Studio did not open." });
       void m.refresh();
     },
-    launch: async () => {
+    /**
+     * Launch editor. A project ue-mcp is set up in has its install report read
+     * first: when it names a problem that makes Unreal ask to rebuild modules on
+     * launch, the launch waits and Rebuild is offered instead (`anyway` skips it).
+     */
+    launch: async (anyway = false) => {
       set({ kind: "launch" });
+      if (!anyway && p.ueMcp.setUp) {
+        const problem = beforeLaunch(await loadReport(p));
+        if (problem) return set({ kind: "launch", beforeLaunch: problem });
+      }
       const r = await host()?.launcheditor({ key: p.key, uproject: p.uproject, setUp: p.ueMcp.setUp });
       set(r?.ok ? null : { kind: "launch", error: r?.error ?? "The editor did not start." });
+      void m.refresh();
+    },
+    /**
+     * The daemon's rebuild: build the project's C++ for this engine, then open
+     * the editor. While other sessions use the editor the daemon holds it (409
+     * with its consent request): the person sees who and why, and `force`
+     * rebuilds anyway.
+     */
+    rebuild: async (force = false) => {
+      set({ kind: "rebuild" });
+      const r = await host()?.rebuild?.({ key: p.key, uproject: p.uproject, ...(force ? { force: "yes" as const } : {}) });
+      let failed = r ? r.error ?? null : "This version of the UE-MCP Launcher cannot rebuild projects. Update it in Settings.";
+      if (r?.body) {
+        let steps: Record<string, unknown> | null = null;
+        try {
+          steps = JSON.parse(r.body) as Record<string, unknown>;
+        } catch {
+          steps = null;
+        }
+        const held = consentAskOf("rebuild", { status: r.status, body: steps });
+        if (held) return set({ kind: "rebuild", consent: held });
+        const outcome = steps ? readRebuild(steps) : null;
+        if (outcome && !outcome.ok) {
+          failed = outcome.built && outcome.failure?.step === "start"
+            ? `The bridge plugin was rebuilt, but the editor did not open. ${outcome.failure.reason}`
+            : `The rebuild did not finish. ${outcome.failure?.reason ?? ""}`.trim();
+        }
+      }
+      set(failed ? { kind: "rebuild", error: failed } : null);
+      void loadReport(p);
       void m.refresh();
     },
     start: async () => {
@@ -163,6 +260,12 @@ export function projectActions(p: MachineProject, m: Machine, current: Work | nu
       if (end?.ok) set(null);
     },
     cancel: () => set(null),
+    /** Cancel a held rebuild: its request is denied, so the sessions it was put to stop waiting on it. */
+    cancelConsent: () => {
+      const id = current?.consent?.request.id;
+      if (id) void host()?.denyconsent?.({ key: p.key, id }).catch(() => undefined);
+      set(null);
+    },
     /**
      * Open in IDE, or with one IDE from Open with... (kept for the project
      * unless `remember` is false). Visual Studio without a solution asks to
@@ -235,6 +338,7 @@ export function workTitle(kind: WorkKind, job: JobState, name: string): string {
     stop: [`Stopping ue-mcp for ${name}`, "ue-mcp stopped", "ue-mcp did not stop"],
     projectfiles: [`Generating project files for ${name}`, "The project files are generated", "The project files were not generated"],
     launch: ["", "", ""],
+    rebuild: ["", "", ""],
     studio: ["", "", ""],
     ide: ["", "", ""],
   };

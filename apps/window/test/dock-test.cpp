@@ -619,10 +619,21 @@ int main() {
     CHECK(job::allowed("GET", "/v1/ext/studio/updates"));
     CHECK(job::allowed("POST", "/v1/ext/studio/window"));
     CHECK(job::allowed("POST", "/v1/editor/start"));
+    CHECK(job::allowed("POST", "/v1/editor/rebuild"));
     CHECK(!job::allowed("POST", "/v1/shutdown"));
     CHECK(!job::allowed("POST", "/v1/editor/stop"));
     CHECK(!job::allowed("GET", "/v1/sessions"));
     CHECK(!job::allowed("POST", "/v1/ext/studio/updates/plugin"));
+    // A held rebuild's request may be denied, by an id as ue-mcp makes them, and nothing else under it.
+    CHECK(job::allowed("POST", "/v1/disruptions/r-1a2b3c/deny"));
+    CHECK(!job::allowed("POST", "/v1/disruptions/r-1a2b3c/approve"));
+    CHECK(!job::allowed("POST", "/v1/disruptions/r-1A2B3C/deny"));
+    CHECK(!job::allowed("POST", "/v1/disruptions/r-/deny"));
+    CHECK(!job::allowed("POST", "/v1/disruptions/../editor/stop/deny"));
+    CHECK(!job::allowed("POST", "/v1/disruptions/r-1a2b3c/x/deny"));
+    CHECK(!job::allowed("GET", "/v1/disruptions/r-1a2b3c/deny"));
+    CHECK(job::validRequestId("r-0123456789abcdef"));
+    CHECK(!job::validRequestId("r-0123456789abcdef0"));
     CHECK(!job::allowed("GET", "/v1/update?channel=x&y"));
     CHECK(!job::allowed("PUT", "/v1/ext/studio/window"));
   });

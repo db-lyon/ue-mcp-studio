@@ -10,8 +10,9 @@ import { Card, Opt, tokens, useMessage } from "./controls";
 import { Path } from "./NativePanel";
 import { problemCopy, readRebuild } from "@ue-mcp-studio/client-core";
 import { RemoteReadOnly } from "./RemoteReadOnly";
+import { EditorConsent, useEditorConsent } from "../EditorConsent";
 
-type RebuildState = "idle" | "confirm" | "running";
+type RebuildState = "idle" | "confirm" | "running" | "held";
 
 /** What the panel says when a rebuild ends. */
 function rebuildMessage(outcome: ReturnType<typeof readRebuild>, reopened: boolean | null): { ok: boolean; text: string } {
@@ -50,11 +51,19 @@ export function ProjectSection({ onSection }: { onSection: (s: SettingsSection) 
     }, msg.fail);
   // Stop, build, start: the daemon's own rebuild. A failed build leaves the editor
   // down, so it is opened again on the previous build.
-  const runRebuild = async () => {
+  // Other sessions using the editor are asked first; while they hold it, the person sees them and decides.
+  const consent = useEditorConsent();
+  const runRebuild = async (override = false) => {
     setRebuild("running");
     msg.clear();
+    let held = false;
     try {
-      const outcome = readRebuild(await api.editor("rebuild"));
+      const answer = override ? await consent.approve() : await consent.run("rebuild");
+      if (!answer) {
+        held = true;
+        return;
+      }
+      const outcome = readRebuild(answer);
       let reopened: boolean | null = null;
       if (outcome.failure?.step === "build") {
         reopened = await api.editor("start").then((r) => readRebuild(r).ok, () => false);
@@ -65,8 +74,8 @@ export function ProjectSection({ onSection }: { onSection: (s: SettingsSection) 
     } catch (e) {
       msg.fail(`The rebuild did not run. ${e instanceof Error ? e.message : String(e)}`);
     } finally {
-      setRebuild("idle");
-      load();
+      setRebuild(held ? "held" : "idle");
+      if (!held) load();
     }
   };
   const clients = report?.clients.filter((c) => c.configured) ?? [];
@@ -101,6 +110,16 @@ export function ProjectSection({ onSection }: { onSection: (s: SettingsSection) 
                     <button className="ghost" onClick={() => setRebuild("idle")}>Cancel</button>
                   </div>
                 </div>
+              )}
+              {copy.action === "rebuild" && rebuild === "held" && consent.ask && (
+                <EditorConsent
+                  ask={consent.ask}
+                  onApprove={() => void runRebuild(true)}
+                  onCancel={() => {
+                    consent.cancel();
+                    setRebuild("idle");
+                  }}
+                />
               )}
               {copy.action === "rebuild" && rebuild === "running" && (
                 <div className="banner ok small" role="status">Rebuilding. The editor closes, the project's C++ builds, then the editor opens again.</div>

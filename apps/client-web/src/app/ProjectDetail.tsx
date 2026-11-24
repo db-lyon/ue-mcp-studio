@@ -6,7 +6,7 @@ import { connectedTo, installing, projectActions, useWorks } from "./actions";
 import { useBusy } from "./busy";
 import { Busy } from "./BusyLabel";
 import { Unverified } from "./Unverified";
-import { DaemonChip, IdeButton, WorkPanel } from "./Projects";
+import { DaemonChip, IdeButton, InstallProblem, WorkPanel } from "./Projects";
 
 /** One project: its versions and updates, its daemon with the log, and its editor. */
 export function ProjectDetail({ p, m, onBack }: { p: MachineProject; m: Machine; onBack: () => void }) {
@@ -19,7 +19,7 @@ export function ProjectDetail({ p, m, onBack }: { p: MachineProject; m: Machine;
   const act = projectActions(p, m, work);
   const u = updatesOf(p, m.newest);
   const hint = nameHint(p, m.report?.projects ?? []);
-  const pending = (k: string) => work?.kind === k && !work.error && !work.done;
+  const pending = (k: string) => work?.kind === k && !work.error && !work.done && !work.beforeLaunch && !work.consent;
   const [removing, run] = useBusy();
   const channel = channelLabel(m.newest?.channel ?? "stable");
 
@@ -46,12 +46,13 @@ export function ProjectDetail({ p, m, onBack }: { p: MachineProject; m: Machine;
           {a.addStudio && (
             <button className="primary" disabled={!!a.addBlocked} title={a.addBlocked ?? undefined} onClick={() => void act.addStudio()}>{pending("install") ? <Busy>Adding Studio</Busy> : "Add Studio"}</button>
           )}
-          <button disabled={!m.verified || !!a.launchBlocked || pending("launch")} title={!m.verified ? "Checking whether the editor is already open" : a.launchBlocked ?? undefined} onClick={() => void act.launch()}>{pending("launch") ? <Busy>Starting</Busy> : "Launch editor"}</button>
+          <button disabled={!m.verified || !!a.launchBlocked || pending("launch") || pending("rebuild")} title={!m.verified ? "Checking whether the editor is already open" : a.launchBlocked ?? undefined} onClick={() => void act.launch()}>{pending("launch") ? <Busy>Starting</Busy> : "Launch editor"}</button>
           <IdeButton p={p} act={act} work={work} />
           <button className="ghost" title={`Opens ${p.dir} with ${p.name}.uproject selected`} onClick={act.reveal}>Show in Explorer</button>
         </div>
       </header>
       {a.addStudio && !p.editor.running && !mine && !busy && engine && <p className="dim small">{engine}</p>}
+      {p.ueMcp.setUp && <InstallProblem p={p} work={work} act={act} className="app-detail-work" />}
       {work && work.kind !== "update" && <div className="app-detail-work"><WorkPanel p={p} work={work} act={act} /></div>}
 
       <div className="app-card">

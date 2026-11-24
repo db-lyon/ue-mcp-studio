@@ -1557,6 +1557,60 @@ std::string dispatch(int id, const std::string& method, const std::string& arg) 
     });
     return {};
   }
+  if (method == "status") {
+    // The project's install report, which names problems the editor cannot report itself, such as a bridge built for another engine build.
+    if (npx.empty()) return okError("Node.js was not found.");
+    if (!safeUproject(uproject)) return okError("The project file could not be used.");
+    later(id, [npx, uproject] {
+      Captured c = capture(ueMcpLine(npx, projectSpec(uproject), L"status \"" + uproject + L"\" --json"), 60000);
+      json::Value r;
+      if (c.code != 0 || !json::parse(c.out, r) || !r.get("problems")) return okError(c.code == 0 ? "ue-mcp's status was not readable." : job::failureText(c.out + c.err));
+      json::Value v = json::Value::object();
+      v.set("ok", json::Value::boolean(true));
+      v.set("report", json::Value::str(c.out));
+      return answer(v);
+    });
+    return {};
+  }
+  if (method == "rebuild") {
+    // force: the person chose to rebuild after seeing which sessions hold the editor, which overrides them.
+    bool force = str(in, "force") == "yes";
+    later(id, [key, uproject, force] {
+      std::string why = ensureDaemon(key, uproject);
+      if (!why.empty()) return okError(why);
+      // Stop, build, start: a cold build of the project's C++ can take many minutes. The requester names
+      // who asks to the other sessions using the editor, and keeps the same request for the override.
+      std::string body = force ? "{\"force\":true,\"requester\":\"the user in the UE-MCP Launcher\"}" : "{\"requester\":\"the user in the UE-MCP Launcher\"}";
+      json::Value r;
+      json::parse(callDaemon(key, "POST", "/v1/editor/rebuild", body, 3600000), r);
+      const json::Value* status = r.get("status");
+      if (!status) return okError(str(r, "error"));
+      json::Value v = json::Value::object();
+      v.set("ok", json::Value::boolean(status->n < 400));
+      v.set("status", *status);
+      v.set("body", json::Value::str(str(r, "body")));
+      if (status->n >= 400) {
+        json::Value b;
+        std::string error = json::parse(str(r, "body"), b) ? str(b, "error") : "";
+        v.set("error", json::Value::str(error.empty() ? "The rebuild did not run (HTTP " + std::to_string((int)status->n) + ")." : error));
+      }
+      return answer(v);
+    });
+    return {};
+  }
+  if (method == "denyconsent") {
+    // Cancel on a held rebuild: the request is denied, so the sessions it was put to stop waiting on it.
+    std::string request = str(in, "id");
+    if (!job::validKey(key) || !job::validRequestId(request)) return okError("That request cannot be cancelled.");
+    later(id, [key, request] {
+      json::Value r;
+      json::parse(callDaemon(key, "POST", "/v1/disruptions/" + request + "/deny", "{\"by\":\"the user in the UE-MCP Launcher\"}"), r);
+      const json::Value* status = r.get("status");
+      if (!status) return okError(str(r, "error"));
+      return okError(status->n < 400 ? "" : "The request was not cancelled (HTTP " + std::to_string((int)status->n) + ").");
+    });
+    return {};
+  }
   if (method == "addproject" || method == "removeproject") {
     std::wstring target = uproject;
     if (method == "addproject" && uproject.empty()) {
@@ -1679,7 +1733,7 @@ const wchar_t* kShim = LR"JS((function () {
     }
   });
   var names = ["getstate", "refreshnode", "report", "updateuemcp", "cachedreport", "job", "daemon", "live", "install", "startdaemon", "stopdaemon", "updatebridge",
-    "installnode", "openstudio", "launcheditor", "addproject", "removeproject", "readlog", "openlog", "openfolder", "openurl",
+    "installnode", "openstudio", "launcheditor", "status", "rebuild", "denyconsent", "addproject", "removeproject", "readlog", "openlog", "openfolder", "openurl",
     "ides", "openide", "projectfiles", "reveal",
     "getchannel", "setchannel", "appupdate", "newest", "setup", "launch", "close"];
   var app = {};

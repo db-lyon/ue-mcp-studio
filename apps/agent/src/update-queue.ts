@@ -14,6 +14,8 @@
  */
 import * as fs from "node:fs";
 import * as path from "node:path";
+import type { DisruptionView } from "./consent.js";
+import type { HoldDecision, UpdateConsent } from "./update-hold.js";
 
 export type DeferredStep = "plugin" | "studio" | "restart";
 export const DEFERRED_STEPS: readonly DeferredStep[] = ["plugin", "studio", "restart"];
@@ -24,6 +26,20 @@ export interface StepResult {
   started?: boolean;
   version?: string;
   error?: string;
+  /** ue-mcp's editor consent gate held the step: other sessions are using the editor it would close. */
+  request?: DisruptionView;
+}
+
+/** Why a held update stopped when nobody answered its request in time. */
+export const HOLD_EXPIRED = "The request to close the editor expired before anyone approved it, so the update stopped before closing the editor.";
+
+/** The queue as kept on disk. */
+interface QueueFile {
+  steps: DeferredStep[];
+  /** The person chose Update anyway: the steps go ahead whatever the other sessions answer. */
+  force?: boolean;
+  /** The id of the consent request a step is held on; nothing runs until it is decided. */
+  held?: string;
 }
 
 export interface UpdateQueueOptions {
@@ -43,8 +59,10 @@ export interface UpdateQueueOptions {
    * not wait on it. Nothing waits on it when not given.
    */
   hosted?: () => boolean;
-  /** Run one step now. */
-  run: (step: DeferredStep) => Promise<StepResult>;
+  /** Run one step now, with the person's override when they gave it. */
+  run: (step: DeferredStep, consent: UpdateConsent) => Promise<StepResult>;
+  /** A waiting step the consent gate held: the person is asked, and `decide` goes on from their answer. */
+  held?: (request: DisruptionView) => void;
   /** End every turn in progress before a Restart now. */
   interruptTurns: () => void;
   publish?: (type: string, data: Record<string, unknown>) => void;
@@ -63,22 +81,32 @@ export class UpdateQueue {
     if (this.steps().length) this.watch();
   }
 
-  /** The steps waiting, in the order they run. */
-  steps(): DeferredStep[] {
+  private read(): QueueFile {
     try {
-      const raw = JSON.parse(fs.readFileSync(path.join(this.o.dataDir, QUEUE_FILE), "utf-8")) as { steps?: unknown };
-      return Array.isArray(raw.steps) ? raw.steps.filter((s): s is DeferredStep => (DEFERRED_STEPS as readonly string[]).includes(s)) : [];
+      const raw = JSON.parse(fs.readFileSync(path.join(this.o.dataDir, QUEUE_FILE), "utf-8")) as { steps?: unknown; force?: unknown; held?: unknown };
+      const steps = Array.isArray(raw.steps) ? raw.steps.filter((s): s is DeferredStep => (DEFERRED_STEPS as readonly string[]).includes(s)) : [];
+      return { steps, ...(raw.force === true ? { force: true } : {}), ...(typeof raw.held === "string" ? { held: raw.held } : {}) };
     } catch {
-      return [];
+      return { steps: [] };
     }
   }
 
-  private save(steps: DeferredStep[]): void {
+  /** The steps waiting, in the order they run. */
+  steps(): DeferredStep[] {
+    return this.read().steps;
+  }
+
+  /** The consent request the waiting steps are held on, if any. */
+  heldOn(): string | null {
+    return this.read().held ?? null;
+  }
+
+  private save(steps: DeferredStep[], extra: Omit<QueueFile, "steps"> = {}): void {
     const file = path.join(this.o.dataDir, QUEUE_FILE);
     if (steps.length === 0) fs.rmSync(file, { force: true });
     else {
       fs.mkdirSync(this.o.dataDir, { recursive: true });
-      fs.writeFileSync(file, JSON.stringify({ steps }));
+      fs.writeFileSync(file, JSON.stringify({ steps, ...extra }));
     }
     this.o.publish?.("update.deferred", { steps });
   }
@@ -87,17 +115,38 @@ export class UpdateQueue {
    * A step the panel asked for, and the steps meant to follow it. While a turn
    * is in progress they wait; otherwise the step runs now and the panel goes on
    * to the next itself. `now` runs it regardless, ending the turns first.
+   * `force` is the person's Update anyway, kept with the steps that wait.
    */
-  async request(step: DeferredStep, opts: { now?: boolean; then?: DeferredStep[] } = {}): Promise<StepResult & { deferred?: DeferredStep[] }> {
+  async request(step: DeferredStep, opts: { now?: boolean; then?: DeferredStep[]; force?: boolean } = {}): Promise<StepResult & { deferred?: DeferredStep[] }> {
     if (!opts.now && this.held(step)) {
-      const steps = [...new Set([...this.steps(), step, ...(opts.then ?? [])])].filter((s) => (DEFERRED_STEPS as readonly string[]).includes(s));
-      this.save(steps);
+      const prior = this.read();
+      const steps = [...new Set([...prior.steps, step, ...(opts.then ?? [])])].filter((s) => (DEFERRED_STEPS as readonly string[]).includes(s));
+      this.save(steps, { ...(opts.force || prior.force ? { force: true } : {}) });
       this.watch();
       return { ok: true, deferred: steps };
     }
     // Only Restart now ends turns: a step that runs because nothing holds it leaves hosted turns running.
     if (opts.now && this.o.busy()) this.o.interruptTurns();
-    return this.o.run(step);
+    return this.o.run(step, opts.force ? { force: true } : {});
+  }
+
+  /**
+   * The person answered the request a waiting step is held on: approved, the
+   * steps run now with the override; denied, they are dropped with the run;
+   * expired, the run stops and says so.
+   */
+  async decide(decision: HoldDecision): Promise<void> {
+    const q = this.read();
+    if (!q.held || q.steps.length === 0) return;
+    if (decision === "approve") {
+      this.save(q.steps, { force: true });
+      await this.drain(true);
+      return;
+    }
+    this.save([]);
+    this.stop();
+    if (decision === "deny") this.finishRun();
+    else this.markRun(q.steps[0], "failed", HOLD_EXPIRED);
   }
 
   /**
@@ -127,11 +176,14 @@ export class UpdateQueue {
   /** Run what waits once nothing is in progress. */
   async tick(): Promise<void> {
     if (this.draining) return;
-    const [first] = this.steps();
+    const q = this.read();
+    const [first] = q.steps;
     if (!first) {
       this.stop();
       return;
     }
+    // Waiting for the person's answer to the consent request, not for turns.
+    if (q.held) return;
     if (this.held(first)) return;
     await this.drain();
   }
@@ -147,14 +199,23 @@ export class UpdateQueue {
     let last: StepResult = { ok: true };
     let ran = false;
     try {
-      for (let steps = this.steps(); steps.length; steps = this.steps()) {
-        const [step, ...rest] = steps;
+      for (let q = this.read(); q.steps.length; q = this.read()) {
+        const [step, ...rest] = q.steps;
         // A turn that started while the plugin updated: the rest waits for it.
         if (!force && this.held(step)) return last;
-        this.save(rest);
+        const consent = q.force ? { force: true } : {};
+        this.save(rest, consent);
         this.markRun(step, "active");
         ran = true;
-        last = await this.o.run(step);
+        last = await this.o.run(step, consent);
+        if (!last.ok && last.request) {
+          // Other sessions are using the editor: the steps wait, held on the request, for the person's answer.
+          this.save([step, ...rest], { ...consent, held: last.request.id });
+          this.markRun(step, "deferred");
+          this.stop();
+          this.o.held?.(last.request);
+          return last;
+        }
         if (!last.ok) {
           this.markRun(step, "failed", last.error);
           this.save([]);
@@ -184,7 +245,7 @@ export class UpdateQueue {
   }
 
   /** Tell the panel's update run what a waiting step is doing now. */
-  private markRun(step: DeferredStep, state: "active" | "done" | "failed", error?: string): void {
+  private markRun(step: DeferredStep, state: "active" | "done" | "failed" | "deferred", error?: string): void {
     const file = path.join(this.o.dataDir, RUN_FILE);
     try {
       const run = JSON.parse(fs.readFileSync(file, "utf-8")) as { steps?: Array<{ key: string; state: string }>; error?: string };

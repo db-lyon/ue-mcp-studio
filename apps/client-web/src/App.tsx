@@ -16,6 +16,7 @@ import { sectionOf, type SettingsSection } from "./views/settings/sections";
 import { VcsChip } from "./chat/VcsChip";
 import { EditorBanner } from "./views/EditorBanner";
 import { DialogBanner } from "./views/DialogBanner";
+import { PendingDisruptions } from "./views/PendingDisruptions";
 import { VersionNotice } from "./views/VersionNotice";
 import { RemoteApprovalBanner } from "./views/remote/approvals";
 import { RemoteLock } from "./views/remote/RemoteLock";
@@ -80,6 +81,8 @@ export function App() {
 
 function Studio({ daemon }: { daemon: DaemonState }) {
   // Where the panel was, from the URL's hash: a reload, or ue-mcp back on a new port, lands there.
+  // A paired browser names the open project in the drawer and switches to the relay's list of every project.
+  const remote = onRemotePage();
   const [tab, setTab] = useState<Tab>(() => readLocation().tab);
   // null: the section list, which only a narrow panel shows on its own.
   const [section, setSection] = useState<SettingsSection | null>(() => sectionOf(readLocation().section));
@@ -110,8 +113,6 @@ function Studio({ daemon }: { daemon: DaemonState }) {
   const [feedback, setFeedback] = useState(false);
   const narrow = useMedia(NARROW);
   const [drawer, setDrawer] = useState(false);
-  // A paired browser names the open project in the drawer and switches to the relay's list of every project.
-  const remote = onRemotePage();
   const [projectName, setProjectName] = useState<string | null>(null);
   useEffect(() => {
     if (remote) api.about().then((a) => setProjectName(a.name ?? null), () => undefined);
@@ -251,6 +252,7 @@ function Studio({ daemon }: { daemon: DaemonState }) {
         <DialogBanner daemon={daemon} />
         <LeaseBar lease={lease} />
         <HeldBar value={held} onOpenCard={(h) => h.sessionId && openPlaytest(h.sessionId, h.runId)} />
+        <PendingDisruptions daemon={daemon} />
         <VersionNotice daemon={daemon} />
         <RemoteApprovalBanner onOpenAsk={(o) => { if (o.tab === "Settings") setSection(o.section ?? "general"); setTab(o.tab); }} />
         {!narrow && <EditorBanner daemon={daemon} />}

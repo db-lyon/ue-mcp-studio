@@ -25,6 +25,8 @@ const LAST_STEP: Record<EditorOperation["op"], string> = {
   rebuild: "editor.start_editor",
 };
 const OPS = new Set(Object.keys(LAST_STEP));
+/** The step ue-mcp's editor consent (editor.consent) reports an operation the other sessions have not agreed to under. */
+const CONSENT_STEP = "consent";
 
 /**
  * How long a started editor may take to attach once its start step is done.
@@ -81,7 +83,8 @@ export class BusyTracker {
   private stepOf(data: Record<string, unknown>): void {
     const op = data.op as EditorOperation["op"];
     const step = typeof data.step === "string" ? data.step : "";
-    if (!OPS.has(op) || !step) return;
+    // ue-mcp's editor consent refused it before any step ran: the editor never went away, so there is nothing to show.
+    if (!OPS.has(op) || !step || step === CONSENT_STEP) return;
     const at = this.now();
     if (data.phase === "started") {
       // A new operation, or the next step of the one running.
@@ -151,7 +154,7 @@ export class BusyTracker {
   private settle(op: EditorOperation["op"], result: Record<string, unknown>): void {
     const steps = (result.steps as OperationStep[] | undefined) ?? [];
     const failed = firstFailedStep(steps);
-    if (failed) this.fail(op, failed.step, stepReason(failed));
+    if (failed && failed.step !== CONSENT_STEP) this.fail(op, failed.step, stepReason(failed));
   }
 
   /**

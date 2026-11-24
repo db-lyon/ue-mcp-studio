@@ -12,6 +12,7 @@ import {
 } from "@ue-mcp-studio/client-core";
 import { api } from "../api";
 import { openExternal } from "../native";
+import { EditorConsent, useEditorConsent } from "./EditorConsent";
 import type { DaemonState } from "../state";
 import type { LiveValue } from "../chat/PieLive";
 import type { SettingsSection } from "./settings/sections";
@@ -28,6 +29,8 @@ export interface ViewportActionContext {
   watch: () => void;
   setSource?: (s: ViewportSource) => void;
   remote: boolean;
+  /** Restart the editor through the consent ask; resolves with the answer, or null while it is held. */
+  restart?: () => Promise<unknown>;
 }
 
 /** Take one of a notice's ways forward. Throws what failed, for the panel to show. */
@@ -48,9 +51,12 @@ export async function runViewportAction(a: ViewportAction, c: ViewportActionCont
       c.onSettings("general");
       return;
     case "start-editor":
-    case "restart-editor":
-      await api.editor(a.id === "start-editor" ? "start" : "restart");
+      await api.editor("start");
       await c.check();
+      return;
+    case "restart-editor":
+      // Held while other sessions use the editor: the ask shows who, and Restart anyway runs it.
+      if (c.restart ? await c.restart() : await api.editor("restart")) await c.check();
       return;
     case "enable-plugin":
       c.setStatus(await api.enableStreamPlugin());
@@ -82,6 +88,7 @@ export function ViewportView({ daemon, live, onSettings }: {
   const { status } = pie;
   const [busy, setBusy] = useState<string | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
+  const consent = useEditorConsent();
   const [muted, setMuted] = useState(true);
   const video = useRef<HTMLVideoElement>(null);
   const stage = useRef<HTMLDivElement>(null);
@@ -109,7 +116,7 @@ export function ViewportView({ daemon, live, onSettings }: {
     setActionError(null);
     setBusy(a.id);
     try {
-      await runViewportAction(a, { check: pie.check, setStatus: pie.setStatus, onSettings, watch: live.retry, setSource, remote: true });
+      await runViewportAction(a, { check: pie.check, setStatus: pie.setStatus, onSettings, watch: live.retry, setSource, remote: true, restart: () => consent.run("restart") });
     } catch (e) {
       setActionError(e instanceof Error ? e.message : String(e));
     } finally {
@@ -146,6 +153,20 @@ export function ViewportView({ daemon, live, onSettings }: {
                   </button>
                 ))}
               </div>
+            )}
+            {consent.ask && (
+              <EditorConsent
+                ask={consent.ask}
+                onApprove={() => {
+                  setBusy("restart-editor");
+                  setActionError(null);
+                  void consent.approve().then(
+                    (r) => (r ? pie.check() : undefined),
+                    (e: unknown) => setActionError(e instanceof Error ? e.message : String(e)),
+                  ).finally(() => setBusy(null));
+                }}
+                onCancel={consent.cancel}
+              />
             )}
             {actionError && <p className="viewport-error">{actionError}</p>}
           </div>

@@ -102,6 +102,11 @@ const ALLOW: Array<{ methods: string[] | "any"; path: RegExp }> = [
   // The Plugins tab, read only: the installed list and the registry's catalog. Install, update and remove stay on the computer.
   { methods: ["GET"], path: /^\/v1\/plugins(\/catalog)?$/ },
   { methods: ["POST"], path: /^\/v1\/editor\/(start|stop|restart|rebuild)$/ },
+  // Cancel on a held editor operation denies its consent request. Approving goes through /v1/editor with force, above.
+  { methods: ["POST"], path: /^\/v1\/disruptions\/r-[0-9a-f]{1,16}\/deny$/ },
+  // The requests waiting for a person, and approving one from that list; the computer asks for the PIN to approve.
+  { methods: ["GET"], path: /^\/v1\/disruptions$/ },
+  { methods: ["POST"], path: /^\/v1\/disruptions\/r-[0-9a-f]{1,16}\/approve$/ },
   { methods: "any", path: /^\/v1\/flows(\/.*)?$/ },
   // The Playtest Hub, which ue-mcp's daemon serves: goals, evidence, the plan queue and the editor lease.
   { methods: "any", path: /^\/v1\/hub(\/.*)?$/ },
@@ -118,9 +123,10 @@ const DENY: Array<{ path: RegExp; except?: string[] }> = [
   { path: /^\/v1\/ext\/studio\/files\/reveal\/?$/i },
   // Remote control itself: a paired browser may not pair others, turn it off or revoke anyone.
   { path: /^\/v1\/ext\/studio\/remote(\/.*)?$/i },
-  // Updates install and restart software on the computer. A paired browser may read their status (GET /updates, /updates/run), nothing else.
-  { path: /^\/v1\/ext\/studio\/updates\/(?!run\/?$).+$/i },
-  { path: /^\/v1\/ext\/studio\/updates(\/run)?\/?$/i, except: ["GET"] },
+  // Updates install and restart software on the computer. A paired browser may read their status (GET /updates, /updates/run,
+  // and /updates/consent, an Update held for the other sessions using the editor), nothing else.
+  { path: /^\/v1\/ext\/studio\/updates\/(?!(run|consent)\/?$).+$/i },
+  { path: /^\/v1\/ext\/studio\/updates(\/run|\/consent)?\/?$/i, except: ["GET"] },
   // Installing ue-mcp when Studio refused an older one, and moving to a Studio another project installed.
   { path: /^\/v1\/ext\/studio\/refusal\/update\/?$/i },
   { path: /^\/v1\/ext\/studio\/version-notice\/update\/?$/i },

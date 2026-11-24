@@ -152,6 +152,8 @@ export function sensitiveRequest(method: string, pathname: string, risky: boolea
   const m = method.toUpperCase();
   if (m === "GET" || m === "HEAD") return false;
   if (/^\/v1\/editor\/(start|stop|restart|rebuild)$/.test(pathname)) return true;
+  // Approving a request lets a session stop, rebuild or patch the editor, the same as the editor routes.
+  if (/^\/v1\/disruptions\/[^/]+\/approve$/.test(pathname)) return true;
   if (pathname === "/v1/flows" || pathname.startsWith("/v1/flows/")) return true;
   if (!pathname.startsWith(`${STUDIO}/`)) return false;
   const rest = pathname.slice(STUDIO.length);

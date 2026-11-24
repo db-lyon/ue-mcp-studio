@@ -1,6 +1,7 @@
 import { useState } from "react";
-import { DISCONNECT_CAUSE, EDITOR_OPS, stepsLine } from "@ue-mcp-studio/client-core";
+import { DISCONNECT_CAUSE, EDITOR_OPS, isConsentOp, stepsLine } from "@ue-mcp-studio/client-core";
 import { api } from "../api";
+import { EditorConsent, useEditorConsent } from "./EditorConsent";
 import type { DaemonState } from "../state";
 
 export function StatusView({ daemon }: { daemon: DaemonState }) {
@@ -8,11 +9,14 @@ export function StatusView({ daemon }: { daemon: DaemonState }) {
   const [busy, setBusy] = useState<string | null>(null);
   const [result, setResult] = useState<string | null>(null);
 
-  const run = (op: "start" | "stop" | "restart" | "rebuild") => {
+  const consent = useEditorConsent();
+  const run = (op: "start" | "stop" | "restart" | "rebuild", override = false) => {
     setBusy(op);
     setResult(null);
-    api.editor(op).then(
-      (r) => setResult(stepsLine(r)),
+    // Stop, restart and rebuild wait for the other sessions using the editor; start takes nothing from anyone.
+    const answer = override ? consent.approve() : isConsentOp(op) ? consent.run(op) : api.editor(op);
+    answer.then(
+      (r) => setResult(r ? stepsLine(r) : null),
       (e: Error) => setResult(e.message),
     ).finally(() => setBusy(null));
   };
@@ -42,6 +46,7 @@ export function StatusView({ daemon }: { daemon: DaemonState }) {
             </button>
           ))}
         </div>
+        {consent.ask && <EditorConsent ask={consent.ask} onApprove={() => run(consent.ask!.op, true)} onCancel={consent.cancel} />}
         {result && <p className="muted">{result}</p>}
       </section>
       <section className="card">

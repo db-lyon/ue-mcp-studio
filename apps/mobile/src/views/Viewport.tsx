@@ -25,6 +25,7 @@ import type { DaemonState } from "../state";
 import type { SettingsSection } from "./settings/sections";
 import { Button, Spinner, T, font, useStyles, useTheme, type Theme } from "../ui";
 import { VideoView, peerFactory } from "../native/webrtc";
+import { EditorConsent, useEditorConsent } from "../screens/editor/EditorConsent";
 
 const REMOTE = { remote: true };
 
@@ -45,6 +46,7 @@ export function ViewportView({ daemon, onSettings, peer = peerFactory, embedded 
   const [watch, setWatch] = useState(0);
   const [busy, setBusy] = useState<string | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
+  const consent = useEditorConsent(api);
   const [muted, setMuted] = useState(true);
 
   const check = (fresh = false) =>
@@ -109,9 +111,12 @@ export function ViewportView({ daemon, onSettings, peer = peerFactory, embedded 
           onSettings("general");
           break;
         case "start-editor":
-        case "restart-editor":
-          await api.editor(a.id === "start-editor" ? "start" : "restart");
+          await api.editor("start");
           await check();
+          break;
+        case "restart-editor":
+          // Held while other sessions use the editor: the ask below shows who, and Restart anyway runs it.
+          if (await consent.run("restart")) await check();
           break;
         case "enable-plugin":
           setStatus(await api.enableStreamPlugin());
@@ -167,6 +172,20 @@ export function ViewportView({ daemon, onSettings, peer = peerFactory, embedded 
                   <Button key={a.id} title={busy === a.id ? "Working" : a.label} label={a.label} variant={a.primary ? "primary" : "default"} size="small" disabled={busy !== null} onPress={() => void act(a)} />
                 ))}
               </View>
+            ) : null}
+            {consent.ask ? (
+              <EditorConsent
+                ask={consent.ask}
+                onApprove={() => {
+                  setBusy("restart-editor");
+                  setActionError(null);
+                  void consent.approve().then(
+                    (r) => (r ? check() : undefined),
+                    (e: unknown) => setActionError(e instanceof Error ? e.message : String(e)),
+                  ).finally(() => setBusy(null));
+                }}
+                onCancel={consent.cancel}
+              />
             ) : null}
             {actionError ? <T style={{ color: t.c.badText }}>{actionError}</T> : null}
           </View>

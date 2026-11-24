@@ -50,7 +50,8 @@ import type {
   RemoteStatus,
 } from "@ue-mcp-studio/shared";
 import { HttpError, readAll, requestJson, type Transport } from "./transport.js";
-import type { UpdateRun } from "./update-run.js";
+import { holdOf, type UpdateRun } from "./update-run.js";
+import type { EditorOpBody } from "./editor-consent.js";
 import { projectApi } from "./project-api.js";
 import { viewportApi } from "./viewport.js";
 import { uploadChunked, uploadInParts } from "./composer.js";
@@ -159,9 +160,13 @@ export function studioApi(t: Transport) {
     useInstalledStudio: (version: string) => send<unknown>("POST", `${S}/version-notice/update`, { version }),
     busy: () => get<BusyState>(`${S}/busy`),
     stopBusy: () => send<{ stopped: string[] }>("POST", `${S}/busy/stop`),
-    editor: (op: "start" | "stop" | "restart" | "rebuild") => send<Record<string, unknown>>("POST", `/v1/editor/${op}`),
+    editor: (op: "start" | "stop" | "restart" | "rebuild", body?: EditorOpBody) => send<Record<string, unknown>>("POST", `/v1/editor/${op}`, body),
+    /** A person cancels a held editor operation (feature "editor.consent"). */
+    denyDisruption: (id: string, by: string) => send<unknown>("POST", `/v1/disruptions/${encodeURIComponent(id)}/deny`, { by }),
     refusal: () => get<StudioRefusal>(`${S}/refusal`),
     saveUpdateRun: (run: UpdateRun | null) => send<unknown>("PUT", `${S}/updates/run`, { run }),
+    /** An Update the editor consent gate holds; null when none is held. */
+    updateHold: () => get<unknown>(`${S}/updates/consent`).then(holdOf),
     /** A paired device asks the computer for a change it may not make itself (an update, plugins, a model key). */
     askComputer: (what: "update" | "plugins" | "models") => send<{ ok: true }>("POST", `${S}/remote-asks`, { what }),
     updatesDeferredNow:() => send<{ ok?: boolean; error?: string }>("POST", `${S}/updates/deferred/now`),

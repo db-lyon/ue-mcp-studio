@@ -1,12 +1,13 @@
 import { useEffect, useRef, useState } from "react";
 import type { Machine } from "./App";
 import { host, type IdeInfo } from "./native";
-import { actionsOf, engineBlocked, filterProjects, ideButton, ideOpens, listReadAt, nameHint, running, updatesOf, versionsOf, type MachineProject } from "./model";
+import { beforeLaunch, consentCopy, consentHolders, type ProblemCopy } from "@ue-mcp-studio/client-core";
+import { actionsOf, engineBlocked, filterProjects, ideButton, ideOpens, installedKey, listReadAt, nameHint, running, updatesOf, versionsOf, type MachineProject } from "./model";
 import { JobOutput } from "./NodeCard";
 import { useBusy } from "./busy";
 import { Busy } from "./BusyLabel";
 import { Unverified } from "./Unverified";
-import { installing,projectActions, useIdes, useWorks, workTitle, type Work } from "./actions";
+import { installing, projectActions, useIdes, useInstallReport, useWorks, workTitle, type Work } from "./actions";
 
 /** A filter appears once the list is long enough to need one. */
 const FILTER_FROM = 7;
@@ -109,7 +110,7 @@ function ProjectRow({ p, all, m, work, busy, onOpen }: { p: MachineProject; all:
   const hint = nameHint(p, all);
   const engine = engineBlocked(p, m.newest?.pluginEngines);
   const versions = versionsOf(p, m.live, m.report?.ueMcp ?? null);
-  const pending = (k: Work["kind"]) => work?.kind === k && !work.error && !work.done;
+  const pending = (k: Work["kind"]) => work?.kind === k && !work.error && !work.done && !work.beforeLaunch && !work.consent;
   const [removing, run] = useBusy();
   const remove = () => void run(() => m.removeProject(p));
 
@@ -159,13 +160,14 @@ function ProjectRow({ p, all, m, work, busy, onOpen }: { p: MachineProject; all:
             {pending("install") ? <Busy>Adding Studio</Busy> : "Add Studio"}
           </button>
         )}
-        <button disabled={!m.verified || !!a.launchBlocked || pending("launch")} title={!m.verified ? "Checking whether the editor is already open" : a.launchBlocked ?? undefined} onClick={() => void act.launch()}>
+        <button className="app-launch" disabled={!m.verified || !!a.launchBlocked || pending("launch") || pending("rebuild")} title={!m.verified ? "Checking whether the editor is already open" : a.launchBlocked ?? undefined} onClick={() => void act.launch()}>
           {pending("launch") ? <Busy>Starting</Busy> : "Launch editor"}
         </button>
         <RowMenu p={p} act={act} onOpen={onOpen} onRemove={remove} removing={removing} />
       </div>
       {m.verified && a.addStudio && p.editor.running && !mine && <p className="app-row-note dim small">{a.addBlocked}</p>}
       {a.addStudio && !p.editor.running && !mine && !busy && engine && <p className="app-row-note dim small">{engine}</p>}
+      {p.ueMcp.setUp && <InstallProblem p={p} work={work} act={act} />}
       <WorkPanel p={p} work={work} act={act} />
     </li>
   );
@@ -206,6 +208,51 @@ export function WorkPanel({ p, work, act }: { p: MachineProject; work: Work | nu
       </div>
     );
   }
+  if (work.beforeLaunch) {
+    const c = work.beforeLaunch;
+    return (
+      <div className="app-row-work">
+        <ProblemBanner copy={c} />
+        <div className="row">
+          <span className="spacer" />
+          <button className="ghost" onClick={act.cancel}>Cancel</button>
+          <button className={c.action === "rebuild" ? "" : "primary"} onClick={() => void act.launch(true)}>Launch anyway</button>
+          {c.action === "rebuild" && <button className="primary" onClick={() => void act.rebuild()}>Rebuild</button>}
+        </div>
+      </div>
+    );
+  }
+  if (work.consent) {
+    const copy = consentCopy(work.consent.op);
+    const holders = consentHolders(work.consent.request);
+    return (
+      <div className="app-row-work" data-testid="editor-consent">
+        <div className="banner warn small" role="alert">
+          <strong>{copy.title}</strong>
+          <p>{copy.lead}</p>
+          {holders.length > 0 && (
+            <ul className="consent-holders">
+              {holders.map((h) => (
+                <li key={h.session}><strong>{h.label}</strong>: {h.state}{h.reason ? <span className="dim">, {h.reason}</span> : null}</li>
+              ))}
+            </ul>
+          )}
+        </div>
+        <div className="row">
+          <span className="spacer" />
+          <button className="ghost" onClick={act.cancelConsent}>{copy.cancel}</button>
+          <button className="primary" onClick={() => void act.rebuild(true)}>{copy.approve}</button>
+        </div>
+      </div>
+    );
+  }
+  if (work.kind === "rebuild" && !work.error) {
+    return (
+      <div className="app-row-work">
+        <div className="banner ok small" role="status"><Busy>Rebuilding</Busy> The project's C++ is building for your engine, and the editor opens when it is done. A full build can take several minutes.</div>
+      </div>
+    );
+  }
   if (work.error) {
     return (
       <div className="app-row-work">
@@ -213,6 +260,7 @@ export function WorkPanel({ p, work, act }: { p: MachineProject; work: Work | nu
         <div className="row">
           <span className="spacer" />
           {work.kind === "install" && <button onClick={() => void act.addStudio()}>Try again</button>}
+          {work.kind === "rebuild" && <button onClick={() => void act.rebuild()}>Try again</button>}
           <button className="ghost" onClick={act.cancel}>Dismiss</button>
         </div>
       </div>
@@ -261,6 +309,38 @@ export function WorkPanel({ p, work, act }: { p: MachineProject; work: Work | nu
           {!work.job.ok && work.kind === "update" && <button onClick={() => void act.update()}>Try again</button>}
           {!work.job.ok && work.kind === "projectfiles" && <button onClick={() => void act.generateFiles()}>Try again</button>}
           <button className="ghost" onClick={act.cancel}>Dismiss</button>
+        </div>
+      )}
+    </div>
+  );
+}
+
+/** An install problem's title and what to do. */
+function ProblemBanner({ copy }: { copy: ProblemCopy }) {
+  return (
+    <div className="banner warn small" role="status">
+      <strong>{copy.title}</strong> {copy.detail}
+    </div>
+  );
+}
+
+/**
+ * A problem in the project's install report that stops its modules loading,
+ * with Rebuild, shown on its row and its detail without pressing anything.
+ * Hidden while Launch editor already says it, or a rebuild runs.
+ */
+export function InstallProblem({ p, work, act, className = "app-row-work" }: { p: MachineProject; work: Work | null; act: Actions; className?: string }) {
+  const report = useInstallReport(p, `${installedKey(p)}|${p.editor.running}`);
+  const copy = beforeLaunch(report);
+  if (!copy || work?.beforeLaunch || work?.kind === "rebuild") return null;
+  const closeFirst = p.editor.running ? `Close ${p.name} in Unreal first.` : undefined;
+  return (
+    <div className={className}>
+      <ProblemBanner copy={copy} />
+      {copy.action === "rebuild" && (
+        <div className="row">
+          <span className="spacer" />
+          <button className="primary" disabled={!!closeFirst} title={closeFirst} onClick={() => void act.rebuild()}>Rebuild</button>
         </div>
       )}
     </div>

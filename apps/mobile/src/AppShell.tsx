@@ -31,6 +31,7 @@ import { FeedbackDialog } from "./views/Feedback";
 import { VcsChip } from "./screens/git/VcsChip";
 import { EditorBanner } from "./views/EditorBanner";
 import { DialogBanner } from "./views/DialogBanner";
+import { PendingDisruptions } from "./views/PendingDisruptions";
 import { SHELL_BANNER, VersionNotice } from "./views/VersionNotice";
 import { DrawerTool, NavDrawer, TabDot, useDrawerClose } from "./views/NavDrawer";
 import { UpdateRunner } from "./views/UpdateOverlay";
@@ -212,6 +213,7 @@ function Studio({ daemon, initial, onBack, device }: { daemon: ReturnType<typeof
       <DialogBanner daemon={daemon} />
       <LeaseBar lease={lease} />
       <HeldBar value={held} onOpenCard={(h) => h.sessionId && openChat(h.sessionId)} onWatchLive={watchLive} />
+      <PendingDisruptions daemon={daemon} />
       <VersionNotice daemon={daemon} />
       {/* A landscape navigation bar's side; each view pads the end of its own scrolling by the bottom one. */}
       <View style={[s.stage, { paddingLeft: insets.left, paddingRight: insets.right }]}>

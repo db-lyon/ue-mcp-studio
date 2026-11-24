@@ -24,6 +24,7 @@ import type { MessageParam } from "../providers.js";
 import type { TokenUsage } from "../usage.js";
 import { isContextOverflow } from "../compaction.js";
 import { HarnessClient, type HarnessClientOptions } from "./client.js";
+import type { ConsentGate } from "../consent.js";
 import type { AgentSpec, AgentStart, EntryEvent, HarnessMessage, HarnessRequest, LedgerUsage, LocalGate, LocalOutcome, UserContent } from "./protocol.js";
 
 /** How long a reply waits for a run it just stopped to report its end, before it starts anyway. */
@@ -78,6 +79,10 @@ export interface DurableHooks {
   agentEnded(s: StoredSession, callId: string, r: { text: string; isError: boolean; stopped: boolean }, background: boolean): void;
   /** The agent runs of a session that are still going (in the background ones too). */
   runningAgents(s: StoredSession): string[];
+  /** Editor consent: may this disruptive call or vote run now (consent.ts gateCall)? Absent without the daemon's "editor.consent". */
+  consent?(s: StoredSession, req: Extract<HarnessRequest, { kind: "consent" }>): Promise<ConsentGate>;
+  /** Editor consent: the subagents a go_after_subagents vote waited for ended; release the session's hold. */
+  releaseHold?(s: StoredSession, callId: string): Promise<void>;
   deliver(s: StoredSession, callId: string, n: number, to: "read" | "main"): void;
   mainSpec(): AgentSpec;
   credential(route: string): Promise<string | null>;
@@ -287,6 +292,23 @@ export class DurableTurns {
       return true;
     } catch (e) {
       this.h.host.log.warn(`session ${s.id}: the durable runtime did not take the message`, e);
+      return false;
+    }
+  }
+
+  /**
+   * A note for the main agent while it replies, steered into its run (editor
+   * consent: another session's request to stop the editor). Only while it is
+   * replying, so a note never starts a run of its own; `requestId` makes a
+   * second delivery of the same note a no-op.
+   */
+  async steer(s: StoredSession, requestId: string, text: string): Promise<boolean> {
+    if (!s.durable || !this.h.replying.has(s.id)) return false;
+    try {
+      await this.client.call("submit", { sessionId: keyOf(s), requestId, content: text, agent: this.h.mainSpec(), whenBusy: "steer" });
+      return true;
+    } catch (e) {
+      this.h.host.log.warn(`session ${s.id}: the durable runtime did not take the note`, e);
       return false;
     }
   }
@@ -601,12 +623,21 @@ export class DurableTurns {
       const s = this.session(req.sessionId);
       if (!s) {
         this.client.answer(reqId, req.kind === "tool" || req.kind === "finished" ? { text: req.kind === "finished" ? req.result.text : "This session is gone.", isError: true, outcome: "error", touched: [], saved: [] }
-          : req.kind === "gate" ? { allow: false, text: "This session is gone." }
+          : req.kind === "gate" || req.kind === "consent" ? { allow: false, text: "This session is gone." }
           : { ok: false, text: "This session is gone." });
         return;
       }
       if (req.kind === "gate") {
         this.client.answer(reqId, await this.h.gateLocal(s, req.callId, req.name, req.input, req.parent, this.controller(s).signal));
+        return;
+      }
+      if (req.kind === "consent") {
+        this.client.answer(reqId, this.h.consent ? await this.h.consent(s, req) : { allow: true });
+        return;
+      }
+      if (req.kind === "release") {
+        await this.h.releaseHold?.(s, req.callId);
+        this.client.answer(reqId, { ok: true });
         return;
       }
       if (req.kind === "finished") {

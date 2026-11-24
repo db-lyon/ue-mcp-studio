@@ -6,7 +6,7 @@ const sessions = [
   { id: "s1", title: "First", status: "idle", createdAt: 1, updatedAt: 1, archived: false, agents: { total: 0, running: 0 }, awaiting: 0 },
   { id: "s2", title: "Second", status: "idle", createdAt: 2, updatedAt: 2, archived: false, agents: { total: 0, running: 0 }, awaiting: 0 },
 ];
-const m = vi.hoisted(() => ({ session: vi.fn(), sessions: vi.fn(), saveDraft: vi.fn(), events: [] as unknown[], settingsCrash: false }));
+const m = vi.hoisted(() => ({ session: vi.fn(), sessions: vi.fn(), saveDraft: vi.fn(), viewport: vi.fn(), events: [] as unknown[], settingsCrash: false }));
 vi.mock("./api", () => {
   const pending = () => new Promise(() => {});
   const api = new Proxy(m as Record<string, unknown>, { get: (t, k: string) => (k === "sessionSync" ? (id: string) => m.session(id) : (k === "events" ? undefined : t[k]) ?? pending) });
@@ -37,6 +37,7 @@ beforeEach(() => {
   m.sessions.mockResolvedValue({ sessions });
   m.session.mockImplementation((id: string) => Promise.resolve({ ...sessions.find((s) => s.id === id), transcript: [], draft: "" }));
   m.saveDraft.mockResolvedValue(undefined);
+  m.viewport.mockResolvedValue(null);
   window.location.hash = "#/chat/s1";
 });
 
@@ -140,6 +141,58 @@ describe("returning to Chat from another tab", () => {
     expect(document.querySelector("main.view-chat:not(.parked) .chat")).not.toBeNull();
     await waitFor(() => expect(m.sessions).toHaveBeenCalled());
     expect(window.location.hash).toBe("#/chat");
+  });
+});
+
+describe("the live viewport, on the computer and on a paired device", () => {
+  const running = { access: "ok", editor: "connected", streamer: false, source: null, viewers: 0, pie: true };
+  const setRemote = (on: boolean | undefined) => {
+    (window as unknown as { __studioRemotePage?: boolean }).__studioRemotePage = on;
+  };
+  afterEach(() => setRemote(undefined));
+
+  it("Studio on the computer lists no Viewport tab and no PIE indicator, even while PIE runs", async () => {
+    layout(false);
+    m.viewport.mockResolvedValue(running);
+    render(<App />);
+    await screen.findByPlaceholderText(COMPOSER);
+    await waitFor(() => expect(m.sessions).toHaveBeenCalled());
+    expect(screen.queryByRole("button", { name: "Viewport" })).toBeNull();
+    expect(screen.getByRole("button", { name: "Plugins" })).toBeTruthy();
+    expect(m.viewport).not.toHaveBeenCalled();
+    expect(document.querySelector(".composer-pie")).toBeNull();
+  });
+
+  it("a paired browser lists no Viewport tab either, and shows the Live button while PIE runs", async () => {
+    layout(false);
+    setRemote(true);
+    m.viewport.mockResolvedValue(running);
+    render(<App />);
+    await screen.findByPlaceholderText(COMPOSER);
+    await waitFor(() => expect(document.querySelector(".live-button")).not.toBeNull());
+    expect(screen.queryByRole("button", { name: "Viewport" })).toBeNull();
+  });
+
+  it("a link to the viewport opens the chat on the computer", async () => {
+    layout(false);
+    window.location.hash = "#/viewport";
+    render(<App />);
+    await waitFor(() => expect(document.querySelector("main.view-chat:not(.parked) .chat")).not.toBeNull());
+    expect(document.querySelector("main.view-viewport")).toBeNull();
+    await waitFor(() => expect(window.location.hash).toBe("#/chat"));
+  });
+
+  it("narrow: the drawer lists no Viewport tab, on the computer or on a paired device", async () => {
+    layout(true);
+    render(<App />);
+    await screen.findByPlaceholderText(COMPOSER);
+    expect(document.querySelectorAll(".drawer-item").length).toBeGreaterThan(0);
+    expect([...document.querySelectorAll(".drawer-item")].some((b) => b.textContent === "Viewport")).toBe(false);
+    cleanup();
+    setRemote(true);
+    render(<App />);
+    await screen.findByPlaceholderText(COMPOSER);
+    expect([...document.querySelectorAll(".drawer-item")].some((b) => b.textContent === "Viewport")).toBe(false);
   });
 });
 

@@ -270,6 +270,25 @@ describe("Settings > Project", () => {
     expect(screen.getByText(/builds the project's C\+\+ including the bridge plugin.*Unsaved changes get the editor's save prompt before it closes\./)).toBeTruthy();
   });
 
+  it("shows who holds a rebuild and why, and Cancel denies it", async () => {
+    const { writes } = open("settings-project-rebuild-held", "project");
+    await settled(6);
+    fireEvent.click(screen.getByLabelText("Rebuild"));
+    fireEvent.click(screen.getByLabelText("Close the editor and rebuild"));
+    await settled();
+    expect(screen.getByText("Other sessions are using the editor")).toBeTruthy();
+    expect(screen.getByText("Rebuilding now closes the editor and interrupts those sessions' work in it.")).toBeTruthy();
+    const ask = screen.getByTestId("editor-consent").textContent ?? "";
+    expect(ask).toContain("Studio: Dress the courtyard: Blocked, a playtest is recording");
+    expect(ask).toContain("Claude Code: Waiting, busy (blueprint.add_variable, level.place_actor)");
+    expect(ask).not.toContain("Cursor");
+    expect(screen.getByLabelText("Rebuild anyway")).toBeTruthy();
+    fireEvent.click(screen.getByLabelText("Cancel"));
+    await settled();
+    expect(writes()).toContainEqual(expect.objectContaining({ method: "POST", path: "/v1/disruptions/r-1a2b3c/deny", json: { by: "the user in Studio" } }));
+    expect(screen.queryByTestId("editor-consent")).toBeNull();
+  });
+
   it("shows ue-mcp.yml read only, highlighted, under Advanced", async () => {
     open("settings-project-yaml", "project");
     await settled(6);

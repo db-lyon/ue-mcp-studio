@@ -59,6 +59,13 @@ describe("which requests the PIN guards", () => {
     ]) expect(sensitiveRequest(m, p, false), `${m} ${p}`).toBe(true);
   });
 
+  it("approving another session's request to close the editor, as the editor routes; denying and listing them never", () => {
+    expect(sensitiveRequest("POST", "/v1/disruptions/r-1a2b/approve", false)).toBe(true);
+    expect(sensitiveRequest("POST", "/v1/disruptions/r-1a2b/deny", false)).toBe(false);
+    expect(sensitiveRequest("GET", "/v1/disruptions", false)).toBe(false);
+    expect(sensitiveRequest("GET", "/v1/ext/studio/updates/consent", false)).toBe(false);
+  });
+
   it("a message starts a turn: guarded only while shell commands or file changes run without asking", () => {
     expect(sensitiveRequest("POST", "/v1/ext/studio/sessions/s1/messages", false)).toBe(false);
     expect(sensitiveRequest("POST", "/v1/ext/studio/sessions/s1/messages", true)).toBe(true);
