@@ -55,6 +55,7 @@ To ship it:
 
 ## Post-MVP (revisit later)
 
+- **Entitlements disagree with Stripe (gateway repo, `ue-mcp-gateway`).** The gateway reports plan `pro`, active to 2027-01-01, which looks like a grant outside Stripe. Stripe holds a separate `UE-MCP Remote` subscription at $0 under an Owner coupon. "Manage plan" opens the Stripe portal, which shows only Remote and nothing of Pro. The fix is one source of truth: Pro includes Remote, either as a real Stripe product that replaces Remote, or with the gateway's plan record driving what the portal shows and the redundant subscription cancelled.
 - **A rejected sign-in shows the Remote upsell:** when the gateway answers 401 for the stored account token, `RemotePlanCheck` (`apps/agent/src/remote/plan.ts`) returns false and Studio shows "needs the Remote plan". It should report an expired sign-in and ask the person to sign in again.
 - **Dev build numbering:** `STUDIO_DEV_BASE` dev installs sort above real releases (`dev` sorts after `beta`), so Studio's "newer version installed" notice offered a stale dev build as an upgrade. Fix: Studio ignores `-dev.` builds when looking for newer installed versions, or dev builds sort below the release they are built from.
 
