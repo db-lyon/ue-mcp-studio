@@ -1,13 +1,12 @@
-// Make the dev UI signing key pair. The private key never enters the repo.
+// Make this machine's dev UI signing key pair. Both halves stay in ~/.ue-mcp-studio/keys, never in the repo.
 import * as crypto from "node:crypto";
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
-import { fileURLToPath } from "node:url";
 
-const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
-const privateFile = path.join(os.homedir(), ".ue-mcp-studio", "keys", "dev-ui-signing.key.pem");
-const publicFile = path.join(root, "keys", "dev-ui-signing.pub.pem");
+const dir = path.join(os.homedir(), ".ue-mcp-studio", "keys");
+const privateFile = path.join(dir, "dev-ui-signing.key.pem");
+const publicFile = path.join(dir, "dev-ui-signing.pub.pem");
 if (fs.existsSync(privateFile) && fs.existsSync(publicFile)) {
   console.log(`dev keys exist: ${privateFile}`);
   process.exit(0);

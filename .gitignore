@@ -3,6 +3,7 @@ dist/
 *.tsbuildinfo
 # Signing keys stay off the repo. Only public keys under keys/ are tracked.
 *.key.pem
+keys/dev-ui-signing.*
 .env*
 release/
 # Usage parity runs: harness bundles, results and reports.
