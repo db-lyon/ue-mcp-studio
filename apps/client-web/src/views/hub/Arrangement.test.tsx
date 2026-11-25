@@ -150,6 +150,17 @@ describe("timelines", () => {
     await waitFor(() => expect(lastLines()).toBe("move walk/i1 to guard at 0"));
   });
 
+  it("trims a clip in its own frames, at the rate the layout gives", async () => {
+    const f = setFixture();
+    f.tracks[0].layout[0] = { ...f.tracks[0].layout[0], clipRate: 30, clipLength: 120 };
+    m.set.read.mockResolvedValue(f);
+    render(<Harness />);
+    await pick(/^CL_Walk/);
+    // A quarter second off the end is 15 track frames, 7.5 of the clip's own at 30 a second.
+    fireEvent.keyDown(surface(), { key: "ArrowLeft", altKey: true });
+    await waitFor(() => expect(lastLines()).toBe("trim walk/i1 out=112.5"));
+  });
+
   it("drops a clip from Clips onto a timeline at the drop position", async () => {
     render(<Harness />);
     await block(/^CL_Walk/);
@@ -300,23 +311,22 @@ describe("runs", () => {
     m.set.runDetail.mockResolvedValue({ record: {}, run: null, steps: [], arrangement: {
       kind: "arrangement", rate: 60, length: 840, tracks: [{ goalId: "walk", title: "Walk", player: 0, status: "running" }],
       instances: [
-        { key: "walk-i1", goalId: "walk", id: "i1", kind: "clip", target: WALK, name: "CL_Walk", player: 0, start: 0, end: 240, status: "running", checks: { total: 1, passed: 0, failed: 0, pending: 0, awaiting: 1 }, segmentRunId: "c1" },
+        { key: "walk-i1", goalId: "walk", id: "i1", kind: "clip", target: WALK, name: "CL_Walk", player: 0, start: 0, end: 240, status: "awaiting_verdict", checks: { total: 1, passed: 0, failed: 0, pending: 0, awaiting: 1 }, awaiting: [{ check: "walk-i1.c4", instruction: "Does the door glow?" }], segmentRunId: "c1" },
         { key: "walk-i2", goalId: "walk", id: "i2", kind: "script", target: DOOR, name: "PT_Door", player: 0, start: 240, end: 840, status: "pending", checks: { total: 0, passed: 0, failed: 0, pending: 0, awaiting: 0 }, segmentRunId: null },
       ],
       segments: [{ index: 0, kind: "clip", runId: "c1", offset: 0, length: 240, state: "running" }],
     } });
     m.hub.cancelPlan.mockResolvedValue({});
+    m.set.run.mockResolvedValue({ plan: { id: "p1", title: "Arrangement", items: [] }, placement: { state: "started", position: 0, ahead: 0 }, runId: "run-9" });
     render(<Harness />);
     await block(/^CL_Walk/);
     fireEvent.keyDown(surface(), { key: " " });
     await waitFor(() => expect(m.set.run).toHaveBeenCalledWith({ kind: "arrangement" }));
-    act(() => setOverview((o) => ({ ...o, queue: { ...o.queue, current: { id: "p1", title: "Arrangement", scope: { kind: "arrangement" }, items: [{ check: { kind: "script", target: "arrangement" }, name: "Arrangement", state: "running", runId: "run-9" }] } as never } })));
+    // The run's id comes from the run route's answer; the queue's item has not recorded it yet.
+    act(() => setOverview((o) => ({ ...o, queue: { ...o.queue, current: { id: "p1", title: "Arrangement", scope: { kind: "arrangement" }, items: [{ check: { kind: "script", target: "arrangement" }, name: "Arrangement", state: "running", runId: null }] } as never } })));
     await waitFor(() => expect(m.set.runDetail).toHaveBeenCalledWith("run-9"));
-    await waitFor(() => expect((screen.getAllByRole("button", { name: /^CL_Walk, / })[0]).className).toContain("st-running"));
-    act(() => setEvents([
-      { id: 1, type: "clip.position", at: "", data: { runId: "c1", position: 120 } },
-      { id: 2, type: "clip.verdict_requested", at: "", data: { runId: "c1", awaiting: ["walk-i1.c4"] } },
-    ] as DaemonEvent[]));
+    await waitFor(() => expect((screen.getAllByRole("button", { name: /^CL_Walk, / })[0]).className).toContain("st-awaiting_verdict"));
+    act(() => setEvents([{ id: 1, type: "clip.position", at: "", data: { runId: "c1", position: 120 } }] as DaemonEvent[]));
     const cursor = await waitFor(() => {
       const c = document.querySelector(".hub-set-cursor") as HTMLElement | null;
       expect(c).toBeTruthy();
@@ -324,6 +334,7 @@ describe("runs", () => {
     });
     expect(cursor.style.left).toBe("160px");
     const card = await screen.findByRole("group", { name: "CL_Walk needs your verdict" });
+    expect(card.textContent).toContain("Does the door glow?");
     fireEvent.click(card.querySelector("button")!);
     await waitFor(() => expect(m.set.verdict).toHaveBeenCalledWith("run-9", "walk-i1.c4", "pass", undefined));
     fireEvent.keyDown(surface(), { key: " " });

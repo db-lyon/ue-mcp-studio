@@ -43,7 +43,8 @@ export function setApi(request: HubRequest) {
       const s = p.toString();
       return request<{ clips: HubClipEntry[] }>("GET", `${HUB_BASE}/clips${s ? `?${s}` : ""}`);
     },
-    run: (scope: SetRunScope, next?: boolean) => request<{ plan: PlanRun; placement?: PlanPlacement }>("POST", `${HUB_BASE}/run`, next ? { scope, next } : { scope }),
+    /** `runId` names the run once the plan started at once; null while it is queued or waiting. */
+    run: (scope: SetRunScope, next?: boolean) => request<{ plan: PlanRun; placement?: PlanPlacement; runId?: string | null }>("POST", `${HUB_BASE}/run`, next ? { scope, next } : { scope }),
     runDetail: (runId: string) => request<RunDetail & { arrangement?: ArrangementRun }>("GET", `${HUB_BASE}/runs/${enc(runId)}`),
     verdict: (runId: string, check: string, verdict: "pass" | "fail" | "skip", note?: string) =>
       request<unknown>("POST", `${HUB_BASE}/runs/${enc(runId)}/verdict`, note ? { check, verdict, note } : { check, verdict }),
@@ -195,12 +196,23 @@ export function nextName(base: string, taken: readonly string[]): string {
 
 const SET_SCOPES = ["track", "scene", "arrangement"];
 
-/** The set run playing now: the plan on the editor, when it runs part of the set and its run has started. */
-export function activeSetRun(o: Pick<HubOverview, "queue">): { planId: string; runId: string } | null {
+/**
+ * The set run playing now. A run this view started is known by the id
+ * POST /hub/run answered with, while its plan is on the editor. One started
+ * elsewhere (an agent, a schedule) is the queue's current plan when it plays
+ * part of the set, by the run its item records.
+ */
+export function activeSetRun(o: Pick<HubOverview, "queue">, mine?: { planId: string; runId: string } | null): { planId: string; runId: string } | null {
   const cur = o.queue.current;
   if (!cur || !SET_SCOPES.includes((cur.scope as { kind: string }).kind)) return null;
+  if (mine && mine.planId === cur.id) return mine;
   const item = [...cur.items].reverse().find((i) => i.runId);
   return item?.runId ? { planId: cur.id, runId: item.runId } : null;
+}
+
+/** The manual checks waiting in a run, each with the name of the instance it is on. */
+export function awaitingChecks(run: ArrangementRun | null | undefined): Array<{ check: string; instruction: string; name: string }> {
+  return (run?.instances ?? []).flatMap((i) => (i.awaiting ?? []).map((a) => ({ ...a, name: i.name })));
 }
 
 /**
@@ -243,15 +255,14 @@ export function setResults(recent: readonly RunRecord[]): SetResults {
   return r;
 }
 
-/** What the segment clip runs have said: each one's position, and the checks waiting on a person. */
+/** Where each segment clip run is, from its clip.position events. */
 export interface SegmentLive {
   seen: number;
   position: Record<string, number>;
-  awaiting: Record<string, string[]>;
 }
-export const emptySegmentLive = (): SegmentLive => ({ seen: 0, position: {}, awaiting: {} });
+export const emptySegmentLive = (): SegmentLive => ({ seen: 0, position: {} });
 
-/** Fold the daemon's clip.position and clip.verdict_requested events for these segment runs. */
+/** Fold the daemon's clip.position events for these segment runs. */
 export function foldSegmentEvents(live: SegmentLive, events: ReadonlyArray<{ id: number; type: string; data?: Record<string, unknown> }>, runIds: ReadonlySet<string>): SegmentLive {
   let n = live;
   for (const e of events) {
@@ -259,7 +270,6 @@ export function foldSegmentEvents(live: SegmentLive, events: ReadonlyArray<{ id:
     const runId = e.data?.runId;
     if (typeof runId !== "string" || !runIds.has(runId)) continue;
     if (e.type === "clip.position" && typeof e.data?.position === "number") n = { ...n, position: { ...n.position, [runId]: e.data.position } };
-    else if (e.type === "clip.verdict_requested") n = { ...n, awaiting: { ...n.awaiting, [runId]: Array.isArray(e.data?.awaiting) ? (e.data!.awaiting as string[]) : [] } };
   }
   const last = events.length ? events[events.length - 1].id : live.seen;
   return n === live && last <= live.seen ? live : { ...n, seen: Math.max(live.seen, last) };

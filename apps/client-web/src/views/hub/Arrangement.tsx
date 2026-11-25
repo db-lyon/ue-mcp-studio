@@ -21,6 +21,7 @@ import {
   arrangeStep,
   arrangementCursor,
   arrangementOn,
+  awaitingChecks,
   candidateLines,
   clipScale,
   dragLines,
@@ -90,9 +91,9 @@ function useSet(version: number, on: boolean) {
 }
 
 /** The run playing now and the newest results: its detail, playhead and the checks waiting on a person. */
-function useSetRun() {
+function useSetRun(mine: { planId: string; runId: string } | null) {
   const hub = useHub();
-  const active = activeSetRun(hub.o);
+  const active = activeSetRun(hub.o, mine);
   const [detail, setDetail] = useState<ArrangementRun | null>(null);
   useEffect(() => {
     if (!active) {
@@ -114,7 +115,7 @@ function useSetRun() {
   const target = (hub.o.queue.current?.scope as { goalId?: string } | undefined)?.goalId ?? "";
   const results = useMemo(() => (detail ? foldRun(base, detail, null, target, true) : base), [base, detail, target]);
   const cursor = active ? arrangementCursor(detail, live) : null;
-  const awaiting = active ? [...segIds].flatMap((id) => live.awaiting[id] ?? []) : [];
+  const awaiting = active ? awaitingChecks(detail) : [];
   return { active, detail, cursor, results, awaiting };
 }
 
@@ -122,13 +123,13 @@ export function ArrangementScreen() {
   const hub = useHub();
   const on = arrangementOn(hub.health);
   const { set, setSet, error } = useSet(hub.data.version, on);
-  const run = useSetRun();
+  const [mine, setMine] = useState<{ planId: string; runId: string } | null>(null);
+  const run = useSetRun(mine);
   const [refused, setRefused] = useState<{ lines: string[]; findings: ArrangementFinding[] } | null>(null);
   const [sel, setSel] = useState<Sel>(null);
   const [scene, setScene] = useState<string | null>(null);
   const [copied, setCopied] = useState<{ track: string; id: string } | null>(null);
   const [picked, setPicked] = useState<HubClipEntry | null>(null);
-  const [rates, setRates] = useState<Record<string, number>>({});
   const [zoom, setZoom] = useState<number>(ARRANGE_DEFAULT_ZOOM);
   const [playhead, setPlayhead] = useState(0);
   const [deleting, setDeleting] = useState<{ kind: "track" | "scene"; id: string } | null>(null);
@@ -165,7 +166,8 @@ export function ArrangementScreen() {
   };
   const play = async (scope: SetRunScope, what: string) => {
     try {
-      const { plan, placement } = await api.set.run(scope);
+      const { plan, placement, runId } = await api.set.run(scope);
+      setMine(runId ? { planId: plan.id, runId } : null);
       const f = runFeedback(what || plan.title, placement);
       hub.notify(f.text, f.tone);
       hub.data.reload();
@@ -266,7 +268,7 @@ export function ArrangementScreen() {
         if (to) void edit(dragLines(sel.track, inst, l, "move", 0, { toTrack: to.id }), () => select({ kind: "instance", track: to.id, id: sel.id }));
         return;
       }
-      const scale = clipScale(trackOf(sel.track)?.arrangement.rate || rate, rates[inst.target]);
+      const scale = clipScale(trackOf(sel.track)?.arrangement.rate || rate, l.clipRate);
       if (alt) return void edit(dragLines(sel.track, inst, l, shift ? "trimStart" : "trimEnd", dir * arrangeStep(rate), { scale }));
       return void edit(dragLines(sel.track, inst, l, "move", Math.max(-l.start, dir * arrangeStep(rate, shift))));
     }
@@ -318,7 +320,7 @@ export function ArrangementScreen() {
 
   const findings = [...(refused?.findings ?? []), ...set.findings.filter((f) => !refused?.findings.some((r) => r.id === f.id && r.field === f.field))];
   const flagged = new Map(findings.map((f) => [f.id, f.message] as const));
-  const ctx: ViewCtx = { tracks, rate, sel, select, edit, play, open, run, flagged, rates, zoom, playhead, setPlayhead, scene: shownScene ?? null };
+  const ctx: ViewCtx = { tracks, rate, sel, select, edit, play, open, run, flagged, zoom, playhead, setPlayhead, scene: shownScene ?? null };
   const instanceSel = sel?.kind === "instance";
 
   return (
@@ -346,7 +348,7 @@ export function ArrangementScreen() {
           ))}
         </ul>
       )}
-      {run.awaiting.length > 0 && run.active && <Verdicts runId={run.active.runId} checks={run.awaiting} detail={run.detail} />}
+      {run.awaiting.length > 0 && run.active && <Verdicts runId={run.active.runId} checks={run.awaiting} />}
       {about && (
         <div className="hub-set-inspector" role="group" aria-label={SET_COPY.selection}>
           <input
@@ -385,7 +387,7 @@ export function ArrangementScreen() {
       )}
       <div className="hub-set-body" onKeyDown={onKey}>
         <div className="hub-set-side">
-          <ClipBrowser picked={picked} onPick={setPicked} onOpen={(c) => open(c.kind, c.target)} onClips={(cs) => setRates((r) => ({ ...r, ...Object.fromEntries(cs.map((c) => [c.target, c.rate])) }))} />
+          <ClipBrowser picked={picked} onPick={setPicked} onOpen={(c) => open(c.kind, c.target)} />
           <ScenesPanel scenes={scenes} ctx={ctx} />
         </div>
         <div className="hub-set-main">
@@ -466,7 +468,6 @@ interface ViewCtx {
   open: (kind: InstanceKind, target: string) => void;
   run: ReturnType<typeof useSetRun>;
   flagged: Map<string, string>;
-  rates: Record<string, number>;
   zoom: number;
   playhead: number;
   setPlayhead: (f: number) => void;
@@ -527,7 +528,7 @@ function PlayerField({ t, edit }: { t: SetTrack; edit: ViewCtx["edit"] }) {
 interface Drag { track: string; id: string; mode: ArrangeDragMode; x0: number; y0: number; dx: number; dy: number; alt: boolean }
 
 function Timelines({ ctx, onZoom }: { ctx: ViewCtx; onZoom: (z: number) => void }) {
-  const { tracks, rate, zoom, playhead, setPlayhead, sel, select, edit, play, open, run, flagged, rates, scene } = ctx;
+  const { tracks, rate, zoom, playhead, setPlayhead, sel, select, edit, play, open, run, flagged, scene } = ctx;
   const [drag, setDrag] = useState<Drag | null>(null);
   const frames = rulerFrames(Math.max(arrangeEnd(tracks.map((t) => t.layout)), run.detail?.length ?? 0), rate);
   const px = (f: number) => (f / rate) * zoom;
@@ -566,7 +567,7 @@ function Timelines({ ctx, onZoom }: { ctx: ViewCtx; onZoom: (z: number) => void 
     if (!inst) return;
     const { df, to } = landing(d, l, e.shiftKey);
     const dup = d.alt || e.altKey;
-    void edit(dragLines(t.id, inst, l, d.mode, df, { scale: clipScale(t.arrangement.rate || rate, rates[inst.target]), duplicate: dup, toTrack: to }), (a) => {
+    void edit(dragLines(t.id, inst, l, d.mode, df, { scale: clipScale(t.arrangement.rate || rate, l.clipRate), duplicate: dup, toTrack: to }), (a) => {
       const id = dup ? a.changed?.find((c) => c !== l.id) : l.id;
       if (id) select({ kind: "instance", track: to ?? t.id, id });
     });
@@ -671,15 +672,11 @@ function Timelines({ ctx, onZoom }: { ctx: ViewCtx; onZoom: (z: number) => void 
   );
 }
 
-/** Checks waiting on a person in the run playing now. */
-function Verdicts({ runId, checks, detail }: { runId: string; checks: string[]; detail: ArrangementRun | null }) {
+/** Checks waiting on a person in the run playing now, each with the question it asks. */
+function Verdicts({ runId, checks }: { runId: string; checks: Array<{ check: string; instruction: string; name: string }> }) {
   const hub = useHub();
   const [notes, setNotes] = useState<Record<string, string>>({});
   const [done, setDone] = useState<string[]>([]);
-  const nameOf = (check: string) => {
-    const [key] = check.split(".");
-    return detail?.instances.find((x) => x.key === key || x.id === key)?.name ?? key;
-  };
   const answer = async (check: string, v: "pass" | "fail" | "skip") => {
     try {
       await api.set.verdict(runId, check, v, notes[check]?.trim() || undefined);
@@ -689,13 +686,14 @@ function Verdicts({ runId, checks, detail }: { runId: string; checks: string[]; 
       hub.notify((e as Error).message, "bad");
     }
   };
-  const open = checks.filter((c) => !done.includes(c));
+  const open = checks.filter((c) => !done.includes(c.check));
   if (!open.length) return null;
   return (
     <div className="hub-set-verdicts">
-      {open.map((c) => (
-        <div key={c} className="hub-card hub-set-verdict" role="group" aria-label={SET_COPY.needsVerdict(nameOf(c))}>
-          <strong title={c}>{SET_COPY.needsVerdict(nameOf(c))}</strong>
+      {open.map(({ check: c, instruction, name }) => (
+        <div key={c} className="hub-card hub-set-verdict" role="group" aria-label={SET_COPY.needsVerdict(name)}>
+          <strong>{SET_COPY.needsVerdict(name)}</strong>
+          <span className="hub-set-verdict-ask">{instruction}</span>
           <input value={notes[c] ?? ""} onChange={(e) => setNotes((n) => ({ ...n, [c]: e.target.value }))} placeholder={SET_COPY.note} aria-label={SET_COPY.note} />
           <button onClick={() => void answer(c, "pass")}>{SET_COPY.pass}</button>
           <button onClick={() => void answer(c, "fail")}>{SET_COPY.fail}</button>
@@ -707,7 +705,7 @@ function Verdicts({ runId, checks, detail }: { runId: string; checks: string[]; 
 }
 
 /** The Clips panel: both kinds, searched by the daemon, dragged onto timelines. */
-function ClipBrowser({ picked, onPick, onOpen, onClips }: { picked: HubClipEntry | null; onPick: (c: HubClipEntry | null) => void; onOpen: (c: HubClipEntry) => void; onClips: (cs: HubClipEntry[]) => void }) {
+function ClipBrowser({ picked, onPick, onOpen }: { picked: HubClipEntry | null; onPick: (c: HubClipEntry | null) => void; onOpen: (c: HubClipEntry) => void }) {
   const [q, setQ] = useState("");
   const [kind, setKind] = useState<InstanceKind | undefined>(undefined);
   const [clips, setClips] = useState<HubClipEntry[] | null>(null);
@@ -719,7 +717,6 @@ function ClipBrowser({ picked, onPick, onOpen, onClips }: { picked: HubClipEntry
         if (!live) return;
         setClips(a.clips);
         setError(null);
-        onClips(a.clips);
       }, (e: Error) => live && setError(e.message));
     }, q ? 200 : 0);
     return () => {

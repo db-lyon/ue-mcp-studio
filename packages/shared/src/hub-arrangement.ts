@@ -65,6 +65,10 @@ export interface InstanceLayout {
   length: number;
   /** False when the clip could not be read, so its length is a guess. */
   known: boolean;
+  /** Timeline clips that could be read: the clip's own frame rate, which `in` and `out` count in. */
+  clipRate?: number;
+  /** Timeline clips that could be read: the clip's whole length in its own frames. */
+  clipLength?: number;
 }
 
 /** A track: a row of the Arrangement, a timeline that drives one player. */
@@ -143,10 +147,17 @@ export interface InstanceResult {
   end: number;
   status: InstanceStatus;
   checks: { total: number; passed: number; failed: number; pending: number; awaiting: number };
+  /** The manual checks waiting for a verdict now: `check` is what POST /hub/runs/:id/verdict takes. */
+  awaiting?: InstanceAwaiting[];
   segmentRunId: string | null;
   reason?: string | null;
 }
 
+/** A manual check waiting for a verdict, and the question it asks. */
+export interface InstanceAwaiting {
+  check: string;
+  instruction: string;
+}
 /** One segment of a run: a clip run or a script run, `offset` frames into the run's timeline. */
 export interface ArrangementRunSegment {
   index: number;
