@@ -4,7 +4,7 @@
  * and results, and the copy. The daemon validates and lays out; the views
  * draw what it answers and send ops.
  */
-import { ARRANGEMENT_FEATURE } from "@ue-mcp-studio/shared";
+import { ARRANGEMENT_DEFAULT_RATE, ARRANGEMENT_FEATURE } from "@ue-mcp-studio/shared";
 import type {
   ArrangementFinding,
   ArrangementRun,
@@ -105,6 +105,10 @@ export const snapTo = (f: number, step: number): number => Math.max(0, step > 0 
 
 /** Frames as seconds of game time: "1.5 s". */
 export const arrangeSeconds = (f: number, rate: number): string => `${(f / rate).toFixed(2).replace(/\.?0+$/, "") || "0"} s`;
+
+/** The arrangement run from the playhead (`at` frames at `rate`): from the start when it is at 0. */
+export const arrangementFromPlayhead = (at: number, rate: number): SetRunScope =>
+  at > 0 ? { kind: "arrangement", from: Math.round(((at * ARRANGEMENT_DEFAULT_RATE) / (rate || ARRANGEMENT_DEFAULT_RATE)) * 1000) / 1000 } : { kind: "arrangement" };
 
 /** Where the last instance on these timelines ends. */
 export const arrangeEnd = (layouts: ReadonlyArray<readonly InstanceLayout[]>): number => layouts.reduce((m, l) => l.reduce((n, x) => Math.max(n, x.end), m), 0);
@@ -304,7 +308,8 @@ export const SET_COPY = {
   notOffered: "Update ue-mcp to use the Arrangement.",
   play: "Play",
   stop: "Stop",
-  playArrangement: "Play every track from the start, respecting Mute and Solo (Space)",
+  playArrangement: "Play every track from the playhead, respecting Mute and Solo (Space)",
+  arrangementFrom: (at: string) => `Arrangement from ${at}`,
   playTrack: (title: string) => `Play ${title}`,
   playScene: (title: string) => `Play ${title}`,
   addTrack: "Add track",
@@ -364,7 +369,8 @@ export const SET_COPY = {
   keys: "Shortcuts",
   keyList: [
     ["Drag", "Move a clip, drag an edge to trim it, Alt-drag to duplicate it"],
-    ["Space", "Play the Arrangement, or stop"],
+    ["Space", "Play the Arrangement from the playhead, or stop"],
+    ["Home", "Move the playhead to the start"],
     ["Enter", "Play the selected scene or track, or open the selected clip"],
     ["Left, Right", "Move the selected clip by a quarter second (Shift: a second); with no clip selected, move the playhead"],
     ["Up, Down", "Move the selected clip to the next track; with no clip selected, select the next track or scene"],

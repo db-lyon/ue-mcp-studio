@@ -307,6 +307,18 @@ describe("tracks and scenes", () => {
 });
 
 describe("runs", () => {
+  it("plays from the playhead, and from the start after Home", async () => {
+    render(<Harness />);
+    await block(/^CL_Walk/);
+    const s = surface();
+    fireEvent.keyDown(s, { key: "ArrowRight", shiftKey: true });
+    fireEvent.keyDown(s, { key: " " });
+    await waitFor(() => expect(m.set.run).toHaveBeenLastCalledWith({ kind: "arrangement", from: 60 }));
+    fireEvent.keyDown(s, { key: "Home" });
+    fireEvent.click(screen.getByRole("button", { name: /^Play$/ }));
+    await waitFor(() => expect(m.set.run).toHaveBeenLastCalledWith({ kind: "arrangement" }));
+  });
+
   it("plays every timeline and follows the run: playhead, results, Stop and a verdict", async () => {
     m.set.runDetail.mockResolvedValue({ record: {}, run: null, steps: [], arrangement: {
       kind: "arrangement", rate: 60, length: 840, tracks: [{ goalId: "walk", title: "Walk", player: 0, status: "running" }],

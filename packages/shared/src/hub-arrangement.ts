@@ -114,11 +114,11 @@ export interface SetRefusal {
   findings?: ArrangementFinding[];
 }
 
-/** What POST /hub/run plays. */
+/** What POST /hub/run plays; `from` plays the timelines from that frame, at 60 per second. */
 export type SetRunScope =
-  | { kind: "track"; goalId: string }
-  | { kind: "scene"; goalId: string }
-  | { kind: "arrangement" };
+  | { kind: "track"; goalId: string; from?: number }
+  | { kind: "scene"; goalId: string; from?: number }
+  | { kind: "arrangement"; from?: number };
 
 /** One entry of GET /hub/clips: a timeline clip or a step-list playtest. */
 export interface HubClipEntry {
@@ -174,6 +174,8 @@ export interface ArrangementRun {
   goalId?: string;
   rate: number;
   length: number;
+  /** A run played from the playhead: the frame it started at. Instance and segment frames stay on the timeline. */
+  from?: number;
   instances: InstanceResult[];
   tracks?: Array<{ goalId: string; title: string; player: number; status: string }>;
   segments: ArrangementRunSegment[];
