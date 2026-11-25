@@ -467,7 +467,7 @@ describe("the live viewport in the hub", () => {
   const rec = (runId: string, name: string, outcome: RunRecord["outcome"], endedAt: string | null = null): RunRecord => ({
     runId, kind: "script", target: `/Game/T/${name}`, name, outcome, startedAt: "2026-11-23T10:00:00Z", endedAt, source: "plan",
   });
-  const idle: QueueState = { paused: false, current: null, queued: [], recent: [], editor: { connected: true } };
+  const idle: QueueState = { paused: false, current: null, queued: [], recent: [], schedules: [], editor: { connected: true } };
   const over = (recent: RunRecord[], queue: QueueState = idle, connected = true) => ({ recent, queue, editor: { connected } });
 
   it("counts a run as playing until it ends, including one holding for a person's verdict", () => {
