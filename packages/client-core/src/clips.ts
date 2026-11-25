@@ -316,8 +316,10 @@ export function foldClipEvent(live: ClipLive | null, e: { type: string; data: Re
   return n;
 }
 
-/** A region's drift against the reference, as a short label: "4.8 cm". */
-export const driftText = (d: ClipDrift | undefined): string | undefined => (typeof d?.max_position_cm === "number" ? `${d.max_position_cm.toFixed(1)} cm` : undefined);
+/** How far the pawn drifted from the recording, as a short label: "drift 4.8 cm". */
+export const driftText = (d: ClipDrift | undefined): string | undefined => (typeof d?.max_position_cm === "number" ? `drift ${d.max_position_cm.toFixed(1)} cm` : undefined);
+/** The distance alone, for a sentence that names it: "4.8 cm". */
+export const driftCm = (d: ClipDrift | undefined): string | undefined => (typeof d?.max_position_cm === "number" ? `${d.max_position_cm.toFixed(1)} cm` : undefined);
 
 // ---------- Copy ----------
 
@@ -391,18 +393,18 @@ export const CLIP_COPY = {
   newRegion: (n: number) => `Region ${n}`,
   arm: "Record into this track",
   play: "Play",
-  wholeClip: "Whole clip",
+  wholeClip: "Whole timeline",
   record: "Record",
   punchIn: "Punch in at",
   frameZero: "Frame 0",
-  holdCheck: (name: string) => `Check ${name}`,
+  holdCheck: (name: string) => `Hold check ${name}`,
   stop: "Stop",
   stopRecording: "Stop recording",
   starting: "Starting",
   playing: (pos: number, len: number) => (len > 0 ? `Playing frame ${Math.round(pos)} of ${Math.round(len)}` : `Playing frame ${Math.round(pos)}`),
   recording: (pos: number) => `Recording at frame ${Math.round(pos)}`,
   pausedAt: (pos: number) => `Paused at frame ${Math.round(pos)}`,
-  holdingAt: (check: string) => `Waiting at check ${check} until it holds`,
+  holdingAt: (check: string) => `Waiting at check ${check} until its condition is true`,
   armNone: "Choose at least one track to record into.",
   passedSummary: (passed: number, total: number) => `Passed ${passed} of ${total} checks`,
   failedSummary: (failed: number, total: number) => `Failed ${failed} of ${total} checks`,
@@ -416,10 +418,10 @@ export const CLIP_COPY = {
   verdictNote: "Note (optional)",
   runs: "Runs",
   noRuns: "No runs yet.",
-  runsUnavailable: "Past runs need a newer ue-mcp. Update it in Settings.",
+  runsUnavailable: "Past runs need a newer ue-mcp. Update it in Settings, under Updates.",
   played: "Played",
   recorded: "Recorded",
   showingRun: (when: string) => `Showing the run from ${when}`,
   showLatest: "Show the latest",
-  liveTakeHidden: "The take appears on the timeline once it is saved. A newer ue-mcp draws it while you play.",
+  liveTakeHidden: "The take appears when it is saved. To see it while you play, update ue-mcp in Settings, under Updates.",
 } as const;

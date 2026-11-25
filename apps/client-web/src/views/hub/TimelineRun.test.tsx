@@ -75,7 +75,7 @@ describe("playing", () => {
     await waitFor(() => expect(m.clips.run).toHaveBeenCalledWith(PATH, "r2"));
 
     setEvents([ev("clip.run_started", { mode: "play" }), ev("clip.position", { position: 130, length: 240, state: "running", holding: "c2" })]);
-    expect(await screen.findByText("Waiting at check c2 until it holds")).toBeTruthy();
+    expect(await screen.findByText("Waiting at check c2 until its condition is true")).toBeTruthy();
     expect(document.querySelector(".hub-clip-cursor")).toBeTruthy();
 
     setEvents([
@@ -115,7 +115,7 @@ describe("playing", () => {
   it("says plainly when ue-mcp keeps no run history", async () => {
     m.clips.runs.mockResolvedValue({ runs: null });
     render(<Harness features={["events.clip"]} />);
-    expect(await screen.findByText("Past runs need a newer ue-mcp. Update it in Settings.")).toBeTruthy();
+    expect(await screen.findByText("Past runs need a newer ue-mcp. Update it in Settings, under Updates.")).toBeTruthy();
   });
 });
 
@@ -150,7 +150,7 @@ describe("recording", () => {
     await screen.findByRole("heading", { name: "CL_Door" });
     m.clips.record.mockResolvedValue({ run_id: "clip-1", clip: PATH, mode: "record", state: "running" });
     fireEvent.click(screen.getByRole("button", { name: "Record" }));
-    expect(await screen.findByText(/The take appears on the timeline once it is saved/)).toBeTruthy();
+    expect(await screen.findByText(/The take appears when it is saved/)).toBeTruthy();
     expect(m.clips.record).toHaveBeenCalledWith({ path: PATH, armed: [MOVE, JUMP] });
   });
 });

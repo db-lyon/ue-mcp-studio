@@ -18,6 +18,7 @@ import {
   clipPackage,
   clipPlaying,
   clipTakeEventsOn,
+  driftCm,
   driftText,
   foldClipEvent,
   type ClipLive,
@@ -253,7 +254,7 @@ function RunLine({ live }: { live: ClipLive }) {
     text = CLIP_COPY.failedSummary(live.summary?.failed ?? Object.values(live.checks).filter((c) => c.status === "failed").length, total);
     tone = "bad";
   }
-  const drift = driftText(live.drift);
+  const drift = driftCm(live.drift);
   const failed = Object.values(live.checks).filter((c) => c.status === "failed" && c.evidence?.reason);
   return (
     <div className="hub-clip-runline" role="status">

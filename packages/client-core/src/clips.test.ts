@@ -105,7 +105,7 @@ describe("following a run", () => {
     expect(clipPlaying(l)).toBe(true);
     l = foldClipEvent(l, ev("clip.run_finished", { state: "finished", passed: false, summary: { total: 2, failed: 1 }, seq: 6 }), PATH);
     expect(l).toMatchObject({ state: "finished", passed: false, awaiting: [], holding: null, checks: { c1: { status: "passed" } }, regions: { r1: { status: "failed" } } });
-    expect(driftText(l!.regions.r1.drift)).toBe("26.9 cm");
+    expect(driftText(l!.regions.r1.drift)).toBe("drift 26.9 cm");
     expect(clipPlaying(l)).toBe(false);
   });
 
