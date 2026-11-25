@@ -1,6 +1,6 @@
 {
   "name": "@ue-mcp-studio/agent",
-  "version": "0.1.46-beta.6",
+  "version": "0.1.46-beta.7",
   "private": true,
   "type": "module",
   "main": "dist/index.js",
@@ -10,7 +10,7 @@
       "min": 1,
       "max": 2
     },
-    "ueMcp": "1.4.16-beta.3"
+    "ueMcp": "1.4.16-beta.4"
   },
   "scripts": {
     "build": "tsc -p tsconfig.json --noEmit && node ../../scripts/bundle-agent.mjs && node ../../scripts/agent-keys.mjs",
@@ -46,6 +46,6 @@
     "@types/pngjs": "^6.0.5",
     "@types/ws": "^8.5.13",
     "ajv": "^8.17.1",
-    "ue-mcp": "1.4.16-beta.3"
+    "ue-mcp": "1.4.16-beta.4"
   }
 }
