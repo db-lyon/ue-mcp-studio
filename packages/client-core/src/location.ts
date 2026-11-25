@@ -23,7 +23,7 @@ const TABS: Record<string, Tab> = { chat: "Chat", playtests: "Playtests", settin
 const SAFE = /^[A-Za-z0-9_-]{1,128}$/;
 const SECTION = /^(?:[A-Za-z0-9_-]{1,128}|ext:[A-Za-z0-9_-]{1,64}:[A-Za-z0-9_-]{1,64})$/;
 /** A hub path: a screen name, at most one encodeURIComponent'd id and the editor's edit or new, nothing that could climb or inject. */
-const HUB_SUB = /^(?:queue|checks|goals|milestones|runs|clips)(?:\/[A-Za-z0-9%._~!*'()-]{1,600}(?:\/(?:edit|new))?)?$/;
+const HUB_SUB = /^(?:arrangement|(?:queue|checks|goals|milestones|runs|clips)(?:\/[A-Za-z0-9%._~!*'()-]{1,600}(?:\/(?:edit|new))?)?)$/;
 
 export function parseLocation(hash: string): PanelLocation {
   const parts = hash.replace(/^#\/?/, "").split("/").filter(Boolean);
