@@ -1068,3 +1068,4 @@ export * from "./video.js";
 export * from "./viewport.js";
 export * from "./feedback.js";
 export * from "./ask-user.js";
+export * from "./clips.js";

@@ -92,6 +92,7 @@ import type { PieWatch } from "./viewport/pie-watch.js";
 import type { Presence } from "./notify.js";
 import { PlaytestIndex, registerPlaytestIndex, type PlaytestIndexHost } from "./playtest-index.js";
 import { Drafting, registerDrafting, type DraftingHost } from "./drafting-routes.js";
+import { Clips, registerClips, type ClipsHost } from "./clip-routes.js";
 import { registerReview } from "./review.js";
 import { PlaytestStore } from "./playtest-store.js";
 import { registerAgentSettings } from "./agent-settings.js";
@@ -272,6 +273,7 @@ export function registerChat(api: DaemonExtensionApi, agentVersion = "0.0.0", pa
   const playtestIndex = new PlaytestIndex({ host: api as unknown as PlaytestIndexHost, broker: qa, store });
   registerPlaytestIndex(api, playtestIndex);
   registerDrafting(api, new Drafting({ host: api as unknown as DraftingHost, players: playtests, created: () => playtestIndex.created() }));
+  registerClips(api, new Clips({ host: api as unknown as ClipsHost }));
   const review = registerReview(api, store, () => settings.reviewTurns());
   /** The daemon's own address, for the flow routes. */
   const endpoint = () => {
