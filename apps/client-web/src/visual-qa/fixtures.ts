@@ -143,7 +143,7 @@ function transcript(runs: QaRun[]): TranscriptEntry[] {
     : runs.every((r) => r.state === "armed") ? "It is starting. I will read the results when it ends."
     : runs.some(qaActive) ? "It is running. I will read the results when it ends."
     : runs.some((r) => r.state === "finished" || r.state === "stopped") ? "The run ended; its card has each step's result."
-    : "It is ready. Press Start playtest on its card to run it.";
+    : "It is ready. Press Start clip on its card to run it.";
   entries.push({ kind: "assistant", text, at: ago(3) });
   return entries;
 }
@@ -1138,8 +1138,8 @@ export const SCENARIOS: Record<string, Scenario> = {
     index: { playtests: [], listed: true },
     get: (p) => (p === "/v1/ext/studio/remote/approvals" ? { approvals: [ASKING] } : undefined),
   },
-  "session-empty": inSession("A session with no playtest: Checkpoints in the composer bar", "Door playtest", []),
-  "draft": inSession("A draft: collapsed card in the transcript with Start playtest on it", "Door playtest", [RUNS.draft]),
+  "session-empty": inSession("A session with no clip: Checkpoints in the composer bar", "Door playtest", []),
+  "draft": inSession("A draft: collapsed card in the transcript with Start clip on it", "Door playtest", [RUNS.draft]),
   "draft-asset-links": { ...inSession("A draft opened: asset names in its steps, its script path and its arrange and act targets as links; a name that does not resolve stays plain", "Broken bridge", [RUNS.linked], ".thread-stage .qa-toggle"), post: resolveLinked, focus: ".thread-stage .qa-instruction .asset-link:not(.code)" },
   "armed": inSession("Armed: the latest item in the conversation", "Door playtest", [RUNS.armed]),
   "running": inSession("Running: the latest item in the conversation", "Jump check", [RUNS.running]),
