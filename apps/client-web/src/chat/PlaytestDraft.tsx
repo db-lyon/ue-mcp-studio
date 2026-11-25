@@ -1,5 +1,5 @@
 /**
- * A draft Playtest's own controls: Start playtest with its options, and Edit, which
+ * A draft Clip card's own controls: Start clip with its options, and Edit, which
  * changes the steps in place (instruction, player, auto or manual, the
  * expectation) and saves them through pie(script_update).
  */
@@ -14,7 +14,7 @@ export function RunPanel({ run, busy, onStart, onCancel }: { run: QaRun; busy: b
   const needed = playersNeeded(run);
   const [o, setO] = useState<RunOptions>({ ...DEFAULT_RUN, players: needed, listen: needed > 1 });
   return (
-    <div className="qa-run-options small" role="group" aria-label="Start playtest options">
+    <div className="qa-run-options small" role="group" aria-label="Start clip options">
       <label className="row toggle">
         <input type="checkbox" checked={o.startPie} onChange={(e) => setO({ ...o, startPie: e.target.checked })} />
         <span>Start PIE <span className="dim">(off: use the PIE session that is running)</span></span>
@@ -51,7 +51,7 @@ export function DraftEditor({ run, busy, error, onSave, onCancel }: { run: QaRun
   const set = (i: number, patch: Partial<Row>) => setRows(rows.map((r, j) => (j === i ? { ...r, ...patch } : r)));
   const valid = rowsValid(rows);
   return (
-    <div className="qa-edit" role="group" aria-label="Edit the playtest">
+    <div className="qa-edit" role="group" aria-label="Edit the clip">
       <label className="qa-edit-map small">
         <span className="dim">Level</span>
         <input className="mono" value={map} placeholder="/Game/Maps/L_Example" aria-describedby={mapHelp} onChange={(e) => setMap(e.target.value)} />

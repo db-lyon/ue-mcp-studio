@@ -30,9 +30,9 @@ function show(entry: TranscriptEntry, busy = false, run = vi.fn()) {
 }
 
 describe("an agent message", () => {
-  it("carries no Make playtest of its own: the composer's pill offers it", () => {
+  it("carries no Make clip of its own: the composer's pill offers it", () => {
     show(transcript[1]);
-    expect(screen.queryByRole("button", { name: "Make playtest" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Make clip" })).toBeNull();
   });
 });
 
@@ -45,9 +45,9 @@ describe("a /playtest's flow", () => {
     expect(screen.queryByRole("button", { name: "Retry" })).toBeNull();
   });
 
-  it("says no playtest was made, lists the flow's errors, and Retry sends the same request", () => {
+  it("says no clip was made, lists the flow's errors, and Retry sends the same request", () => {
     const run = show(transcript[3]);
-    expect(screen.getByText("No playtest was made.")).toBeTruthy();
+    expect(screen.getByText("No clip was made.")).toBeTruthy();
     expect(screen.getByText("Step 1 expect.value: Pawn.JumpCnt is not a value PIE can read")).toBeTruthy();
     expect(screen.getByText("The script has no auto step")).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: "Retry" }));

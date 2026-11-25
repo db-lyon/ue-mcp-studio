@@ -64,11 +64,11 @@ describe("Settings sections under RemoteReadOnly, as the web client's", () => {
     expect(block.textContent).not.toContain("Route order");
   });
 
-  it("Approvals & review: the Ask first rules and the dialog policy, the playtest starts outside", async () => {
+  it("Approvals & review: the Ask first rules and the dialog policy, Clip runs outside", async () => {
     open("settings-approvals-remote", "approvals");
     await settled();
     expect(covered()).toHaveLength(2);
-    expect(covered()[0].textContent).not.toContain("Starting playtests");
+    expect(covered()[0].textContent).not.toContain("Clip runs");
     expect(covered()[1].textContent).toContain("If unanswered");
   });
 
