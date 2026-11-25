@@ -31,7 +31,7 @@ import { useHub, type GoalPreset } from "./state";
 import { HubField, HubIcon, StatusMark } from "./parts";
 import { HubLinkRows } from "./links";
 
-function Dialog({ label, onClose, className = "", children }: { label: string; onClose: () => void; className?: string; children: ReactNode }) {
+export function Dialog({ label, onClose, className = "", children }: { label: string; onClose: () => void; className?: string; children: ReactNode }) {
   useEffect(() => {
     const esc = (e: KeyboardEvent) => {
       if (e.key === "Escape") {

@@ -55,6 +55,7 @@ import {
 import { ApiError, api } from "../../api";
 import { useHub } from "./state";
 import { Empty, HubIcon, Placeholder, ScreenHead, StatusMark } from "./parts";
+import { Dialog } from "./dialogs";
 import "./arrangement.css";
 
 type Sel = { kind: "scene"; scene: string } | { kind: "track"; track: string } | { kind: "instance"; track: string; id: string } | null;
@@ -130,6 +131,7 @@ export function ArrangementScreen() {
   const [rates, setRates] = useState<Record<string, number>>({});
   const [zoom, setZoom] = useState<number>(ARRANGE_DEFAULT_ZOOM);
   const [playhead, setPlayhead] = useState(0);
+  const [deleting, setDeleting] = useState<{ kind: "track" | "scene"; id: string } | null>(null);
   const nameBox = useRef<HTMLInputElement>(null);
 
   if (!on) return <div className="hub-screen"><Empty title={SET_COPY.arrangement}>{SET_COPY.notOffered}</Empty></div>;
@@ -228,10 +230,11 @@ export function ArrangementScreen() {
     });
     else if (sel?.kind === "scene") void edit([SET_OPS.sceneDuplicate(sel.scene)], selectNew("scene"));
   };
+  /** An instance goes at once, as in a DAW; a track or scene is confirmed first, since its timeline or its list of tracks goes with it. */
   const remove = () => {
     if (sel?.kind === "instance") void edit([SET_OPS.remove(sel.track, sel.id)], () => select({ kind: "track", track: sel.track }));
-    else if (sel?.kind === "scene") hub.deleteGoal(sel.scene, () => select(null));
-    else if (sel?.kind === "track") hub.deleteGoal(sel.track, () => select(null));
+    else if (sel?.kind === "scene") setDeleting({ kind: "scene", id: sel.scene });
+    else if (sel?.kind === "track") setDeleting({ kind: "track", id: sel.track });
   };
   const copy = () => {
     if (sel?.kind !== "instance" || !about) return;
@@ -395,7 +398,61 @@ export function ArrangementScreen() {
           </details>
         </div>
       </div>
+      {deleting && (
+        <DeleteConfirm what={deleting} set={set} onClose={() => setDeleting(null)}
+          onDeleted={(a, title) => {
+            setDeleting(null);
+            setSet(a);
+            select(null);
+            hub.notify(SET_COPY.deleted(title));
+          }} />
+      )}
     </div>
+  );
+}
+
+/**
+ * Confirm deleting a track or scene, sent as its delete op. A track names the
+ * scenes that stop playing it. A refusal (a run made for it is queued or
+ * running) stays in the dialog.
+ */
+function DeleteConfirm({ what, set, onClose, onDeleted }: { what: { kind: "track" | "scene"; id: string }; set: SetAnswer; onClose: () => void; onDeleted: (a: SetAnswer, title: string) => void }) {
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const x = what.kind === "track" ? set.tracks.find((t) => t.id === what.id) : set.scenes.find((s) => s.id === what.id);
+  if (!x) return null;
+  const scenes = what.kind === "track" ? set.scenes.filter((s) => s.tracks.includes(what.id)).sort((a, b) => a.order - b.order) : [];
+  const question = SET_COPY.deleteTitle(what.kind, x.title);
+  const close = () => !busy && onClose();
+  const run = async () => {
+    setBusy(true);
+    setError(null);
+    try {
+      onDeleted(await api.set.edit([what.kind === "track" ? SET_OPS.trackDelete(what.id) : SET_OPS.sceneDelete(what.id)]), x.title);
+    } catch (e) {
+      setBusy(false);
+      setError(e instanceof ApiError && e.status === 400 ? refusalFindings(e.body)[0]?.message ?? e.message : (e as Error).message);
+    }
+  };
+  return (
+    <Dialog label={question} onClose={close} className="hub-delete">
+      <div className="overlay-head">{question}</div>
+      <p className="small">{what.kind === "track" ? SET_COPY.deleteTrackKeeps : SET_COPY.deleteSceneKeeps}</p>
+      {scenes.length > 0 && (
+        <>
+          <p className="small" id="hub-set-delete-scenes">{SET_COPY.deleteUnlinks}</p>
+          <ul className="hub-delete-list" aria-labelledby="hub-set-delete-scenes">
+            {scenes.map((s) => <li key={s.id} className="small">{s.title}</li>)}
+          </ul>
+        </>
+      )}
+      {error && <div className="banner bad small" role="alert">{error}</div>}
+      <div className="hub-form-actions">
+        <span className="spacer" />
+        <button className="ghost" autoFocus disabled={busy} onClick={close}>{SET_COPY.cancel}</button>
+        <button className="danger-button" disabled={busy} onClick={() => void run()}>{SET_COPY.deleteKind(what.kind)}</button>
+      </div>
+    </Dialog>
   );
 }
 
