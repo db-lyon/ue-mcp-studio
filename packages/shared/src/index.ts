@@ -1070,3 +1070,18 @@ export * from "./feedback.js";
 export * from "./ask-user.js";
 export * from "./clips.js";
 export * from "./hub-arrangement.js";
+// ue-mcp 1.4.16-beta.4 exports these from ue-mcp/hub too, which hub-contract re-exports. The
+// Arrangement is written against the declarations in hub-arrangement, so they win here.
+export type {
+  Arrangement,
+  ArrangementFinding,
+  ArrangementRun,
+  Instance,
+  InstanceAwaiting,
+  InstanceKind,
+  InstanceLayout,
+  InstanceResult,
+  InstanceStatus,
+  SetScene,
+  SetTrack,
+} from "./hub-arrangement.js";

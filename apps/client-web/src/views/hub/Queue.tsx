@@ -157,7 +157,11 @@ export function QueueScreen() {
 }
 
 type ScopeKey = "all" | "failing" | "stale" | `goal:${string}`;
-const scopeKey = (s: PlanScope): ScopeKey => (s.kind === "goal" ? `goal:${s.goalId}` : s.kind === "checks" ? "all" : s.kind);
+// The form offers goals and the three sweeps; a track's or scene's set run shows as its goal.
+const scopeKey = (s: PlanScope): ScopeKey =>
+  s.kind === "goal" || s.kind === "track" || s.kind === "scene" ? `goal:${s.goalId}`
+  : s.kind === "all" || s.kind === "failing" || s.kind === "stale" ? s.kind
+  : "all";
 const scopeOf = (k: ScopeKey): PlanScope => (k.startsWith("goal:") ? { kind: "goal", goalId: k.slice(5) } : { kind: k as "all" | "failing" | "stale" });
 
 /** New or edit schedule, in place in the list. */

@@ -1074,6 +1074,10 @@ export function scopeText(scope: PlanScope, goals: readonly GoalState[] = []): s
     case "failing": return scope.goalId ? `Failing in ${goalTitle(scope.goalId)}` : "Every failing clip";
     case "stale": return scope.goalId ? `Stale in ${goalTitle(scope.goalId)}` : "Every stale clip";
     case "all": return "Every clip";
+    case "track": return `Track: ${goalTitle(scope.goalId)}`;
+    case "scene": return `Scene: ${goalTitle(scope.goalId)}`;
+    case "slot": return `Slot: ${goalTitle(scope.sceneId)} / ${goalTitle(scope.trackId)}`;
+    case "arrangement": return "Arrangement";
   }
 }
 
