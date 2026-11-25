@@ -54,7 +54,7 @@ export function LibraryScreen() {
     <div className="hub-screen hub-library">
       <ScreenHead
         title={HUB_COPY.library}
-        sub={<><span>{o.checks.length} {o.checks.length === 1 ? "playtest" : "playtests"}</span></>}
+        sub={<><span>{o.checks.length} {o.checks.length === 1 ? "clip" : "clips"}</span></>}
         actions={<>
           <button className="primary" onClick={() => go({ screen: "draft" })}><HubIcon name="plus" size={12} /> {DRAFT_COPY.newPlaytest}</button>
           <button onClick={hub.describePlaytest} title={DRAFT_COPY.draftWithAgentLead}><HubIcon name="sparkle" size={12} /> {DRAFT_COPY.draftWithAgent}</button>
@@ -72,12 +72,12 @@ export function LibraryScreen() {
               if (e.key === "Enter" || e.key === "ArrowDown") { e.preventDefault(); (e.target as HTMLInputElement).blur(); setAt(0); }
             }}
             placeholder={HUB_COPY.filterPlaceholder}
-            aria-label="Filter playtests"
+            aria-label="Filter clips"
           />
           {!hub.narrow && <Kbd>/</Kbd>}
         </div>
-        <select value={goalId} onChange={(e) => setGoalId(e.target.value)} aria-label="Goal">
-          <option value="">Any goal</option>
+        <select value={goalId} onChange={(e) => setGoalId(e.target.value)} aria-label="Track">
+          <option value="">Any track</option>
           <option value="none">{HUB_COPY.notInGoal}</option>
           {goals.map((g) => <option key={g.goal.id} value={g.goal.id}>{g.goal.title}</option>)}
         </select>
@@ -90,7 +90,7 @@ export function LibraryScreen() {
         ))}
       </div>
       {chosen.length > 0 && (
-        <div className="hub-bulk" role="toolbar" aria-label="Selected playtests">
+        <div className="hub-bulk" role="toolbar" aria-label="Selected clips">
           <strong>{chosen.length} selected</strong>
           <button className="primary" onClick={runChosen}><HubIcon name="play" size={12} /> {HUB_COPY.runSelected}</button>
           <button onClick={() => hub.addToGoal(chosen.map((c) => c.id))}><HubIcon name="goal" size={12} /> {HUB_COPY.addToGoal}</button>

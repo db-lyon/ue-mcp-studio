@@ -87,14 +87,15 @@ export function GoalScreen({ goalId }: { goalId: string }) {
   if (!g) {
     return (
       <div className="hub-screen">
-        <Empty title="This goal is gone" actions={<button onClick={() => go({ screen: "overview" })}>Go to Overview</button>}>
-          It was deleted, or the link is from another computer's goals.
+        <Empty title="Track or scene not found" actions={<button onClick={() => go({ screen: "overview" })}>Go to Overview</button>}>
+          It was deleted, or the link came from another computer.
         </Empty>
       </div>
     );
   }
 
   const goal = g.goal;
+  const noun = goal.kind === "milestone" ? "scene" : "track";
   const look = GOAL_STATUS_LOOK[g.status];
   // Back goes to the one goal this is part of; with several, or none, to the overview.
   const back = parents.length === 1 ? parents[0] : null;
@@ -175,13 +176,13 @@ export function GoalScreen({ goalId }: { goalId: string }) {
     <div className="hub-screen hub-goal">
       <ScreenHead
         back={back ? { label: back.goal.title, route: { screen: "goal", goalId: back.goal.id } } : { label: HUB_COPY.overview, route: { screen: "overview" } }}
-        eyebrow={goal.kind === "milestone" ? "Milestone" : "Goal"}
+        eyebrow={goal.kind === "milestone" ? HUB_COPY.milestone : "Track"}
         title={goal.title}
         sub={<><StatusPill look={look} /><span className="dim">{progressText(g.progress)}</span></>}
         actions={<>
-          <button className="primary" onClick={runGoal} disabled={runnable === 0} title="Run every playtest in order, the required goals' first (r)"><HubIcon name="play" size={12} /> {runGoalLabel(g.goal, runnable)}</button>
+          <button className="primary" onClick={runGoal} disabled={runnable === 0} title="Run every clip in order, the required tracks' first (r)"><HubIcon name="play" size={12} /> {runGoalLabel(g.goal, runnable)}</button>
           {failing > 0 && fixes === false && <AgentFixesOff />}
-          {failing > 0 && fixes && <button onClick={() => void fix({ goalId: goal.id })} title="An agent fixes each failing playtest in its own chat session, one at a time (a)"><HubIcon name="assign" size={12} /> {HUB_COPY.fixFailing}</button>}
+          {failing > 0 && fixes && <button onClick={() => void fix({ goalId: goal.id })} title="An agent fixes each failing clip in its own chat session, one at a time (a)"><HubIcon name="assign" size={12} /> {HUB_COPY.fixFailing}</button>}
           <button className="ghost" onClick={() => hub.editGoal(goal.id)} title={HUB_COPY.editGoal}><HubIcon name="edit" size={12} /> Edit</button>
           {hub.canDeleteGoals && <button className="ghost hub-delete-goal" onClick={remove}><HubIcon name="trash" size={12} /> {HUB_COPY.delete}</button>}
         </>}
@@ -238,11 +239,11 @@ export function GoalScreen({ goalId }: { goalId: string }) {
               <div key={r.state.goal.id} className={`hub-required-row ${r.required ? "" : "optional"}`}>
                 <GoalRow g={r.state} />
                 <span className="hub-row-actions">
-                  <button className="ghost small-button" aria-pressed={!r.required} title={r.required ? "Make optional: still listed and run, but it no longer holds this goal back" : "Make required: this goal is met only when it is"} onClick={() => setRequired(r.state.goal.id, !r.required)}>
+                  <button className="ghost small-button" aria-pressed={!r.required} title={r.required ? `Make optional: still listed and run, but it no longer holds this ${noun} back` : `Make required: this ${noun} is met only when it is`} onClick={() => setRequired(r.state.goal.id, !r.required)}>
                     {r.required ? "Required" : "Optional"}
                   </button>
                   <OrderButtons name={r.state.goal.title} at={i} count={required.length} onMove={(by) => moveRequired(r.state.goal.id, by)} />
-                  <button className="ghost icon-button" aria-label={`Remove ${r.state.goal.title} from this goal`} title="Remove from this goal" onClick={() => removeRequired(r.state.goal.id)}><HubIcon name="close" size={12} /></button>
+                  <button className="ghost icon-button" aria-label={`Remove ${r.state.goal.title} from this ${noun}`} title={`Remove from this ${noun}`} onClick={() => removeRequired(r.state.goal.id)}><HubIcon name="close" size={12} /></button>
                 </span>
               </div>
             ))}
@@ -254,12 +255,12 @@ export function GoalScreen({ goalId }: { goalId: string }) {
         <div className="hub-section-head">
           <h2>{HUB_COPY.playtests} <span className="dim">{checks.length}</span></h2>
           <span className="spacer" />
-          <button className="ghost" onClick={() => hub.go({ screen: "draft", goalId: goal.id })} title="Write a playtest here, added to this goal"><HubIcon name="edit" size={12} /> {DRAFT_COPY.newPlaytest}</button>
+          <button className="ghost" onClick={() => hub.go({ screen: "draft", goalId: goal.id })} title={`Write a script clip here, added to this ${noun}`}><HubIcon name="edit" size={12} /> {DRAFT_COPY.newPlaytest}</button>
           <button className="ghost" onClick={() => hub.addChecks(goal.id)}><HubIcon name="plus" size={12} /> {HUB_COPY.addPlaytests}</button>
-          <button className="ghost" disabled={writing} onClick={() => void writePlaytests()} title="An agent writes playtests for this goal in a new chat session, and adds them here"><HubIcon name="sparkle" size={12} /> {HUB_COPY.writePlaytests}</button>
+          <button className="ghost" disabled={writing} onClick={() => void writePlaytests()} title={`An agent writes clips for this ${noun} in a new chat session, and adds them here`}><HubIcon name="sparkle" size={12} /> {HUB_COPY.writePlaytests}</button>
         </div>
         {checks.length === 0 ? (
-          <Empty title="No playtests yet" actions={<>
+          <Empty title="No clips yet" actions={<>
             <button onClick={() => hub.go({ screen: "draft", goalId: goal.id })}>{DRAFT_COPY.newPlaytest}</button>
             <button onClick={() => hub.addChecks(goal.id)}>{HUB_COPY.addPlaytests}</button>
             <button onClick={() => void writePlaytests()} disabled={writing}>{HUB_COPY.writePlaytests}</button>
@@ -271,7 +272,7 @@ export function GoalScreen({ goalId }: { goalId: string }) {
                 <button className="ghost icon-button" aria-label={`Run ${c.name}`} title={c.missing ? CHECK_HEALTH_LOOK.missing.label : "Run"} disabled={c.missing} onClick={() => void hub.runCheck(c.id, c.name)}><HubIcon name="play" size={12} /></button>
                 {c.health === "failing" && fixes && <button className="ghost icon-button" aria-label={`${HUB_COPY.fix}: ${c.name}`} title={HUB_COPY.fix} onClick={() => void fix({ checkId: c.id })}><HubIcon name="assign" size={12} /></button>}
                 <OrderButtons name={c.name} at={i} count={checks.length} onMove={(by) => moveCheck(c.id, by)} />
-                <button className="ghost icon-button" aria-label={`Remove ${c.name} from this goal`} title="Remove from this goal" onClick={() => void removeCheck(c.id)}><HubIcon name="close" size={12} /></button>
+                <button className="ghost icon-button" aria-label={`Remove ${c.name} from this ${noun}`} title={`Remove from this ${noun}`} onClick={() => void removeCheck(c.id)}><HubIcon name="close" size={12} /></button>
               </>} />
             ))}
           </div>

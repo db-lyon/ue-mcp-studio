@@ -57,24 +57,24 @@ describe("hub routes", () => {
     act(() => {
       window.location.hash = "#/playtests/checks";
     });
-    await waitFor(() => expect(heading()).toBe("Playtests"));
+    await waitFor(() => expect(heading()).toBe("Clips"));
   });
 
   it("moves between screens from the rail as links, each with its own URL", async () => {
     render(<Harness start={hubFixture()} />);
     expect(heading()).toBe("Overview");
-    const rail = screen.getByRole("navigation", { name: "Playtests" });
-    const library = within(rail).getByText("Playtests").closest("a")!;
+    const rail = screen.getByRole("navigation", { name: "Playtest Hub" });
+    const library = within(rail).getByText("Clips").closest("a")!;
     expect(library.getAttribute("href")).toBe("#/playtests/checks");
     fireEvent.click(library);
     expect(window.location.hash).toBe("#/playtests/checks");
-    expect(heading()).toBe("Playtests");
-    // The rail does not list goals; the Goals screen does.
+    expect(heading()).toBe("Clips");
+    // The rail does not list tracks; the Tracks screen does.
     expect(within(rail).queryByText("Tutorial completes")).toBeNull();
-    const goals = within(rail).getByText("Goals").closest("a")!;
+    const goals = within(rail).getByText("Tracks").closest("a")!;
     expect(goals.getAttribute("href")).toBe("#/playtests/goals");
     fireEvent.click(goals);
-    expect(heading()).toBe("Goals");
+    expect(heading()).toBe("Tracks");
     fireEvent.click(screen.getByText("Tutorial completes"));
     expect(window.location.hash).toBe("#/playtests/goals/tutorial");
     // What was opened is now under Recent.
@@ -82,31 +82,31 @@ describe("hub routes", () => {
     expect(within(rail).getByText("Tutorial completes").closest("a")?.getAttribute("href")).toBe("#/playtests/goals/tutorial");
   });
 
-  it("searches and filters the Goals screen", () => {
+  it("searches and filters the Tracks screen", () => {
     window.location.hash = "#/playtests/goals";
     render(<Harness start={hubFixture()} />);
-    expect(heading()).toBe("Goals");
+    expect(heading()).toBe("Tracks");
     const rows = () => Array.from(document.querySelectorAll(".hub-goal-row .hub-row-title")).map((e) => e.textContent);
     const all = rows();
     expect(all.length).toBeGreaterThan(1);
-    fireEvent.change(screen.getByLabelText("Search goals"), { target: { value: all[0]!.slice(0, 4).toUpperCase() } });
+    fireEvent.change(screen.getByLabelText("Search tracks"), { target: { value: all[0]!.slice(0, 4).toUpperCase() } });
     expect(rows()).toContain(all[0]);
-    fireEvent.change(screen.getByLabelText("Search goals"), { target: { value: "zzzz-no-goal" } });
+    fireEvent.change(screen.getByLabelText("Search tracks"), { target: { value: "zzzz-no-goal" } });
     expect(rows()).toEqual([]);
   });
 
-  it("lists milestones apart from goals, and filters goals by milestone", () => {
+  it("lists scenes apart from tracks, and filters tracks by scene", () => {
     window.location.hash = "#/playtests/milestones";
     render(<Harness start={hubFixture()} />);
-    expect(heading()).toBe("Milestones");
+    expect(heading()).toBe("Scenes");
     const rows = () => Array.from(document.querySelectorAll(".hub-goal-row .hub-row-title")).map((e) => e.textContent);
     expect(rows()).toEqual(["Alpha"]);
-    expect(screen.getByRole("button", { name: /New milestone/ })).toBeTruthy();
-    fireEvent.change(screen.getByLabelText("Search milestones"), { target: { value: "zzzz" } });
+    expect(screen.getByRole("button", { name: /New scene/ })).toBeTruthy();
+    fireEvent.change(screen.getByLabelText("Search scenes"), { target: { value: "zzzz" } });
     expect(rows()).toEqual([]);
-    fireEvent.click(within(screen.getByRole("navigation", { name: "Playtests" })).getByText("Goals"));
+    fireEvent.click(within(screen.getByRole("navigation", { name: "Playtest Hub" })).getByText("Tracks"));
     expect(rows()).not.toContain("Alpha");
-    const pick = screen.getByLabelText("Milestone");
+    const pick = screen.getByLabelText("Scene");
     fireEvent.change(pick, { target: { value: "alpha" } });
     expect(rows()).toHaveLength(2);
     fireEvent.change(pick, { target: { value: "none" } });
@@ -123,9 +123,9 @@ describe("hub routes", () => {
 
   it("draws a segmented bar instead of the rail when narrow", () => {
     render(<Harness start={hubFixture()} narrow />);
-    const bar = screen.getByRole("navigation", { name: "Playtests" });
+    const bar = screen.getByRole("navigation", { name: "Playtest Hub" });
     expect(bar.classList.contains("hub-seg")).toBe(true);
-    expect(["Overview", "Milestones", "Goals", "Playtests"].every((t) => within(bar).getByText(t))).toBe(true);
+    expect(["Overview", "Scenes", "Tracks", "Clips"].every((t) => within(bar).getByText(t))).toBe(true);
     expect(within(bar).getByText("Overview").closest("a")?.querySelector(".tab-count")?.textContent).toBe("2");
   });
 });
@@ -135,7 +135,7 @@ describe("the keyboard", () => {
     render(<Harness start={hubFixture()} />);
     key("g");
     key("l");
-    expect(heading()).toBe("Playtests");
+    expect(heading()).toBe("Clips");
     key("g");
     key("o");
     expect(heading()).toBe("Overview");
@@ -160,11 +160,11 @@ describe("the keyboard", () => {
     window.location.hash = "#/playtests/checks";
     render(<Harness start={hubFixture()} />);
     key("/");
-    const box = screen.getByLabelText("Filter playtests");
+    const box = screen.getByLabelText("Filter clips");
     expect(document.activeElement).toBe(box);
     fireEvent.keyDown(box, { key: "g" });
     fireEvent.keyDown(box, { key: "i" });
-    expect(heading()).toBe("Playtests");
+    expect(heading()).toBe("Clips");
     (box as HTMLInputElement).blur();
     key("?");
     expect(screen.getByRole("dialog", { name: "Keyboard shortcuts" })).toBeTruthy();
@@ -213,12 +213,12 @@ describe("the goal form", () => {
     m.hub.createGoal.mockResolvedValue({ goal: { id: "four-players-join", title: "Four players join" } });
     render(<Harness start={hubFixture()} />);
     key("c");
-    const dialog = screen.getByRole("dialog", { name: "New goal" });
-    fireEvent.click(within(dialog).getByRole("button", { name: "Create goal" }));
-    expect(within(dialog).getByText("A goal needs a title.")).toBeTruthy();
+    const dialog = screen.getByRole("dialog", { name: "New track" });
+    fireEvent.click(within(dialog).getByRole("button", { name: "Create track" }));
+    expect(within(dialog).getByText("A track needs a title.")).toBeTruthy();
     expect(m.hub.createGoal).not.toHaveBeenCalled();
     fireEvent.change(within(dialog).getByLabelText("Title"), { target: { value: "Four players join" } });
-    fireEvent.click(within(dialog).getByRole("button", { name: "Create goal" }));
+    fireEvent.click(within(dialog).getByRole("button", { name: "Create track" }));
     await waitFor(() => expect(m.hub.createGoal).toHaveBeenCalledWith(expect.objectContaining({ title: "Four players join", acceptance: { stableRuns: 1, signOff: false } })));
     await waitFor(() => expect(window.location.hash).toBe("#/playtests/goals/four-players-join"));
   });
@@ -226,10 +226,10 @@ describe("the goal form", () => {
   it("offers the kind and done-when choices as radios", () => {
     render(<Harness start={hubFixture()} />);
     key("c");
-    const dialog = screen.getByRole("dialog", { name: "New goal" });
+    const dialog = screen.getByRole("dialog", { name: "New track" });
     expect(within(dialog).getByRole("group", { name: "Kind" })).toBeTruthy();
-    expect((within(dialog).getByRole("radio", { name: /^Goal/ }) as HTMLInputElement).checked).toBe(true);
-    expect((within(dialog).getByRole("radio", { name: "When all its playtests pass" }) as HTMLInputElement).checked).toBe(true);
+    expect((within(dialog).getByRole("radio", { name: /^Track/ }) as HTMLInputElement).checked).toBe(true);
+    expect((within(dialog).getByRole("radio", { name: "When all its clips pass" }) as HTMLInputElement).checked).toBe(true);
     expect(within(dialog).queryByLabelText("Passing runs in a row")).toBeNull();
   });
 
@@ -238,7 +238,7 @@ describe("the goal form", () => {
     window.location.hash = "#/playtests/goals/movement";
     render(<Harness start={hubFixture()} />);
     fireEvent.click(screen.getByRole("button", { name: /Edit/ }));
-    const dialog = screen.getByRole("dialog", { name: "Edit goal" });
+    const dialog = screen.getByRole("dialog", { name: "Edit track" });
     expect((within(dialog).getByLabelText("Owner") as HTMLInputElement).value).toBe("dana");
     const partOf = within(dialog).getByRole("group", { name: "Part of" });
     expect((within(partOf).getByLabelText("Alpha") as HTMLInputElement).checked).toBe(true);
@@ -252,7 +252,7 @@ describe("the goal form", () => {
     window.location.hash = "#/playtests/goals/alpha";
     render(<Harness start={hubFixture()} />);
     fireEvent.click(screen.getByRole("button", { name: /Edit/ }));
-    const partOf = within(screen.getByRole("dialog", { name: "Edit goal" })).queryByRole("group", { name: "Part of" });
+    const partOf = within(screen.getByRole("dialog", { name: "Edit track" })).queryByRole("group", { name: "Part of" });
     expect(partOf).toBeNull();
   });
 });
@@ -274,10 +274,10 @@ describe("the relationship graph", () => {
     render(<Harness start={o} />);
     const rows = Array.from(document.querySelectorAll(".hub-goal-row")).map((r) => r.querySelector(".hub-row-title")?.textContent);
     expect(rows.filter((t) => t === "Movement feels right")).toHaveLength(2);
-    expect(screen.getByText("Other goals")).toBeTruthy();
-    expect(screen.getByText("Not part of any milestone")).toBeTruthy();
+    expect(screen.getByText("Other tracks")).toBeTruthy();
+    expect(screen.getByText("Not part of any scene")).toBeTruthy();
     // Every playtest is listed too, and one in no goal says so.
-    expect(screen.getByRole("region", { name: "Playtests" }).querySelectorAll(".hub-unused")).toHaveLength(1);
+    expect(screen.getByRole("region", { name: "Clips" }).querySelectorAll(".hub-unused")).toHaveLength(1);
     // The cursor walks rows, so the second copy is reachable.
     for (let i = 0; i < 2; i++) fireEvent.keyDown(document.body, { key: "j" });
     expect(document.querySelectorAll(".hub-goal-row")[2].getAttribute("aria-current")).toBe("true");
@@ -296,7 +296,7 @@ describe("the relationship graph", () => {
     for (const f of [m.hub.orderRequires, m.hub.addRequire, m.hub.removeRequire]) f.mockResolvedValue({ goal: {} });
     window.location.hash = "#/playtests/goals/alpha";
     render(<Harness start={hubFixture()} />);
-    const section = screen.getByRole("region", { name: "Required goals" });
+    const section = screen.getByRole("region", { name: "Required tracks" });
     expect(Array.from(section.querySelectorAll(".hub-row-title")).map((t) => t.textContent)).toEqual(["Movement feels right", "Tutorial completes"]);
     expect((within(section).getByRole("button", { name: "Move Movement feels right up" }) as HTMLButtonElement).disabled).toBe(true);
     fireEvent.click(within(section).getByRole("button", { name: "Move Movement feels right down" }));
@@ -304,7 +304,7 @@ describe("the relationship graph", () => {
     expect(Array.from(section.querySelectorAll(".hub-row-title")).map((t) => t.textContent)).toEqual(["Tutorial completes", "Movement feels right"]);
     fireEvent.click(within(section).getAllByRole("button", { name: "Required" })[0]);
     await waitFor(() => expect(m.hub.addRequire).toHaveBeenCalledWith("alpha", "tutorial", false));
-    fireEvent.click(within(section).getByRole("button", { name: "Remove Tutorial completes from this goal" }));
+    fireEvent.click(within(section).getByRole("button", { name: "Remove Tutorial completes from this scene" }));
     await waitFor(() => expect(m.hub.removeRequire).toHaveBeenCalledWith("alpha", "tutorial"));
   });
 
@@ -312,8 +312,8 @@ describe("the relationship graph", () => {
     m.hub.addRequire.mockResolvedValue({ goal: {} });
     window.location.hash = "#/playtests/goals/tutorial";
     render(<Harness start={hubFixture()} />);
-    fireEvent.click(screen.getByRole("button", { name: /Add goal/ }));
-    const picker = screen.getByRole("dialog", { name: "Add goal to Tutorial completes" });
+    fireEvent.click(screen.getByRole("button", { name: /Add track/ }));
+    const picker = screen.getByRole("dialog", { name: "Add track to Tutorial completes" });
     const options = within(picker).getAllByRole("option").map((o) => o.querySelector(".hub-row-title")?.textContent);
     expect(options).toEqual(["Movement feels right"]);
     fireEvent.click(within(picker).getByRole("option", { name: /Movement/ }));
@@ -338,9 +338,9 @@ describe("a project with playtests and no goals", () => {
     o.goals = [];
     o.checks = o.checks.map((c) => ({ ...c, goalIds: [], unused: true }));
     render(<Harness start={o} />);
-    const list = screen.getByRole("region", { name: "Playtests" });
+    const list = screen.getByRole("region", { name: "Clips" });
     expect(Array.from(list.querySelectorAll(".hub-row-title")).map((t) => t.textContent)).toEqual(["Jump", "Menu", "Swim"]);
-    expect(within(list).getByText(/group them into a goal/)).toBeTruthy();
+    expect(within(list).getByText(/group them into a track/)).toBeTruthy();
     expect(within(screen.getByRole("region", { name: "Just broke" })).getByText("Jump")).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: /^Run all/ }));
     await waitFor(() => expect(m.hub.plan).toHaveBeenCalledWith({ scope: { kind: "all" } }));
@@ -383,7 +383,7 @@ describe("a person's Run", () => {
     o.queue = { ...o.queue, paused: true, pausedBy: "release" };
     render(<Harness start={o} />);
     runAll();
-    await waitFor(() => expect(toast().textContent).toContain("Running every playtest"));
+    await waitFor(() => expect(toast().textContent).toContain("Running every clip"));
     expect(within(toast()).queryByRole("button", { name: "Run next" })).toBeNull();
   });
 
@@ -392,7 +392,7 @@ describe("a person's Run", () => {
     m.hub.movePlan.mockResolvedValue(hubFixture().queue);
     render(<Harness start={hubFixture()} />);
     runAll();
-    await waitFor(() => expect(toast().textContent).toContain("Queued every playtest, 2 runs ahead"));
+    await waitFor(() => expect(toast().textContent).toContain("Queued every clip, 2 runs ahead"));
     fireEvent.click(within(toast()).getByRole("button", { name: "Run next" }));
     await waitFor(() => expect(m.hub.movePlan).toHaveBeenCalledWith("p9", 0));
     runAll();
@@ -487,11 +487,11 @@ describe("deleting playtests", () => {
     window.location.hash = "#/playtests/checks/" + encodeURIComponent("script:/Game/Tests/Menu");
     render(<Harness start={hubFixture()} />);
     fireEvent.click(screen.getByRole("button", { name: /^Delete/ }));
-    const dialog = screen.getByRole("dialog", { name: "Delete this playtest?" });
+    const dialog = screen.getByRole("dialog", { name: "Delete this clip?" });
     expect(within(dialog).getByText("/Game/Tests/Menu")).toBeTruthy();
     expect(m.del).not.toHaveBeenCalled();
     fireEvent.click(within(dialog).getByRole("button", { name: "Delete" }));
-    await waitFor(() => expect(heading()).toBe("Playtests"));
+    await waitFor(() => expect(heading()).toBe("Clips"));
     expect(m.del).toHaveBeenCalledWith("/Game/Tests/Menu");
   });
 
@@ -514,7 +514,7 @@ describe("deleting playtests", () => {
     render(<Harness start={hubFixture()} />);
     fireEvent.click(screen.getByLabelText("Select all 3"));
     fireEvent.click(screen.getByRole("button", { name: /^Delete/ }));
-    const dialog = screen.getByRole("dialog", { name: "Delete 3 playtests?" });
+    const dialog = screen.getByRole("dialog", { name: "Delete 3 clips?" });
     for (const p of ["Jump", "Swim", "Menu"]) expect(within(dialog).getByText("/Game/Tests/" + p)).toBeTruthy();
     fireEvent.click(within(dialog).getByRole("button", { name: "Delete" }));
     await screen.findByRole("dialog", { name: "1 of 3 could not be deleted" });
@@ -539,52 +539,52 @@ describe("deleting goals and milestones", () => {
     m.hub.deleteGoal.mockResolvedValue(undefined);
     window.location.hash = "#/playtests/goals/alpha";
     render(<Harness start={hubFixture()} canDeleteGoals />);
-    fireEvent.click(within(screen.getByRole("region", { name: "Required goals" })).getByText("Movement feels right"));
+    fireEvent.click(within(screen.getByRole("region", { name: "Required tracks" })).getByText("Movement feels right"));
     expect(heading()).toBe("Movement feels right");
     fireEvent.click(screen.getByRole("button", { name: "Delete" }));
-    const dialog = screen.getByRole("dialog", { name: 'Delete the goal "Movement feels right"?' });
-    expect(within(dialog).getByText("Its playtests stay in the library and keep their past runs.")).toBeTruthy();
+    const dialog = screen.getByRole("dialog", { name: 'Delete the track "Movement feels right"?' });
+    expect(within(dialog).getByText("Its clips stay and keep their past runs.")).toBeTruthy();
     expect(within(within(dialog).getByRole("list", { name: "These will no longer require it:" })).getByText("Alpha")).toBeTruthy();
     expect(m.hub.deleteGoal).not.toHaveBeenCalled();
-    fireEvent.click(within(dialog).getByRole("button", { name: "Delete goal" }));
+    fireEvent.click(within(dialog).getByRole("button", { name: "Delete track" }));
     await waitFor(() => expect(heading()).toBe("Alpha"));
     expect(m.hub.deleteGoal).toHaveBeenCalledWith("movement");
     expect(screen.getByRole("status").textContent).toContain("Deleted Movement feels right");
   });
 
-  it("goes to the Milestones list after deleting a milestone opened fresh", async () => {
+  it("goes to the Scenes list after deleting a scene opened fresh", async () => {
     m.hub.deleteGoal.mockResolvedValue(undefined);
     window.history.replaceState(null, "", "#/playtests/goals/alpha");
     render(<Harness start={hubFixture()} canDeleteGoals />);
     fireEvent.click(screen.getByRole("button", { name: "Delete" }));
-    const dialog = screen.getByRole("dialog", { name: 'Delete the milestone "Alpha"?' });
-    expect(within(dialog).getByText("The goals it requires stay. Its playtests stay in the library and keep their past runs.")).toBeTruthy();
+    const dialog = screen.getByRole("dialog", { name: 'Delete the scene "Alpha"?' });
+    expect(within(dialog).getByText("The tracks it requires stay. Its clips stay and keep their past runs.")).toBeTruthy();
     expect(within(dialog).queryByRole("list")).toBeNull();
-    fireEvent.click(within(dialog).getByRole("button", { name: "Delete milestone" }));
-    await waitFor(() => expect(heading()).toBe("Milestones"));
+    fireEvent.click(within(dialog).getByRole("button", { name: "Delete scene" }));
+    await waitFor(() => expect(heading()).toBe("Scenes"));
     expect(m.hub.deleteGoal).toHaveBeenCalledWith("alpha");
   });
 
-  it("deletes from the Goals list without leaving it, and shows a refusal in the dialog", async () => {
+  it("deletes from the Tracks list without leaving it, and shows a refusal in the dialog", async () => {
     m.hub.deleteGoal.mockRejectedValueOnce(new Error('"Tutorial completes" can\'t be deleted while a run made for it is queued or running: "Run Tutorial completes". Cancel that run or let it finish, then try again.'));
     m.hub.deleteGoal.mockResolvedValueOnce(undefined);
     window.location.hash = "#/playtests/goals";
     render(<Harness start={hubFixture()} canDeleteGoals />);
     fireEvent.click(screen.getByRole("button", { name: "Delete Tutorial completes" }));
-    const dialog = screen.getByRole("dialog", { name: 'Delete the goal "Tutorial completes"?' });
-    fireEvent.click(within(dialog).getByRole("button", { name: "Delete goal" }));
+    const dialog = screen.getByRole("dialog", { name: 'Delete the track "Tutorial completes"?' });
+    fireEvent.click(within(dialog).getByRole("button", { name: "Delete track" }));
     expect((await within(dialog).findByRole("alert")).textContent).toContain("Cancel that run");
-    fireEvent.click(within(dialog).getByRole("button", { name: "Delete goal" }));
+    fireEvent.click(within(dialog).getByRole("button", { name: "Delete track" }));
     await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
     expect(m.hub.deleteGoal).toHaveBeenCalledTimes(2);
-    expect(heading()).toBe("Goals");
+    expect(heading()).toBe("Tracks");
   });
 
-  it("offers Delete on each milestone in the Milestones list", () => {
+  it("offers Delete on each scene in the Scenes list", () => {
     window.location.hash = "#/playtests/milestones";
     render(<Harness start={hubFixture()} canDeleteGoals />);
     fireEvent.click(screen.getByRole("button", { name: "Delete Alpha" }));
-    expect(screen.getByRole("dialog", { name: 'Delete the milestone "Alpha"?' })).toBeTruthy();
+    expect(screen.getByRole("dialog", { name: 'Delete the scene "Alpha"?' })).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
     expect(screen.queryByRole("dialog")).toBeNull();
     expect(m.hub.deleteGoal).not.toHaveBeenCalled();
@@ -644,7 +644,7 @@ describe("going back", () => {
     expect(heading()).toBe("Alpha");
     // A milestone's run covers its required goals' playtests and says how many.
     expect(screen.getByRole("button", { name: "Run all (2)" })).toBeTruthy();
-    const required = screen.getByRole("region", { name: "Required goals" });
+    const required = screen.getByRole("region", { name: "Required tracks" });
     fireEvent.click(within(required).getByText("Movement feels right"));
     expect(heading()).toBe("Movement feels right");
     fireEvent.click(screen.getAllByText("Jump").find((e) => e.closest("a[href]"))!);
@@ -662,7 +662,7 @@ describe("going back", () => {
     m.hub.check.mockResolvedValue({ state: hubFixture().checks[0], runs: [], more: false, script: null });
     window.location.hash = "#/playtests/goals/alpha";
     render(<Harness start={hubFixture()} />);
-    fireEvent.click(within(screen.getByRole("region", { name: "Required goals" })).getByText("Movement feels right"));
+    fireEvent.click(within(screen.getByRole("region", { name: "Required tracks" })).getByText("Movement feels right"));
     fireEvent.click(screen.getAllByText("Jump").find((e) => e.closest("a[href]"))!);
     const nav = screen.getByRole("navigation", { name: "Where you came from" });
     fireEvent.click(within(nav).getByRole("link", { name: "Alpha" }));
@@ -678,7 +678,7 @@ describe("going back", () => {
     render(<Harness start={hubFixture()} />);
     expect(heading()).toBe("Jump");
     expect(screen.queryByRole("navigation", { name: "Where you came from" })).toBeNull();
-    expect(screen.getByText("Playtests", { selector: ".hub-back" }).getAttribute("href")).toBe("#/playtests/checks");
+    expect(screen.getByText("Clips", { selector: ".hub-back" }).getAttribute("href")).toBe("#/playtests/checks");
   });
 
   it("returns to the tab a link was followed from", async () => {
@@ -724,15 +724,15 @@ describe("Fix failing playtests with an agent", () => {
     window.location.hash = "#/playtests/goals/movement";
     const { unmount } = render(<Harness start={hubFixture()} />);
     key("?");
-    expect(await screen.findByText("Fix the goal's failing playtests with an agent")).toBeTruthy();
+    expect(await screen.findByText("Fix the track's failing clips with an agent")).toBeTruthy();
     unmount();
     m.agentSettings.mockResolvedValue({ agentFixes: false });
     render(<Harness start={hubFixture()} />);
     key("?");
     await screen.findByRole("dialog", { name: "Keyboard shortcuts" });
     await waitFor(() => expect(m.agentSettings).toHaveBeenCalled());
-    expect(screen.getByText("New goal")).toBeTruthy();
-    expect(screen.queryByText("Fix the goal's failing playtests with an agent")).toBeNull();
+    expect(screen.getByText("New track")).toBeTruthy();
+    expect(screen.queryByText("Fix the track's failing clips with an agent")).toBeNull();
   });
 
   it("offers Fix while it is on", async () => {
