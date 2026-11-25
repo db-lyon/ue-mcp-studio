@@ -75,7 +75,7 @@ afterEach(() => {
 describe("a new playtest", () => {
   it("is written from the Library: name, a value, a target, then Save creates it and opens it", async () => {
     render(<Harness start={hubFixture()} />);
-    fireEvent.click(screen.getByRole("button", { name: /New playtest/ }));
+    fireEvent.click(screen.getByRole("button", { name: /New script clip/ }));
     const name = await screen.findByRole("textbox", { name: "Name" });
     expect(window.location.hash).toBe("#/playtests/checks/new");
     fireEvent.change(name, { target: { value: "PT Jump" } });
@@ -106,7 +106,7 @@ describe("a new playtest", () => {
     render(<Harness start={hubFixture()} />);
     await screen.findByRole("textbox", { name: "Name" });
     fireEvent.click(screen.getByRole("button", { name: "Save" }));
-    expect(await screen.findByText("Name the playtest")).toBeTruthy();
+    expect(await screen.findByText("Name the clip")).toBeTruthy();
     expect(screen.getByText("Choose a value to check")).toBeTruthy();
     expect(m.drafting.create).not.toHaveBeenCalled();
   });
@@ -172,7 +172,7 @@ describe("a new playtest", () => {
     const again = await screen.findByRole("dialog", { name: "Discard your changes?" });
     expect(window.location.hash).toBe("#/playtests/checks/new");
     fireEvent.click(within(again).getByRole("button", { name: "Discard" }));
-    await waitFor(() => expect(heading().textContent).toBe("Playtests"));
+    await waitFor(() => expect(heading().textContent).toBe("Clips"));
   });
 });
 

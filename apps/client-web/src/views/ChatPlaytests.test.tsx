@@ -37,19 +37,19 @@ describe("a session's playtests", () => {
   it("draw a running one as the conversation's latest item, not pinned above it", async () => {
     // The agent moves a run that starts to the end of the transcript; the chat draws it in order.
     const { container } = open([run("done", "Walk", "finished", ["passed"]), run("live", "Door", "running", ["running", "pending"])]);
-    await screen.findByRole("group", { name: "Playtest Walk" });
+    await screen.findByRole("group", { name: "Clip Walk" });
     const stage = container.querySelector<HTMLElement>(".thread-stage")!;
-    const door = await within(stage).findByRole("group", { name: "Playtest Door" });
-    expect(screen.queryByRole("region", { name: "Live playtests" })).toBeNull();
+    const door = await within(stage).findByRole("group", { name: "Clip Door" });
+    expect(screen.queryByRole("region", { name: "Live clips" })).toBeNull();
     // Shown once, after everything else in the conversation.
-    expect(within(stage).getAllByRole("group", { name: "Playtest Door" })).toHaveLength(1);
-    const walk = within(stage).getByRole("group", { name: "Playtest Walk" });
+    expect(within(stage).getAllByRole("group", { name: "Clip Door" })).toHaveLength(1);
+    const walk = within(stage).getByRole("group", { name: "Clip Walk" });
     expect(walk.compareDocumentPosition(door) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
   });
 
   it("take no space while none is live", async () => {
     open([run("done", "Walk", "finished", ["passed"])]);
-    await screen.findByRole("group", { name: "Playtest Walk" });
-    expect(screen.queryByRole("region", { name: "Live playtests" })).toBeNull();
+    await screen.findByRole("group", { name: "Clip Walk" });
+    expect(screen.queryByRole("region", { name: "Live clips" })).toBeNull();
   });
 });

@@ -90,7 +90,7 @@ export function CheckScreen({ checkId }: { checkId: string }) {
   if (!state) {
     return (
       <div className="hub-screen">
-        {error ? <Empty title="Playtest not found" actions={<button onClick={() => go({ screen: "library" })}>Go to {HUB_COPY.library}</button>}>{error}</Empty> : <Placeholder />}
+        {error ? <Empty title="Clip not found" actions={<button onClick={() => go({ screen: "library" })}>Go to {HUB_COPY.library}</button>}>{error}</Empty> : <Placeholder />}
       </div>
     );
   }
@@ -150,7 +150,7 @@ export function CheckScreen({ checkId }: { checkId: string }) {
       </div>
       <div className="hub-goal-chips">
         <span className="dim small">Proves</span>
-        {goals.length === 0 ? <span className="dim small">no goal yet</span> : goals.map((g) => (
+        {goals.length === 0 ? <span className="dim small">no track yet</span> : goals.map((g) => (
           <HubLink key={g.goal.id} className="hub-goal-chip" href={hubHash({ screen: "goal", goalId: g.goal.id })} onGo={() => go({ screen: "goal", goalId: g.goal.id })}>
             <StatusMark look={GOAL_STATUS_LOOK[g.status]} size={10} />{g.goal.title}
           </HubLink>

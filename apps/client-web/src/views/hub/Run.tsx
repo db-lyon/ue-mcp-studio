@@ -123,7 +123,7 @@ export function RunScreen({ runId }: { runId: string }) {
           {checkId && <button className="primary" onClick={() => void hub.runCheck(checkId, record.name)} title="Run again (r)"><HubIcon name="play" size={12} /> Run again</button>}
           {record.outcome === "failed" && checkId && fixes === false && <AgentFixesOff />}
           {record.outcome === "failed" && checkId && fixes && <button title="An agent fixes it in a chat session of its own" onClick={() => void api.hub.fix({ checkId }).then((r) => { hub.notify(HUB_COPY.fixesQueued(r.queued)); hub.data.reload(); }, (e: Error) => hub.notify(e.message, "bad"))}><HubIcon name="assign" size={12} /> {HUB_COPY.fix}</button>}
-          {record.sessionId && <button className="ghost" onClick={() => hub.openChat(record.sessionId!, runId)} title="The playtest's card in its session"><HubIcon name="external" size={12} /> Open in chat</button>}
+          {record.sessionId && <button className="ghost" onClick={() => hub.openChat(record.sessionId!, runId)} title="The clip's card in its session"><HubIcon name="external" size={12} /> Open in chat</button>}
         </>}
       />
       <div className="hub-provenance small dim" aria-label="What this run tested">{provenanceParts(record.provenance).join(" · ")}</div>
