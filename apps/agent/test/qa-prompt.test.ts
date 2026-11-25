@@ -3,19 +3,19 @@ import { PLAYTEST_RUNS_REFUSAL } from "@ue-mcp-studio/shared";
 import { QA, SUBAGENT_SYSTEM, playtestRunsLine } from "../src/runner.js";
 
 describe("the agent's instructions", () => {
-  it("deliver a playtest as a created script and its card, never a list or a table", () => {
+  it("deliver a clip as a created script and its card, never a list or a table", () => {
     const text = QA.join("\n");
     expect(text).toMatch(/do not write the steps out as a list in your reply, and not as a table either/);
     expect(text).toMatch(/create a ue-mcp test script with pie\.script_create \(pie\.script_update changes one\)/);
     expect(text).toMatch(/Even when the user asks only for a draft or a plan, the draft is the created script/);
     expect(text).toMatch(/Never call pie\.verdict for a manual step yourself/);
-    expect(text).toMatch(/Playtest card/);
+    expect(text).toMatch(/clip card/);
   });
 
-  it("make a prose or table PASS or FAIL list a failed playtest, not a choice", () => {
+  it("make a prose or table PASS or FAIL list a failed clip, not a choice", () => {
     const text = QA.join("\n");
-    expect(text).toMatch(/Every playtest is a created script and its card; there is no other way/);
-    expect(text).toMatch(/steps marked PASS or FAIL[^.]*as prose or a table, is a failed playtest/);
+    expect(text).toMatch(/Every clip is a created script and its card; there is no other way/);
+    expect(text).toMatch(/steps marked PASS or FAIL[^.]*as prose or a table, is a failed clip/);
     expect(text).toMatch(/Never mark a step passed or failed from your own reading/);
   });
 
@@ -24,7 +24,7 @@ describe("the agent's instructions", () => {
   });
 
   it("let a subagent the user assigned give the verdicts its brief names", () => {
-    expect(QA.join("\n")).toMatch(/or the user assigned you the playtest from its card: then follow that brief/);
+    expect(QA.join("\n")).toMatch(/or the user assigned you the clip from its card: then follow that brief/);
   });
 
   it("reach subagents too", () => {
@@ -32,18 +32,18 @@ describe("the agent's instructions", () => {
   });
 });
 
-describe("the Playtest runs line", () => {
+describe("the Clip runs line", () => {
   it("under Manual, never starts a run and points at the setting", () => {
     const line = playtestRunsLine("manual");
-    expect(line).toMatch(/Starting playtests is set to Manual in Settings > Approvals & review/);
+    expect(line).toMatch(/Clip runs is set to Manual in Settings > Approvals & review/);
     expect(line).toMatch(/Never call pie\.script_run or pie\.script_replay; Studio refuses them/);
-    expect(line).toMatch(/set Starting playtests to Automatic/);
-    expect(PLAYTEST_RUNS_REFUSAL).toBe("Starting playtests is set to Manual in Settings > Approvals & review. Click Start playtest on the card to start it.");
+    expect(line).toMatch(/set Clip runs to Automatic/);
+    expect(PLAYTEST_RUNS_REFUSAL).toBe("Clip runs is set to Manual in Settings > Approvals & review. Click Start clip on the card to start it.");
   });
 
   it("under Automatic, may run it with pie.script_run", () => {
     const line = playtestRunsLine("automatic");
-    expect(line).toMatch(/Starting playtests is set to Automatic in Settings > Approvals & review: you may start a playtest yourself with pie\.script_run/);
+    expect(line).toMatch(/Clip runs is set to Automatic in Settings > Approvals & review: you may start a clip yourself with pie\.script_run/);
     expect(line).not.toMatch(/Never call pie\.script_run/);
   });
 });

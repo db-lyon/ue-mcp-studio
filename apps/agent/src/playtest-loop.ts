@@ -73,7 +73,7 @@ const personOnly = (s: QaStep): boolean => s.judge === "manual" && !qaAgentMayJu
 
 /** The steps of a run that did not pass and that the loop can work on. Null run: the attempt started none. */
 export function failingSteps(run: QaRun | null): FailingStep[] {
-  if (!run) return [{ index: -1, signature: "run:none", line: "The attempt did not run the playtest." }];
+  if (!run) return [{ index: -1, signature: "run:none", line: "The attempt did not run the clip." }];
   const ended = qaEnded(run.state);
   const out: FailingStep[] = [];
   for (const s of run.steps) {
@@ -148,7 +148,7 @@ export function decide(f: AttemptFacts): Decision {
     if (f.previous.every((sig) => now.has(sig))) {
       const same = failing.filter((x) => f.previous!.includes(x.signature));
       const first = same[0];
-      const which = first.index < 0 ? "The playtest did not run" : `Step ${first.index + 1} fails the same way`;
+      const which = first.index < 0 ? "The clip did not run" : `Step ${first.index + 1} fails the same way`;
       return {
         kind: "blocked",
         failing,
@@ -196,8 +196,8 @@ export function firstBrief(run: QaRun): string {
   return [
     playtestBrief(run),
     "",
-    `This is attempt 1 of a loop that makes the playtest pass. Studio runs attempts until every step passes or it stops for the user, at most ${MAX_ATTEMPTS} attempts.`,
-    "In this attempt, only run the playtest and report: do not change the project yet. A later attempt fixes what fails.",
+    `This is attempt 1 of a loop that makes the clip pass. Studio runs attempts until every step passes or it stops for the user, at most ${MAX_ATTEMPTS} attempts.`,
+    "In this attempt, only run the clip and report: do not change the project yet. A later attempt fixes what fails.",
     ...BLOCKED_LINES,
   ].join("\n");
 }
@@ -205,7 +205,7 @@ export function firstBrief(run: QaRun): string {
 /** A later attempt: why steps failed, what to change, then run it again. */
 export function fixBrief(run: QaRun, n: number, failing: FailingStep[], earlier?: LoopCarry): string {
   return [
-    `The user assigned you the playtest "${run.scriptName}" to make it pass. This is attempt ${n} of a loop: Studio runs attempts until every step passes or it stops for the user, at most ${MAX_ATTEMPTS} attempts.`,
+    `The user assigned you the clip "${run.scriptName}" to make it pass. This is attempt ${n} of a loop: Studio runs attempts until every step passes or it stops for the user, at most ${MAX_ATTEMPTS} attempts.`,
     ...(earlier ? [`An earlier loop made ${earlier.attempts} attempt${earlier.attempts === 1 ? "" : "s"} and stopped: ${earlier.reason} The user chose to go on, so change the approach rather than repeat what it tried.`] : []),
     `The last attempt's run ${run.runId} did not pass:`,
     ...failing.map((f) => `- ${f.line}`),
@@ -213,9 +213,9 @@ export function fixBrief(run: QaRun, n: number, failing: FailingStep[], earlier?
     "Fix it:",
     `- Find why each of those steps failed from its evidence. pie.script_results (run_id ${run.runId}) has every step's observed values and captures; read the session's errors and the editor log for the run too.`,
     "- Change what the step points at in the project so it passes: Blueprint, C++, config, input mapping or assets. Save every change.",
-    "- Do not edit the playtest script to make a step pass, and do not judge a step the user judges. If a step itself is wrong because it contradicts the design or another step, report it as a blocker instead.",
+    "- Do not edit the clip's script to make a step pass, and do not judge a step the user judges. If a step itself is wrong because it contradicts the design or another step, report it as a blocker instead.",
     "- If you changed C++, rebuild with editor_restart (operation rebuild) before running again.",
-    "- Then run the playtest again, as below, and report each step's outcome and what you changed.",
+    "- Then run the clip again, as below, and report each step's outcome and what you changed.",
     ...BLOCKED_LINES,
     "",
     playtestBrief(run),
@@ -430,10 +430,10 @@ export class PlaytestLoop {
     });
     try {
       for (let n = 1; ; n++) {
-        if (n > MAX_ATTEMPTS) return this.block({ kind: "attempts", reason: `The playtest still fails after ${MAX_ATTEMPTS} attempts.`, evidence: failing.map((f) => f.line) }, failing);
+        if (n > MAX_ATTEMPTS) return this.block({ kind: "attempts", reason: `The clip still fails after ${MAX_ATTEMPTS} attempts.`, evidence: failing.map((f) => f.line) }, failing);
         if (this.cancelled) return this.stop();
         const run = this.o.card.holder(this.loop.id);
-        if (!run) throw new Error("the playtest's card is gone");
+        if (!run) throw new Error("the clip's card is gone");
         const before = n === 1 ? this.loop.baseline : this.loop.attempts[n - 2].after ?? this.loop.baseline;
         const prompt = n === 1 && !carry ? firstBrief(run) : fixBrief(run, n, failing, n === 1 ? carry ?? undefined : undefined);
         const startRun = run.runId;
@@ -454,10 +454,10 @@ export class PlaytestLoop {
         attempt.endedAt = iso(this.now());
         this.current = null;
         // Every attempt, a stopped one too, ends in a checkpoint, so its changes can be reverted.
-        const after = await this.o.checkpoints.checkpoint(`Playtest ${run.scriptName}: attempt ${n}`);
+        const after = await this.o.checkpoints.checkpoint(`Clip ${run.scriptName}: attempt ${n}`);
         attempt.after = after.id;
         attempt.changes = (await this.o.checkpoints.changes(before, after.id)).map((c) => ({ path: c.path, status: c.status }));
-        this.o.checkpoints.mark(this.sessionId, { checkpoint: after.id, label: `Playtest ${run.scriptName}, attempt ${n}`, at: attempt.endedAt, kind: "attempt" });
+        this.o.checkpoints.mark(this.sessionId, { checkpoint: after.id, label: `Clip ${run.scriptName}, attempt ${n}`, at: attempt.endedAt, kind: "attempt" });
         const calls = callsUnder(this.o.card.transcript(this.sessionId), callId);
         if (failedBuilds(calls) > 0) this.buildFailed("a build call failed");
         if (!this.attemptCrashed) this.crashes = 0;
@@ -547,5 +547,5 @@ export class PlaytestLoop {
 
 /** The text a Needs you notification carries. */
 export function attentionText(run: QaRun, loop: QaLoop): string {
-  return `Playtest ${run.scriptName} needs you: ${loop.blocker?.reason ?? "the loop stopped"}`;
+  return `Clip ${run.scriptName} needs you: ${loop.blocker?.reason ?? "the loop stopped"}`;
 }
