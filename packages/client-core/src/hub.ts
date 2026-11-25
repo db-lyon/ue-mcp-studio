@@ -156,7 +156,7 @@ export const hubApiOver = (transport: Transport): HubApi =>
 
 // ---------- Routes inside #/playtests ----------
 
-export type HubScreen = "overview" | "milestones" | "goals" | "goal" | "library" | "check" | "run" | "draft" | "queue";
+export type HubScreen = "overview" | "milestones" | "goals" | "goal" | "library" | "check" | "run" | "draft" | "queue" | "clips" | "clip";
 export type HubRoute =
   | { screen: "overview" }
   /** The queue: what runs now, what waits, schedules and what finished. */
@@ -170,7 +170,11 @@ export type HubRoute =
   | { screen: "check"; checkId: string }
   | { screen: "run"; runId: string }
   /** The playtest editor: a saved playtest's (checkId), or a new one, added to a goal when goalId names one. */
-  | { screen: "draft"; checkId?: string; goalId?: string };
+  | { screen: "draft"; checkId?: string; goalId?: string }
+  /** Timeline playtests: every playtest clip. */
+  | { screen: "clips" }
+  /** One clip on its timeline, by asset path. */
+  | { screen: "clip"; path: string };
 
 const decode = (s: string): string | null => {
   try {
@@ -203,6 +207,7 @@ export function parseHubPath(sub: string | null | undefined): HubRoute {
       if (value && then === "new") return { screen: "draft", goalId: value };
       return value ? { screen: "goal", goalId: value } : { screen: "goals" };
     case "runs": return value ? { screen: "run", runId: value } : { screen: "overview" };
+    case "clips": return value && value.startsWith("/") ? { screen: "clip", path: value } : { screen: "clips" };
     default: return { screen: "overview" };
   }
 }
@@ -219,6 +224,8 @@ export function hubPath(r: HubRoute): string {
     case "check": return `checks/${enc(r.checkId)}`;
     case "run": return `runs/${enc(r.runId)}`;
     case "draft": return r.checkId ? `checks/${enc(r.checkId)}/edit` : r.goalId ? `goals/${enc(r.goalId)}/new` : "checks/new";
+    case "clips": return "clips";
+    case "clip": return `clips/${enc(r.path)}`;
   }
 }
 
@@ -233,7 +240,7 @@ export function hubSection(r: HubRoute): "overview" | "milestones" | "goals" | "
   if (r.screen === "queue") return "queue";
   if (r.screen === "milestones") return "milestones";
   if (r.screen === "goals") return "goals";
-  if (r.screen === "library" || r.screen === "check") return "library";
+  if (r.screen === "library" || r.screen === "check" || r.screen === "clips" || r.screen === "clip") return "library";
   if (r.screen === "draft") return r.goalId ? "overview" : "library";
   return "overview";
 }

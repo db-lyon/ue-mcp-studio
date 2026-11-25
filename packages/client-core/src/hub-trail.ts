@@ -11,6 +11,7 @@
 import type { HubOverview } from "@ue-mcp-studio/shared";
 import { HUB_COPY, hubPath, type HubRoute } from "./hub.js";
 import { DRAFT_COPY } from "./drafting.js";
+import { CLIP_COPY, clipName } from "./clips.js";
 
 export interface HubTrail {
   /** The screens opened, oldest first; the last is the screen on show. */
@@ -67,6 +68,8 @@ export function hubRouteLabel(route: HubRoute, o: Pick<HubOverview, "goals" | "c
       return name ? HUB_TRAIL_COPY.runOf(name) : HUB_TRAIL_COPY.run;
     }
     case "draft": return route.checkId ? DRAFT_COPY.editPlaytest : DRAFT_COPY.newPlaytest;
+    case "clips": return CLIP_COPY.clips;
+    case "clip": return clipName(route.path);
   }
 }
 

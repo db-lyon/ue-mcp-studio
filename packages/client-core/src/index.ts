@@ -55,3 +55,4 @@ export * from "./hub.js";
 export * from "./hub-records.js";
 export * from "./hub-trail.js";
 export * from "./drafting.js";
+export * from "./clips.js";

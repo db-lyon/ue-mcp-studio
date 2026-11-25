@@ -4,7 +4,7 @@
  * of the simulated daemon at one moment, its GETs answered by the simulator
  * itself, so the shots and the demo always agree.
  */
-import { checkId } from "@ue-mcp-studio/shared";
+import { checkId, type Clip } from "@ue-mcp-studio/shared";
 import { demoRandom, demoState, DEMO_PROJECT, DEMO_SCRIPTS_DIR, type DemoSeed } from "../hub-demo/seed";
 import { HubDemo } from "../hub-demo/sim";
 import type { Scenario } from "./fixtures";
@@ -77,7 +77,54 @@ typo.state.scripts.push({
   ],
 });
 
+/** A timeline playtest: walk forward to a door, jump, then hold until the door is open, with a person's check at the end. */
+const CLIP_PATH = "/Game/EmberHollow/Clips/CL_DoorOpens";
+const IA = "/Game/EmberHollow/Input";
+const DEMO_CLIP: Clip = {
+  rate: 60,
+  length: 300,
+  grid: "frame",
+  regions: [{ id: "r1", name: "Walk to the door", start: 0, end: 150 }, { id: "r2", name: "Door opens", start: 150, end: 300 }],
+  tracks: [
+    { action: `${IA}/IA_Move.IA_Move`, type: "axis2d", keys: [{ id: "k1", t: 0, v: [0, 1], interp: "constant" }, { id: "k2", t: 110, v: [0.4, 0.8] }, { id: "k3", t: 150, v: [0, 0], interp: "constant" }] },
+    { action: `${IA}/IA_Jump.IA_Jump`, type: "bool", notes: [{ id: "n1", start: 60, length: 8 }, { id: "n2", start: 196, length: 6 }] },
+    { action: `${IA}/IA_Interact.IA_Interact`, type: "bool", notes: [{ id: "n3", start: 160, length: 20 }] },
+  ],
+  events: [{ id: "e1", at: 0, do: { console: "stat fps" } }],
+  checks: [
+    { id: "c1", start: 0, length: 140, mode: "by_end", expect: { value: "pos_x", op: "increasing", target: 400 } },
+    { id: "c2", start: 150, length: 0, mode: "hold", expect: { value: "BP_Door.bOpen", op: "eq", target: true } },
+    { id: "c3", start: 40, length: 60, mode: "throughout", expect: { value: "Speed2", op: "gt", target: 100 } },
+    { id: "c4", start: 260, length: 30, mode: "hold", manual: true, instruction: "The door swings open without a pop" },
+  ],
+};
+const CLIP_WARNINGS = [{ id: "c3", field: "expect.value", message: "Speed2 is not a value on BP_Hero.", candidates: ["speed2d", "speed"] }];
+
+/** Answers the timeline's routes for a scenario, on top of the demo's. */
+function clipRoutes(p: string): unknown {
+  if (p === "/v1/ext/studio/clips") return { clips: [
+    { path: CLIP_PATH, name: "CL_DoorOpens", map: "/Game/EmberHollow/Maps/L_Ashwood", last_run: { run_id: "clip-7", passed: false, state: "finished" } },
+    { path: "/Game/EmberHollow/Clips/CL_LedgeHop", name: "CL_LedgeHop", map: "/Game/EmberHollow/Maps/L_Ashwood", last_run: { run_id: "clip-5", passed: true, state: "finished" } },
+    { path: "/Game/EmberHollow/Clips/CL_Swim", name: "CL_Swim", last_run: null },
+  ] };
+  if (p === "/v1/ext/studio/clips/clip") return { path: CLIP_PATH, clip: DEMO_CLIP, warnings: CLIP_WARNINGS };
+  if (p === "/v1/ext/studio/clips/runs") return { runs: [] };
+  return undefined;
+}
+
+/** A hub scenario that also answers the timeline's routes. */
+function clipScenario(title: string, hash: string, extra: Partial<Scenario> = {}): Scenario {
+  const s = hub(title, hash, full, extra);
+  const demo = s.get!;
+  return { ...s, get: (p, url) => clipRoutes(p) ?? demo(p, url) };
+}
+const clipHash = `#/playtests/clips/${enc(CLIP_PATH)}`;
+
 export const HUB_SCENARIOS: Record<string, Scenario> = {
+  "hub-clips": clipScenario("Timeline playtests: each clip with its newest run, and New timeline playtest", "#/playtests/clips"),
+  "hub-clip-edit": clipScenario("A timeline playtest: regions, an axis curve and Boolean notes per Input Action, check notes in their modes, an event, and a warning with its candidates", clipHash),
+  "hub-clip-note": clipScenario("A note selected on the timeline: its start and length in the inspector", clipHash, { clicks: [".hub-clip-note"] }),
+  "hub-clip-check": clipScenario("A hold check selected: its mode, span and expectation in the inspector", clipHash, { clicks: [".hub-clip-check.mode-hold"] }),
   "hub-overview": hub("Playtest Hub overview: Now running with the runs waiting and finished, milestones and goals by status, every playtest, Needs attention and what just broke", "#/playtests", full),
   "hub-overview-empty": hub("Playtest Hub overview on a project with playtests and no goals: every playtest with its health, Run all and Run failing", "#/playtests", empty),
   "hub-goal": hub("A failing goal: its playtests with health and history, owner, priority and due date, Run goal, Fix with an agent and Write playtests", "#/playtests/goals/lantern-combat", full),

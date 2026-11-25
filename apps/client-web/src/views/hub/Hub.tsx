@@ -50,6 +50,8 @@ import { CheckScreen } from "./Check";
 import { RunScreen } from "./Run";
 import { DraftScreen } from "./Draft";
 import { QueueScreen } from "./Queue";
+import { ClipsScreen } from "./Clips";
+import { ClipScreen } from "./Timeline";
 import { CheckPicker, DeleteDialog, DescribeDialog, GoalDeleteDialog, GoalDialog, GoalPicker, LeaveDialog, RequirePicker } from "./dialogs";
 import type { GoalPreset } from "./state";
 import "./hub.css";
@@ -270,6 +272,8 @@ export function HubView({ data, narrow, onOpenChat, onChat, canDeleteGoals = fal
       case "run": return <RunScreen key={route.runId} runId={route.runId} />;
       case "draft": return <DraftScreen key={hubPath(route)} checkId={route.checkId} goalId={route.goalId} />;
       case "queue": return <QueueScreen />;
+      case "clips": return <ClipsScreen />;
+      case "clip": return <ClipScreen key={route.path} path={route.path} />;
     }
   })();
 
