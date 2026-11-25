@@ -1,10 +1,10 @@
 /**
- * A playtest as a card, as the web client draws it at phone width: its title
+ * A clip as a card, as the web client draws it at phone width: its title
  * and state, the card's own buttons, a path of one bar per step, a line of
  * what happened, and the box that asks for a verdict or says why a loop
  * stopped. Opening it adds the steps: who judges each, its status and
  * evidence, Pass, Fail and Skip on a step that waits, overrides of the agent's
- * verdicts, the loop's attempts, Start playtest's options and the draft
+ * verdicts, the loop's attempts, Start clip's options and the draft
  * editor. The card applies the daemon's events itself (useLiveRun).
  */
 import { lhOf } from "./live";
@@ -315,10 +315,10 @@ export function QaCard({ run: saved, form: own, onDismiss, actions: outside, met
   const ownActions: ReactNode[] = [];
   if (runnable)
     ownActions.push(
-      <View key="start" style={s.start} accessibilityLabel="Start playtest">
-        <IconButton primary label={working ? STARTING : ended ? "Run again" : "Start playtest"} disabled={working || off} onPress={() => start(quickRunOptions(run))} glyph="play" style={s.play} />
+      <View key="start" style={s.start} accessibilityLabel="Start clip">
+        <IconButton primary label={working ? STARTING : ended ? "Run again" : "Start clip"} disabled={working || off} onPress={() => start(quickRunOptions(run))} glyph="play" style={s.play} />
         <IconButton
-          label="Start playtest options"
+          label="Start clip options"
           disabled={working || off}
           expanded={optionsOpen}
           onPress={() => {
@@ -331,7 +331,7 @@ export function QaCard({ run: saved, form: own, onDismiss, actions: outside, met
     );
   // The viewer opens over the chat and says itself why it cannot stream, when it cannot.
   if (viewport && pie) ownActions.push(<IconButton key="viewport" label={VIEWPORT_BUTTON} hint={offline ?? VIEWPORT_BUTTON_HINT} disabled={off} onPress={pie.watch} glyph="viewport" />);
-  if (stoppable) ownActions.push(<IconButton key="stop" label={`Stop playtest ${run.scriptName}`} disabled={working || off} onPress={stop} glyph="stop" />);
+  if (stoppable) ownActions.push(<IconButton key="stop" label={`Stop clip ${run.scriptName}`} disabled={working || off} onPress={stop} glyph="stop" />);
   if (assigned) ownActions.push(<IconButton key="cancel" label={assignment?.loop ? "End the loop" : "Cancel the subagent"} disabled={assigning || off} onPress={toggleAssign} glyph="cancel" />);
   if (canAssign && !assigned) ownActions.push(<IconButton key="assign" label={needsYouLoop ? assignAgainLabel(needsYouLoop) : "Assign to subagent"} disabled={assigning || off} onPress={toggleAssign} glyph="assign" />);
   // Greyed out, not missing: a press says why it waits, as the web's tooltip does.
@@ -347,7 +347,7 @@ export function QaCard({ run: saved, form: own, onDismiss, actions: outside, met
   const confirmDelete =
     panel === "delete" ? (
       <View style={s.actions} accessibilityLabel="Confirm delete">
-        <T style={s.small}>Delete this playtest?</T>
+        <T style={s.small}>Delete this clip?</T>
         <SmallButton title="Delete" disabled={working} onPress={() => act(() => (scriptActions ? scriptActions.remove() : api.qaDeleteScript(run.runId)))} danger />
         <SmallButton title="Keep" ghost disabled={working} onPress={() => setPanel(null)} />
       </View>
@@ -376,7 +376,7 @@ export function QaCard({ run: saved, form: own, onDismiss, actions: outside, met
   );
 
   return (
-    <View ref={cardRef as never} style={[s.card, !slotted && s.spaced, draft && s.draft, border]} accessibilityLabel={`Playtest ${run.scriptName}`} testID={testID ?? `qa-card-${run.runId}`}>
+    <View ref={cardRef as never} style={[s.card, !slotted && s.spaced, draft && s.draft, border]} accessibilityLabel={`Clip ${run.scriptName}`} testID={testID ?? `qa-card-${run.runId}`}>
       {Platform.OS === "web" ? null : <CardTint color={t.c.tint} radius={t.radiusLg} />}
       <View style={s.head}>
         <Pressable accessibilityRole="button" accessibilityState={{ expanded: open }} aria-expanded={open} accessibilityLabel={`${open ? "Close" : "Open"} ${run.scriptName}`} onPress={() => (open ? setOpen(false) : openAt(null))} style={s.toggle}>
@@ -384,7 +384,7 @@ export function QaCard({ run: saved, form: own, onDismiss, actions: outside, met
           <View style={{ flexShrink: 0 }}>
             <Chevron open={open} color={t.c.text} />
           </View>
-          {draft || run.replayOf ? <T style={[labelFont(t), { flexShrink: 0 }]}>{draft ? "Playtest draft" : "Playtest replay"}</T> : null}
+          {draft || run.replayOf ? <T style={[labelFont(t), { flexShrink: 0 }]}>{draft ? "Clip draft" : "Clip replay"}</T> : null}
           <T style={s.title} numberOfLines={1}>{run.scriptName}</T>
         </Pressable>
         {run.subagent ? <T style={[s.small, { color: t.c.dim }]} numberOfLines={1}>run by {run.subagent}</T> : null}
@@ -397,7 +397,7 @@ export function QaCard({ run: saved, form: own, onDismiss, actions: outside, met
       <View style={s.compact}>
         {run.steps.length > 0 ? <StepPath steps={run.steps} onStep={(i) => openAt(i)} ended={ended} /> : null}
         <View style={s.line}>
-          <Pressable accessibilityRole="button" accessibilityLabel={`Open playtest ${run.scriptName}`} onPress={() => (open ? undefined : openAt(null))} style={s.lineOpen}>
+          <Pressable accessibilityRole="button" accessibilityLabel={`Open clip ${run.scriptName}`} onPress={() => (open ? undefined : openAt(null))} style={s.lineOpen}>
             <T style={[s.small, s.inButton, { color: t.c.dim }]}>
               {offline && (pill || assignment?.loop) ? <Text style={{ color: t.c.text, fontFamily: font(t, "sans", 600, 12).fontFamily }}>Last known: </Text> : null}
               {summaryText}
@@ -463,7 +463,7 @@ export function QaCard({ run: saved, form: own, onDismiss, actions: outside, met
           {assignment && !assignment.loop ? (
             <View style={s.assignment}>
               <T style={[s.small, { color: assigned ? t.c.accent : t.c.dim }]}>
-                {assigned ? "A subagent is running this playtest." : assignment.state === "done" ? "A subagent ran this playtest." : assignment.state === "stopped" ? "The subagent was stopped." : "The subagent failed."}
+                {assigned ? "A subagent is running this clip." : assignment.state === "done" ? "A subagent ran this clip." : assignment.state === "stopped" ? "The subagent was stopped." : "The subagent failed."}
               </T>
               {live?.onThread ? <SmallButton title="Open its thread" ghost onPress={() => live.onThread!(assignment.callId)} /> : null}
             </View>
@@ -495,7 +495,7 @@ export function QaCard({ run: saved, form: own, onDismiss, actions: outside, met
                         {byAgent ? <T style={s.badge} accessibilityLabel={`Judged by the agent. ${why.replace(/\n/g, ". ")}`}>Agent</T> : null}
                         {unchecked ? (
                           // .qa-status comes after .dim in styles.css, so its muted wins.
-                          <T style={[s.small, { color: t.c.muted }]}>Checked when the playtest runs</T>
+                          <T style={[s.small, { color: t.c.muted }]}>Checked when the clip runs</T>
                         ) : !draft ? (
                           <T style={[s.small, { color: toneColor === t.c.accent ? t.c.accent : toneColor ?? t.c.muted }, tone === "warn" && { fontFamily: font(t, "sans", 600, 12).fontFamily }]} accessibilityLabel={evidence ? `${statusLabel(step, ended)}. ${evidence.replace(/\n/g, ". ")}` : undefined}>
                             {statusLabel(step, ended)}

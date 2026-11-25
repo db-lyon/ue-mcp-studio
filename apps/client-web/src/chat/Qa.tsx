@@ -11,7 +11,7 @@
  *
  * Collapsed, the card is its title, its state, its primary action, a path of
  * one bar per step and a line of what happened. The primary action is Start
- * Playtest on a draft or a manual run, and the waiting step's Pass, Fail and
+ * clip on a draft or a manual run, and the waiting step's Pass, Fail and
  * Skip while one waits. A bar opens the full card on its step; the title or
  * the line opens it at the top.
  */
@@ -193,7 +193,7 @@ export function PathLegend({ runs }: { runs: QaRun[] }) {
 
 /** What a card drawn outside a session (the Playtests page) does instead of the session's own calls. */
 export interface QaCardActions {
-  /** Start playtest, offered on an ended run too: it runs the script again. */
+  /** Start clip, offered on an ended run too: it runs the script again. */
   start?: (o: RunOptions) => Promise<{ run: QaRun }>;
   /** Assign to subagent, for a run whose card is in no session yet. */
   assign?: (withoutCheckpoints?: boolean) => Promise<{ run: QaRun }>;
@@ -235,7 +235,7 @@ export function QaCard({ run: saved, form: own, onDismiss, actions: outside, met
   /** Overrides of the agent's verdicts on their way. */
   const [overriding, setOverriding] = useState<Record<number, QaVerdict>>({});
   const [assigning, setAssigning] = useState(false);
-  /** A draft's open panel: Start playtest's options, Edit, or Delete waiting for its second click. */
+  /** A draft's open panel: Start clip's options, Edit, or Delete waiting for its second click. */
   const [panel, setPanel] = useState<"run" | "edit" | "delete" | null>(null);
   /** The greyed Assign was pressed: why it waits shows under the card. */
   const [whyAssign, setWhyAssign] = useState(false);
@@ -374,7 +374,7 @@ export function QaCard({ run: saved, form: own, onDismiss, actions: outside, met
       .finally(() => setAssigning(false));
   };
 
-  /** A draft's Start playtest, Edit and Delete: each answers with the card's next state, or the page reads its list again. */
+  /** A draft's Start clip, Edit and Delete: each answers with the card's next state, or the page reads its list again. */
   const act = (call: () => Promise<{ run: QaRun } | void>) => {
     setWorking(true);
     setError(null);
@@ -384,7 +384,7 @@ export function QaCard({ run: saved, form: own, onDismiss, actions: outside, met
     }, (e: Error) => setError(e.message)).finally(() => setWorking(false));
   };
   const start = (o: RunOptions) => act(() => (outside?.start ? outside.start(o) : api.qaRun(run.runId, o)));
-  /** Start playtest's one click: the players the steps name, PIE started, the run recorded. */
+  /** Start clip's one click: the players the steps name, PIE started, the run recorded. */
   const quickStart = () => {
     const players = playersNeeded(run);
     start({ ...DEFAULT_RUN, players, listen: players > 1 });
@@ -394,7 +394,7 @@ export function QaCard({ run: saved, form: own, onDismiss, actions: outside, met
   const { draft, ended, owned, needsYouLoop, runnable, stoppable, canAssign, assignWaits, editable, viewport } = cardControls(run, { outside: outside && { start: !!outside.start, assign: !!outside.assign, script: !!outside.script }, assignSession, open, pie: pie ? showsViewportButton({ relevant: false, status: pie.status }) : undefined });
   /** Edit, Delete and a draft's early verdicts change the script through the session that has its card. */
   /**
-   * Start playtest on the card: a draft's, or the manual run a verdict on the
+   * Start clip on the card: a draft's, or the manual run a verdict on the
    * draft started, which a full run replaces; on an ended run, Run again. Not
    * while a loop that waits for the user waits on its Review.
    */
@@ -415,10 +415,10 @@ export function QaCard({ run: saved, form: own, onDismiss, actions: outside, met
 
   const optionsOpen = open && panel === "run";
   const startButtons = runnable && (
-    <span className="qa-start" role="group" aria-label="Start playtest">
-      <IconButton primary label={working ? STARTING : ended ? "Run again" : "Start playtest"} disabled={working || !!offline} title={offline} onClick={quickStart} glyph={GLYPH.play} />
+    <span className="qa-start" role="group" aria-label="Start clip">
+      <IconButton primary label={working ? STARTING : ended ? "Run again" : "Start clip"} disabled={working || !!offline} title={offline} onClick={quickStart} glyph={GLYPH.play} />
       <IconButton
-        label="Start playtest options"
+        label="Start clip options"
         disabled={working || !!offline}
         expanded={optionsOpen}
         title={offline ?? "Options: players, listen server, PIE and recording"}
@@ -432,7 +432,7 @@ export function QaCard({ run: saved, form: own, onDismiss, actions: outside, met
   );
   // The viewer opens over the chat and says itself why it cannot stream, when it cannot.
   const viewportButton = viewport && pie && <IconButton label={VIEWPORT_BUTTON} disabled={!!offline} title={offline ?? VIEWPORT_BUTTON_HINT} onClick={pie.watch} glyph={GLYPH.viewport} />;
-  const stopButton = stoppable && <IconButton label={`Stop playtest ${run.scriptName}`} disabled={working || !!offline} title={offline ?? "Stop: end the run now"} onClick={stop} glyph={GLYPH.stop} />;
+  const stopButton = stoppable && <IconButton label={`Stop clip ${run.scriptName}`} disabled={working || !!offline} title={offline ?? "Stop: end the run now"} onClick={stop} glyph={GLYPH.stop} />;
   const cancelAssigned = assigned && <IconButton label={assignment?.loop ? "End the loop" : "Cancel the subagent"} disabled={assigning || !!offline} title={offline} onClick={toggleAssign} glyph={GLYPH.cancel} />;
   const assignButton = canAssign && !assigned
     ? <IconButton label={needsYouLoop ? assignAgainLabel(needsYouLoop) : "Assign to subagent"} disabled={assigning || !!offline} onClick={toggleAssign} title={offline ?? assignAgainTitle(needsYouLoop ?? undefined)} glyph={GLYPH.assign} />
@@ -464,7 +464,7 @@ export function QaCard({ run: saved, form: own, onDismiss, actions: outside, met
   // Delete asks in the card's corner, in words, where the click was.
   const confirmDelete = panel === "delete" && (
     <span className="qa-box-actions qa-confirm" role="group" aria-label="Confirm delete">
-      <span className="small">Delete this playtest?</span>
+      <span className="small">Delete this clip?</span>
       <button className="danger-button small-button" disabled={working} onClick={() => act(() => (scripted ? scripted.remove() : api.qaDeleteScript(run.runId)))}>Delete</button>
       <button className="ghost small-button" disabled={working} onClick={() => setPanel(null)}>Keep</button>
     </span>
@@ -477,11 +477,11 @@ export function QaCard({ run: saved, form: own, onDismiss, actions: outside, met
   const summaryText = run.steps.length ? pathSummary(run, sum) : "No steps read yet";
 
   return (
-    <div className={`qa-card card state-${run.state} ${needsYouLoop ? "needs-you" : ""} ${open ? "open" : "collapsed"} ${slotted ? "slotted" : ""} ${offline ? "offline" : ""}`} role="group" aria-label={`Playtest ${run.scriptName}`} data-run-id={run.runId} ref={card}>
+    <div className={`qa-card card state-${run.state} ${needsYouLoop ? "needs-you" : ""} ${open ? "open" : "collapsed"} ${slotted ? "slotted" : ""} ${offline ? "offline" : ""}`} role="group" aria-label={`Clip ${run.scriptName}`} data-run-id={run.runId} ref={card}>
       <div className="qa-head">
         <button className="qa-toggle" aria-expanded={open} aria-controls={`qa-body-${run.runId}`} onClick={() => (open ? setOpen(false) : openAt(null))}>
           <Chevron open={open} />
-          <span className={`eyebrow ${draft || run.replayOf ? "qa-kind" : "qa-kind plain"}`}>{draft ? "Playtest draft" : run.replayOf ? "Playtest replay" : "Playtest"}</span>
+          <span className={`eyebrow ${draft || run.replayOf ? "qa-kind" : "qa-kind plain"}`}>{draft ? "Clip draft" : run.replayOf ? "Clip replay" : "Clip"}</span>
           <strong className="qa-title">{run.scriptName}</strong>
         </button>
         {run.subagent && <span className="dim small qa-by">run by {run.subagent}</span>}
@@ -489,14 +489,14 @@ export function QaCard({ run: saved, form: own, onDismiss, actions: outside, met
         {actions}
         <span className="qa-states">
           {headPill && <span className={`pill ${headPill.tone}`} role="status" title={offline ? `Last known: ${offline}` : undefined}>{headPill.text}</span>}
-          {loopShown && <span className={`pill ${loopShown.tone}`} role="status" aria-label={`Loop: ${loopShown.text}`} title="A subagent loop runs this playtest">{loopShown.text}</span>}
+          {loopShown && <span className={`pill ${loopShown.tone}`} role="status" aria-label={`Loop: ${loopShown.text}`} title="A subagent loop runs this clip">{loopShown.text}</span>}
         </span>
       </div>
       <div className="qa-compact">
         {run.steps.length > 0 && <StepPath steps={run.steps} onStep={(i) => openAt(i)} ended={ended} />}
         {(
           <div className="qa-compact-line small">
-            <button className="qa-compact-open" aria-label={`Open playtest ${run.scriptName}`} onClick={() => (open ? card.current?.scrollIntoView?.({ block: "start", behavior: "smooth" }) : openAt(null))}>
+            <button className="qa-compact-open" aria-label={`Open clip ${run.scriptName}`} onClick={() => (open ? card.current?.scrollIntoView?.({ block: "start", behavior: "smooth" }) : openAt(null))}>
               <span className="dim qa-compact-summary">{offline && (pill || assignment?.loop) && <span className="qa-last-known" title={offline}>Last known: </span>}{summaryText}</span>
             </button>
             {meta && <span className="qa-meta dim">{meta}</span>}
@@ -571,7 +571,7 @@ export function QaCard({ run: saved, form: own, onDismiss, actions: outside, met
       {assignment && !assignment.loop && (
         <div className="qa-assignment small" role="status">
           <span className={assigned ? "qa-assignment-live" : "dim"}>
-            {assigned ? "A subagent is running this playtest." : assignment.state === "done" ? "A subagent ran this playtest." : assignment.state === "stopped" ? "The subagent was stopped." : "The subagent failed."}
+            {assigned ? "A subagent is running this clip." : assignment.state === "done" ? "A subagent ran this clip." : assignment.state === "stopped" ? "The subagent was stopped." : "The subagent failed."}
           </span>
           {live?.onThread && <button className="ghost small-button" onClick={() => live.onThread!(assignment.callId)}>Open its thread</button>}
         </div>
@@ -582,7 +582,7 @@ export function QaCard({ run: saved, form: own, onDismiss, actions: outside, met
       <ol className="qa-steps">
         {run.steps.map((s) => {
           const evidence = s.judge === "auto" ? evidenceText(s) : "";
-          // A draft's manual steps take a verdict before Start playtest: the first one starts the manual run.
+          // A draft's manual steps take a verdict before Start clip: the first one starts the manual run.
           const verdictable = s.judge === "manual" && (s.status === "awaiting_verdict" || (draft && owned && !run.deleted && !assigned));
           const unchecked = s.judge === "auto" && (draft || (!!run.manual && s.status === "pending"));
           const failBox = failing?.index === s.index && failing.via !== "box" ? failing : null;
@@ -598,7 +598,7 @@ export function QaCard({ run: saved, form: own, onDismiss, actions: outside, met
                   {s.player && <span className="qa-player small" title="The player this step is for">{s.player}</span>}
                   <span className={`qa-judge small ${s.judge}`} title={s.judge === "auto" ? "ue-mcp checks this step from a value in PIE" : "Someone watches the game and decides this step"}>{judgeLabel(s)}</span>
                   {byAgent && <span className="qa-badge agent small" title={why} tabIndex={0} aria-label={`Judged by the agent. ${why.replace(/\n/g, ". ")}`}>Agent</span>}
-                  {unchecked ? <span className="qa-status small dim">Checked when the playtest runs</span>
+                  {unchecked ? <span className="qa-status small dim">Checked when the clip runs</span>
                     : !draft && <span className={`qa-status small ${stepTone(s)}`} title={evidence || undefined} tabIndex={evidence ? 0 : undefined} aria-label={evidence ? `${statusLabel(s, ended)}. ${evidence.replace(/\n/g, ". ")}` : undefined}>
                     {statusLabel(s, ended)}
                   </span>}
@@ -818,13 +818,13 @@ export function useOutsideRuns(events: DaemonEvent[], streaming: boolean): { run
 export function OutsideRuns({ runs, onDismiss }: { runs: QaRun[]; onDismiss: (runId: string) => void }) {
   if (runs.length === 0) return null;
   return (
-    <div className="approvals qa-outside" role="region" aria-label="Playtests">
+    <div className="approvals qa-outside" role="region" aria-label="Clip runs">
       {runs.map((r) => <QaCard key={r.runId} run={r} onDismiss={() => onDismiss(r.runId)} />)}
     </div>
   );
 }
 
-/** Start playtest's options: three sliders. */
+/** Start clip's options: three sliders. */
 function OptionsGlyph() {
   return (
     <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" aria-hidden="true">

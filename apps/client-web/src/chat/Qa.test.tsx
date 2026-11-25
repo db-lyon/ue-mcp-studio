@@ -60,11 +60,11 @@ function mount(run: QaRun, live: Partial<QaLive> = {}) {
 const step = (n: number) => document.querySelectorAll<HTMLElement>(".qa-step")[n];
 
 describe("the checklist card", () => {
-  it("is titled Playtest and lists each step's instruction, judge and status", () => {
+  it("is titled Clip and lists each step's instruction, judge and status", () => {
     mount(runOf());
     expect(screen.getByText("DoorOpens")).toBeTruthy();
-    expect(screen.getByText("Playtest")).toBeTruthy();
-    expect(screen.getByRole("group", { name: "Playtest DoorOpens" })).toBeTruthy();
+    expect(screen.getByText("Clip")).toBeTruthy();
+    expect(screen.getByRole("group", { name: "Clip DoorOpens" })).toBeTruthy();
     expect(step(0).textContent).toContain("Walk up to the door");
     expect(within(step(0)).getByText("Checks a value")).toBeTruthy();
     expect(within(step(2)).getByText("Watched by a person or an agent")).toBeTruthy();
@@ -256,7 +256,7 @@ describe("assigning the playtest to a subagent", () => {
     });
     expect(m.qaAssign).toHaveBeenCalledWith(RUN, null);
     expect(screen.queryByRole("button", { name: "Assign to subagent" })).toBeNull();
-    expect(screen.getByText("A subagent is running this playtest.")).toBeTruthy();
+    expect(screen.getByText("A subagent is running this clip.")).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: "Open its thread" }));
     expect(onThread).toHaveBeenCalledWith("studio_1");
     await act(async () => {
@@ -371,10 +371,10 @@ describe("the collapsed card", () => {
 
   it("opens to the full card on a click, keeping its path and summary, and closes again from its title", () => {
     collapsed(runOf());
-    fireEvent.click(screen.getByRole("button", { name: "Open playtest DoorOpens" }));
+    fireEvent.click(screen.getByRole("button", { name: "Open clip DoorOpens" }));
     expect(screen.getByText("Walk up to the door")).toBeTruthy();
     expect(screen.getByRole("list", { name: "Steps" })).toBeTruthy();
-    expect(screen.getByRole("button", { name: "Open playtest DoorOpens" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Open clip DoorOpens" })).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: /DoorOpens/, expanded: true }));
     expect(screen.queryByText("Walk up to the door")).toBeNull();
   });
@@ -445,7 +445,7 @@ describe("the collapsed card", () => {
     m.qaStop.mockResolvedValue({ run: runOf({ state: "stopped" }) });
     collapsed(runOf({ state: "running", steps: STEPS.map((s, i) => ({ ...s, status: i === 0 ? "running" : "pending" })) }));
     await act(async () => {
-      fireEvent.click(screen.getByRole("button", { name: "Stop playtest DoorOpens" }));
+      fireEvent.click(screen.getByRole("button", { name: "Stop clip DoorOpens" }));
     });
     expect(m.qaStop).toHaveBeenCalledWith(RUN);
     expect(screen.getAllByRole("status")[0].textContent).toBe("Stopped");
@@ -518,7 +518,7 @@ describe("the collapsed card", () => {
     };
     try {
       collapsed(runOf());
-      fireEvent.click(screen.getByRole("button", { name: "Open playtest DoorOpens" }));
+      fireEvent.click(screen.getByRole("button", { name: "Open clip DoorOpens" }));
       expect(scrolled).toEqual([RUN]);
       fireEvent.click(screen.getByRole("button", { name: /DoorOpens/, expanded: true }));
       fireEvent.click(screen.getByRole("button", { name: "Step 2, checks a value, To come" }));

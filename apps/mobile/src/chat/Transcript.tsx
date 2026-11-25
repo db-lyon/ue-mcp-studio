@@ -114,7 +114,7 @@ export const Entry = memo(function Entry({ entry }: { entry: TranscriptEntry }) 
   if (entry.kind === "review") return <TurnReviewCard review={entry.review} />;
   if (entry.kind === "playtest") {
     return entry.state === "failed"
-      ? <PlaytestFailed errors={entry.errors?.length ? entry.errors : ["The playtest flow made no playtest."]} request={entry.request} />
+      ? <PlaytestFailed errors={entry.errors?.length ? entry.errors : ["The /playtest flow made no clip."]} request={entry.request} />
       : <PlaytestProgress entry={entry} />;
   }
   if (entry.kind === "playtest-failed") return <PlaytestFailed errors={[entry.reason]} request={entry.request} />;
@@ -181,7 +181,7 @@ function PlaytestFailed({ errors, request }: { errors: string[]; request: Playte
   return (
     <Banner kind="bad" role="status" style={{ gap: 4 }}>
       <View style={{ flexDirection: "row", alignItems: "center", gap: 10, marginVertical: 6 }}>
-        <Text style={{ ...baseFont(t), ...font(t, "sans", 700, t.base.size), lineHeight: t.base.lineHeight, color }}>No playtest was made.</Text>
+        <Text style={{ ...baseFont(t), ...font(t, "sans", 700, t.base.size), lineHeight: t.base.lineHeight, color }}>No clip was made.</Text>
         <View style={{ flex: 1 }} />
         {playtest ? <ContentButton title="Retry" small fontSize={t.base.size} disabled={playtest.busy} onPress={() => playtest.run(request)} /> : null}
       </View>
