@@ -156,7 +156,7 @@ export const hubApiOver = (transport: Transport): HubApi =>
 
 // ---------- Routes inside #/playtests ----------
 
-export type HubScreen = "overview" | "milestones" | "goals" | "goal" | "library" | "check" | "run" | "draft" | "queue" | "clips" | "clip";
+export type HubScreen = "overview" | "milestones" | "goals" | "goal" | "library" | "check" | "run" | "draft" | "queue" | "clips" | "clip" | "arrangement";
 export type HubRoute =
   | { screen: "overview" }
   /** The queue: what runs now, what waits, schedules and what finished. */
@@ -174,7 +174,9 @@ export type HubRoute =
   /** Timeline playtests: every playtest clip. */
   | { screen: "clips" }
   /** One clip on its timeline, by asset path. */
-  | { screen: "clip"; path: string };
+  | { screen: "clip"; path: string }
+  /** The Arrangement: every track's timeline under one ruler, and the scenes that play tracks together. */
+  | { screen: "arrangement" };
 
 const decode = (s: string): string | null => {
   try {
@@ -208,6 +210,7 @@ export function parseHubPath(sub: string | null | undefined): HubRoute {
       return value ? { screen: "goal", goalId: value } : { screen: "goals" };
     case "runs": return value ? { screen: "run", runId: value } : { screen: "overview" };
     case "clips": return value && value.startsWith("/") ? { screen: "clip", path: value } : { screen: "clips" };
+    case "arrangement": return { screen: "arrangement" };
     default: return { screen: "overview" };
   }
 }
@@ -226,6 +229,7 @@ export function hubPath(r: HubRoute): string {
     case "draft": return r.checkId ? `checks/${enc(r.checkId)}/edit` : r.goalId ? `goals/${enc(r.goalId)}/new` : "checks/new";
     case "clips": return "clips";
     case "clip": return `clips/${enc(r.path)}`;
+    case "arrangement": return "arrangement";
   }
 }
 

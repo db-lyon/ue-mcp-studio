@@ -76,7 +76,7 @@ import type {
   ViewportStatus,
 } from "@ue-mcp-studio/shared";
 import { alive, fromUeMcp, recordDiag } from "./diag";
-import { clipsApi, draftingApi, hubApi, notificationsOf, playtestsQuery, threadQuery, uploadChunked, uploadInParts } from "@ue-mcp-studio/client-core";
+import { clipsApi, draftingApi, hubApi, setApi,notificationsOf, playtestsQuery, threadQuery, uploadChunked, uploadInParts } from "@ue-mcp-studio/client-core";
 import { FILE_REVEAL_PATH } from "@ue-mcp-studio/shared";
 import type { AgentThreadPage, Notice, NotifyDelivery, NotifyDevice, ProjectNotifyUpdate } from "@ue-mcp-studio/shared";
 import { agentSettingsOf, catalogOf, contextOf, healthOf, installOf, nativeOf, settingsOf } from "./normalize";
@@ -376,6 +376,8 @@ export const api = {
   drafting: draftingApi(<T,>(method: string, url: string, body?: unknown) => call<T>(method, url, body)),
   /** Timeline playtests (client-core clipsApi). */
   clips: clipsApi(<T,>(method: string, url: string, body?: unknown) => call<T>(method, url, body)),
+  /** The hub's set of tracks and scenes (client-core setApi). */
+  set: setApi(<T,>(method: string, url: string, body?: unknown) => call<T>(method, url, body)),
 };
 
 /** A stream whose response head has not come back this long is stalled: abort and ask again. */

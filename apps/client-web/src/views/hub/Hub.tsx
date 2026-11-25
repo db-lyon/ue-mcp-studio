@@ -16,6 +16,8 @@ import {
   GOAL_STATUS_LOOK,
   HUB_COPY,
   HUB_RECENT_KEY,
+  SET_COPY,
+  arrangementOn,
   hubHash,
   hubKeymap,
   hubPath,
@@ -52,6 +54,7 @@ import { DraftScreen } from "./Draft";
 import { QueueScreen } from "./Queue";
 import { ClipsScreen } from "./Clips";
 import { ClipRunView } from "./TimelineRun";
+import { ArrangementScreen } from "./Arrangement";
 import { CheckPicker, DeleteDialog, DescribeDialog, GoalDeleteDialog, GoalDialog, GoalPicker, LeaveDialog, RequirePicker } from "./dialogs";
 import type { GoalPreset } from "./state";
 import "./hub.css";
@@ -279,6 +282,7 @@ export function HubView({ data, narrow, onOpenChat, onChat, canDeleteGoals = fal
       case "queue": return <QueueScreen />;
       case "clips": return <ClipsScreen />;
       case "clip": return <ClipRunView key={route.path} path={route.path} />;
+      case "arrangement": return <ArrangementScreen />;
     }
   })();
 
@@ -376,6 +380,7 @@ function sectionCount(id: string, ctx: Pick<HubContextValue, "o">): ReactNode {
 }
 
 const sectionRoute = (id: SectionId): HubRoute => ({ screen: id });
+const SET_ROUTE: HubRoute = { screen: "arrangement" };
 
 /** The wide hub's rail: the four screens, then the goals and playtests opened last. */
 function HubRail({ onPalette, onShortcuts }: { onPalette: () => void; onShortcuts: () => void }) {
@@ -406,8 +411,14 @@ function HubRail({ onPalette, onShortcuts }: { onPalette: () => void; onShortcut
             {sectionCount(s.id, ctx)}
           </HubLink>
         ))}
+        {arrangementOn(ctx.health) && (
+          <HubLink href={hubHash(SET_ROUTE)} onGo={() => go(SET_ROUTE)} className={`hub-rail-item ${route.screen === "arrangement" ? "active" : ""}`}>
+            <HubIcon name="queue" />
+            <span className="hub-rail-label">{SET_COPY.arrangement}</span>
+          </HubLink>
+        )}
       </div>
-      {recent.length > 0 && <div className="hub-rail-head"><span>{HUB_COPY.recent}</span></div>}
+      {recent.length > 0 &&<div className="hub-rail-head"><span>{HUB_COPY.recent}</span></div>}
       <div className="hub-rail-goals">
         {recent.map((r) => (
           <HubLink key={r.key} href={hubHash(r.to)} onGo={() => go(r.to)}
@@ -435,6 +446,11 @@ function HubBar({ onPalette }: { onPalette: () => void }) {
             {s.id === "overview" && sectionCount(s.id, ctx)}
           </HubLink>
         ))}
+        {arrangementOn(ctx.health) && (
+          <HubLink href={hubHash(SET_ROUTE)} onGo={() => ctx.go(SET_ROUTE)} className={`hub-seg-item ${ctx.route.screen === "arrangement" ? "active" : ""}`}>
+            <span>{SET_COPY.arrangement}</span>
+          </HubLink>
+        )}
       </nav>
       <button className="ghost icon-button" aria-label="Find or run" onClick={onPalette}><HubIcon name="search" /></button>
     </div>

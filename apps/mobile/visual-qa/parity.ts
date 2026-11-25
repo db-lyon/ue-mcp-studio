@@ -340,6 +340,10 @@ export const PARITY: Record<string, ParityEntry> = {
   "setup-failed": {notOnPhone: DESKTOP_APP},
   // The Playtest Hub, behind its experimental setting.
   "hub-overview": {notOnPhone: HUB},
+  "hub-arrangement": {notOnPhone: HUB},
+  "hub-arrangement-instance": {notOnPhone: HUB},
+  "hub-arrangement-scene": {notOnPhone: HUB},
+  "hub-arrangement-playing": {notOnPhone: HUB},
   "hub-overview-empty": {notOnPhone: HUB},
   "hub-goal": {notOnPhone: HUB},
   "hub-goal-not-on-checkout": {notOnPhone: HUB},
