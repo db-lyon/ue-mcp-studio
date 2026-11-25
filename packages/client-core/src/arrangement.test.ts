@@ -7,6 +7,7 @@ import {
   arrangeStep,
   arrangementCursor,
   arrangementOn,
+  awaitingChecks,
   candidateLines,
   clipScale,
   dragLines,
@@ -144,6 +145,18 @@ describe("runs", () => {
     const plan = { id: "p", scope: { kind: "scene", goalId: "boss" }, items: [{ runId: "sr-2" }] };
     expect(activeSetRun({ queue: { ...queue, current: plan as never } } as Pick<HubOverview, "queue">)).toEqual({ planId: "p", runId: "sr-2" });
     expect(activeSetRun({ queue: { ...queue, current: { ...plan, scope: { kind: "goal", goalId: "x" } } as never } } as Pick<HubOverview, "queue">)).toBeNull();
+    // A run this view started is known by the id the run route answered, before the queue's item shows it.
+    const starting = { ...plan, items: [{ runId: null }] };
+    expect(activeSetRun({ queue: { ...queue, current: starting as never } } as Pick<HubOverview, "queue">, { planId: "p", runId: "mine" })).toEqual({ planId: "p", runId: "mine" });
+    expect(activeSetRun({ queue: { ...queue, current: plan as never } } as Pick<HubOverview, "queue">, { planId: "older", runId: "mine" })).toEqual({ planId: "p", runId: "sr-2" });
+  });
+  it("lists each instance's waiting checks with its name and question", () => {
+    const inst = (name: string, awaiting?: Array<{ check: string; instruction: string }>) => ({ name, awaiting }) as never;
+    expect(awaitingChecks({ instances: [inst("Look", [{ check: "i1.c1", instruction: "Does it glow?" }]), inst("Door"), inst("Open", [{ check: "2", instruction: "Is it open?" }])] } as unknown as ArrangementRun)).toEqual([
+      { check: "i1.c1", instruction: "Does it glow?", name: "Look" },
+      { check: "2", instruction: "Is it open?", name: "Open" },
+    ]);
+    expect(awaitingChecks(null)).toEqual([]);
   });
   it("keeps the newest result of each scene, track in a scene, instance and track", () => {
     const inst = (goalId: string, id: string, status: string) => ({ key: id, goalId, id, kind: "clip", target: "", name: "", player: 0, start: 0, end: 1, status, checks: { total: 0, passed: 0, failed: 0, pending: 0, awaiting: 0 }, segmentRunId: null });
@@ -171,7 +184,6 @@ describe("runs", () => {
       { id: 3, type: "clip.verdict_requested", data: { runId: "c2", awaiting: ["i3.c4"] } },
     ], new Set(["c1", "c2"]));
     expect(arrangementCursor(run, live)).toBe(852);
-    expect(live.awaiting).toEqual({ c2: ["i3.c4"] });
     live = foldSegmentEvents(live, [{ id: 1, type: "clip.position", data: { runId: "c2", position: 1 } }], new Set(["c2"]));
     expect(live.position.c2).toBe(12);
     expect(arrangementCursor({ ...run, segments: [] }, live)).toBeNull();

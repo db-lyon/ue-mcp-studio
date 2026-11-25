@@ -38,6 +38,7 @@
 
 .hub-set-verdicts { display: flex; flex-direction: column; gap: 6px; margin-bottom: 8px; }
 .hub-set-verdict { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; border-left: 3px solid var(--warn); }
+.hub-set-verdict-ask { flex: 1 1 100%; }
 
 /* Scenes */
 .hub-set-side { flex: 0 0 220px; display: flex; flex-direction: column; gap: 16px; min-width: 0; }
