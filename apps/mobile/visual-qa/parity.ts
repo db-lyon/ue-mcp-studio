@@ -356,4 +356,8 @@ export const PARITY: Record<string, ParityEntry> = {
   "hub-draft-problem": {notOnPhone: HUB},
   "hub-draft-manual": {notOnPhone: HUB},
   "hub-draft-offline": {notOnPhone: HUB},
+  "hub-clips": {notOnPhone: HUB},
+  "hub-clip-edit": {notOnPhone: HUB},
+  "hub-clip-note": {notOnPhone: HUB},
+  "hub-clip-check": {notOnPhone: HUB},
 };

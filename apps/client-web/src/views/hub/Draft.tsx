@@ -17,6 +17,7 @@ import {
   HUB_COPY,
   SUBJECT_GROUPS,
   actSentence,
+  CLIP_COPY,
   anchorFindings,
   applyCandidate,
   assetNameOf,
@@ -368,6 +369,7 @@ export function DraftScreen({ checkId, goalId }: { checkId?: string; goalId?: st
             onBlur={() => assetNameOf(draft.name) !== draft.name && change((d) => ({ ...d, name: assetNameOf(d.name) }), null, "name")}
           />
         )}
+        actions={<button className="hub-open-clips" onClick={() => go({ screen: "clips" })}>{CLIP_COPY.open}</button>}
         sub={<>
           <span className="mono small dim hub-path">{draft.path ?? (name ? scriptPathOf(name) : `${scriptPathOf("")}...`)}</span>
           {goal && !draft.path && <span className="hub-goal-chip"><HubIcon name="goal" size={11} />{DRAFT_COPY.addsToGoal(goal.goal.title)}</span>}
