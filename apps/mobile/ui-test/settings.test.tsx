@@ -279,7 +279,7 @@ describe("Settings > Project", () => {
     expect(screen.getByText("Other sessions are using the editor")).toBeTruthy();
     expect(screen.getByText("Rebuilding now closes the editor and interrupts those sessions' work in it.")).toBeTruthy();
     const ask = screen.getByTestId("editor-consent").textContent ?? "";
-    expect(ask).toContain("Studio: Dress the courtyard: Blocked, a playtest is recording");
+    expect(ask).toContain("Studio: Dress the courtyard: Blocked, a clip is recording");
     expect(ask).toContain("Claude Code: Waiting, busy (blueprint.add_variable, level.place_actor)");
     expect(ask).not.toContain("Cursor");
     expect(screen.getByLabelText("Rebuild anyway")).toBeTruthy();

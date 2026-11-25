@@ -18,9 +18,9 @@ export function leaseOfEvent(e: { type: string; data?: unknown }): { lease: Edit
 }
 
 export const LEASE_COPY = {
-  holding: "Studio is running a playtest",
+  holding: "Studio is running a clip",
   release: "Release the editor",
-  releaseHelp: "Stop the playtest or fix Studio started, end its Play In Editor session and pause the queue",
+  releaseHelp: "Stop the clip or fix Studio started, end its Play In Editor session and pause the queue",
 } as const;
 
 /** The event that carries the whole list whenever it changes. */
@@ -59,5 +59,5 @@ export const HELD_COPY = {
   stopNowHelp: "Stop the run and Play In Editor now",
   openCard: "Open card",
   verdictWait: "Wait for a verdict",
-  verdictWaitHelp: "How long a playtest holds at a manual step, with Play In Editor paused, before it stops without a verdict.",
+  verdictWaitHelp: "How long a clip holds at a manual step, with Play In Editor paused, before it stops without a verdict.",
 } as const;

@@ -562,7 +562,7 @@ function StepCard({ step, index, count, open, catalog, defaultWithinMs, problems
                 </button>
               ))}
             </div>
-            {step.player && <span className="pill" title="The player this step is for in a multiplayer playtest">{step.player}</span>}
+            {step.player && <span className="pill" title="The player this step is for in a multiplayer clip">{step.player}</span>}
           </div>
 
           <div className="hub-draft-block">

@@ -35,8 +35,8 @@ const FEEDBACK_MODES: { id: FeedbackMode; name: string; about: string }[] = [
 ];
 
 const PLAYTEST_STARTS: ReadonlyArray<{ id: PlaytestRunsMode; name: string; help: string }> = [
-  { id: "manual", name: "Manual", help: "Playtests run only when you start or assign them." },
-  { id: "automatic", name: "Automatic", help: "Agents can also start playtests on their own." },
+  { id: "manual", name: "Manual", help: "Clips run only when you start or assign them." },
+  { id: "automatic", name: "Automatic", help: "Agents can also start clips on their own." },
 ];
 
 const POLICIES: ReadonlyArray<{ id: DialogPolicy["kind"]; name: string }> = [
@@ -82,8 +82,8 @@ export function ApprovalsSection() {
             ))}
           </View>
         </RemoteReadOnly>
-        <SettingRow title="Starting playtests" help={PLAYTEST_STARTS.find((p) => p.id === agent.playtestRuns)?.help}>
-          <Seg label="Starting playtests" value={agent.playtestRuns} options={PLAYTEST_STARTS} onChange={(v) => void saveAgent({ playtestRuns: v })} />
+        <SettingRow title="Clip runs" help={PLAYTEST_STARTS.find((p) => p.id === agent.playtestRuns)?.help}>
+          <Seg label="Clip runs" value={agent.playtestRuns} options={PLAYTEST_STARTS} onChange={(v) => void saveAgent({ playtestRuns: v })} />
         </SettingRow>
         <SettingRow inline title={AGENT_FIXES_COPY.setting} help={AGENT_FIXES_COPY.help}>
           <Switch label={AGENT_FIXES_COPY.setting} on={agent.agentFixes} onChange={(v) => void saveAgent({ agentFixes: v })} />
@@ -129,7 +129,7 @@ export function ApprovalsSection() {
 
       <Card>
         <CardLabel>Turn review</CardLabel>
-        <SettingRow inline first title="Review each turn" help="Keep or revert each change after a turn. Override per session in Checkpoints. Required to assign playtests.">
+        <SettingRow inline first title="Review each turn" help="Keep or revert each change after a turn. Override per session in Checkpoints. Required to assign clips.">
           <Switch label="Review each turn" on={settings.reviewTurns !== false} onChange={(v) => void save({ reviewTurns: v })} />
         </SettingRow>
       </Card>

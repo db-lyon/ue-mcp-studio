@@ -176,7 +176,7 @@ export class Notifier {
         this.dialogs(d as unknown as DialogsState);
         return;
       case "studio.qa.attention":
-        if (sessionId) this.emit("playtest.needs-you", sessionId, subject(this.o.session(sessionId)?.title, "A playtest"), "A playtest loop needs you", { sessionId, runId: typeof d.runId === "string" ? d.runId : undefined });
+        if (sessionId) this.emit("playtest.needs-you", sessionId, subject(this.o.session(sessionId)?.title, "A clip"), "A playtest loop needs you", { sessionId, runId: typeof d.runId === "string" ? d.runId : undefined });
         return;
       case "studio.qa.changed":
         if (d.run) this.run(d.run as unknown as QaRun);
@@ -221,10 +221,10 @@ export class Notifier {
     const target: NotifyTarget = { ...(sid ? { sessionId: sid } : {}), runId: run.runId };
     if (run.state === "awaiting_verdict") {
       const step = run.steps.find((s) => s.status === "awaiting_verdict");
-      this.emit("playtest.needs-you", sid, subject(run.scriptName, "A playtest"), step ? `Step ${step.index + 1} needs your verdict` : "Needs your verdict", target);
+      this.emit("playtest.needs-you", sid, subject(run.scriptName, "A clip"), step ? `Step ${step.index + 1} needs your verdict` : "Needs your verdict", target);
     } else if (run.state === "finished" && was && was !== "draft") {
       const failed = run.summary?.failed ?? run.steps.filter((s) => s.status === "failed").length;
-      this.emit("playtest.finished", sid, subject(run.scriptName, "A playtest"), failed ? `Failed, ${failed} step${failed === 1 ? "" : "s"}` : "Passed", target);
+      this.emit("playtest.finished", sid, subject(run.scriptName, "A clip"), failed ? `Failed, ${failed} step${failed === 1 ? "" : "s"}` : "Passed", target);
     }
   }
 

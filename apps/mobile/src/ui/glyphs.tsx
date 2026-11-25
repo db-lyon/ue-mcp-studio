@@ -31,7 +31,7 @@ export function Glyph({ name, color, size = 14 }: { name: GlyphName; color?: str
   );
 }
 
-/** Start playtest's options: three sliders. `knob` is the panel the knobs sit on. */
+/** Start clip's options: three sliders. `knob` is the panel the knobs sit on. */
 export function OptionsGlyph({ color, knob }: { color?: string; knob?: string }) {
   const t = useTheme();
   color ??= t.c.muted;

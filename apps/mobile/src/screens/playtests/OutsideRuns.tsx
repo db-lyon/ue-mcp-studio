@@ -29,7 +29,7 @@ export function useOutsideRuns(events: Array<{ id: number; type: string; data: R
 export function OutsideRuns({ runs, onDismiss }: { runs: QaRun[]; onDismiss: (runId: string) => void }) {
   if (runs.length === 0) return null;
   return (
-    <ScrollView style={{ maxHeight: "50%" }} contentContainerStyle={{ gap: 10, paddingTop: 10, paddingHorizontal: 16 }} accessibilityLabel="Playtests">
+    <ScrollView style={{ maxHeight: "50%" }} contentContainerStyle={{ gap: 10, paddingTop: 10, paddingHorizontal: 16 }} accessibilityLabel="Clip runs">
       {runs.map((r) => (
         <QaCard key={r.runId} run={r} onDismiss={() => onDismiss(r.runId)} />
       ))}

@@ -222,7 +222,7 @@ describe("the loop", () => {
     expect(loop.state).toBe("passed");
     expect(loop.attempts.map((a) => [a.n, a.changes.map((c) => c.path), a.failing.length])).toEqual([[1, [], 1], [2, ["Content/BP_Door.uasset"], 0]]);
     expect(h.card().runId).toBe(`${BASE}02`);
-    expect(h.prompts[0]).toMatch(/only run the playtest/);
+    expect(h.prompts[0]).toMatch(/only run the clip/);
     expect(h.prompts[1]).toMatch(/attempt 2 of a loop/);
     expect(h.prompts[1]).toMatch(/Step 1 \(Open the door\) failed\. Expected Door\.OpenAngle gt 80/);
     expect(h.prompts[1]).toMatch(/Door\.OpenAngle never went above 80/);
@@ -321,7 +321,7 @@ describe("the hard blockers", () => {
     expect(h.loop()).toMatchObject({ state: "needs_you", blocker: { kind: "verdict", step: 2 } });
     expect(h.loop().blocker!.reason).toMatch(/Step 3 needs your verdict/);
     expect(support.notified).toHaveLength(1);
-    expect(published.find((p) => p.type === "qa.attention")?.data).toMatchObject({ sessionId: h.sessionId, runId: `${BASE}01`, text: expect.stringMatching(/^Playtest DoorOpens needs you: /) });
+    expect(published.find((p) => p.type === "qa.attention")?.data).toMatchObject({ sessionId: h.sessionId, runId: `${BASE}01`, text: expect.stringMatching(/^Clip DoorOpens needs you: /) });
     await h.broker.verdict(`${BASE}01`, { step: 2, verdict: "pass" });
     expect(h.loop().state).toBe("passed");
     expect(h.loop().blocker).toBeUndefined();
@@ -443,7 +443,7 @@ describe("the hard blockers", () => {
     const h = setup(plan);
     await assign(h);
     await ended(h);
-    expect(h.loop()).toMatchObject({ state: "needs_you", blocker: { kind: "attempts", reason: `The playtest still fails after ${MAX_ATTEMPTS} attempts.` } });
+    expect(h.loop()).toMatchObject({ state: "needs_you", blocker: { kind: "attempts", reason: `The clip still fails after ${MAX_ATTEMPTS} attempts.` } });
     expect(h.loop().attempts).toHaveLength(MAX_ATTEMPTS);
   });
 
@@ -462,8 +462,8 @@ describe("the hard blockers", () => {
     expect(h.loop().state).toBe("passed");
     // It starts by fixing, not by only running, and carries why the earlier loop stopped.
     const first = h.prompts[MAX_ATTEMPTS];
-    expect(first).not.toMatch(/only run the playtest/);
-    expect(first).toMatch(/An earlier loop made 8 attempts and stopped: The playtest still fails after 8 attempts\./);
+    expect(first).not.toMatch(/only run the clip/);
+    expect(first).toMatch(/An earlier loop made 8 attempts and stopped: The clip still fails after 8 attempts\./);
     expect(first).toMatch(/x7/);
   });
 
@@ -577,7 +577,7 @@ describe("judging an attempt", () => {
 
   it("treats a run that never ran twice as no progress", () => {
     const sig = failingSteps(null).map((f) => f.signature);
-    expect(decide({ ...facts, run: null, previous: sig })).toMatchObject({ kind: "blocked", blocker: { kind: "no_progress", reason: expect.stringMatching(/The playtest did not run/) } });
+    expect(decide({ ...facts, run: null, previous: sig })).toMatchObject({ kind: "blocked", blocker: { kind: "no_progress", reason: expect.stringMatching(/The clip did not run/) } });
   });
 
   it("fixes failures before asking the person for their verdict", () => {

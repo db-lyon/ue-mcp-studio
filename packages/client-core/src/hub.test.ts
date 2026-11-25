@@ -116,7 +116,7 @@ describe("sign-off", () => {
     expect(signOffText({ record, lapsed: null })).toEqual({ title: "Signed off by octocat" });
     expect(signOffText({ record: { ...record, via: "Ama's phone" }, lapsed: null }).title).toBe("Signed off by octocat from Ama's phone");
     expect(signOffText({ record, lapsed: "revision" })).toMatchObject({ title: "Signed off on an earlier revision" });
-    expect(signOffText({ record, lapsed: "failed" }).detail).toBe("A required playtest failed after it.");
+    expect(signOffText({ record, lapsed: "failed" }).detail).toBe("A required clip failed after it.");
   });
 });
 
@@ -193,8 +193,8 @@ describe("overview models", () => {
       { goal: "c", required: false, status: "failing" },
     ] };
     expect(milestoneProgress(m)).toEqual({ met: 1, total: 2 });
-    expect(milestoneProgressText(m)).toBe("1 of 2 goals met");
-    expect(milestoneProgressText(gs("e", "met", { kind: "milestone" }))).toBe("No goals yet");
+    expect(milestoneProgressText(m)).toBe("1 of 2 tracks met");
+    expect(milestoneProgressText(gs("e", "met", { kind: "milestone" }))).toBe("No tracks yet");
   });
 
   it("opens Milestones by address and with g then m", () => {
@@ -236,8 +236,8 @@ describe("overview models", () => {
   });
 
   it("says how many goals are in each status, milestones aside", () => {
-    expect(goalSummary([gs("a", "failing"), gs("b", "met"), gs("c", "met"), gs("m", "met", { kind: "milestone" })])).toBe("3 goals: 1 failing, 2 met");
-    expect(goalSummary([])).toBe("No goals");
+    expect(goalSummary([gs("a", "failing"), gs("b", "met"), gs("c", "met"), gs("m", "met", { kind: "milestone" })])).toBe("3 tracks: 1 failing, 2 met");
+    expect(goalSummary([])).toBe("No tracks");
   });
 
   it("finds checks that just broke, a fail after a pass on something else, and counts flips", () => {
@@ -272,7 +272,7 @@ describe("overview models", () => {
     expect(isGoalsFile({ format: "ue-mcp.goals" })).toBe(true);
     expect(isGoalsFile({ title: "x" })).toBe(false);
     expect(importedText(null)).toBeNull();
-    expect(importedText({ from: "QA/Goals", at: "2026-11-23T10:00:00.000Z", goals: ["a", "b"], problems: [] })).toContain("2 goals were brought in from QA/Goals on 2026-11-23");
+    expect(importedText({ from: "QA/Goals", at: "2026-11-23T10:00:00.000Z", goals: ["a", "b"], problems: [] })).toContain("2 tracks were brought in from QA/Goals on 2026-11-23");
   });
 });
 
@@ -313,8 +313,8 @@ describe("the goal form", () => {
     const goals = graph(gs("m", "met", { kind: "milestone" }), gs("g", "met"), gs("self", "met", { requires: [{ goal: "g" }] }));
     expect(goalFormErrors({ ...goalFormOf(), title: "x", parents: ["m", "g"] }, { goals })).toEqual({});
     expect(goalFormErrors({ ...goalFormOf(), title: "x", kind: "milestone", parents: ["m"] }, { goals })).toEqual({});
-    expect(goalFormErrors({ ...goalFormOf(), title: "x", parents: ["self"] }, { goals, selfId: "self" }).parents).toBe("A goal cannot be part of itself.");
-    expect(goalFormErrors({ ...goalFormOf(), title: "x", parents: ["gone"] }, { goals }).parents).toBe("Pick goals from the list.");
+    expect(goalFormErrors({ ...goalFormOf(), title: "x", parents: ["self"] }, { goals, selfId: "self" }).parents).toBe("A track cannot be part of itself.");
+    expect(goalFormErrors({ ...goalFormOf(), title: "x", parents: ["gone"] }, { goals }).parents).toBe("Pick tracks or scenes from the list.");
     expect(goalFormErrors({ ...goalFormOf(), title: "x", parents: ["g"] }, { goals, selfId: "self" }).parents).toContain("already requires g");
     expect(goalFormOf(goals[1].goal, ["m"]).parents).toEqual(["m"]);
     expect(goalDraftOf({ ...goalFormOf(), title: "x", parents: ["m"] }).parents).toEqual(["m"]);
@@ -355,8 +355,8 @@ describe("schedules and the queue", () => {
   });
 
   it("says where a person's Run went, and offers Run next only behind other queued runs", () => {
-    expect(runFeedback("Tutorial completes", { state: "started", position: 0, ahead: 0, resumed: true }, 3)).toEqual({ text: "Running Tutorial completes (3 playtests)", tone: "ok" });
-    expect(runFeedback("every playtest", { state: "started", position: 0, ahead: 0 }, 3).text).toBe("Running every playtest");
+    expect(runFeedback("Tutorial completes", { state: "started", position: 0, ahead: 0, resumed: true }, 3)).toEqual({ text: "Running Tutorial completes (3 clips)", tone: "ok" });
+    expect(runFeedback("every clip", { state: "started", position: 0, ahead: 0 }, 3).text).toBe("Running every clip");
     expect(runFeedback("Jump", { state: "waiting", position: 1, ahead: 0, reason: "Play In Editor is in use" })).toEqual({ text: "Jump is next. Play In Editor is in use.", tone: "bad", openQueue: true });
     expect(runFeedback("Jump", { state: "waiting", position: 1, ahead: 0, reason: "Claude Code holds the editor: is this safe?" }).text).toBe("Jump is next. Claude Code holds the editor: is this safe.");
     expect(runFeedback("Jump", { state: "queued", position: 1, ahead: 1 })).toEqual({ text: "Queued Jump, 1 run ahead", tone: "ok", runNext: false, openQueue: true });

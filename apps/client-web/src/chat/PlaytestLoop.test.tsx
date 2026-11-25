@@ -106,7 +106,7 @@ describe("the loop on the playtest card", () => {
   });
 
   it("says where the loop is", () => {
-    expect(loopHeadline(loopOf({ attempts: [attempt(1, [], { endedAt: undefined })] }))).toMatch(/Attempt 1 is running: the subagent runs the playtest/);
+    expect(loopHeadline(loopOf({ attempts: [attempt(1, [], { endedAt: undefined })] }))).toMatch(/Attempt 1 is running: the subagent runs the clip/);
     expect(loopHeadline(loopOf({ attempts: [attempt(1, []), attempt(2, [])] }))).toMatch(/Attempt 2 is running: the subagent fixes what failed/);
     expect(loopHeadline(loopOf({ state: "failed", error: "the card is gone" }))).toBe("The loop stopped on an error: the card is gone");
   });

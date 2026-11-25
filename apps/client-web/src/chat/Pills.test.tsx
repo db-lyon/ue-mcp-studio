@@ -16,10 +16,10 @@ const session = (over: Partial<SessionDetail> = {}): SessionDetail => ({
   ...over,
 } as SessionDetail);
 
-describe("the Make playtest pill", () => {
+describe("the Make clip pill", () => {
   it("shows after a finished turn that changed something, and runs the flow on that turn", () => {
     const pill = makePlaytestPill(session())!;
-    expect(pill.label).toBe("Make playtest");
+    expect(pill.label).toBe("Make clip");
     const playtest = vi.fn();
     pill.run({ playtest });
     expect(playtest).toHaveBeenCalledWith({ text: "", turn: 4 });
@@ -67,8 +67,8 @@ describe("the pill row", () => {
     const playtest = vi.fn();
     const onClear = vi.fn();
     render(<PillRow pills={pillsFor(session(), new Set(), providers)} actions={{ playtest }} onClear={onClear} />);
-    expect(screen.getAllByRole("button").map((b) => b.textContent)).toEqual(["Make playtest", "Other"]);
-    fireEvent.click(screen.getByRole("button", { name: "Make playtest" }));
+    expect(screen.getAllByRole("button").map((b) => b.textContent)).toEqual(["Make clip", "Other"]);
+    fireEvent.click(screen.getByRole("button", { name: "Make clip" }));
     expect(playtest).toHaveBeenCalledWith({ text: "", turn: 4 });
     expect(onClear).toHaveBeenCalled();
   });

@@ -40,11 +40,11 @@ export function MilestonesScreen() {
     <div className="hub-screen hub-goals">
       <ScreenHead
         title={HUB_COPY.milestones}
-        sub={<span>{total === 0 ? "No milestones" : `${total} ${total === 1 ? "milestone" : "milestones"}`}</span>}
+        sub={<span>{total === 0 ? "No scenes" : `${total} ${total === 1 ? "scene" : "scenes"}`}</span>}
         actions={<button className="primary" onClick={() => hub.editGoal(null, { kind: "milestone" })}><HubIcon name="plus" size={12} /> {HUB_COPY.newMilestone}</button>}
       />
       {total === 0 ? (
-        <Empty title="No milestones yet">{HUB_COPY.noMilestonesYet}</Empty>
+        <Empty title="No scenes yet">{HUB_COPY.noMilestonesYet}</Empty>
       ) : (
         <>
           <div className="hub-filters">
@@ -64,7 +64,7 @@ export function MilestonesScreen() {
               {!hub.narrow && <Kbd>/</Kbd>}
             </div>
           </div>
-          <div className="hub-chips" role="group" aria-label="Show milestones">
+          <div className="hub-chips" role="group" aria-label="Show scenes">
             <button className={`filter-chip ${only === null ? "active" : ""}`} aria-pressed={only === null} onClick={() => setOnly(null)}>All <span className="filter-count">{total}</span></button>
             {GOAL_STATUS_ORDER.filter((s) => counts[s] > 0).map((s) => (
               <button key={s} className={`filter-chip hub-chip tone-${GOAL_STATUS_LOOK[s].tone} ${only === s ? "active" : ""}`} aria-pressed={only === s} onClick={() => setOnly(only === s ? null : s)}>

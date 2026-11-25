@@ -42,8 +42,8 @@ export const FEEDBACK_MODES: { id: FeedbackMode; name: string; about: string }[]
 ];
 
 const PLAYTEST_STARTS: ReadonlyArray<{ id: PlaytestRunsMode; name: string; help: string }> = [
-  { id: "manual", name: "Manual", help: "Playtests run only when you start or assign them." },
-  { id: "automatic", name: "Automatic", help: "Agents can also start playtests on their own." },
+  { id: "manual", name: "Manual", help: "Clips run only when you start or assign them." },
+  { id: "automatic", name: "Automatic", help: "Agents can also start clips on their own." },
 ];
 
 type AgentUpdate = Partial<{ feedbackTool: boolean; feedbackMode: FeedbackMode; dialogMode: DialogMode; playtestRuns: PlaytestRunsMode; agentFixes: boolean; verdictWaitMinutes: number }>;
@@ -84,8 +84,8 @@ export function ApprovalsSection() {
           </Row>
         ))}
         </RemoteReadOnly>
-        <Row title="Starting playtests" help={PLAYTEST_STARTS.find((p) => p.id === agent.playtestRuns)?.help}>
-          <Seg label="Starting playtests" value={agent.playtestRuns} options={PLAYTEST_STARTS} onChange={(v) => void saveAgent({ playtestRuns: v })} />
+        <Row title="Clip runs" help={PLAYTEST_STARTS.find((p) => p.id === agent.playtestRuns)?.help}>
+          <Seg label="Clip runs" value={agent.playtestRuns} options={PLAYTEST_STARTS} onChange={(v) => void saveAgent({ playtestRuns: v })} />
         </Row>
         <Row inline title={AGENT_FIXES_COPY.setting} help={AGENT_FIXES_COPY.help}>
           <Switch label={AGENT_FIXES_COPY.setting} on={agent.agentFixes} onChange={(v) => void saveAgent({ agentFixes: v })} />
@@ -123,7 +123,7 @@ export function ApprovalsSection() {
       </Card>
 
       <Card label="Turn review">
-        <Row inline title="Review each turn" help="Keep or revert each change after a turn. Override per session in Checkpoints. Required to assign playtests.">
+        <Row inline title="Review each turn" help="Keep or revert each change after a turn. Override per session in Checkpoints. Required to assign clips.">
           <Switch label="Review each turn" on={settings.reviewTurns !== false} onChange={(v) => void save({ reviewTurns: v })} />
         </Row>
       </Card>

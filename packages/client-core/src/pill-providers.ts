@@ -33,8 +33,8 @@ export const makePlaytestPill: PillProvider = (s) => {
   if (!turn || !finished(s) || turn.mutations < 1 || turn.playtest) return null;
   return {
     id: `make-playtest:${turn.start}`,
-    label: "Make playtest",
-    title: "Draft a playtest of what the last turn changed, as a Playtest card",
+    label: "Make clip",
+    title: "Draft a clip of what the last turn changed, as a clip card",
     run: (a) => a.playtest({ text: "", turn: turn.start }),
   };
 };

@@ -50,8 +50,8 @@ function page(answer: PlaytestIndexAnswer = { playtests: ENTRIES, listed: true }
   render(<PlaytestsView daemon={daemon} index={{ index: answer, error: null, reload }} onOpenSession={onOpenSession} />);
   return { reload, onOpenSession };
 }
-const rows = () => screen.queryAllByRole("group", { name: /^Playtest / }).map((g) => g.getAttribute("aria-label"));
-const row = (name: string) => screen.getByRole("group", { name: `Playtest ${name}` });
+const rows = () => screen.queryAllByRole("group", { name: /^Clip / }).map((g) => g.getAttribute("aria-label"));
+const row = (name: string) => screen.getByRole("group", { name: `Clip ${name}` });
 
 describe("the Playtests page", () => {
   it("opens on what is active when something is, with each filter's count", () => {
@@ -60,7 +60,7 @@ describe("the Playtests page", () => {
     expect(screen.getByRole("button", { name: "Needs you 1" })).toBeTruthy();
     expect(screen.getByRole("button", { name: "Failing 1" })).toBeTruthy();
     expect(screen.getByRole("button", { name: "All 4" })).toBeTruthy();
-    expect(rows()).toEqual(["Playtest Door"]);
+    expect(rows()).toEqual(["Clip Door"]);
     // The verdict is right there.
     expect(within(row("Door")).getByRole("button", { name: "Pass step 2" })).toBeTruthy();
   });
@@ -68,9 +68,9 @@ describe("the Playtests page", () => {
   it("filters to failing and to all, and remembers the pick", () => {
     page();
     fireEvent.click(screen.getByRole("button", { name: "Failing 1" }));
-    expect(rows()).toEqual(["Playtest Jump"]);
+    expect(rows()).toEqual(["Clip Jump"]);
     fireEvent.click(screen.getByRole("button", { name: "All 4" }));
-    expect(rows()).toEqual(["Playtest Door", "Playtest Jump", "Playtest Walk", "Playtest Fresh"]);
+    expect(rows()).toEqual(["Clip Door", "Clip Jump", "Clip Walk", "Clip Fresh"]);
     cleanup();
     page();
     expect(screen.getByRole("button", { name: "All 4", pressed: true })).toBeTruthy();
@@ -95,7 +95,7 @@ describe("the Playtests page", () => {
     const { reload } = page();
     fireEvent.click(screen.getByRole("button", { name: "All 4" }));
     await act(async () => {
-      fireEvent.click(within(row("Fresh")).getByRole("button", { name: "Start playtest" }));
+      fireEvent.click(within(row("Fresh")).getByRole("button", { name: "Start clip" }));
     });
     expect(m.qaPlaytestCard).toHaveBeenCalledWith("/Game/T/Fresh");
     expect(m.qaRun).toHaveBeenCalledWith(card.runId, { startPie: true, players: 1, listen: false, record: true });
@@ -148,7 +148,7 @@ describe("the Playtests page", () => {
     fireEvent.click(screen.getByRole("button", { name: "Needs you 0" }));
     expect(screen.getByText(/Nothing needs you/)).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: "Failing 0" }));
-    expect(screen.getByText(/No playtest.s last run failed/)).toBeTruthy();
+    expect(screen.getByText(/No clip.s last run failed/)).toBeTruthy();
   });
 
   it("keeps every row's actions in one place, the card's top-right corner, in one order", () => {
@@ -184,7 +184,7 @@ describe("the Playtests page", () => {
   it("with no playtests at all, says how to make one and goes to Chat", () => {
     const onChat = vi.fn();
     render(<PlaytestsView daemon={daemon} index={{ index: { playtests: [], listed: true }, error: null, reload: vi.fn() }} onOpenSession={vi.fn()} onChat={onChat} />);
-    expect(screen.getByText("No playtests yet")).toBeTruthy();
+    expect(screen.getByText("No clips yet")).toBeTruthy();
     expect(screen.getByText("/playtest").tagName).toBe("CODE");
     fireEvent.click(screen.getByRole("button", { name: "Go to Chat" }));
     expect(onChat).toHaveBeenCalled();
@@ -193,14 +193,14 @@ describe("the Playtests page", () => {
   it("leaves a deleted script off the page", () => {
     page({ playtests: [ENTRIES[1], { ...ENTRIES[2], deleted: true }], listed: true });
     fireEvent.click(screen.getByRole("button", { name: /^All / }));
-    expect(rows()).toEqual(["Playtest Jump"]);
+    expect(rows()).toEqual(["Clip Jump"]);
   });
 });
 
 describe("Edit and Delete on the page", () => {
   const openCard = (name: string) => {
     fireEvent.click(screen.getByRole("button", { name: /^All / }));
-    fireEvent.click(within(row(name)).getByRole("button", { name: `Open playtest ${name}` }));
+    fireEvent.click(within(row(name)).getByRole("button", { name: `Open clip ${name}` }));
   };
 
   it("shows Edit and Delete on a collapsed card, with its other actions in the top-right corner", () => {
@@ -238,7 +238,7 @@ describe("Edit and Delete on the page", () => {
     openCard("Walk");
     fireEvent.click(within(row("Walk")).getByRole("button", { name: "Delete" }));
     expect(m.qaPlaytestDelete).not.toHaveBeenCalled();
-    expect(within(row("Walk")).getByText("Delete this playtest?")).toBeTruthy();
+    expect(within(row("Walk")).getByText("Delete this clip?")).toBeTruthy();
     await act(async () => {
       fireEvent.click(within(row("Walk")).getByRole("button", { name: "Delete" }));
     });
@@ -263,7 +263,7 @@ describe("Edit and Delete on the page", () => {
     const edit = within(row("Jump")).getByRole("button", { name: "Edit" }) as HTMLButtonElement;
     expect(edit.disabled).toBe(true);
     expect(edit.title).toBe("The editor is not connected");
-    expect(screen.queryByRole("group", { name: "Playtest Walk" })).toBeNull();
+    expect(screen.queryByRole("group", { name: "Clip Walk" })).toBeNull();
   });
 });
 

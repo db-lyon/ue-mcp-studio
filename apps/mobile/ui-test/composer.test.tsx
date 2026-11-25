@@ -403,9 +403,9 @@ describe("PillRow", () => {
     const { container, rerender } = render(<PillRow pills={[]} actions={actions} onClear={() => undefined} />);
     expect(container.textContent).toBe("");
     const onClear = vi.fn();
-    rerender(<PillRow pills={[{ id: "p", label: "Make playtest", run: (a) => a.playtest({ text: "", turn: 3 }) }]} actions={actions} onClear={onClear} />);
+    rerender(<PillRow pills={[{ id: "p", label: "Make clip", run: (a) => a.playtest({ text: "", turn: 3 }) }]} actions={actions} onClear={onClear} />);
     expect(screen.getByLabelText("Suggestions")).toBeTruthy();
-    fireEvent.click(button("Make playtest"));
+    fireEvent.click(button("Make clip"));
     expect(onClear).toHaveBeenCalled();
     expect(actions.playtest).toHaveBeenCalledWith({ text: "", turn: 3 });
   });

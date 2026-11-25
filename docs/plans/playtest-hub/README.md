@@ -6,6 +6,19 @@ The sections above **Decisions** are the first draft. Where they differ from a d
 
 The Playtest Hub is the place in Studio where a team says what the game must do, sees whether it does, and puts agents to work on the gap. It manages goals, the playtests and other checks that prove them, the runs that produce evidence, and the queue that schedules those runs on the editor.
 
+## Names in the UI (2026-11-25)
+
+This plan and the review files beside it use the data model's names, which stay as they are in routes, JSON, stored ids and ue-mcp actions. People and the agent read other words:
+
+| In this plan and on the wire | In the UI and agent instructions |
+|---|---|
+| Playtest (a test script or a timeline, as a hub record) | Clip: a script clip or a timeline clip |
+| Goal | Track |
+| Milestone (`kind: "milestone"`, a goal that requires other goals) | Scene |
+| A row in a timeline playtest's editor (one per Input Action, plus events and checks) | Lane |
+
+Run, queue, schedule, sign-off, verdict, check, region and take keep their names. The hub itself is still the Playtest Hub, and the activity is still playtesting.
+
 ## Design review (2026-11-23, in progress)
 
 The deferred-verdict flaw was a design error, and no code review would have caught it. Before anything new is built, the hub gets an adversarial design review from four angles. Each review writes its findings beside this plan:

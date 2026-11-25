@@ -73,9 +73,9 @@ export function OverviewScreen({ onChat }: { onChat?: () => void }) {
         title={HUB_COPY.overview}
         sub={<><span>{goalSummary(o.goals)}</span></>}
         actions={<>
-          {failing > 0 && <button onClick={() => void hub.runPlan({ scope: { kind: "failing" } }, "every failing playtest")}><HubIcon name="play" size={12} /> {HUB_COPY.runFailing} <span className="hub-btn-count">{failing}</span></button>}
-          {runnable > 0 && <button onClick={() => void hub.runPlan({ scope: { kind: "all" } }, "every playtest")}><HubIcon name="play" size={12} /> {HUB_COPY.runAll}</button>}
-          <button className="primary" onClick={() => hub.editGoal(null)} title="New goal (c)"><HubIcon name="plus" size={12} /> {HUB_COPY.newGoal}</button>
+          {failing > 0 && <button onClick={() => void hub.runPlan({ scope: { kind: "failing" } }, "every failing clip")}><HubIcon name="play" size={12} /> {HUB_COPY.runFailing} <span className="hub-btn-count">{failing}</span></button>}
+          {runnable > 0 && <button onClick={() => void hub.runPlan({ scope: { kind: "all" } }, "every clip")}><HubIcon name="play" size={12} /> {HUB_COPY.runAll}</button>}
+          <button className="primary" onClick={() => hub.editGoal(null)} title="New track (c)"><HubIcon name="plus" size={12} /> {HUB_COPY.newGoal}</button>
           <GoalsMenu />
         </>}
       />
@@ -86,7 +86,7 @@ export function OverviewScreen({ onChat }: { onChat?: () => void }) {
       <div className="hub-overview-grid">
         <section className="hub-overview-goals" aria-label={HUB_COPY.goals}>
           {!noGoals && <>
-            <div className="hub-chips" role="group" aria-label="Show goals">
+            <div className="hub-chips" role="group" aria-label="Show tracks">
               <button className={`filter-chip ${only === null ? "active" : ""}`} aria-pressed={only === null} onClick={() => setOnly(null)}>All <span className="filter-count">{GOAL_STATUS_ORDER.reduce((n, s) => n + counts[s], 0)}</span></button>
               {GOAL_STATUS_ORDER.filter((s) => counts[s] > 0).map((s) => (
                 <button key={s} className={`filter-chip hub-chip tone-${GOAL_STATUS_LOOK[s].tone} ${only === s ? "active" : ""}`} aria-pressed={only === s} onClick={() => setOnly(only === s ? null : s)}>
@@ -288,7 +288,7 @@ function NowRunning() {
               <span className="hub-queued-pos mono">{i + 1}</span>
               <span className="hub-row-main">
                 <span className="hub-row-title">{plan.title}</span>
-                <span className="hub-row-meta"><span>{scopeText(plan.scope, o.goals)}</span><span>{plan.items.length} {plan.items.length === 1 ? "playtest" : "playtests"}</span></span>
+                <span className="hub-row-meta"><span>{scopeText(plan.scope, o.goals)}</span><span>{plan.items.length} {plan.items.length === 1 ? "clip" : "clips"}</span></span>
               </span>
               <span className="hub-row-actions">
                 <button className="ghost icon-button" aria-label={`Stop ${plan.title}`} onClick={() => void cancel(plan)}><HubIcon name="close" size={12} /></button>

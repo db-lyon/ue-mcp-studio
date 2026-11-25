@@ -285,7 +285,7 @@ export const SETTINGS_SCENARIOS: Record<string, Scenario> = {
       : undefined),
   }),
   "settings-models-remote": page("Models & accounts in a paired browser: sign-ins, API keys, custom endpoints and the gateway read only, with the note that they change on the computer", "models", { remotePage: true, fullPage: true }),
-  "settings-approvals-remote": page("Approvals & review in a paired browser: the ask-first rules and the dialog policy read only; playtests, feedback and turn review still change", "approvals", { remotePage: true }),
+  "settings-approvals-remote": page("Approvals & review in a paired browser: the ask-first rules and the dialog policy read only; clip runs, feedback and turn review still change", "approvals", { remotePage: true }),
   "settings-project-remote": page("Project in a paired browser: the context strategy and ue-mcp.yml read only", "project", {
     remotePage: true,
     get: (p) => (p === "/v1/ext/studio/config" ? { path: "C:/Projects/StudioE2E/ue-mcp.yml", exists: true, text: YAML } : undefined),
@@ -337,7 +337,7 @@ export const HELD_REBUILD = {
   answers: [
     { session: "mcp-7f2a", label: "Claude Code", answer: "wait_until_released", reason: "busy (blueprint.add_variable, level.place_actor)", auto: true },
     { session: "mcp-91c0", label: "Cursor", answer: "go", reason: "idle for 412s", auto: true },
-    { session: "studio:s-4", label: "Studio: Dress the courtyard", answer: "block", reason: "a playtest is recording", auto: false },
+    { session: "studio:s-4", label: "Studio: Dress the courtyard", answer: "block", reason: "a clip is recording", auto: false },
   ],
   self: { attestationRequired: false, attested: null, inflight: [] },
 };

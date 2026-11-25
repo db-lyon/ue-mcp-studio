@@ -479,7 +479,7 @@ export function ChatView({ daemon, nav, active = true, onSettings }: {
   const busy = detail?.status === "running" || detail?.status === "waiting";
   // The calls waiting for approval, so the thread a call waits in says it waits on the user.
   const asked = useMemo(() => new Set((detail?.approvals ?? []).map((a) => a.toolUseId)), [detail?.approvals]);
-  // The Make playtest pill and Retry: the playtest flow, started when no turn runs.
+  // The Make clip pill and Retry: the playtest flow, started when no turn runs.
   const playtest = useMemo(() => (detail && !disconnected
     ? {
         busy,
