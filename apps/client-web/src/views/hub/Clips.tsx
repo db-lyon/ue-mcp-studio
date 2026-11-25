@@ -59,7 +59,7 @@ export function ClipsScreen() {
       {error && <div className="banner bad" role="alert">{error} <button className="small-button" onClick={load}>{CLIP_COPY.tryAgain}</button></div>}
       {!error && clips === null && <Placeholder rows={4} />}
       {clips && clips.length === 0 && !adding && (
-        <Empty title={CLIP_COPY.empty} actions={<button className="primary" onClick={() => setAdding(true)}>{CLIP_COPY.newClip}</button>}>{CLIP_COPY.emptyBody}</Empty>
+        <Empty title={CLIP_COPY.empty} actions={<button className="primary" onClick={() => setAdding(true)}>{CLIP_COPY.newClip}</button>} />
       )}
       {clips && clips.length > 0 && (
         <div className="hub-list">
