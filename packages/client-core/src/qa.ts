@@ -186,7 +186,7 @@ const plural = (n: number, one: string): string => `${n} ${one}${n === 1 ? "" : 
 
 export function loopHeadline(loop: QaLoop): string {
   const n = loop.attempts.length;
-  if (loop.state === "running") return n <= 1 ? "Attempt 1 is running: the subagent runs the playtest to see what fails." : `Attempt ${n} is running: the subagent fixes what failed and runs the playtest again.`;
+  if (loop.state === "running") return n <= 1 ? "Attempt 1 is running: the subagent runs the clip to see what fails." : `Attempt ${n} is running: the subagent fixes what failed and runs the clip again.`;
   if (loop.state === "passed") return `Passed after ${plural(n, "attempt")}.`;
   if (loop.state === "stopped") return `The loop was stopped after ${plural(n, "attempt")}. Each attempt's changes can still be reverted.`;
   if (loop.state === "failed") return `The loop stopped on an error: ${loop.error ?? "unknown"}`;
@@ -211,7 +211,7 @@ export function assignAgainTitle(loop: QaLoop | undefined): string {
   const kind = loop?.blocker?.kind;
   if (kind === "attempts") return "Continue: more attempts, starting from what still fails";
   if (kind === "no_progress" || kind === "crashes" || kind === "builds") return "Try again anyway: the subagent goes on from what still fails, with the earlier stop in its brief";
-  return "Assign to subagent: it runs the playtest, fixes what fails and runs it again until every step passes, or stops and asks for you";
+  return "Assign to subagent: it runs the clip, fixes what fails and runs it again until every step passes, or stops and asks for you";
 }
 
 /** The query of the Playtests page's index: fresh, and how many runs to read (the default when absent). */
@@ -465,14 +465,14 @@ export function cardControls(run: QaRun, o: { outside?: { start?: boolean; assig
   return { draft, ended, owned, assigned, needsYouLoop, runnable, stoppable, canAssign, assignWaits, editable, viewport };
 }
 
-export const ASSIGN_WAITS = "Every step needs a person to judge, so a subagent has nothing to run yet. Fail a step and it can fix the project and run the playtest again.";
+export const ASSIGN_WAITS = "Every step needs a person to judge, so a subagent has nothing to run yet. Fail a step and it can fix the project and run the clip again.";
 
 /** The Playtests page's filters, in the order its chips show them, each with what an empty list says. */
 export const PLAYTEST_FILTERS: Array<{ id: PlaytestFilter; label: string; empty: string }> = [
-  { id: "active", label: "Active", empty: "No playtest is running." },
-  { id: "needs-you", label: "Needs you", empty: "Nothing needs you. A playtest step that needs your verdict, or a loop that stops for you, shows here." },
-  { id: "failing", label: "Failing", empty: "No playtest's last run failed." },
-  { id: "all", label: "All", empty: "No playtests in this project yet. Ask the agent for one in a session, or type /playtest in the message box." },
+  { id: "active", label: "Active", empty: "No clip is running." },
+  { id: "needs-you", label: "Needs you", empty: "Nothing needs you. A clip step that needs your verdict, or a loop that stops for you, shows here." },
+  { id: "failing", label: "Failing", empty: "No clip's last run failed." },
+  { id: "all", label: "All", empty: "No clips in this project yet. Ask the agent for one in a session, or type /playtest in the message box." },
 ];
 
 /** Events after which the Playtests page reads its list again, once they have stopped for a moment. */

@@ -972,11 +972,11 @@ export interface AgentSettings {
 /** Playtest runs, a setting per project: manual (the default) or automatic. */
 export type PlaytestRunsMode = "manual" | "automatic";
 export const PLAYTEST_RUNS: ReadonlyArray<{ mode: PlaytestRunsMode; label: string; help: string }> = [
-  { mode: "manual", label: "Manual", help: "The agent cannot start a playtest. You start it from its card, with /action, or by assigning a subagent." },
-  { mode: "automatic", label: "Automatic", help: "The agent can start playtests itself." },
+  { mode: "manual", label: "Manual", help: "The agent cannot start a clip. You start it from its card, with /action, or by assigning a subagent." },
+  { mode: "automatic", label: "Automatic", help: "The agent can start clips itself." },
 ];
 /** What the agent hears when Manual refuses its run. */
-export const PLAYTEST_RUNS_REFUSAL = "Starting playtests is set to Manual in Settings > Approvals & review. Click Start playtest on the card to start it.";
+export const PLAYTEST_RUNS_REFUSAL = "Clip runs is set to Manual in Settings > Approvals & review. Click Start clip on the card to start it.";
 
 /** An actor or asset the editor's "Chat about this" hands to a quick ask. */
 export interface QuickContextItem {
