@@ -148,7 +148,8 @@ export interface ClipRegionResult {
   name?: string;
   start?: number;
   end?: number;
-  status: "passed" | "failed" | "pending" | "empty";
+  /** skipped: every check in it was skipped, as outside the one region a run played. */
+  status: "passed" | "failed" | "pending" | "skipped" | "empty";
   drift?: ClipDrift;
 }
 
