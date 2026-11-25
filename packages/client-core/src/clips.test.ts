@@ -5,6 +5,13 @@
 import { describe, expect, it } from "vitest";
 import type { Clip } from "@ue-mcp-studio/shared";
 import {
+  applyTakeProgress,
+  clipEventsOn,
+  clipLiveFromStatus,
+  clipPlaying,
+  clipTakeEventsOn,
+  driftText,
+  foldClipEvent,
   clipEnd,
   clipName,
   curveAt,
@@ -81,6 +88,50 @@ describe("fixes from findings", () => {
   it("sets a check's expectation from a candidate, and offers none for an id", () => {
     expect(findingFix(clip, { id: "c1", field: "expect.value", message: "", candidates: ["speed2d"] }, "speed2d")).toEqual({ op: "set", id: "c1", expect: { value: "speed2d" } });
     expect(findingFix(clip, { id: "n9", field: "id", message: "" }, "n1")).toBeNull();
+  });
+});
+
+describe("following a run", () => {
+  const PATH = "/Game/Clips/CL_Door";
+  const ev = (type: string, data: Record<string, unknown>) => ({ type, data: { runId: "clip-1", clip: `${PATH}.CL_Door`, ...data } });
+
+  it("starts on clip.run_started for this clip and folds position, checks, regions and the finish", () => {
+    let l = foldClipEvent(null, ev("clip.run_started", { mode: "play", seq: 1 }), PATH);
+    l = foldClipEvent(l, ev("clip.position", { position: 42, length: 300, state: "running", holding: "c2", seq: 2 }), PATH);
+    expect(l).toMatchObject({ runId: "clip-1", position: 42, length: 300, holding: "c2" });
+    l = foldClipEvent(l, ev("clip.check", { check: { id: "c1", status: "passed" }, seq: 3 }), PATH);
+    l = foldClipEvent(l, ev("clip.region", { region: { id: "r1", status: "failed", drift: { max_position_cm: 26.94 } }, seq: 4 }), PATH);
+    l = foldClipEvent(l, ev("clip.verdict_requested", { awaiting: ["c4"], seq: 5 }), PATH);
+    expect(clipPlaying(l)).toBe(true);
+    l = foldClipEvent(l, ev("clip.run_finished", { state: "finished", passed: false, summary: { total: 2, failed: 1 }, seq: 6 }), PATH);
+    expect(l).toMatchObject({ state: "finished", passed: false, awaiting: [], holding: null, checks: { c1: { status: "passed" } }, regions: { r1: { status: "failed" } } });
+    expect(driftText(l!.regions.r1.drift)).toBe("drift 26.9 cm");
+    expect(clipPlaying(l)).toBe(false);
+  });
+
+  it("ignores another clip's events and stale ones", () => {
+    const l = foldClipEvent(null, ev("clip.run_started", { seq: 1 }), PATH);
+    expect(foldClipEvent(l, { type: "clip.position", data: { runId: "clip-1", clip: "/Game/Clips/CL_Other", position: 9, seq: 2 } }, PATH)).toBe(l);
+    const at5 = foldClipEvent(l, ev("clip.position", { position: 5, seq: 5 }), PATH);
+    expect(foldClipEvent(at5, ev("clip.position", { position: 3, seq: 4 }), PATH)!.position).toBe(5);
+  });
+
+  it("replaces a take's notes and appends its keys at keysFrom", () => {
+    let t = applyTakeProgress(null, { takeId: "t1", punchIn: 150, tracks: [{ action: "/a", notes: [{ start: 150, length: 1, open: true }], keys: [{ t: 150, v: 0 }], keysFrom: 0 }] });
+    t = applyTakeProgress(t, { tracks: [{ action: "/a", notes: [{ start: 150, length: 8 }], keys: [{ t: 151, v: 0.5 }, { t: 152, v: 1 }], keysFrom: 1 }] });
+    expect(t.tracks[0]).toMatchObject({ notes: [{ start: 150, length: 8 }], keys: [{ t: 150, v: 0 }, { t: 151, v: 0.5 }, { t: 152, v: 1 }] });
+    expect(t.punchIn).toBe(150);
+  });
+
+  it("reads the features from health", () => {
+    expect(clipEventsOn({ features: ["events.clip"] })).toBe(true);
+    expect(clipTakeEventsOn({ features: ["events.clip"] })).toBe(false);
+    expect(clipEventsOn(null)).toBe(false);
+  });
+
+  it("starts a run mid-take from clip_status's live_take", () => {
+    const l = clipLiveFromStatus({ run_id: "clip-2", mode: "record", state: "running", position: 200, take: { live_take: { samples: 50, frame: 200, tracks: [{ action: "/a", notes: [] }] } } });
+    expect(l.take?.frame).toBe(200);
   });
 });
 

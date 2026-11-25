@@ -112,12 +112,46 @@ function clipRoutes(p: string): unknown {
   return undefined;
 }
 
-/** A hub scenario that also answers the timeline's routes. */
-function clipScenario(title: string, hash: string, extra: Partial<Scenario> = {}): Scenario {
+/** A hub scenario that also answers the timeline's routes, with a run under way or finished (`status`) and a history. */
+function clipScenario(title: string, hash: string, extra: Partial<Scenario> = {}, run?: { status: unknown; runs?: unknown[] }): Scenario {
   const s = hub(title, hash, full, extra);
   const demo = s.get!;
-  return { ...s, get: (p, url) => clipRoutes(p) ?? demo(p, url) };
+  return {
+    ...s,
+    get: (p, url) => {
+      if (p === "/v1/health") return { ...(demo(p, url) as object), features: ["checkpoints", "hub", "hub.goalDelete", "events.clip", "events.clip.take"] };
+      if (run && p === "/v1/ext/studio/clips/status") return run.status;
+      if (run?.runs && p === "/v1/ext/studio/clips/runs") return { runs: run.runs };
+      return clipRoutes(p) ?? demo(p, url);
+    },
+  };
 }
+const FAILED_RUN = {
+  run_id: "clip-7", clip: CLIP_PATH, mode: "play", state: "finished", passed: false, position: 300, length: 300,
+  summary: { total: 4, passed: 2, failed: 1, skipped: 1 },
+  drift: { compared: true, max_position_cm: 26.9, first_over_frame: 114 },
+  checks: [
+    { id: "c1", status: "passed" },
+    { id: "c2", status: "passed", hold: { held_ms: 420, drift_ms: 120 } },
+    { id: "c3", status: "failed", evidence: { reason: "speed2d fell to 64 at frame 88, under 100" } },
+    { id: "c4", status: "skipped" },
+  ],
+  regions: [{ id: "r1", status: "failed", drift: { max_position_cm: 4.8 } }, { id: "r2", status: "passed", drift: { max_position_cm: 26.9 } }],
+};
+const RUNS = [
+  { ...FAILED_RUN, started_at: "2026-11-25T14:02:00Z" },
+  { run_id: "clip-6", mode: "play", state: "finished", passed: true, region: "r2", started_at: "2026-11-25T13:40:00Z", summary: { total: 2, passed: 2 }, drift: { max_position_cm: 3.1 } },
+  { run_id: "clip-5", mode: "record", state: "stopped", stop_reason: "Take saved", region: "r2", started_at: "2026-11-25T13:31:00Z", summary: { total: 2 } },
+];
+const AWAITING_RUN = { ...FAILED_RUN, state: "running", passed: undefined, position: 262, holding: "c4", awaiting: ["c4"], checks: FAILED_RUN.checks.slice(0, 3).map((c) => (c.id === "c3" ? { ...c, status: "passed", evidence: undefined } : c)), regions: [{ id: "r1", status: "passed" }] };
+const RECORDING_RUN = {
+  run_id: "clip-8", clip: CLIP_PATH, mode: "record", state: "running", position: 214, length: 300,
+  checks: [{ id: "c1", status: "passed" }, { id: "c2", status: "passed" }], regions: [{ id: "r1", status: "passed" }],
+  take: { live_take: { takeId: "t3", punchIn: 150, samples: 64, frame: 214, tracks: [
+    { action: `${IA}/IA_Jump`, type: "bool", notes: [{ start: 171, length: 9 }, { start: 204, length: 10, open: true }], keys: [] },
+    { action: `${IA}/IA_Move`, type: "axis2d", notes: [], keys: [{ t: 150, v: [0, 0.2] }, { t: 170, v: [0.3, 0.9] }, { t: 200, v: [-0.4, 0.6] }, { t: 214, v: [0, 1] }] },
+  ] } },
+};
 const clipHash = `#/playtests/clips/${enc(CLIP_PATH)}`;
 
 export const HUB_SCENARIOS: Record<string, Scenario> = {
@@ -125,6 +159,9 @@ export const HUB_SCENARIOS: Record<string, Scenario> = {
   "hub-clip-edit": clipScenario("A timeline playtest: regions, an axis curve and Boolean notes per Input Action, check notes in their modes, an event, and a warning with its candidates", clipHash),
   "hub-clip-note": clipScenario("A note selected on the timeline: its start and length in the inspector", clipHash, { clicks: [".hub-clip-note"] }),
   "hub-clip-check": clipScenario("A hold check selected: its mode, span and expectation in the inspector", clipHash, { clicks: [".hub-clip-check.mode-hold"] }),
+  "hub-clip-run": clipScenario("A finished run on the timeline: each check and region passed or failed, region drift, why a check failed, and the run history", clipHash, {}, { status: FAILED_RUN, runs: RUNS }),
+  "hub-clip-verdict": clipScenario("A run paused on a person's check: the cursor at the check and the verdict card", clipHash, {}, { status: AWAITING_RUN, runs: RUNS }),
+  "hub-clip-recording": clipScenario("Recording from the hold check: armed tracks, the take's notes and keys drawn as they arrive, and Stop recording", clipHash, {}, { status: RECORDING_RUN, runs: RUNS }),
   "hub-overview": hub("Playtest Hub overview: Now running with the runs waiting and finished, milestones and goals by status, every playtest, Needs attention and what just broke", "#/playtests", full),
   "hub-overview-empty": hub("Playtest Hub overview on a project with playtests and no goals: every playtest with its health, Run all and Run failing", "#/playtests", empty),
   "hub-goal": hub("A failing goal: its playtests with health and history, owner, priority and due date, Run goal, Fix with an agent and Write playtests", "#/playtests/goals/lantern-combat", full),

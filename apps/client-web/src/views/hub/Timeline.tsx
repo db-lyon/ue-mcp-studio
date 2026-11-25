@@ -82,6 +82,18 @@ export function ClipScreen({ path, children }: { path: string; children?: (c: { 
   const [zoom, setZoom] = useState(4);
   const [busy, setBusy] = useState(false);
   const [announce, setAnnounce] = useState("");
+  const root = useRef<HTMLDivElement>(null);
+  const fitted = useRef(false);
+
+  // The first time the clip shows, zoom so all of it fits when it can.
+  useEffect(() => {
+    if (!clip || fitted.current || !root.current) return;
+    fitted.current = true;
+    const room = root.current.clientWidth - (hub.narrow ? 96 : 168) - 4;
+    if (room <= 0) return;
+    const span = clipEnd(clip) + clipRate(clip);
+    setZoom([...ZOOMS].reverse().find((z) => span * z <= room) ?? ZOOMS[0]);
+  }, [clip]);
 
   const load = () => {
     setLoadError(null);
@@ -148,7 +160,7 @@ export function ClipScreen({ path, children }: { path: string; children?: (c: { 
   const extra = children?.({ clip, sel, select: setSel, reload: load }) ?? {};
 
   return (
-    <div className="hub-screen hub-clip">
+    <div className="hub-screen hub-clip" ref={root}>
       <ScreenHead
         back={{ label: CLIP_COPY.clips, route: { screen: "clips" } }}
         eyebrow={CLIP_COPY.clip}
@@ -230,7 +242,16 @@ function Lanes({ clip, zoom, narrow, sel, onSelect, onEdit, onHistory, overlay }
   overlay?: LaneOverlay;
 }) {
   const [drag, setDrag] = useState<Drag | null>(null);
+  const box = useRef<HTMLDivElement>(null);
   const rate = clipRate(clip);
+  // Keep playback's cursor in view.
+  useEffect(() => {
+    const el = box.current;
+    if (!el || overlay?.cursor === undefined) return;
+    const x = overlay.cursor * zoom;
+    const view = el.clientWidth - (narrow ? 96 : 168);
+    if (x < el.scrollLeft || x > el.scrollLeft + view - 24) el.scrollLeft = Math.max(0, x - view / 3);
+  }, [overlay?.cursor, zoom]);
   const end = clipEnd(clip);
   const width = Math.ceil((end + rate) * zoom);
   const label = narrow ? 96 : 168;
@@ -338,7 +359,7 @@ function Lanes({ clip, zoom, narrow, sel, onSelect, onEdit, onHistory, overlay }
   const cursor = overlay?.cursor !== undefined ? <span className="hub-clip-cursor" style={{ left: overlay.cursor * zoom }} aria-hidden="true" /> : null;
 
   return (
-    <div className="hub-clip-lanes" tabIndex={0} onKeyDown={onKey} role="group" aria-label={CLIP_COPY.clip} style={{ ["--label-w" as string]: `${label}px` }}>
+    <div className="hub-clip-lanes" ref={box} tabIndex={0} onKeyDown={onKey} role="group" aria-label={CLIP_COPY.clip} style={{ ["--label-w" as string]: `${label}px` }}>
       <div className="hub-clip-grid" style={{ width: width + label }}>
         <div className="hub-clip-row hub-clip-ruler">
           <div className="hub-clip-label" />
@@ -373,8 +394,8 @@ function Lanes({ clip, zoom, narrow, sel, onSelect, onEdit, onHistory, overlay }
           return (
             <div key={t.action} className="hub-clip-row" style={{ height: h }}>
               <div className={`hub-clip-label small ${sel?.kind === "track" && sel.track === t.action ? "on" : ""}`}>
-                {armed && overlay?.onArm && (
-                  <input type="checkbox" className="hub-clip-arm" checked={armed.has(t.action)} aria-label={`${CLIP_COPY.arm}: ${trackName(t.action)}`} title={CLIP_COPY.arm} onChange={(e) => overlay.onArm!(t.action, e.target.checked)} />
+                {armed && (
+                  <input type="checkbox" className="hub-clip-arm" checked={armed.has(t.action)} disabled={!overlay?.onArm} aria-label={`${CLIP_COPY.arm}: ${trackName(t.action)}`} title={CLIP_COPY.arm} onChange={(e) => overlay?.onArm?.(t.action, e.target.checked)} />
                 )}
                 <button className="ghost hub-clip-track-name" title={t.action} onClick={() => onSelect({ kind: "track", track: t.action })}>{trackName(t.action)}</button>
                 <span className="dim mono hub-clip-type">{t.type}</span>
@@ -464,31 +485,39 @@ function stackRows(checks: ClipCheck[]): { row: Record<string, number>; count: n
 
 /** An axis track's curve, one line per component, from -1 at the bottom to 1 at the top. */
 function Curve({ track, zoom, width, height, extra }: { track: ClipTrack; zoom: number; width: number; height: number; extra?: Array<{ t: number; v: number | number[] }> }) {
-  const keys = [...(track.keys ?? []), ...(extra ?? []).map((k, i) => ({ id: `x${i}`, ...k }))].sort((a, b) => a.t - b.t);
-  if (!keys.length) return null;
-  const dims = Array.isArray(keys[0].v) ? keys[0].v.length : 1;
   const y = (v: number) => (1 - (Math.max(-1, Math.min(1, v)) + 1) / 2) * height;
-  const lines = Array.from({ length: dims }, (_, d) => {
+  const own = linesOf([...(track.keys ?? [])].sort((a, b) => a.t - b.t), zoom, width, y);
+  // The take so far is its own line, ending where the take has got to.
+  const take = extra?.length ? linesOf([...extra].sort((a, b) => a.t - b.t), zoom, extra[extra.length - 1].t * zoom, y) : [];
+  if (!own.length && !take.length) return null;
+  return (
+    <svg className="hub-clip-curve" width={width} height={height} aria-hidden="true">
+      <line x1={0} x2={width} y1={height / 2} y2={height / 2} className="zero" />
+      {own.map((p, d) => <polyline key={d} points={p} className={`c${d}`} />)}
+      {take.map((p, d) => <polyline key={`t${d}`} points={p} className="take" />)}
+    </svg>
+  );
+}
+
+/** Polyline points per component of a curve, held flat after a constant key and after the last one. */
+function linesOf(keys: Array<{ t: number; v: number | number[]; interp?: string }>, zoom: number, until: number, y: (v: number) => number): string[] {
+  if (!keys.length) return [];
+  const dims = Array.isArray(keys[0].v) ? keys[0].v.length : 1;
+  return Array.from({ length: dims }, (_, d) => {
     const pts: string[] = [];
     keys.forEach((k, i) => {
       const v = Array.isArray(k.v) ? k.v[d] ?? 0 : k.v;
       const prev = keys[i - 1];
-      if (prev && "interp" in prev && prev.interp === "constant") {
+      if (prev?.interp === "constant") {
         const pv = Array.isArray(prev.v) ? prev.v[d] ?? 0 : prev.v;
-        pts.push(`${k.t * zoom},${y(pv as number)}`);
+        pts.push(`${k.t * zoom},${y(pv)}`);
       }
-      pts.push(`${k.t * zoom},${y(v as number)}`);
+      pts.push(`${k.t * zoom},${y(v)}`);
     });
     const last = keys[keys.length - 1];
-    pts.push(`${width},${y((Array.isArray(last.v) ? last.v[d] ?? 0 : last.v) as number)}`);
+    pts.push(`${until},${y(Array.isArray(last.v) ? last.v[d] ?? 0 : last.v)}`);
     return pts.join(" ");
   });
-  return (
-    <svg className="hub-clip-curve" width={width} height={height} aria-hidden="true">
-      <line x1={0} x2={width} y1={height / 2} y2={height / 2} className="zero" />
-      {lines.map((p, d) => <polyline key={d} points={p} className={`c${d}`} />)}
-    </svg>
-  );
 }
 
 /** A number field that commits on blur or Enter, when it changed. */

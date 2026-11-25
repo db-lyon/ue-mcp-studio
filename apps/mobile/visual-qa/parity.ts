@@ -360,4 +360,7 @@ export const PARITY: Record<string, ParityEntry> = {
   "hub-clip-edit": {notOnPhone: HUB},
   "hub-clip-note": {notOnPhone: HUB},
   "hub-clip-check": {notOnPhone: HUB},
+  "hub-clip-run": {notOnPhone: HUB},
+  "hub-clip-verdict": {notOnPhone: HUB},
+  "hub-clip-recording": {notOnPhone: HUB},
 };
