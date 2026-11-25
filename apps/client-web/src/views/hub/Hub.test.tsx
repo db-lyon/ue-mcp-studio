@@ -449,7 +449,11 @@ describe("the queue", () => {
 
   it("says schedules need a newer ue-mcp when the daemon has none", () => {
     window.location.hash = "#/playtests/queue";
-    render(<Harness start={hubFixture()} />);
+    const o = hubFixture();
+    // A daemon older than ue-mcp 1.4.16-beta.3 answers a queue without schedules.
+    const { schedules: _, ...older } = o.queue;
+    o.queue = older as typeof o.queue;
+    render(<Harness start={o} />);
     expect(screen.getByText("Update ue-mcp to use schedules.")).toBeTruthy();
     expect(screen.queryByRole("button", { name: /New schedule/ })).toBeNull();
   });
