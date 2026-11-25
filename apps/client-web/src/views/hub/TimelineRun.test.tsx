@@ -120,7 +120,7 @@ describe("playing", () => {
 });
 
 describe("recording", () => {
-  it("records into the armed tracks from a hold check and draws the take as it arrives", async () => {
+  it("records into the armed lanes from a hold check and draws the take as it arrives", async () => {
     render(<Harness features={["events.clip", "events.clip.take"]} />);
     await screen.findByRole("heading", { name: "CL_Door" });
     fireEvent.click(screen.getByRole("checkbox", { name: /IA_Move/ }));

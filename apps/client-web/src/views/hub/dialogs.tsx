@@ -52,13 +52,13 @@ export function Dialog({ label, onClose, className = "", children }: { label: st
 }
 
 const KIND_CHOICES = [
-  { value: "goal", title: "Goal", note: "Something the game must do, proven by its playtests." },
-  { value: "milestone", title: "Milestone", note: "A set of goals that must all be met, such as a release." },
+  { value: "goal", title: "Track", note: "Something the game must do, proven by its clips." },
+  { value: "milestone", title: "Scene", note: "A set of tracks that must all be met, such as a release." },
 ] as const;
 
 const DONE_CHOICES = [
-  { signOff: false, title: "When all its playtests pass" },
-  { signOff: true, title: "When all its playtests pass and someone signs it off" },
+  { signOff: false, title: "When all its clips pass" },
+  { signOff: true, title: "When all its clips pass and someone signs it off" },
 ] as const;
 
 /** New goal, or Edit goal: title first, everything else optional. */
@@ -104,7 +104,7 @@ export function GoalDialog({ goalId, preset, onClose }: { goalId: string | null;
     }
   };
 
-  const title = existing ? HUB_COPY.editGoal : f.kind === "milestone" ? "New milestone" : HUB_COPY.newGoal;
+  const title = existing ? HUB_COPY.editGoal : f.kind === "milestone" ? HUB_COPY.newMilestone : HUB_COPY.newGoal;
   return (
     <Dialog label={title} onClose={onClose} className="hub-goal-dialog">
       <form onSubmit={(e) => { e.preventDefault(); void save(); }} onKeyDown={(e) => { if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) { e.preventDefault(); void save(); } }} noValidate>
@@ -127,7 +127,7 @@ export function GoalDialog({ goalId, preset, onClose }: { goalId: string | null;
         {candidates.length > 0 && (
           <fieldset className="hub-fieldset hub-part-of-field" aria-describedby={shown.parents ? "hub-goal-parents-error" : undefined}>
             <legend>{HUB_COPY.partOf}</legend>
-            {candidates.length > 6 && <input value={partQ} onChange={(e) => setPartQ(e.target.value)} placeholder="Filter goals" aria-label="Filter goals to be part of" />}
+            {candidates.length > 6 && <input value={partQ} onChange={(e) => setPartQ(e.target.value)} placeholder="Filter" aria-label="Filter tracks and scenes to be part of" />}
             <div className="hub-picker-list">
               {shownParents.map((g) => (
                 <label key={g.goal.id} className="hub-picker-row">
@@ -170,7 +170,7 @@ export function GoalDialog({ goalId, preset, onClose }: { goalId: string | null;
         <div className="hub-form-actions">
           <span className="spacer" />
           <button type="button" className="ghost" onClick={onClose}>Cancel</button>
-          <button type="submit" className="primary" disabled={saving}>{existing ? "Save" : f.kind === "milestone" ? "Create milestone" : "Create goal"}</button>
+          <button type="submit" className="primary" disabled={saving}>{existing ? "Save" : f.kind === "milestone" ? "Create scene" : "Create track"}</button>
         </div>
       </form>
     </Dialog>
@@ -199,7 +199,7 @@ export function CheckPicker({ goalId, onClose }: { goalId: string; onClose: () =
     setSaving(true);
     try {
       await api.hub.addChecks(goalId, checks);
-      hub.notify(`Added ${checks.length} ${checks.length === 1 ? "playtest" : "playtests"} to ${g.goal.title}`);
+      hub.notify(`Added ${checks.length} ${checks.length === 1 ? "clip" : "clips"} to ${g.goal.title}`);
       hub.data.reload();
       onClose();
     } catch (e) {
@@ -210,9 +210,9 @@ export function CheckPicker({ goalId, onClose }: { goalId: string; onClose: () =
   return (
     <Dialog label={`${HUB_COPY.addPlaytests} to ${g.goal.title}`} onClose={onClose} className="hub-picker">
       <div className="overlay-head">{HUB_COPY.addPlaytests}<span className="dim small">to {g.goal.title}</span></div>
-      <input autoFocus value={q} onChange={(e) => setQ(e.target.value)} placeholder="Filter" aria-label="Filter playtests" onKeyDown={(e) => { if (e.key === "Enter" && shown.length === 1) toggle(shown[0].id); }} />
+      <input autoFocus value={q} onChange={(e) => setQ(e.target.value)} placeholder="Filter" aria-label="Filter clips" onKeyDown={(e) => { if (e.key === "Enter" && shown.length === 1) toggle(shown[0].id); }} />
       <div className="hub-picker-list" role="group" aria-label={HUB_COPY.playtests}>
-        {options.length === 0 && <p className="dim small">Every playtest in the project is in this goal already.</p>}
+        {options.length === 0 && <p className="dim small">{`Every clip in the project is in this ${g.goal.kind === "milestone" ? "scene" : "track"} already.`}</p>}
         {shown.map((c) => (
           <label key={c.id} className="hub-picker-row">
             <input type="checkbox" checked={picked.has(c.id)} onChange={() => toggle(c.id)} />
@@ -246,7 +246,7 @@ export function GoalPicker({ checkIds, onClose }: { checkIds: string[]; onClose:
     const title = goals.find((g) => g.goal.id === goalId)?.goal.title ?? goalId;
     try {
       await api.hub.addChecks(goalId, refs);
-      hub.notify(`Added ${refs.length} ${refs.length === 1 ? "playtest" : "playtests"} to ${title}`);
+      hub.notify(`Added ${refs.length} ${refs.length === 1 ? "clip" : "clips"} to ${title}`);
       hub.data.reload();
       onClose();
     } catch (e) {
@@ -256,15 +256,15 @@ export function GoalPicker({ checkIds, onClose }: { checkIds: string[]; onClose:
   };
   return (
     <Dialog label={HUB_COPY.addToGoal} onClose={onClose} className="hub-picker">
-      <div className="overlay-head">{HUB_COPY.addToGoal}<span className="dim small">{refs.length} {refs.length === 1 ? "playtest" : "playtests"}</span></div>
-      <input autoFocus value={q} onChange={(e) => { setQ(e.target.value); setAt(0); }} placeholder="Filter goals" aria-label="Filter goals"
+      <div className="overlay-head">{HUB_COPY.addToGoal}<span className="dim small">{refs.length} {refs.length === 1 ? "clip" : "clips"}</span></div>
+      <input autoFocus value={q} onChange={(e) => { setQ(e.target.value); setAt(0); }} placeholder="Filter tracks" aria-label="Filter tracks"
         onKeyDown={(e) => {
           if (e.key === "ArrowDown") { e.preventDefault(); setAt((i) => Math.min(shown.length - 1, i + 1)); }
           else if (e.key === "ArrowUp") { e.preventDefault(); setAt((i) => Math.max(0, i - 1)); }
           else if (e.key === "Enter" && shown[at]) { e.preventDefault(); void pick(shown[at].goal.id); }
         }} />
       <div className="hub-picker-list" role="listbox" aria-label={HUB_COPY.goals}>
-        {goals.length === 0 && <p className="dim small">No goals yet. Create one first.</p>}
+        {goals.length === 0 && <p className="dim small">No tracks yet. Create one first.</p>}
         {shown.map((g, i) => (
           <button key={g.goal.id} role="option" aria-selected={i === at} className={`hub-picker-row ghost ${i === at ? "on" : ""}`} onClick={() => void pick(g.goal.id)}>
             <StatusMark look={GOAL_STATUS_LOOK[g.status]} label={GOAL_STATUS_LOOK[g.status].label} />
@@ -506,14 +506,14 @@ export function RequirePicker({ goalId, onClose }: { goalId: string; onClose: ()
   return (
     <Dialog label={`${HUB_COPY.addGoal} to ${g.goal.title}`} onClose={onClose} className="hub-picker">
       <div className="overlay-head">{HUB_COPY.addGoal}<span className="dim small">to {g.goal.title}</span></div>
-      <input autoFocus value={q} onChange={(e) => { setQ(e.target.value); setAt(0); }} placeholder="Filter goals" aria-label="Filter goals"
+      <input autoFocus value={q} onChange={(e) => { setQ(e.target.value); setAt(0); }} placeholder="Filter tracks" aria-label="Filter tracks"
         onKeyDown={(e) => {
           if (e.key === "ArrowDown") { e.preventDefault(); setAt((i) => Math.min(shown.length - 1, i + 1)); }
           else if (e.key === "ArrowUp") { e.preventDefault(); setAt((i) => Math.max(0, i - 1)); }
           else if (e.key === "Enter" && shown[at]) { e.preventDefault(); void pick(shown[at].goal.id); }
         }} />
       <div className="hub-picker-list" role="listbox" aria-label={HUB_COPY.goals}>
-        {options.length === 0 && <p className="dim small">No other goal can be added here.</p>}
+        {options.length === 0 && <p className="dim small">No other track can be added here.</p>}
         {shown.map((x, i) => (
           <button key={x.goal.id} role="option" aria-selected={i === at} className={`hub-picker-row ghost ${i === at ? "on" : ""}`} onClick={() => void pick(x.goal.id)}>
             {x.goal.kind === "milestone" ? <HubIcon name="milestone" size={12} /> : <StatusMark look={GOAL_STATUS_LOOK[x.status]} />}

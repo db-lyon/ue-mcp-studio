@@ -24,7 +24,7 @@ export function ExperimentsSection() {
       <Head title="Experiments" lead="Features still in progress, each off until you switch it on." />
       {msg.node}
       <Card>
-        <Row title="Playtest Hub" help="Adds a Playtests tab for goals, the playtests that prove them and their runs. Studio keeps goals on this computer, not in the project.">
+        <Row title="Playtest Hub" help="Adds a Playtests tab for tracks, the clips that prove them and their runs. Studio keeps tracks on this computer, not in the project.">
           <Switch on={settings?.experiments?.playtestHub === true} onChange={setHub} label="Playtest Hub" disabled={!settings} />
         </Row>
       </Card>

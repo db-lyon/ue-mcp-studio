@@ -154,7 +154,7 @@ export class Drafting {
     if (!/^[A-Za-z0-9_]+$/.test(name)) return { status: 400, body: { error: "name must be letters, digits and underscores" } };
     const split = splitPlayers(b.steps);
     if (!split || split.steps.length === 0) return { status: 400, body: { error: "body must be { name, steps: [...] } with at least one step" } };
-    if (!this.connected()) return { status: 409, body: { error: `${NO_EDITOR}, so the playtest cannot be saved` } };
+    if (!this.connected()) return { status: 409, body: { error: `${NO_EDITOR}, so the clip cannot be saved` } };
     const r = await settle(this.o.host.callAction("pie", "script_create", {
       name,
       steps: split.steps,
@@ -167,7 +167,7 @@ export class Drafting {
       return {
         status: 409,
         body: {
-          error: (a && typeof a.error === "string" ? a.error : null) ?? (r ? failureOf(r) : null) ?? "the playtest was not saved",
+          error: (a && typeof a.error === "string" ? a.error : null) ?? (r ? failureOf(r) : null) ?? "the clip was not saved",
           errors: a && Array.isArray(a.errors) ? a.errors : [],
           warnings: a && Array.isArray(a.warnings) ? a.warnings : [],
         },

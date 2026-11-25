@@ -60,7 +60,7 @@ describe("the playtest brief", () => {
   });
 
   it("is titled by the script", () => {
-    expect(playtestDescription(runOf())).toBe("Playtest DoorOpens");
+    expect(playtestDescription(runOf())).toBe("Clip DoorOpens");
   });
 });
 
@@ -227,7 +227,7 @@ describe("the card's assignment", () => {
     });
     const r = await broker.assign(RUN, {});
     expect("run" in r && r.run.assignment).toMatchObject({ callId: "studio_1", sessionId: s.id, state: "running", loop: { state: "running", attempts: [{ n: 1, callId: "studio_1" }] } });
-    expect(asked[0]).toMatchObject({ sessionId: s.id, description: "Playtest DoorOpens, attempt 1" });
+    expect(asked[0]).toMatchObject({ sessionId: s.id, description: "Clip DoorOpens, attempt 1" });
     expect(asked[0].prompt).toContain(RUN);
     expect(asked[0].prompt).toMatch(/attempt 1 of a loop/);
     expect(await broker.assign(RUN, {})).toMatchObject({ status: 409 });

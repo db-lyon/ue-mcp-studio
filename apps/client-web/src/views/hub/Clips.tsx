@@ -1,5 +1,5 @@
 /**
- * Timeline playtests: every playtest clip in the project with its newest
+ * Timeline clips: every timeline clip in the project with its newest
  * run, and a new one by name. A row opens the clip on its timeline.
  */
 import { useEffect, useState } from "react";

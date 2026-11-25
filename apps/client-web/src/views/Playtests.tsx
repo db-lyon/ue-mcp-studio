@@ -132,10 +132,10 @@ export function PlaytestsView({ daemon, index: source, onOpenSession, onChat }: 
           {startError && <span className="bad"> {startError}</span>}
         </div>
       )}
-      {!index && !error && <p className="dim small">Loading playtests</p>}
+      {!index && !error && <p className="dim small">Loading clips</p>}
       {index && rows.length === 0 && (all.length === 0 ? (
         <div className="playtests-empty card">
-          <strong>No playtests yet</strong>
+          <strong>No clips yet</strong>
           <p className="muted">Ask the agent for one in a session, or type <code>/playtest</code> in the message box.</p>
           {onChat && <button className="primary small-button" onClick={onChat}>Go to Chat</button>}
         </div>

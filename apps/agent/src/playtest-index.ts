@@ -285,7 +285,7 @@ export class PlaytestIndex {
     if (!read) return { error: `the script could not be read: ${text(r) || "no answer"}`, status: 409 };
     // A deleted draft still names the session that drafted it: the card goes back there.
     const old = runs.find((x) => x.sessionId && this.o.store.get(x.sessionId));
-    const session = old?.sessionId ? this.o.store.get(old.sessionId)! : this.o.store.create(`Playtest ${typeof read.name === "string" ? read.name : script.split("/").pop()}`);
+    const session = old?.sessionId ? this.o.store.get(old.sessionId)! : this.o.store.create(`Clip ${typeof read.name === "string" ? read.name : script.split("/").pop()}`);
     if (!old) this.o.host.events?.publish("session.changed", { sessionId: session.id, status: session.status, waitingCause: session.waitingCause });
     const run = await this.o.broker.drafted(session.id, read);
     return run ? { run } : { error: "the script's card could not be made", status: 409 };

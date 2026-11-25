@@ -218,7 +218,7 @@ export class HubDemo {
     if (m("GET", "/hub/queue")) return ok(this.queueState());
     if ((p = m("GET", "/hub/goals/*"))) {
       const g = this.goal(p[0]);
-      return g ? ok(this.goalState(g)) : refuse(404, "No such goal");
+      return g ? ok(this.goalState(g)) : refuse(404, "No such track or scene");
     }
     if (m("POST", "/hub/goals")) return this.createGoal(b as unknown as GoalDraft);
     if ((p = m("PUT", "/hub/goals/*"))) return this.updateGoal(p[0], b as GoalUpdate);
@@ -608,7 +608,7 @@ export class HubDemo {
 
   private createGoal(d: GoalDraft): DemoAnswer {
     const title = typeof d.title === "string" ? d.title.trim() : "";
-    if (!title) return refuse(400, "A goal needs a title");
+    if (!title) return refuse(400, "A track or scene needs a title");
     const parents = Array.isArray(d.parents) ? d.parents : [];
     if (parents.some((p) => !this.goal(p))) return refuse(400, "parents must name goals here");
     const requires = this.requiresList(d.requires);
@@ -683,7 +683,7 @@ export class HubDemo {
       for (const r of requiresOf(g)) {
         if (had.has(r.goal)) continue;
         const loop = loopIfRequired([...graph.values()], g.id, r.goal);
-        if (loop) return refuse(400, `that would make goals require each other in a loop: ${loop.join(" > ")}`);
+        if (loop) return refuse(400, `that would make tracks require each other in a loop: ${loop.join(" > ")}`);
       }
     }
     return null;
@@ -691,7 +691,7 @@ export class HubDemo {
 
   private addRequire(id: string, b: Record<string, unknown>): DemoAnswer {
     const g = this.goal(id);
-    if (!g) return refuse(404, "No such goal");
+    if (!g) return refuse(404, "No such track or scene");
     const child = typeof b.goal === "string" ? b.goal : "";
     if (!this.goal(child) || child === id) return refuse(400, `no goal ${child} this goal can require`);
     const reqs = requiresOf(g);
@@ -710,7 +710,7 @@ export class HubDemo {
 
   private removeRequire(id: string, child: string): DemoAnswer {
     const g = this.goal(id);
-    if (!g) return refuse(404, "No such goal");
+    if (!g) return refuse(404, "No such track or scene");
     const reqs = requiresOf(g);
     if (!reqs.some((r) => r.goal === child)) return refuse(404, `goal ${id} does not require ${child}`);
     const rest = reqs.filter((r) => r.goal !== child);
@@ -727,17 +727,17 @@ export class HubDemo {
 
   private orderRequires(id: string, order: unknown): DemoAnswer {
     const g = this.goal(id);
-    if (!g) return refuse(404, "No such goal");
+    if (!g) return refuse(404, "No such track or scene");
     const reqs = requiresOf(g);
     const ids = this.orderOf(order, reqs.map((r) => r.goal));
-    if (!ids) return refuse(400, "order must name each required goal once");
+    if (!ids) return refuse(400, "order must name each required track once");
     g.requires = ids.map((x) => reqs.find((r) => r.goal === x)!);
     return this.touch(g);
   }
 
   private orderChecks(id: string, order: unknown): DemoAnswer {
     const g = this.goal(id);
-    if (!g) return refuse(404, "No such goal");
+    if (!g) return refuse(404, "No such track or scene");
     const ids = this.orderOf(order, g.checks.map(checkId));
     if (!ids) return refuse(400, "order must name each check once");
     g.checks = ids.map((x) => g.checks.find((c) => checkId(c) === x)!);
@@ -764,8 +764,8 @@ export class HubDemo {
 
   private updateGoal(id: string, u: GoalUpdate): DemoAnswer {
     const g = this.goal(id);
-    if (!g) return refuse(404, "No such goal");
-    if (u.title !== undefined && !String(u.title).trim()) return refuse(400, "A goal needs a title");
+    if (!g) return refuse(404, "No such track or scene");
+    if (u.title !== undefined && !String(u.title).trim()) return refuse(400, "A track or scene needs a title");
     const { acceptance, checks, links, parents, requires, ...rest } = u;
     if (parents !== undefined && (!Array.isArray(parents) || parents.some((p) => p === id || !this.goal(p)))) return refuse(400, "parents must name other goals here");
     const reqs = requires === undefined ? null : this.requiresList(requires);
@@ -797,7 +797,7 @@ export class HubDemo {
 
   private deleteGoal(id: string): DemoAnswer {
     const g = this.goal(id);
-    if (!g) return refuse(404, "No such goal");
+    if (!g) return refuse(404, "No such track or scene");
     // As ue-mcp: a plan made for the goal that is queued or running holds it.
     const plans = [this.state.current, ...this.state.queued].filter((p): p is PlanRun => !!p && "goalId" in p.scope && p.scope.goalId === id);
     if (plans.length) return refuse(409, `"${g.title}" can't be deleted while ${plans.length === 1 ? "a run made for it is" : "runs made for it are"} queued or running: ${plans.map((p) => `"${p.title}"`).join(", ")}. Cancel ${plans.length === 1 ? "that run" : "those runs"} or let ${plans.length === 1 ? "it" : "them"} finish, then try again.`);
@@ -816,7 +816,7 @@ export class HubDemo {
 
   private addChecks(id: string, checks: CheckRef[]): DemoAnswer {
     const g = this.goal(id);
-    if (!g) return refuse(404, "No such goal");
+    if (!g) return refuse(404, "No such track or scene");
     for (const c of checks) {
       if (!c || typeof c.target !== "string" || c.kind !== "script") continue;
       const ref: CheckRef = { kind: "script", target: qaScriptKey(c.target) };
@@ -827,7 +827,7 @@ export class HubDemo {
 
   private removeCheck(id: string, cid: string): DemoAnswer {
     const g = this.goal(id);
-    if (!g) return refuse(404, "No such goal");
+    if (!g) return refuse(404, "No such track or scene");
     g.checks = g.checks.filter((c) => checkId(c) !== cid);
     return this.touch(g, ["goals", "checks", "attention"]);
   }
@@ -835,9 +835,9 @@ export class HubDemo {
   /** PUT /hub/goals/:id/checks/:checkId: whether the goal requires one of its checks. */
   private updateGoalCheck(id: string, cid: string, u: Record<string, unknown>): DemoAnswer {
     const g = this.goal(id);
-    if (!g) return refuse(404, "No such goal");
+    if (!g) return refuse(404, "No such track or scene");
     const c = g.checks.find((x) => checkId(x) === cid);
-    if (!c) return refuse(404, `goal ${id} has no check ${cid}`);
+    if (!c) return refuse(404, `${id} has no clip ${cid}`);
     if (typeof u.required !== "boolean") return refuse(400, "body must be { required: boolean }");
     if (u.required) delete c.required;
     else c.required = false;
@@ -891,7 +891,7 @@ export class HubDemo {
 
   /** POST /hub/store: merged by id, as the agent does; what is here and differs stays. */
   private importStore(b: Record<string, unknown>): DemoAnswer {
-    if (b.format !== HUB_EXPORT_FORMAT || !Array.isArray(b.records)) return refuse(400, `this is not an exported goals file (format ${HUB_EXPORT_FORMAT})`);
+    if (b.format !== HUB_EXPORT_FORMAT || !Array.isArray(b.records)) return refuse(400, `this is not an exported tracks file (format ${HUB_EXPORT_FORMAT})`);
     const report: HubImportReport = { added: 0, unchanged: 0, conflicts: [] };
     const same = (a: unknown, c: unknown) => JSON.stringify(a) === JSON.stringify(c);
     for (const r of b.records as AnyHubRecord[]) {
@@ -943,7 +943,7 @@ export class HubDemo {
   /** A sign-off as the agent records it: the account, the revision, each required check's latest results and the goal's requirements. */
   private signOff(id: string, note: string | undefined, clear = false): DemoAnswer {
     const g = this.goal(id);
-    if (!g) return refuse(404, "No such goal");
+    if (!g) return refuse(404, "No such track or scene");
     const all = this.state.signOffs;
     if (clear) {
       delete all[id];
@@ -962,7 +962,7 @@ export class HubDemo {
 
   private writePlaytests(id: string): DemoAnswer {
     const g = this.goal(id);
-    if (!g) return refuse(404, "No such goal");
+    if (!g) return refuse(404, "No such track or scene");
     const sessionId = `hub-write-${this.state.counter++}`;
     this.state.jobs.push({ at: this.now() + this.ms(5000 + this.random() * 3000), kind: "write", goalId: id, sessionId });
     return ok({ sessionId }, 202);
@@ -1009,7 +1009,7 @@ export class HubDemo {
 
   /** The editor's Save on a new playtest: pie(script_create) with onConflict error. */
   private createScript(b: Record<string, unknown>): DemoAnswer {
-    if (!this.state.editor) return refuse(409, "the editor is not connected, so the playtest cannot be saved");
+    if (!this.state.editor) return refuse(409, "the editor is not connected, so the clip cannot be saved");
     const name = typeof b.name === "string" ? b.name.trim() : "";
     if (!/^[A-Za-z0-9_]+$/.test(name)) return refuse(400, "name must be letters, digits and underscores");
     if (!Array.isArray(b.steps) || b.steps.length === 0) return refuse(400, "body must be { name, steps: [...] } with at least one step");
@@ -1065,15 +1065,15 @@ export class HubDemo {
     const goalTitle = (id?: string) => (id ? this.goal(id)?.title : undefined);
     switch (scope.kind) {
       case "goal":
-        return `Run ${goalTitle(scope.goalId) ?? "goal"}`;
+        return `Run ${goalTitle(scope.goalId) ?? "track"}`;
       case "checks":
-        return refs.length === 1 ? `Run ${this.nameOf(refs[0])}` : `Run ${refs.length} playtests`;
+        return refs.length === 1 ? `Run ${this.nameOf(refs[0])}` : `Run ${refs.length} clips`;
       case "failing":
-        return scope.goalId ? `Run what is failing in ${goalTitle(scope.goalId) ?? "goal"}` : "Run what is failing";
+        return scope.goalId ? `Run what is failing in ${goalTitle(scope.goalId) ?? "track"}` : "Run what is failing";
       case "stale":
-        return scope.goalId ? `Run what is stale in ${goalTitle(scope.goalId) ?? "goal"}` : "Run what is stale";
+        return scope.goalId ? `Run what is stale in ${goalTitle(scope.goalId) ?? "track"}` : "Run what is stale";
       default:
-        return "Run all playtests";
+        return "Run all clips";
     }
   }
 
@@ -1260,7 +1260,7 @@ export class HubDemo {
     const sc = this.script(item.check.target);
     if (!sc || sc.missing) {
       item.state = "skipped";
-      item.reason = "the playtest is not on this checkout";
+      item.reason = "the clip is not on this checkout";
       this.hubChanged(["queue"], { planRunId: cur.id });
       return;
     }
@@ -1608,8 +1608,8 @@ export class HubDemo {
 
   /** Fix with an agent: a goal's failing playtests, the project's, or one. */
   private fix(goalId?: string, one?: string): DemoAnswer {
-    if (goalId && !this.goal(goalId)) return refuse(404, "No such goal");
-    if (one !== undefined && !parseCheckId(one)) return refuse(400, "checkId must be a playtest's id, script:<asset path>");
+    if (goalId && !this.goal(goalId)) return refuse(404, "No such track or scene");
+    if (one !== undefined && !parseCheckId(one)) return refuse(400, "checkId must be a clip's id, script:<asset path>");
     const pool = one ? new Set([one]) : goalId ? new Set(goalChecksDeep(this.liveGoals(), goalId).map(checkId)) : null;
     let queued = 0;
     for (const c of this.allChecks()) {

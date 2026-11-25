@@ -26,7 +26,7 @@ import { useHub } from "./state";
 import { HubField, HubIcon, ScreenHead } from "./parts";
 import { PlanCard } from "./Overview";
 
-const count = (n: number) => `${n} ${n === 1 ? "playtest" : "playtests"}`;
+const count = (n: number) => `${n} ${n === 1 ? "clip" : "clips"}`;
 
 /** Who queued a run: a schedule, an agent, or a person some time ago. */
 const queuedBy = (p: PlanRun): string => (p.trigger === "schedule" ? "Scheduled" : p.trigger === "agent" ? "From an agent" : `Queued ${shortAgo(p.createdAt)} ago`);
@@ -76,7 +76,7 @@ export function QueueScreen() {
       <ScreenHead
         title={HUB_COPY.queue}
         sub={<span className={q.editor.connected ? "dim" : "hub-bad-text"}>{q.editor.connected ? "Editor connected" : "Editor not connected"}</span>}
-        actions={<button onClick={() => void pause()} aria-pressed={q.paused} title={q.paused ? "Start runs again" : "Finish the running playtest, then hold the rest"}>
+        actions={<button onClick={() => void pause()} aria-pressed={q.paused} title={q.paused ? "Start runs again" : "Finish the running clip, then hold the rest"}>
           <HubIcon name={q.paused ? "play" : "pause"} size={12} /> {q.paused ? HUB_COPY.resume : HUB_COPY.pause}
         </button>}
       />
@@ -193,10 +193,10 @@ function ScheduleForm({ schedule, onDone }: { schedule?: Schedule; onDone: () =>
       <HubField id="hub-schedule-scope" label="Runs">
         {(a) => (
           <select {...a} value={scopeKey(s.scope)} onChange={(e) => setS({ ...s, scope: scopeOf(e.target.value as ScopeKey) })}>
-            <option value="all">Every playtest</option>
-            <option value="failing">Every failing playtest</option>
-            <option value="stale">Every stale playtest</option>
-            {goals.map((g) => <option key={g.goal.id} value={`goal:${g.goal.id}`}>{g.goal.kind === "milestone" ? "Milestone" : "Goal"}: {g.goal.title}</option>)}
+            <option value="all">Every clip</option>
+            <option value="failing">Every failing clip</option>
+            <option value="stale">Every stale clip</option>
+            {goals.map((g) => <option key={g.goal.id} value={`goal:${g.goal.id}`}>{g.goal.kind === "milestone" ? "Scene" : "Track"}: {g.goal.title}</option>)}
           </select>
         )}
       </HubField>

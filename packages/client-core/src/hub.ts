@@ -409,26 +409,26 @@ export function provenanceParts(p: RunProvenance | undefined): string[] {
 
 /** Every string the hub shows that is not a status or a kind, in one place for both clients. */
 export const HUB_COPY = {
-  title: "Playtests",
+  title: "Playtest Hub",
   overview: "Overview",
   attention: "Needs attention",
-  goals: "Goals",
-  milestones: "Milestones",
-  playtests: "Playtests",
+  goals: "Tracks",
+  milestones: "Scenes",
+  playtests: "Clips",
   /** What a check is called wherever a person reads it. */
-  playtest: "Playtest",
-  /** The screen of every playtest the project has (its route is still "library"). */
-  library: "Playtests",
+  playtest: "Clip",
+  /** The screen of every clip the project has (its route is still "library"). */
+  library: "Clips",
   recent: "Recent",
-  searchGoals: "Search goals",
-  searchMilestones: "Search milestones",
-  noMilestonesMatch: "No milestones match.",
-  noMilestonesYet: "A milestone is a set of goals that must all be met, such as a release.",
-  newMilestone: "New milestone",
-  milestone: "Milestone",
-  allMilestones: "All milestones",
-  milestoneFilter: "Milestone",
-  noGoalsMatch: "No goals match.",
+  searchGoals: "Search tracks",
+  searchMilestones: "Search scenes",
+  noMilestonesMatch: "No scenes match.",
+  noMilestonesYet: "A scene is a set of tracks that must all be met, such as a release.",
+  newMilestone: "New scene",
+  milestone: "Scene",
+  allMilestones: "All scenes",
+  milestoneFilter: "Scene",
+  noGoalsMatch: "No tracks match.",
   nowRunning: "Now running",
   finished: "Finished",
   queue: "Queue",
@@ -437,36 +437,36 @@ export const HUB_COPY = {
   runNext: "Run next",
   schedules: "Schedules",
   newSchedule: "New schedule",
-  noSchedules: "A schedule runs playtests on the days and at the time you pick, when the editor is free and nobody is at the computer.",
+  noSchedules: "A schedule runs clips on the days and at the time you pick, when the editor is free and nobody is at the computer.",
   /** Shown where schedules would be, by a daemon that has none. */
   schedulesUnavailable: "Update ue-mcp to use schedules.",
   attended: "Someone is there to judge manual steps",
-  attendedHelp: "Without someone there, playtests with manual steps are skipped.",
+  attendedHelp: "Without someone there, clips with manual steps are skipped.",
   stopOnFailure: "Stop at the first failure",
   /** A schedule that came due and has not started yet. */
   scheduleWaiting: (why: string) => `Due, waiting: ${why}`,
   scheduleSkipped: (why: string) => `Skipped: ${why}`,
-  newGoal: "New goal",
-  editGoal: "Edit goal",
-  groupIntoGoal: "Group into a goal",
-  runGoal: "Run goal",
+  newGoal: "New track",
+  editGoal: "Edit track",
+  groupIntoGoal: "Group into a track",
+  runGoal: "Run track",
   runFailing: "Run failing",
   runAll: "Run all",
   runSelected: "Run selected",
-  addToGoal: "Add to goal",
-  addPlaytests: "Add playtests",
+  addToGoal: "Add to track",
+  addPlaytests: "Add clips",
   delete: "Delete",
-  /** The delete dialog's question: one playtest, or the count. */
-  deleteTitle: (n: number) => (n === 1 ? "Delete this playtest?" : `Delete ${n} playtests?`),
-  deleteLead: (n: number) => `This deletes ${n === 1 ? "its asset" : "their assets"} from the project. Goals that list ${n === 1 ? "it" : "them"} keep ${n === 1 ? "it" : "them"} and show ${n === 1 ? "it" : "them"} as not on this checkout.`,
+  /** The delete dialog's question: one clip, or the count. */
+  deleteTitle: (n: number) => (n === 1 ? "Delete this clip?" : `Delete ${n} clips?`),
+  deleteLead: (n: number) => `This deletes ${n === 1 ? "its asset" : "their assets"} from the project. Tracks that list ${n === 1 ? "it" : "them"} keep ${n === 1 ? "it" : "them"} and show ${n === 1 ? "it" : "them"} as not on this checkout.`,
   deleting: (done: number, total: number) => `Deleting ${done + 1} of ${total}`,
-  deleted: (n: number) => (n === 1 ? "Deleted the playtest" : `Deleted ${n} playtests`),
+  deleted: (n: number) => (n === 1 ? "Deleted the clip" : `Deleted ${n} clips`),
   deleteFailedTitle: (failed: number, total: number) => `${failed} of ${total} could not be deleted`,
-  /** Deleting a goal or milestone: the button, the question, what stays, and the goals that lose it. */
-  deleteGoal: (kind: "goal" | "milestone") => (kind === "milestone" ? "Delete milestone" : "Delete goal"),
-  deleteGoalTitle: (kind: "goal" | "milestone", title: string) => `Delete the ${kind} "${title}"?`,
+  /** Deleting a track or scene (goal kinds): the button, the question, what stays, and the tracks that lose it. */
+  deleteGoal: (kind: "goal" | "milestone") => (kind === "milestone" ? "Delete scene" : "Delete track"),
+  deleteGoalTitle: (kind: "goal" | "milestone", title: string) => `Delete the ${kind === "milestone" ? "scene" : "track"} "${title}"?`,
   deleteGoalKeeps: (kind: "goal" | "milestone") =>
-    kind === "milestone" ? "The goals it requires stay. Its playtests stay in the library and keep their past runs." : "Its playtests stay in the library and keep their past runs.",
+    kind === "milestone" ? "The tracks it requires stay. Its clips stay and keep their past runs." : "Its clips stay and keep their past runs.",
   deleteGoalUnlinks: "These will no longer require it:",
   goalDeleted: (title: string) => `Deleted ${title}`,
   fixFailing: "Fix failing with an agent",
@@ -475,27 +475,27 @@ export const HUB_COPY = {
   fixesQueued: (n: number) => (n ? `Queued ${n === 1 ? "a fix" : `${n} fixes`}. Each runs in its own chat session.` : "Nothing is failing."),
   /** A fix item's line: the chat session its agent works in. */
   fixChat: "Open chat",
-  writePlaytests: "Write playtests for this goal",
+  writePlaytests: "Write clips for this track",
   signOff: "Sign off",
   clearSignOff: "Clear sign-off",
-  otherGoals: "Other goals",
+  otherGoals: "Other tracks",
   partOf: "Part of",
-  requiredGoals: "Required goals",
-  addGoal: "Add goal",
-  newGoalHere: "New goal here",
+  requiredGoals: "Required tracks",
+  addGoal: "Add track",
+  newGoalHere: "New track here",
   optional: "optional",
-  notInMilestone: "Not part of any milestone",
-  notInGoal: "Not part of any goal",
-  noRequiredGoals: "A goal can require other goals. It is met only when they are.",
-  noGoalsInMilestone: "No goals in this milestone yet.",
-  noPlaytestsInGoal: "A goal is met when its required playtests pass. Add playtests the project has, or ask an agent to write them.",
-  unusedChecks: (n: number) => `${n} ${n === 1 ? "playtest is" : "playtests are"} not part of any goal`,
+  notInMilestone: "Not part of any scene",
+  notInGoal: "Not part of any track",
+  noRequiredGoals: "A track can require other tracks. It is met only when they are.",
+  noGoalsInMilestone: "No tracks in this scene yet.",
+  noPlaytestsInGoal: "A track is met when its required clips pass. Add clips the project has, or ask an agent to write them.",
+  unusedChecks: (n: number) => `${n} ${n === 1 ? "clip is" : "clips are"} not part of any track`,
   attentionEmpty: "Nothing needs attention.",
-  /** The overview without goals: goals are an opt-in layer over the playtests. */
-  goalsLead: "Select playtests and group them into a goal to track something the game must do. A goal's status follows its playtests' runs.",
-  noChecksTitle: "No playtests yet",
+  /** The overview without tracks: tracks are an opt-in layer over the clips. */
+  goalsLead: "Select clips and group them into a track for something the game must do. A track's status follows its clips' runs.",
+  noChecksTitle: "No clips yet",
   noChecksLead: "Ask for one in Chat with /playtest.",
-  libraryEmpty: "No playtests match.",
+  libraryEmpty: "No clips match.",
   justBroke: "Just broke",
   queueIdle: "Nothing is running.",
   pause: "Pause",
@@ -505,17 +505,17 @@ export const HUB_COPY = {
   pausedByReconnect: "Paused because the editor reconnected. Resume when Studio may use it again.",
   waiting: (why: string) => `Waiting: ${why}`,
   editorDown: "The editor is not connected. Resume once it is back.",
-  filterPlaceholder: "Filter by name, map or goal",
-  palettePlaceholder: "Jump to a goal, playtest or run, or type a command",
+  filterPlaceholder: "Filter by name, map or track",
+  palettePlaceholder: "Jump to a track, clip or run, or type a command",
   paletteEmpty: "No matches.",
   failNoteLabel: "What went wrong?",
   shortcuts: "Keyboard shortcuts",
   /** Beside the "Not on this checkout" status: why that is no failure. */
-  notOnCheckout: "Goals keep it listed, since another branch may have it.",
-  /** A goal names a script by the path it had before it moved. */
+  notOnCheckout: "Tracks keep it listed, since another branch may have it.",
+  /** A track names a script by the path it had before it moved. */
   movedFrom: (path: string) => `Moved from ${path}`,
   unsupported: "Can't run here",
-  unsupportedLead: "These were imported with the goal. Studio can't run them, so they don't count toward it.",
+  unsupportedLead: "These were imported with the track. Studio can't run them, so they don't count toward it.",
   owner: "Owner",
   priority: "Priority",
   due: "Due",
@@ -545,10 +545,10 @@ const ended = (s: string): string => `${sentence(s.trim().replace(/[.!?:;,]+$/, 
 /**
  * The line after a person's Run, from where the daemon put the plan. Without
  * a placement (a daemon that predates it) it says only that it was queued.
- * The count is left out when the title already says playtests.
+ * The count is left out when the title already says clips.
  */
 export function runFeedback(title: string, placement: PlanPlacement | undefined, count?: number): RunFeedback {
-  const what = count === undefined || /playtest/i.test(title) ? title : `${title} (${count} ${count === 1 ? "playtest" : "playtests"})`;
+  const what = count === undefined || /\bclips?\b/i.test(title) ? title : `${title} (${count} ${count === 1 ? "clip" : "clips"})`;
   if (!placement) return { text: `Queued ${what}`, tone: "ok", openQueue: true };
   switch (placement.state) {
     case "started":
@@ -567,9 +567,9 @@ export function runFeedback(title: string, placement: PlanPlacement | undefined,
 // ---------- Sign-off ----------
 
 const LAPSE_TEXT: Record<SignOffLapse, string> = {
-  failed: "A required playtest failed after it.",
-  requirements: "The goal's requirements changed after it.",
-  revision: "The project moved to another revision, and a required playtest's script or map changed or has not run there yet.",
+  failed: "A required clip failed after it.",
+  requirements: "The track's requirements changed after it.",
+  revision: "The project moved to another revision, and a required clip's script or map changed or has not run there yet.",
 };
 
 /** A sign-off in words: who gave it and from where, or, once it lapsed, why it no longer counts. */
@@ -732,7 +732,7 @@ export function milestoneProgress(g: Pick<GoalState, "requires">): { met: number
 /** A milestone's progress in words: "7 of 9 goals met". */
 export function milestoneProgressText(g: Pick<GoalState, "requires">): string {
   const p = milestoneProgress(g);
-  return p.total === 0 ? "No goals yet" : `${p.met} of ${p.total} ${p.total === 1 ? "goal" : "goals"} met`;
+  return p.total === 0 ? "No tracks yet" : `${p.met} of ${p.total} ${p.total === 1 ? "track" : "tracks"} met`;
 }
 
 // ---------- Recent ----------
@@ -848,9 +848,9 @@ export function goalCounts(all: readonly GoalState[]): Record<GoalStatus, number
 export function goalSummary(all: readonly GoalState[]): string {
   const counts = goalCounts(all);
   const total = GOAL_STATUS_ORDER.reduce((n, s) => n + counts[s], 0);
-  if (total === 0) return "No goals";
+  if (total === 0) return "No tracks";
   const parts = GOAL_STATUS_ORDER.filter((s) => counts[s] > 0).map((s) => `${counts[s]} ${GOAL_STATUS_LOOK[s].label.toLowerCase()}`);
-  return `${total} ${total === 1 ? "goal" : "goals"}: ${parts.join(", ")}`;
+  return `${total} ${total === 1 ? "track" : "tracks"}: ${parts.join(", ")}`;
 }
 
 /**
@@ -882,21 +882,21 @@ export function progressText(p: { met: number; total: number }): string {
 
 /** A goal's acceptance rule in a sentence. */
 export function acceptanceText(goal: Pick<Goal, "acceptance">): string {
-  return goal.acceptance.signOff ? "All its playtests pass and someone signs it off." : "All its playtests pass.";
+  return goal.acceptance.signOff ? "All its clips pass and someone signs it off." : "All its clips pass.";
 }
 
 // ---------- Moving goals between computers ----------
 
 export const HUB_STORE_COPY = {
-  menu: "Goals",
-  export: "Export goals",
-  import: "Import goals",
+  menu: "Tracks",
+  export: "Export tracks",
+  import: "Import tracks",
   /** What the export's file is called: the day it was made. */
-  fileName: (iso: string) => `goals-${iso.slice(0, 10)}.json`,
-  exported: "Saved the goals file.",
-  notAFile: "That file isn't a goals file exported from Studio.",
-  /** Where goals are kept, said once near the export, so nobody looks for them in the repo. */
-  where: "Goals are kept by Studio on this computer, not in the project. Export them to move them to another computer.",
+  fileName: (iso: string) => `tracks-${iso.slice(0, 10)}.json`,
+  exported: "Saved the tracks file.",
+  notAFile: "That file isn't a tracks file exported from Studio.",
+  /** Where tracks are kept, said once near the export, so nobody looks for them in the repo. */
+  where: "Studio keeps tracks on this computer, not in the project. Export them to move them to another computer.",
 } as const;
 
 /** What an import did, in a sentence: "Added 4. 2 were already here. 1 differs here and was kept as it is: Jump." */
@@ -914,7 +914,7 @@ export const isGoalsFile = (v: unknown): v is HubExport => !!v && typeof v === "
 export function importedText(i: GoalImport | null): string | null {
   if (!i) return null;
   const n = i.goals.length;
-  return `${n} ${n === 1 ? "goal was" : "goals were"} brought in from ${i.from} on ${i.at.slice(0, 10)}. Studio no longer reads that folder, and it was left as it was.`;
+  return `${n} ${n === 1 ? "track was" : "tracks were"} brought in from ${i.from} on ${i.at.slice(0, 10)}. Studio no longer reads that folder, and it was left as it was.`;
 }
 
 // ---------- Sparklines and charts ----------
@@ -1003,7 +1003,7 @@ export const HEALTH_FILTERS: ReadonlyArray<{ id: HealthFilter; label: string }> 
   { id: "never_run", label: "Never run" },
   { id: "passing", label: "Passing" },
   { id: "missing", label: "Not on this checkout" },
-  { id: "unlinked", label: "Not part of any goal" },
+  { id: "unlinked", label: "Not part of any track" },
 ];
 
 export function matchesHealth(c: CheckState, f: HealthFilter): boolean {
@@ -1069,11 +1069,11 @@ export function planProgress(p: Pick<PlanRun, "items">): PlanProgress {
 export function scopeText(scope: PlanScope, goals: readonly GoalState[] = []): string {
   const goalTitle = (id?: string) => (id ? goals.find((g) => g.goal.id === id)?.goal.title ?? id : null);
   switch (scope.kind) {
-    case "goal": return `Goal: ${goalTitle(scope.goalId)}`;
-    case "checks": return `${scope.checks.length} ${scope.checks.length === 1 ? "playtest" : "playtests"}`;
-    case "failing": return scope.goalId ? `Failing in ${goalTitle(scope.goalId)}` : "Every failing playtest";
-    case "stale": return scope.goalId ? `Stale in ${goalTitle(scope.goalId)}` : "Every stale playtest";
-    case "all": return "Every playtest";
+    case "goal": return `${goals.find((g) => g.goal.id === scope.goalId)?.goal.kind === "milestone" ? "Scene" : "Track"}: ${goalTitle(scope.goalId)}`;
+    case "checks": return `${scope.checks.length} ${scope.checks.length === 1 ? "clip" : "clips"}`;
+    case "failing": return scope.goalId ? `Failing in ${goalTitle(scope.goalId)}` : "Every failing clip";
+    case "stale": return scope.goalId ? `Stale in ${goalTitle(scope.goalId)}` : "Every stale clip";
+    case "all": return "Every clip";
   }
 }
 
@@ -1110,7 +1110,7 @@ export function scheduleErrors(s: Pick<ScheduleDraft, "title" | "at" | "days" | 
   if (!s.title.trim()) e.title = "Give the schedule a name.";
   if (!TIME.test(s.at)) e.at = "Use a 24-hour time, such as 02:00.";
   if (s.days.length === 0) e.days = "Pick at least one day.";
-  if (s.scope.kind === "goal" && !s.scope.goalId) e.scope = "Pick a goal.";
+  if (s.scope.kind === "goal" && !s.scope.goalId) e.scope = "Pick a track.";
   return e;
 }
 
@@ -1176,7 +1176,7 @@ export function goalFormOf(g?: Partial<Goal> | null, parents: readonly string[] 
 export function goalFormErrors(f: GoalForm, ctx: { selfId?: string; goals?: readonly GoalState[] } = {}): GoalFormErrors {
   const e: GoalFormErrors = {};
   const title = f.title.trim();
-  if (!title) e.title = "A goal needs a title.";
+  if (!title) e.title = f.kind === "milestone" ? "A scene needs a title." : "A track needs a title.";
   else if (title.length > GOAL_TITLE_MAX) e.title = `Keep the title under ${GOAL_TITLE_MAX} characters.`;
   if (f.due && !validDate(f.due)) e.due = "Use a date, such as 2026-12-31.";
   if (f.parents.length) {
@@ -1184,9 +1184,10 @@ export function goalFormErrors(f: GoalForm, ctx: { selfId?: string; goals?: read
     const self = f.parents.find((p) => p === ctx.selfId);
     const unknown = goals && f.parents.find((p) => !goals.some((g) => g.id === p));
     const loop = goals && ctx.selfId && f.parents.find((p) => loopIfRequired(goals, p, ctx.selfId!));
-    if (self) e.parents = "A goal cannot be part of itself.";
-    else if (unknown) e.parents = "Pick goals from the list.";
-    else if (loop) e.parents = `This goal already requires ${goals!.find((g) => g.id === loop)?.title ?? loop}, so it cannot also be part of it.`;
+    const it = f.kind === "milestone" ? "scene" : "track";
+    if (self) e.parents = `A ${it} cannot be part of itself.`;
+    else if (unknown) e.parents = "Pick tracks or scenes from the list.";
+    else if (loop) e.parents = `This ${it} already requires ${goals!.find((g) => g.id === loop)?.title ?? loop}, so it cannot also be part of it.`;
   }
   const rows = f.links.filter((r) => r.url.trim());
   const badLink = rows.map(linkFromRow).find((r): r is { error: string } => "error" in r);
@@ -1327,17 +1328,17 @@ export interface HubKey {
 export const HUB_SHORTCUTS: ReadonlyArray<{ keys: string[]; label: string; group: "Move" | "Act" | "Go to" }> = [
   { keys: ["Ctrl K"], label: "Command palette", group: "Go to" },
   { keys: ["g", "o"], label: "Overview", group: "Go to" },
-  { keys: ["g", "m"], label: "Milestones", group: "Go to" },
-  { keys: ["g", "l"], label: "Playtests", group: "Go to" },
+  { keys: ["g", "m"], label: "Scenes", group: "Go to" },
+  { keys: ["g", "l"], label: "Clips", group: "Go to" },
   { keys: ["g", "q"], label: "Queue", group: "Go to" },
   { keys: ["j"], label: "Next row", group: "Move" },
   { keys: ["k"], label: "Previous row", group: "Move" },
   { keys: ["Enter"], label: "Open the row", group: "Move" },
   { keys: ["/"], label: "Filter", group: "Move" },
-  { keys: ["r"], label: "Run the row, or the goal or playtest on screen", group: "Act" },
-  { keys: ["a"], label: "Fix the goal's failing playtests with an agent", group: "Act" },
+  { keys: ["r"], label: "Run the row, or the track or clip on screen", group: "Act" },
+  { keys: ["a"], label: "Fix the track's failing clips with an agent", group: "Act" },
   { keys: ["x"], label: "Select the row", group: "Act" },
-  { keys: ["c"], label: "New goal", group: "Act" },
+  { keys: ["c"], label: "New track", group: "Act" },
   { keys: ["?"], label: "This list", group: "Act" },
 ];
 
@@ -1420,24 +1421,24 @@ export interface PaletteEntry {
 export function paletteEntries(o: Pick<HubOverview, "goals" | "checks" | "recent">): PaletteEntry[] {
   const out: PaletteEntry[] = [
     { id: "cmd:new-goal", kind: "command", label: HUB_COPY.newGoal, command: "newGoal", hint: "c" },
-    { id: "screen:new-playtest", kind: "screen", label: "New playtest", route: { screen: "draft" } },
+    { id: "screen:new-playtest", kind: "screen", label: "New script clip", route: { screen: "draft" } },
     { id: "cmd:run-failing", kind: "command", label: HUB_COPY.runFailing, command: "runFailing" },
     { id: "cmd:run-all", kind: "command", label: HUB_COPY.runAll, command: "runAll" },
     { id: "screen:overview", kind: "screen", label: "Go to Overview", route: { screen: "overview" }, hint: "g o" },
-    { id: "screen:milestones", kind: "screen", label: "Go to Milestones", route: { screen: "milestones" }, hint: "g m" },
-    { id: "screen:library", kind: "screen", label: "Go to Playtests", route: { screen: "library" }, hint: "g l" },
+    { id: "screen:milestones", kind: "screen", label: "Go to Scenes", route: { screen: "milestones" }, hint: "g m" },
+    { id: "screen:library", kind: "screen", label: "Go to Clips", route: { screen: "library" }, hint: "g l" },
     { id: "screen:queue", kind: "screen", label: "Go to Queue", route: { screen: "queue" }, hint: "g q" },
     { id: "cmd:shortcuts", kind: "command", label: HUB_COPY.shortcuts, command: "shortcuts", hint: "?" },
   ];
   for (const g of sortGoals(o.goals.filter((g) => !g.goal.archived))) {
     const look = GOAL_STATUS_LOOK[g.status];
-    out.push({ id: `goal:${g.goal.id}`, kind: "goal", label: g.goal.title, hint: g.goal.kind === "milestone" ? "Milestone" : "Goal", route: { screen: "goal", goalId: g.goal.id }, look });
+    out.push({ id: `goal:${g.goal.id}`, kind: "goal", label: g.goal.title, hint: g.goal.kind === "milestone" ? "Scene" : "Track", route: { screen: "goal", goalId: g.goal.id }, look });
     out.push({ id: `run-goal:${g.goal.id}`, kind: "command", label: `Run ${g.goal.title}`, hint: runGoalLabel(g.goal, goalCheckIds(g.goal.id, o.goals).length), command: { runGoal: g.goal.id }, look });
   }
   for (const c of sortChecks(o.checks)) {
     const look = CHECK_HEALTH_LOOK[c.health];
     out.push({ id: `check:${c.id}`, kind: "check", label: c.name, hint: HUB_COPY.playtest, route: { screen: "check", checkId: c.id }, look });
-    out.push({ id: `run-check:${c.id}`, kind: "command", label: `Run ${c.name}`, hint: "Run playtest", command: { runCheck: c.id }, look });
+    out.push({ id: `run-check:${c.id}`, kind: "command", label: `Run ${c.name}`, hint: "Run clip", command: { runCheck: c.id }, look });
   }
   for (const r of o.recent.slice(0, 15)) {
     out.push({ id: `run:${r.runId}`, kind: "run", label: `${r.name} run`, hint: `${RUN_OUTCOME_LOOK[r.outcome].label}, ${shortAgo(r.startedAt)}`, route: { screen: "run", runId: r.runId }, look: RUN_OUTCOME_LOOK[r.outcome] });

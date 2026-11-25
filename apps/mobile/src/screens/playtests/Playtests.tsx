@@ -199,11 +199,11 @@ export function PlaytestsView({ daemon, index: source, onOpenSession, onChat, fo
           {startError ? <T style={[s.small, { color: bannerText(t, "bad") }]}>{startError}</T> : null}
         </Banner>
       ) : null}
-      {!index && !error ? <T style={[s.small, { color: t.c.dim, marginVertical: 13.5 }]}>Loading playtests</T> : null}
+      {!index && !error ? <T style={[s.small, { color: t.c.dim, marginVertical: 13.5 }]}>Loading clips</T> : null}
       {index && rows.length === 0 ? (
         all.length === 0 ? (
           <View style={s.empty}>
-            <T style={{ ...font(t, "sans", 700, t.base.size), lineHeight: t.base.lineHeight, color: t.c.text }}>No playtests yet</T>
+            <T style={{ ...font(t, "sans", 700, t.base.size), lineHeight: t.base.lineHeight, color: t.c.text }}>No clips yet</T>
             <T style={{ color: t.c.muted }}>
               Ask the agent for one in a session, or type <Text style={{ ...font(t, "mono", 400, t.base.size * 0.92), color: t.c.text }}>/playtest</Text> in the message box.
             </T>

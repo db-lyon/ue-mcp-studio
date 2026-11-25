@@ -134,7 +134,7 @@ export function HubLink({ href, onGo, children, ...rest }: { href: string; onGo:
   );
 }
 
-/** Where a Fix button would be while Fix failing playtests with an agent is off: one quiet line, and the way to the setting. */
+/** Where a Fix button would be while Fix failing clips with an agent is off: one quiet line, and the way to the setting. */
 export function AgentFixesOff() {
   const to = { tab: "Settings" as const, section: AGENT_FIXES_SECTION, sub: null };
   return (

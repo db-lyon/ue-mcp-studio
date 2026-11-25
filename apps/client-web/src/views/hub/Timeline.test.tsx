@@ -78,13 +78,13 @@ describe("reaching the timeline", () => {
   it("opens from the playtest editor, with the breadcrumbs leading back the way the user came", async () => {
     window.location.hash = "#/playtests/checks/new";
     render(<Harness start={hubFixture()} />);
-    fireEvent.click(await screen.findByRole("button", { name: "Timeline playtests" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Timeline clips" }));
     expect(window.location.hash).toBe("#/playtests/clips");
     fireEvent.click(await screen.findByRole("link", { name: /CL_Door/ }));
     expect(window.location.hash).toBe(`#/playtests/clips/${encodeURIComponent(PATH)}`);
     await screen.findByRole("heading", { name: "CL_Door" });
     // The breadcrumbs follow the way the user came, not the hub's map.
-    expect(screen.getByRole("navigation", { name: "Where you came from" }).textContent).toContain("New playtest");
+    expect(screen.getByRole("navigation", { name: "Where you came from" }).textContent).toContain("New script clip");
   });
 
   it("creates a clip by name and opens it", async () => {
@@ -92,7 +92,7 @@ describe("reaching the timeline", () => {
     m.clips.list.mockResolvedValue({ clips: [] });
     m.clips.create.mockResolvedValue({ path: "/Game/PIEStudio/Clips/CL_Jump" });
     render(<Harness start={hubFixture()} />);
-    fireEvent.click((await screen.findAllByRole("button", { name: "New timeline playtest" }))[0]);
+    fireEvent.click((await screen.findAllByRole("button", { name: "New timeline clip" }))[0]);
     const name = screen.getByRole("textbox", { name: "Name" });
     fireEvent.change(name, { target: { value: "CL Jump" } });
     fireEvent.click(screen.getByRole("button", { name: "Create" }));
@@ -112,7 +112,7 @@ describe("editing on the timeline", () => {
   };
   const answer = (clip: Clip, changed: string[] = []) => ({ path: PATH, clip, changed, warnings: [], rollback: { path: PATH, clip: base() } });
 
-  it("draws a note on a Boolean track by dragging, snapped to the grid", async () => {
+  it("draws a note on a Boolean lane by dragging, snapped to the grid", async () => {
     await open();
     const withNote = base();
     withNote.tracks![0].notes!.push({ id: "n2", start: 100, length: 12 });
@@ -151,7 +151,7 @@ describe("editing on the timeline", () => {
     await open();
     m.clips.edit.mockResolvedValue(answer({ ...base(), tracks: [{ action: JUMP, type: "bool", notes: [] }] }));
     fireEvent.click(screen.getByRole("button", { name: /Note n1/ }));
-    fireEvent.keyDown(screen.getByRole("group", { name: "Timeline playtest" }), { key: "Delete" });
+    fireEvent.keyDown(screen.getByRole("group", { name: "Timeline clip" }), { key: "Delete" });
     await waitFor(() => expect(m.clips.edit).toHaveBeenCalledWith(PATH, [{ op: "delete", id: "n1" }]));
   });
 
