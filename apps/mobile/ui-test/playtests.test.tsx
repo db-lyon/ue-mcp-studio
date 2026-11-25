@@ -61,18 +61,18 @@ describe("QaCard", () => {
     const api = fakeApi();
     api.qaRun.mockResolvedValue({ run: RUNS.armed });
     renderInProject(<QaCard run={RUNS.draft} />, api);
-    expect(screen.getByText("Playtest draft")).toBeTruthy();
+    expect(screen.getByText("Clip draft")).toBeTruthy();
     expect(screen.getByText("5 steps, 2 watched by a person")).toBeTruthy();
-    press("Start playtest");
+    press("Start clip");
     expect(api.qaRun).toHaveBeenCalledWith(RUNS.draft.runId, { startPie: true, players: 1, listen: false, record: true });
     await settle();
     expect(screen.getByText("Starting")).toBeTruthy();
   });
 
-  it("offers Start playtest's options: PIE, players, listen server and recording", () => {
+  it("offers Start clip's options: PIE, players, listen server and recording", () => {
     const api = fakeApi();
     renderInProject(<QaCard run={RUNS.draft} />, api);
-    press("Start playtest options");
+    press("Start clip options");
     expect(screen.getByText("Listen server")).toBeTruthy();
     press("Record");
     fireEvent.change(screen.getByLabelText("Players"), { target: { value: "2" } });
@@ -87,7 +87,7 @@ describe("QaCard", () => {
     renderInProject(<QaCard run={RUNS.draft} />, api);
     press("Open PT_DoorOpens");
     press("Edit PT_DoorOpens");
-    expect(screen.getByLabelText("Edit the playtest")).toBeTruthy();
+    expect(screen.getByLabelText("Edit the clip")).toBeTruthy();
     fireEvent.change(screen.getByLabelText("Step 1 instruction"), { target: { value: "Jump twice" } });
     press("Remove step 5");
     pressText("Save");
@@ -103,9 +103,9 @@ describe("QaCard", () => {
     api.qaPlaytestDelete.mockResolvedValue({ script: RUNS.failed.script });
     renderInProject(<QaCard run={RUNS.failed} />, api);
     press("Delete PT_LandingCheck");
-    expect(screen.getByText("Delete this playtest?")).toBeTruthy();
+    expect(screen.getByText("Delete this clip?")).toBeTruthy();
     press("Keep");
-    expect(screen.queryByText("Delete this playtest?")).toBeNull();
+    expect(screen.queryByText("Delete this clip?")).toBeNull();
     press("Delete PT_LandingCheck");
     press("Delete");
     expect(api.qaPlaytestDelete).toHaveBeenCalledWith(RUNS.failed.script);
@@ -149,7 +149,7 @@ describe("QaCard", () => {
     const api = fakeApi();
     renderInProject(<QaCard run={RUNS.running} />, api);
     expect(screen.getByText("Step 2 of 5: play this step")).toBeTruthy();
-    press("Stop playtest PT_JumpCheck");
+    press("Stop clip PT_JumpCheck");
     expect(api.qaStop).toHaveBeenCalledWith(RUNS.running.runId);
     press("Assign to subagent");
     expect(api.qaAssign).toHaveBeenCalledWith(RUNS.running.runId, null);
@@ -263,7 +263,7 @@ describe("PlaytestsScreen", () => {
     api.qaRun.mockResolvedValue({ run: RUNS.armed });
     renderInProject(<PlaytestsScreen onOpenSession={() => undefined} />, api);
     await settle();
-    const starts = screen.getAllByLabelText("Start playtest");
+    const starts = screen.getAllByLabelText("Start clip");
     fireEvent.click(starts[starts.length - 1]);
     await settle();
     expect(api.qaPlaytestCard).toHaveBeenCalledWith("/Game/PIEStudio/Scripts/PT_Crouch");
@@ -289,14 +289,14 @@ describe("PlaytestsScreen", () => {
     let fail: (e: Error) => void = () => undefined;
     api.qaPlaytests.mockReturnValueOnce(new Promise((_r, j) => (fail = j)));
     const view = renderInProject(<PlaytestsScreen onOpenSession={() => undefined} onChat={() => undefined} />, api);
-    expect(screen.getByText("Loading playtests")).toBeTruthy();
+    expect(screen.getByText("Loading clips")).toBeTruthy();
     await act(async () => fail(new Error("Studio is not reachable")));
     expect(screen.getByText("Studio is not reachable")).toBeTruthy();
     view.unmount();
     api.qaPlaytests.mockResolvedValue({ playtests: [], listed: true });
     renderInProject(<PlaytestsScreen onOpenSession={() => undefined} onChat={() => undefined} />, api);
     await settle();
-    expect(screen.getByText("No playtests yet")).toBeTruthy();
+    expect(screen.getByText("No clips yet")).toBeTruthy();
     expect(screen.getByText("Go to Chat")).toBeTruthy();
   });
 
@@ -336,10 +336,10 @@ describe("QaCard as the web lays it out", () => {
 
   it("keeps .qa-card's 8px margin in the conversation, and none as a page row", () => {
     const { unmount } = renderInProject(<QaCard run={RUNS.armed} />);
-    expect(getComputedStyle(screen.getByLabelText(`Playtest ${RUNS.armed.scriptName}`)).marginTop).toBe("8px");
+    expect(getComputedStyle(screen.getByLabelText(`Clip ${RUNS.armed.scriptName}`)).marginTop).toBe("8px");
     unmount();
     renderInProject(<QaCard run={RUNS.armed} slotted />);
-    expect(getComputedStyle(screen.getByLabelText(`Playtest ${RUNS.armed.scriptName}`)).marginTop).toBe("0px");
+    expect(getComputedStyle(screen.getByLabelText(`Clip ${RUNS.armed.scriptName}`)).marginTop).toBe("0px");
   });
 
   it("carries the body's line-height multiple to smaller text, not the quotient of its cut line box", () => {
@@ -355,7 +355,7 @@ describe("QaCard as the web lays it out", () => {
     );
     const rgb = (hex: string) => `rgb(${parseInt(hex.slice(1, 3), 16)}, ${parseInt(hex.slice(3, 5), 16)}, ${parseInt(hex.slice(5, 7), 16)})`;
     const line = THEMES.editor.c.lineStrong;
-    const border = getComputedStyle(screen.getByLabelText(`Playtest ${RUNS.armed.scriptName}`)).borderTopColor;
+    const border = getComputedStyle(screen.getByLabelText(`Clip ${RUNS.armed.scriptName}`)).borderTopColor;
     expect(line.startsWith("#") ? border === rgb(line) : border.replace(/s/g, "") === line.replace(/s/g, "")).toBe(true);
   });
 

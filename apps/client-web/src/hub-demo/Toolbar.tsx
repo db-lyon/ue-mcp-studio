@@ -16,7 +16,7 @@ export interface ToolbarProps {
   onReset: () => void;
 }
 
-const SEED_LABELS: Record<DemoSeed, string> = { full: "Full project", empty: "Scripts, no goals", fresh: "No scripts" };
+const SEED_LABELS: Record<DemoSeed, string> = { full: "Full project", empty: "Scripts, no tracks", fresh: "No scripts" };
 const OPEN_KEY = "studio.hub-demo.toolbar-open";
 
 const box: CSSProperties = {

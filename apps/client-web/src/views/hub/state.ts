@@ -42,7 +42,7 @@ export function useExperiments(events: DaemonState["events"]): StudioExperiments
   return x;
 }
 
-/** Fired on window when Settings changes Fix failing playtests with an agent, so the hub's Fix buttons follow. */
+/** Fired on window when Settings changes Fix failing clips with an agent, so the hub's Fix buttons follow. */
 export const AGENT_FIXES_EVENT = "studio:agent-fixes";
 
 export function announceAgentFixes(on: boolean): void {
@@ -51,7 +51,7 @@ export function announceAgentFixes(on: boolean): void {
 }
 
 /**
- * Whether Fix failing playtests with an agent is on, read when a screen opens;
+ * Whether Fix failing clips with an agent is on, read when a screen opens;
  * null until the agent answers, when neither the Fix buttons nor the line
  * saying they are off is shown.
  */

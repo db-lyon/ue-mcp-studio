@@ -62,7 +62,7 @@ describe("the hub trail", () => {
 
   it("names screens it has no record for plainly", () => {
     expect(hubRouteLabel({ screen: "run", runId: "unknown" }, o)).toBe("Run");
-    expect(hubRouteLabel({ screen: "library" }, null)).toBe("Playtests");
-    expect(hubRouteLabel({ screen: "draft" }, null)).toBe("New playtest");
+    expect(hubRouteLabel({ screen: "library" }, null)).toBe("Clips");
+    expect(hubRouteLabel({ screen: "draft" }, null)).toBe("New script clip");
   });
 });

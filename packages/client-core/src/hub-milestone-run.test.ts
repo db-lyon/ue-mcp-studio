@@ -16,9 +16,9 @@ describe("a milestone's run", () => {
 
   it("is labelled Run all with that count on a milestone, Run goal on a goal, in the palette too", () => {
     expect(runGoalLabel(goals[0].goal, 4)).toBe("Run all (4)");
-    expect(runGoalLabel(goals[1].goal, 2)).toBe("Run goal");
+    expect(runGoalLabel(goals[1].goal, 2)).toBe("Run track");
     const entries = paletteEntries({ goals: goals.map((g) => ({ ...g, status: "not_started" })) as GoalState[], checks: [], recent: [] });
     expect(entries.find((e) => e.id === "run-goal:alpha")?.hint).toBe("Run all (4)");
-    expect(entries.find((e) => e.id === "run-goal:move")?.hint).toBe("Run goal");
+    expect(entries.find((e) => e.id === "run-goal:move")?.hint).toBe("Run track");
   });
 });

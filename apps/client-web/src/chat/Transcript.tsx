@@ -95,7 +95,7 @@ export const Entry = memo(function Entry({ entry }: { entry: TranscriptEntry }) 
   if (entry.kind === "review") return <TurnReviewCard review={entry.review} />;
   if (entry.kind === "playtest") {
     return entry.state === "failed"
-      ? <PlaytestFailed errors={entry.errors?.length ? entry.errors : ["The playtest flow made no playtest."]} request={entry.request} />
+      ? <PlaytestFailed errors={entry.errors?.length ? entry.errors : ["The /playtest flow made no clip."]} request={entry.request} />
       : <PlaytestProgress entry={entry} />;
   }
   if (entry.kind === "playtest-failed") return <PlaytestFailed errors={[entry.reason]} request={entry.request} />;
@@ -152,7 +152,7 @@ function PlaytestFailed({ errors, request }: { errors: string[]; request: Playte
   return (
     <div className="banner bad playtest-failed" role="status">
       <div className="row">
-        <strong>No playtest was made.</strong>
+        <strong>No clip was made.</strong>
         <span className="spacer" />
         {playtest && <button className="small-button" disabled={playtest.busy} onClick={() => playtest.run(request)}>Retry</button>}
       </div>

@@ -16,6 +16,7 @@ import {
   foldSegmentEvents,
   nextName,
   refusalFindings,
+  replaceLines,
   rulerTicks,
   setApi,
   setResults,
@@ -120,8 +121,14 @@ describe("findings", () => {
     expect(candidateLines(f, "/Game/C/Jump", ["add walk clip /Game/C/Jmp at 60"], null)).toEqual(["add walk clip /Game/C/Jump at 60"]);
   });
   it("points a saved instance whose clip is missing at the candidate, in place", () => {
-    expect(candidateLines({ id: "walk/i3", field: "target", message: "", blocks: false }, "/Game/C/Jump", null, set)).toEqual(["delete walk/i3", "add walk clip /Game/C/Jump at 240"]);
+    expect(candidateLines({ id: "walk/i3", field: "target", message: "", blocks: false }, "/Game/C/Jump", null, set)).toEqual(["retarget walk/i3 /Game/C/Jump"]);
     expect(candidateLines({ id: "walk/i3", field: "start", message: "", blocks: false }, "x", null, set)).toBeNull();
+  });
+  it("replaces an instance's clip, naming the kind only when it changes", () => {
+    const inst = { id: "i3", kind: "clip" as const, target: "/Game/C/Jmp" };
+    expect(replaceLines("walk", inst, { kind: "clip", target: "/Game/C/Jump" })).toEqual(["retarget walk/i3 /Game/C/Jump"]);
+    expect(replaceLines("walk", inst, { kind: "script", target: "/Game/T/PT_Door" })).toEqual(["retarget walk/i3 script /Game/T/PT_Door"]);
+    expect(replaceLines("walk", inst, { kind: "clip", target: "/Game/C/Jmp" })).toBeNull();
   });
   it("puts the refused finding first", () => {
     const a = { id: "walk/i1", field: "start", message: "overlaps i2", blocks: true };

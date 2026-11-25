@@ -541,7 +541,7 @@ export function stepSentence(step: DraftStep, catalog: DraftCatalog, defaultWith
     }
     const secs = positive(step.within);
     if (secs) out.push({ text: " within " }, T(durationText(secs * 1000), "time"));
-    else if (step.op !== "triggered") out.push({ text: " within " }, T(durationText(defaultWithinMs), "time", false, "The playtest's default"));
+    else if (step.op !== "triggered") out.push({ text: " within " }, T(durationText(defaultWithinMs), "time", false, "The clip's default"));
   }
   // The first word is capitalised, unless it is a name the step uses as written (pos_z, bIsCrouched).
   const first = out[0];
@@ -814,11 +814,11 @@ export const DRAFT_CHECK_MS = 600;
 // ---------- Copy ----------
 
 export const DRAFT_COPY = {
-  newPlaytest: "New playtest",
-  editPlaytest: "Edit playtest",
+  newPlaytest: "New script clip",
+  editPlaytest: "Edit clip",
   draftWithAgent: "Draft with an agent",
-  draftWithAgentTitle: "Describe the playtest",
-  draftWithAgentLead: "An agent reads the project, writes the steps and checks them with the editor in a chat session. The playtest appears in the Library once it is saved.",
+  draftWithAgentTitle: "Describe the clip",
+  draftWithAgentLead: "An agent reads the project, writes the steps and checks them with the editor in a chat session. The clip appears in Clips once it is saved.",
   draftWithAgentPlaceholder: "For example: the door opens when the player walks up and presses Interact",
   draftWithAgentGo: "Draft in chat",
   nameLabel: "Name",
@@ -871,14 +871,14 @@ export const DRAFT_COPY = {
   savedTitle: (name: string) => `Saved ${name}`,
   saveFailed: "Not saved.",
   discardTitle: "Discard your changes?",
-  discardLead: "The playtest keeps what it had when you opened it.",
+  discardLead: "The clip keeps what it had when you opened it.",
   discardNewLead: "Nothing is saved.",
   discard: "Discard",
   keepEditing: "Keep editing",
   restored: "Your unsaved changes from earlier are back.",
-  needsName: "Name the playtest",
+  needsName: "Name the clip",
   nameStart: "Start the name with a letter",
-  nameTaken: (n: string) => `A playtest named ${n} already exists`,
+  nameTaken: (n: string) => `A clip named ${n} already exists`,
   needsStep: "Add a step",
   needsInput: "Choose an input action",
   needsSeconds: "Enter seconds, such as 1.5",
@@ -895,7 +895,7 @@ export const DRAFT_COPY = {
   otherKept: "Kept as written",
   addsToGoal: (title: string) => `Adds to ${title}`,
   noEditor: "The editor is not connected. Values, levels and checks need it; you can still write the steps.",
-  emptyHint: "A playtest is steps played in order. A step either checks a value in PIE or has someone watch the viewport and decide.",
+  emptyHint: "A clip is steps played in order. A step either checks a value in PIE or has someone watch the viewport and decide.",
   verbs: { press: "Press", hold: "Hold", wait: "Wait", place: "Place player at", console: "Run command" } as Record<ActVerb, string>,
   holdFor: "for",
   holdValue: "value",

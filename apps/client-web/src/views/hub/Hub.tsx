@@ -190,7 +190,7 @@ export function HubView({ data, narrow, onOpenChat, onChat, canDeleteGoals = fal
   const runCheck = async (checkId: string, name?: string) => {
     try {
       const { plan, placement } = await api.hub.runCheck(checkId);
-      ranFeedback(plan, runFeedback(name ?? "the playtest", placement));
+      ranFeedback(plan, runFeedback(name ?? "the clip", placement));
       data.reload();
     } catch (e) {
       notify((e as Error).message, "bad");
@@ -230,7 +230,7 @@ export function HubView({ data, narrow, onOpenChat, onChat, canDeleteGoals = fal
   if (!o) {
     return (
       <div className="hub-root hub-loading">
-        {data.error ? <div className="banner bad" role="alert">Playtests did not load: {data.error} <button className="small-button" onClick={data.reload}>Try again</button></div> : <Placeholder rows={6} />}
+        {data.error ? <div className="banner bad" role="alert">Clips did not load: {data.error} <button className="small-button" onClick={data.reload}>Try again</button></div> : <Placeholder rows={6} />}
       </div>
     );
   }
@@ -396,8 +396,8 @@ function HubRail({ onPalette, onShortcuts }: { onPalette: () => void; onShortcut
     return c ? [{ key: `check:${r.id}`, title: c.name, look: CHECK_HEALTH_LOOK[c.health], to: { screen: "check", checkId: r.id } as HubRoute }] : [];
   });
   return (
-    <nav className="hub-rail" aria-label="Playtests">
-      <button className="hub-find" onClick={onPalette} title="Find a goal, playtest or run (Ctrl+K)">
+    <nav className="hub-rail" aria-label={HUB_COPY.title}>
+      <button className="hub-find" onClick={onPalette} title="Find a track, clip or run (Ctrl+K)">
         <HubIcon name="search" />
         <span>Find or run</span>
         <span className="spacer" />
@@ -439,7 +439,7 @@ function HubBar({ onPalette }: { onPalette: () => void }) {
   const at = hubSection(ctx.route);
   return (
     <div className="hub-bar">
-      <nav className="hub-seg" aria-label="Playtests">
+      <nav className="hub-seg" aria-label={HUB_COPY.title}>
         {SECTIONS.map((s) => (
           <HubLink key={s.id} href={hubHash(sectionRoute(s.id))} onGo={() => ctx.go(sectionRoute(s.id))} className={`hub-seg-item ${at === s.id ? "active" : ""}`}>
             <span>{s.label}</span>
@@ -473,8 +473,8 @@ function Palette({ onClose, onShortcuts, onNewGoal }: { onClose: () => void; onS
     const c = e.command;
     if (c === "newGoal") onNewGoal();
     else if (c === "shortcuts") onShortcuts();
-    else if (c === "runFailing") void ctx.runPlan({ scope: { kind: "failing" } }, "every failing playtest");
-    else if (c === "runAll") void ctx.runPlan({ scope: { kind: "all" } }, "every playtest");
+    else if (c === "runFailing") void ctx.runPlan({ scope: { kind: "failing" } }, "every failing clip");
+    else if (c === "runAll") void ctx.runPlan({ scope: { kind: "all" } }, "every clip");
     else if (c && typeof c === "object" && "runGoal" in c) {
       const g = ctx.o.goals.find((x) => x.goal.id === c.runGoal);
       void ctx.runPlan({ scope: { kind: "goal", goalId: c.runGoal } }, g?.goal.title);
