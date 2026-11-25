@@ -223,7 +223,7 @@ describe("a /playtest in a session", () => {
     expect(card && card.kind === "playtest" && card.errors?.[0]).toMatch(/^Step 1 expect\.value: Pawn\.JumpCnt/);
     expect(after.transcript.some((t) => t.kind === "qa")).toBe(false);
     expect(after.status).toBe("idle");
-    expect(after.notes.join("\n")).toContain("made no playtest");
+    expect(after.notes.join("\n")).toContain("made no clip");
   });
 
   it("makes a playtest from an agent message, and refuses an entry that is not one", async () => {

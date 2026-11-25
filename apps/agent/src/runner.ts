@@ -71,29 +71,29 @@ export const FLOW_STEP_PREFIX = "flow-step-";
 export const STUDIO_EXTENSION = "studio";
 
 /**
- * Testing gameplay with the user: a playtest, which is a test script the agent
- * creates and Studio shows as a Playtest card in the chat, never a list or a
+ * Testing gameplay with the user: a clip, which is a test script the agent
+ * creates and Studio shows as a clip card in the chat, never a list or a
  * table of steps written out in a reply. Who starts its run follows the
- * project's Playtest runs setting.
+ * project's Clip runs setting.
  */
 export const QA = [
   "When the user wants gameplay tested or checked in Play In Editor (a playtest, a QA pass, a test plan, a checklist, steps to try), do not write the steps out as a list in your reply, and not as a table either. "
-    + "Deliver it as a playtest: create a ue-mcp test script with pie.script_create (pie.script_update changes one), and Studio shows it as a Playtest card in the chat. Even when the user asks only for a draft or a plan, the draft is the created script.",
-  "Every playtest is a created script and its card; there is no other way to deliver one. A reply that lists steps marked PASS or FAIL, or steps for the user to try, as prose or a table, is a failed playtest. "
+    + "Deliver it as a clip: create a ue-mcp test script with pie.script_create (pie.script_update changes one), and Studio shows it as a clip card in the chat. Even when the user asks only for a draft or a plan, the draft is the created script.",
+  "Every clip is a created script and its card; there is no other way to deliver a playtest. A reply that lists steps marked PASS or FAIL, or steps for the user to try, as prose or a table, is a failed clip. "
     + "Never mark a step passed or failed from your own reading of the editor: the script run's observer, the user on the card, or a subagent the user assigned decides it.",
   "Make a step auto with an expect when a value the observer reads can decide it (a property, a distance, visibility), and manual when only a person can judge it (how it looks or feels). Describe pie.script_create first for the step format. "
-    + "In a step's instruction, write each asset it names as a markdown link to its object path, as in a reply, so the Playtest card links it. "
-    + "In a multiplayer playtest give each step a player, \"host\" or \"client 1\", \"client 2\" and so on: Studio keeps it, shows it on the card and takes it out before ue-mcp sees the step.",
-  "The user answers manual steps with the Pass, Fail and Skip buttons on the Playtest card. Never call pie.verdict for a manual step yourself unless the user told you that step's outcome in a message, "
-    + "or the user assigned you the playtest from its card: then follow that brief, which says how to drive PIE and which steps you judge. "
-    + "If a run's answer says steps are awaiting a verdict, tell the user to answer them on the Playtest card and end your turn.",
+    + "In a step's instruction, write each asset it names as a markdown link to its object path, as in a reply, so the clip card links it. "
+    + "In a multiplayer clip give each step a player, \"host\" or \"client 1\", \"client 2\" and so on: Studio keeps it, shows it on the card and takes it out before ue-mcp sees the step.",
+  "The user answers manual steps with the Pass, Fail and Skip buttons on the clip card. Never call pie.verdict for a manual step yourself unless the user told you that step's outcome in a message, "
+    + "or the user assigned you the clip from its card: then follow that brief, which says how to drive PIE and which steps you judge. "
+    + "If a run's answer says steps are awaiting a verdict, tell the user to answer them on the clip card and end your turn.",
 ];
 
-/** What the agent is told about starting runs, by the Playtest runs setting. */
+/** What the agent is told about starting runs, by the Clip runs setting. */
 export function playtestRunsLine(mode: PlaytestRunsMode): string {
   return mode === "automatic"
-    ? "Starting playtests is set to Automatic in Settings > Approvals & review: you may start a playtest yourself with pie.script_run (wait: true, start_pie: true when PIE is not running) when the user wants it run, then report the summary and the results_path. Its card goes live."
-    : "Starting playtests is set to Manual in Settings > Approvals & review: only the user starts a playtest, with Start playtest or Assign to subagent on its card. Never call pie.script_run or pie.script_replay; Studio refuses them. Create or update the script, tell the user it is on the card, and end your turn. If the user wants you to run playtests yourself, tell them to set Starting playtests to Automatic.";
+    ? "Clip runs is set to Automatic in Settings > Approvals & review: you may start a clip yourself with pie.script_run (wait: true, start_pie: true when PIE is not running) when the user wants it run, then report the summary and the results_path. Its card goes live."
+    : "Clip runs is set to Manual in Settings > Approvals & review: only the user starts a clip, with Start clip or Assign to subagent on its card. Never call pie.script_run or pie.script_replay; Studio refuses them. Create or update the script, tell the user it is on the card, and end your turn. If the user wants you to run clips yourself, tell them to set Clip runs to Automatic.";
 }
 
 /** The SDK's options for the surface: ue-mcp's projected tools in place of ue_mcp, on Lean and Full. */
@@ -111,7 +111,7 @@ export const VIEWPORT_LINE =
 
 /** How a reply links the Playtest Hub's records, which Studio opens on its Playtests tab (hubRecordRoute in client-core). */
 export const HUB_LINKS_LINE =
-  "When you name a Playtest Hub goal, milestone or run in a reply, link it to its page in Studio: [Door opens](#/playtests/goals/<goal id>) or [the run](#/playtests/runs/<run id>). Link a playtest by its script's object path, as any asset.";
+  "When you name a Playtest Hub track, scene or run in a reply, link it to its page in Studio: [Door opens](#/playtests/goals/<track id>) or [the run](#/playtests/runs/<run id>). Link a clip by its script's object path, as any asset.";
 
 const WORK = [
   MICRO_LINE,
@@ -131,7 +131,7 @@ const WORK = [
 export const MENTION_LINE = "The user's messages can mention things as [@Name](target \"Type\"). The target is an asset's object path, actor:<object path> for an actor in the open level, or file:<path from the project folder>. Use the target as it is; it needs no search.";
 
 /** That a reply can show the project's images; the chat loads them through /files/image. */
-export const IMAGES_LINE = "To show the user an image from the project (a playtest capture, a screenshot), put it in your reply as markdown, ![what it shows](its path from the project folder): the chat displays it. png, jpg, gif, webp and bmp, up to 25 MB.";
+export const IMAGES_LINE = "To show the user an image from the project (a clip capture, a screenshot), put it in your reply as markdown, ![what it shows](its path from the project folder): the chat displays it. png, jpg, gif, webp and bmp, up to 25 MB.";
 
 /** Where the machine tools work, for the prompts. */
 const where = (projectDir: string): string =>
@@ -1812,12 +1812,12 @@ export class AgentRunner {
         changed();
         await this.o.qa?.drafted(s.id, outcome.script);
         const name = typeof outcome.script.name === "string" ? outcome.script.name : String(outcome.script.path);
-        s.notes.push(`The user ran ${shown}: the playtest flow saved the test script "${name}" (${String(outcome.script.path)}), shown as a draft Playtest card in the chat.`);
+        s.notes.push(`The user ran ${shown}: the playtest flow saved the test script "${name}" (${String(outcome.script.path)}), shown as a draft clip card in the chat.`);
       } else {
         card.state = "failed";
         card.errors = outcome.errors;
         changed();
-        s.notes.push(`The user ran ${shown}: the playtest flow made no playtest. ${outcome.errors.join(" ")}`);
+        s.notes.push(`The user ran ${shown}: the playtest flow made no clip.${outcome.errors.join(" ")}`);
       }
       this.setStatus(s, "idle", null);
     } finally {

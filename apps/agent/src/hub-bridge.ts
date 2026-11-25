@@ -135,7 +135,7 @@ export class HubBridge {
         if (item.sessionId && this.ours(item.sessionId, key)) this.planSessions.set(key, item.sessionId);
         const card = await this.cardFor(item.check.target, key, `Fix ${item.name}`);
         if ("error" in card) return card;
-        if (!card.sessionId) return { error: "the playtest's card has no chat session" };
+        if (!card.sessionId) return { error: "the clip's card has no chat session" };
         const r = await qa.assign(card.runId, {});
         return "error" in r ? { error: r.error } : { runId: r.run.runId, sessionId: card.sessionId };
       },
@@ -169,7 +169,7 @@ export class HubBridge {
   private async replay(script: string, args: Record<string, unknown>): Promise<ActionResult> {
     const card = await this.cardFor(script, `replay:${script}`, `Replay ${script.split("/").pop() ?? script}`);
     if ("error" in card || !card.sessionId) {
-      return { isError: true, content: [{ type: "text", text: JSON.stringify({ success: false, error: "error" in card ? card.error : "the playtest's card has no chat session" }) }] };
+      return { isError: true, content: [{ type: "text", text: JSON.stringify({ success: false, error: "error" in card ? card.error : "the clip's card has no chat session" }) }] };
     }
     return this.o.qa.wrap(this.o.api as unknown as AgentHost, card.sessionId, { assigned: true }).callAction("pie", "script_replay", args);
   }
@@ -215,7 +215,7 @@ export class HubBridge {
     const draft = await this.o.qa.drafted(sid, body);
     if (!draft) return { error: "the script's card could not be made" };
     // A draft a subagent is running stays in that subagent's session: the hub does not take it over there.
-    if (draft.sessionId !== sid) return { error: "a subagent in another chat session is working on this playtest" };
+    if (draft.sessionId !== sid) return { error: "a subagent in another chat session is working on this clip" };
     return draft;
   }
 }
