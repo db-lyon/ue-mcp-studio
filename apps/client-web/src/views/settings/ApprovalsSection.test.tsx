@@ -56,10 +56,10 @@ describe("Approvals & review: before it acts", () => {
     expect(checked("Shell commands", "In project")).toBe(true);
   });
 
-  it("starts playtests Manual by default, and saves Automatic", async () => {
+  it("starts clips Manual by default, and saves Automatic", async () => {
     await show();
-    expect(checked("Starting playtests", "Manual")).toBe(true);
-    expect(screen.getByText("Playtests run only when you start or assign them.")).toBeTruthy();
+    expect(checked("Clip runs", "Manual")).toBe(true);
+    expect(screen.getByText("Clips run only when you start or assign them.")).toBeTruthy();
     await act(async () => void fireEvent.click(screen.getByRole("radio", { name: "Automatic" })));
     expect(m.saveAgentSettings).toHaveBeenCalledWith({ playtestRuns: "automatic" });
   });

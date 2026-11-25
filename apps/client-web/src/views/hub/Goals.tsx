@@ -49,10 +49,10 @@ export function GoalsScreen() {
       <ScreenHead
         title={HUB_COPY.goals}
         sub={<span>{goalSummary(o.goals)}</span>}
-        actions={<button className="primary" onClick={() => hub.editGoal(null)} title="New goal (c)"><HubIcon name="plus" size={12} /> {HUB_COPY.newGoal}</button>}
+        actions={<button className="primary" onClick={() => hub.editGoal(null)} title="New track (c)"><HubIcon name="plus" size={12} /> {HUB_COPY.newGoal}</button>}
       />
       {total === 0 ? (
-        <Empty title="No goals yet">{HUB_COPY.goalsLead}</Empty>
+        <Empty title="No tracks yet">{HUB_COPY.goalsLead}</Empty>
       ) : (
         <>
           <div className="hub-filters">
@@ -79,7 +79,7 @@ export function GoalsScreen() {
               </select>
             )}
           </div>
-          <div className="hub-chips" role="group" aria-label="Show goals">
+          <div className="hub-chips" role="group" aria-label="Show tracks">
             <button className={`filter-chip ${only === null ? "active" : ""}`} aria-pressed={only === null} onClick={() => setOnly(null)}>All <span className="filter-count">{total}</span></button>
             {GOAL_STATUS_ORDER.filter((s) => counts[s] > 0).map((s) => (
               <button key={s} className={`filter-chip hub-chip tone-${GOAL_STATUS_LOOK[s].tone} ${only === s ? "active" : ""}`} aria-pressed={only === s} onClick={() => setOnly(only === s ? null : s)}>

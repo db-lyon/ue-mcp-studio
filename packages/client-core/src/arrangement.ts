@@ -89,7 +89,15 @@ export const SET_OPS = {
   color: (t: string, i: string, color: string) => `color ${t}/${i} ${color}`,
   remove: (t: string, i: string) => `delete ${t}/${i}`,
   unique: (t: string, i: string) => `unique ${t}/${i}`,
+  /** Point an instance at another clip; naming a kind changes it (and drops the trim). */
+  retarget: (t: string, i: string, path: string, kind?: InstanceKind) => `retarget ${t}/${i}${kind ? ` ${kind}` : ""} ${path}`,
 };
+
+/** The line replacing instance `i`'s clip with `clip`, or null when it already plays that clip. */
+export function replaceLines(t: string, inst: Pick<Instance, "id" | "kind" | "target">, clip: { kind: InstanceKind; target: string }): string[] | null {
+  if (clip.kind === inst.kind && clip.target === inst.target) return null;
+  return [SET_OPS.retarget(t, inst.id, clip.target, clip.kind === inst.kind ? undefined : clip.kind)];
+}
 
 // ---------- Time ----------
 
@@ -159,8 +167,9 @@ export function dragLines(t: string, inst: Instance, l: InstanceLayout, mode: Ar
 
 /**
  * The lines a finding's candidate stands for: the refused lines with the
- * missing path replaced, or a slot or instance whose clip is missing pointed
- * at the candidate. Null when the finding is not about a clip path.
+ * missing path replaced, or an instance whose clip is missing pointed at the
+ * candidate in place, keeping its trim, name and color. Null when the
+ * finding is not about a clip path.
  */
 export function candidateLines(f: ArrangementFinding, candidate: string, refused: readonly string[] | null, set: Pick<SetAnswer, "tracks" | "scenes"> | null): string[] | null {
   if (refused?.some((l) => l.includes(f.id))) return refused.map((l) => l.split(f.id).join(candidate));
@@ -168,7 +177,7 @@ export function candidateLines(f: ArrangementFinding, candidate: string, refused
   const [a, b] = f.id.split("/");
   const track = set.tracks.find((t) => t.id === a);
   const inst = track?.arrangement.instances.find((i) => i.id === b);
-  return track && inst ? [SET_OPS.remove(track.id, inst.id), SET_OPS.add(track.id, inst.kind, candidate, inst.start)] : null;
+  return track && inst ? [SET_OPS.retarget(track.id, inst.id, candidate)] : null;
 }
 
 /** The 400 body's findings, the refused one first. */
@@ -332,7 +341,7 @@ export const SET_COPY = {
   kindClip: "Timeline",
   kindScript: "Script",
   noClips: "No clips match.",
-  browserHint: "Drag a clip onto a track, or select one and press I to add it at the playhead.",
+  browserHint: "Drag a clip onto a track to add it, or onto a clip to replace that one. With a clip selected here, I adds it at the playhead and R replaces the selected clip.",
   selection: "Selection",
   name: "Name",
   color: "Color",
@@ -340,6 +349,8 @@ export const SET_COPY = {
   duplicateHint: "Duplicate (Ctrl+D)",
   makeUnique: "Make unique",
   makeUniqueHint: "Copy the clip asset and use the copy here only",
+  replace: (name: string) => `Replace with ${name}`,
+  replaceHint: "Play the clip selected in Clips here instead, keeping this one's place, name and color (R)",
   remove: "Delete",
   deleteTitle: (kind: "track" | "scene", title: string) => `Delete the ${kind} "${title}"?`,
   deleteTrackKeeps: "Its timeline goes with it. The clips on it stay in the library and keep their past runs.",
@@ -363,7 +374,7 @@ export const SET_COPY = {
   note: "Note (optional)",
   keys: "Shortcuts",
   keyList: [
-    ["Drag", "Move a clip, drag an edge to trim it, Alt-drag to duplicate it"],
+    ["Drag", "Move a clip, drag an edge to trim it, Alt-drag to duplicate it, or drop a clip from Clips on one to replace it"],
     ["Space", "Play the Arrangement, or stop"],
     ["Enter", "Play the selected scene or track, or open the selected clip"],
     ["Left, Right", "Move the selected clip by a quarter second (Shift: a second); with no clip selected, move the playhead"],
@@ -377,6 +388,7 @@ export const SET_COPY = {
     ["Ctrl + T", "Add a track"],
     ["Ctrl + I", "Insert a scene above the selected one"],
     ["I", "Add the clip selected in Clips at the playhead"],
+    ["R", "Replace the selected clip with the one selected in Clips"],
     [", and .", "Select the previous or next clip"],
     ["Escape", "Clear the selection"],
   ] as ReadonlyArray<readonly [string, string]>,

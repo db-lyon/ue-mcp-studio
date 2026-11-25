@@ -6,7 +6,7 @@
 import { qaActs, qaAgentMayJudge, qaEnded, qaIsDraft, qaPieInstance, qaSettled, type QaRun, type QaStep } from "@ue-mcp-studio/shared";
 
 /** The thread's title in the chat. */
-export const playtestDescription = (run: QaRun): string => `Playtest ${run.scriptName}`;
+export const playtestDescription = (run: QaRun): string => `Clip ${run.scriptName}`;
 
 function stepLine(s: QaStep): string {
   const who = s.judge === "auto" ? "auto" : qaAgentMayJudge(s) ? "manual, you judge it" : "manual, the user judges it";
@@ -33,13 +33,13 @@ export function playtestBrief(run: QaRun): string {
   const driven = run.steps.filter((s) => s.judge === "auto" && !qaActs(s));
   const acting = run.steps.filter(qaActs);
   return [
-    `The user assigned you the playtest "${run.scriptName}" from its Playtest card. Run it in Play In Editor on their behalf so its steps get verdicts.`,
+    `The user assigned you the clip "${run.scriptName}" from its clip card. Run it in Play In Editor on their behalf so its steps get verdicts.`,
     `Run ${run.runId}, script ${run.script}, state ${run.state}. Step indices are 0-based, as pie.verdict takes them:`,
     ...run.steps.map(stepLine),
     "",
     "How to work:",
     draft
-      ? `- The playtest has not run yet. Start it with ${again}, start_pie: true and wait: false, then work on the run_id it answers with. Never pass wait: true: you have to drive the pawn while it runs.`
+      ? `- The clip has not run yet. Start it with ${again}, start_pie: true and wait: false, then work on the run_id it answers with. Never pass wait: true: you have to drive the pawn while it runs.`
       : live
       ? `- The run is still going: work on it. Follow it with pie.script_status (run_id ${run.runId}, since_seq the last_seq you read).`
       : `- The run has ended${open.length ? ` with ${open.length} step${open.length === 1 ? "" : "s"} not passed` : ""}. Run it again with ${again}, start_pie: true and wait: false, then work on the new run_id it answers with. Never pass wait: true: you have to drive the pawn while it runs.`,

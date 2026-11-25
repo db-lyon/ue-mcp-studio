@@ -1,5 +1,5 @@
 /**
- * The panels an open playtest card shows: Start playtest's options, the
+ * The panels an open clip card shows: Start clip's options, the
  * draft editor (Edit), and the Assign to subagent loop with its attempts.
  */
 import { lhOf } from "./live";
@@ -33,7 +33,7 @@ export function RunPanel({ run, busy, onStart, onCancel }: { run: QaRun; busy: b
   const needed = playersNeeded(run);
   const [o, setO] = useState<RunOptions>({ ...DEFAULT_RUN, players: needed, listen: needed > 1 });
   return (
-    <View style={s.options} accessibilityLabel="Start playtest options">
+    <View style={s.options} accessibilityLabel="Start clip options">
       <Check checked={o.startPie} onChange={(v) => setO({ ...o, startPie: v })} label="Start PIE">
         <T style={[small(t), { color: t.c.muted }]}>Start PIE <Text style={{ color: t.c.dim }}>(off: use the PIE session that is running)</Text></T>
       </Check>
@@ -102,7 +102,7 @@ export function DraftEditor({ run, busy, error, onSave, onCancel }: { run: QaRun
   // input.mono: the mono face at 0.92 of the 12 point row, as the web client sizes it.
   const mono = font(t, "mono", 400, 12 * 0.92, lhOf(t));
   return (
-    <View style={s.edit} accessibilityLabel="Edit the playtest">
+    <View style={s.edit} accessibilityLabel="Edit the clip">
       <View style={s.map}>
         <T style={[small(t), { color: t.c.dim }]}>Level</T>
         <Input accessibilityLabel="Level" value={map} placeholder="/Game/Maps/L_Example" onChangeText={setMap} style={[mono, { width: "100%" }]} />

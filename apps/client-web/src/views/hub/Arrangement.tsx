@@ -30,6 +30,7 @@ import {
   foldSegmentEvents,
   nextName,
   refusalFindings,
+  replaceLines,
   rulerFrames,
   rulerTicks,
   runFeedback,
@@ -255,6 +256,12 @@ export function ArrangementScreen() {
     });
   };
 
+  /** R: the selected instance plays the clip picked in the Clips panel instead. */
+  const replacePicked = () => {
+    const inst = sel?.kind === "instance" ? instOf(sel.track, sel.id) : undefined;
+    if (inst && picked && sel?.kind === "instance") void edit(replaceLines(sel.track, inst, picked));
+  };
+
   /** Arrows: a selected clip moves (Shift for a second), Alt trims its end and Alt+Shift its start, Up and Down take it to the next track; otherwise the playhead and the selection move, and Alt+Up and Down reorder. */
   const arrow = (key: string, alt: boolean, shift: boolean) => {
     const dir = key === "ArrowLeft" ? -1 : key === "ArrowRight" ? 1 : 0;
@@ -307,6 +314,7 @@ export function ArrangementScreen() {
     else if (k === "Delete" || k === "Backspace") remove();
     else if (k === "F2") nameBox.current?.focus();
     else if (!ctrl && lower === "i") insertPicked();
+    else if (!ctrl && lower === "r") replacePicked();
     else if (k === "Escape") select(null);
     else if (k === "," || k === ".") {
       const t = selTrack ? trackOf(selTrack) : null;
@@ -378,6 +386,9 @@ export function ArrangementScreen() {
           {instanceSel && <button className="ghost small-button" onClick={() => sel?.kind === "instance" && instOf(sel.track, sel.id) && open(instOf(sel.track, sel.id)!.kind, instOf(sel.track, sel.id)!.target)}>{SET_COPY.open}</button>}
           {(instanceSel || sel?.kind === "scene") && <button className="ghost small-button" onClick={duplicate} title={SET_COPY.duplicateHint}>{SET_COPY.duplicate}</button>}
           {sel?.kind === "instance" && <button className="ghost small-button" onClick={() => void edit([SET_OPS.unique(sel.track, sel.id)])} title={SET_COPY.makeUniqueHint}>{SET_COPY.makeUnique}</button>}
+          {sel?.kind === "instance" && picked && instOf(sel.track, sel.id) && replaceLines(sel.track, instOf(sel.track, sel.id)!, picked) && (
+            <button className="ghost small-button" onClick={replacePicked} title={SET_COPY.replaceHint}>{SET_COPY.replace(picked.name)}</button>
+          )}
           {!instanceSel && <>
             <button className="ghost icon-button" aria-label={SET_COPY.moveUp} title={SET_COPY.moveUp} disabled={!reorder(-1)} onClick={() => void edit(reorder(-1))}><HubIcon name="up" size={12} /></button>
             <button className="ghost icon-button" aria-label={SET_COPY.moveDown} title={SET_COPY.moveDown} disabled={!reorder(1)} onClick={() => void edit(reorder(1))}><HubIcon name="down" size={12} /></button>
@@ -583,6 +594,17 @@ function Timelines({ ctx, onZoom }: { ctx: ViewCtx; onZoom: (z: number) => void 
     });
   };
 
+  /** A clip from Clips dropped on a block replaces that instance's clip, keeping its place, name and color. */
+  const blockDrop = (e: ReactDragEvent<HTMLElement>, t: SetTrack, l: InstanceLayout) => {
+    e.preventDefault();
+    e.stopPropagation();
+    const clip = readDrag(e, CLIP_MIME) as { kind?: InstanceKind; target?: string } | null;
+    const inst = t.arrangement.instances.find((i) => i.id === l.id);
+    if (!clip?.kind || !clip.target || !inst) return;
+    select({ kind: "instance", track: t.id, id: l.id });
+    void edit(replaceLines(t.id, inst, { kind: clip.kind, target: clip.target }));
+  };
+
   return (
     <div className="hub-set-arr">
       <div className="hub-set-zoom">
@@ -652,6 +674,8 @@ function Timelines({ ctx, onZoom }: { ctx: ViewCtx; onZoom: (z: number) => void 
                       title={[l.name, flagged.get(key), l.known ? null : SET_COPY.unknownLength, st ? INSTANCE_STATUS_LOOK[st].label : null, SET_COPY.blockHint].filter(Boolean).join("\n")}
                       onPointerDown={(e) => blockDown(e, t, l)} onPointerMove={blockMove} onPointerUp={(e) => blockUp(e, t, l)}
                       onDoubleClick={() => open(l.kind, l.target)}
+                      onDragOver={(e) => Array.from(e.dataTransfer?.types ?? []).includes(CLIP_MIME) && e.preventDefault()}
+                      onDrop={(e) => blockDrop(e, t, l)}
                     >
                       <span className="hub-set-edge start" data-edge="start" aria-hidden="true" />
                       <span className="hub-set-block-name">{l.name}</span>

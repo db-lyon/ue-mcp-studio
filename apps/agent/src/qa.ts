@@ -427,7 +427,7 @@ export class QaBroker {
     let had = this.runs.get(runId);
     // A verdict on a draft's manual step starts its manual run first, which takes the card.
     if (had && qaIsDraft(had)) {
-      if (had.steps.find((s) => s.index === b.step)?.judge !== "manual") return { error: "only a manual step takes a verdict before Start playtest", status: 409 };
+      if (had.steps.find((s) => s.index === b.step)?.judge !== "manual") return { error: "only a manual step takes a verdict before Start clip", status: 409 };
       const started = await this.startManual(had);
       if ("error" in started) return started;
       had = started.run;
@@ -560,12 +560,12 @@ export class QaBroker {
   async runScript(runId: string, body: unknown): Promise<{ run: QaRun } | { error: string; status: number }> {
     const run = this.runs.get(runId);
     if (!run || run.script === "inline" || run.deleted) return { error: "only a saved script can be run from its card", status: 409 };
-    if (!qaIsDraft(run) && !qaEnded(run.state) && !run.manual) return { error: "the playtest is running", status: 409 };
+    if (!qaIsDraft(run) && !qaEnded(run.state) && !run.manual) return { error: "the clip is running", status: 409 };
     const sessionId = run.sessionId;
-    if (!sessionId) return { error: "the playtest has no session", status: 409 };
+    if (!sessionId) return { error: "the clip has no session", status: 409 };
     // Start playtest on a manual run's card: that run ends, with the verdicts it has, and a full run with PIE takes the card.
     if (run.manual && !qaEnded(run.state)) {
-      const stop = await this.o.host.callAction("pie", "script_stop", { run_id: run.runId, reason: "Start playtest started a full run" });
+      const stop = await this.o.host.callAction("pie", "script_stop", { run_id: run.runId, reason: "Start clip started a full run" });
       const error = failure(stop, json(stop));
       if (error) return { error: `the manual run could not be ended: ${error}`, status: 409 };
     }
@@ -641,7 +641,7 @@ export class QaBroker {
     if (!sessionId || !this.o.store.get(sessionId)) return { error: "open a session to run the subagent in", status: 400 };
     const assigner = this.o.assigner;
     if (!assigner) return { error: "subagents are not available", status: 409 };
-    if (run.assignment?.state === "running") return { error: "a subagent is already running this playtest", status: 409 };
+    if (run.assignment?.state === "running") return { error: "a subagent is already running this clip", status: 409 };
     const support = this.o.loop;
     const why = !support ? "Assign to subagent needs checkpoints, and this Studio has none to give it." : support.blocked?.(sessionId) ?? null;
     // Checkpoints guard the project's files. Without them the loop can still run, once the user has said they accept that.
@@ -650,7 +650,7 @@ export class QaBroker {
     let checkpoints = why ? NO_CHECKPOINTS : support!.checkpoints;
     let baseline: string;
     try {
-      baseline = (await checkpoints.checkpoint(`Playtest ${run.scriptName}: before the loop`)).id;
+      baseline = (await checkpoints.checkpoint(`Clip ${run.scriptName}: before the loop`)).id;
     } catch (e) {
       if (!unguarded) return { error: `The loop did not start: its first checkpoint failed. ${e instanceof Error ? e.message : String(e)} It can run without checkpoints, but then nothing it changes can be reverted.`, status: 409, withoutCheckpoints: true };
       baseline = "";
@@ -704,7 +704,7 @@ export class QaBroker {
       s.notes.push(`The playtest loop on "${run.scriptName}" stopped after ${loop.attempts.length} attempt${loop.attempts.length === 1 ? "" : "s"} and needs the user: ${loop.blocker?.reason ?? ""}`);
       this.o.store.save(s);
     }
-    this.o.host.events.publish("qa.attention", { sessionId, runId: run.runId, loopId: loop.id, title: "Playtest needs you", text: attentionText(run, loop) });
+    this.o.host.events.publish("qa.attention", { sessionId, runId: run.runId, loopId: loop.id, title: "Clip needs you", text: attentionText(run, loop) });
     this.o.loop?.notify?.(sessionId, loop, run);
     this.editorToast(loop, run);
   }
@@ -729,7 +729,7 @@ export class QaBroker {
   async revertLoop(runId: string, body: unknown): Promise<{ run: QaRun; outcome: RestoreOutcome } | { error: string; status: number }> {
     const run = this.runs.get(runId);
     const loop = run?.assignment?.loop;
-    if (!run || !loop) return { error: "this playtest has no loop", status: 404 };
+    if (!run || !loop) return { error: "this clip has no loop", status: 404 };
     if (loop.state === "running") return { error: "the loop is still running: cancel it first", status: 409 };
     const support = this.o.loop;
     if (!support) return { error: "this Studio has no checkpoints", status: 409 };
@@ -764,7 +764,7 @@ export class QaBroker {
   async stopRun(runId: string, reason = "Stopped from its card"): Promise<{ run: QaRun } | { error: string; status: number }> {
     const run = this.runs.get(runId);
     if (!run || qaIsDraft(run) || qaEnded(run.state)) return { error: "only a run that is going can be stopped", status: 409 };
-    if (run.assignment?.state === "running") return { error: "a subagent is running this playtest: cancel it instead", status: 409 };
+    if (run.assignment?.state === "running") return { error: "a subagent is running this clip: cancel it instead", status: 409 };
     // A run Start playtest started PIE for has it ended as the stopped run is saved (endRunPie), held or not.
     const endsPie = this.hold.stopping(runId) && !this.endsPie.has(runId);
     const r = await this.o.host.callAction("pie", "script_stop", { run_id: runId, reason });
@@ -785,7 +785,7 @@ export class QaBroker {
       this.save({ ...holder, assignment: { ...(holder.assignment ?? a), loop: { ...loop, state: "stopped", endedAt: this.now() } } });
       return { run: this.runs.get(holder.runId) ?? holder };
     }
-    if (!run || !a || a.state !== "running") return { error: "no subagent is running this playtest", status: 404 };
+    if (!run || !a || a.state !== "running") return { error: "no subagent is running this clip", status: 404 };
     const loop = a.loop ? this.loops.get(a.loop.id) : undefined;
     if (loop) {
       loop.cancel();

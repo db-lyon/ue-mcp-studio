@@ -253,7 +253,7 @@ describe("the card a page action works on", () => {
     const run = "run" in r ? r.run : null;
     const session = store.get(run!.sessionId!)!;
     expect(store.all().length).toBe(before + 1);
-    expect(session.title).toBe("Playtest NeverRun");
+    expect(session.title).toBe("Clip NeverRun");
     expect(session.transcript.filter((t) => t.kind === "qa")).toHaveLength(1);
     expect(published.some((p) => p.type === "session.changed" && p.data?.sessionId === session.id)).toBe(true);
     // The second ask finds that card.
