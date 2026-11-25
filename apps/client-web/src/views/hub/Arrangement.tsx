@@ -20,6 +20,7 @@ import {
   arrangeSeconds,
   arrangeStep,
   arrangementCursor,
+  arrangementFromPlayhead,
   arrangementOn,
   awaitingChecks,
   candidateLines,
@@ -176,6 +177,8 @@ export function ArrangementScreen() {
       hub.notify((e as Error).message, "bad");
     }
   };
+  /** Play and Space: every timeline from the playhead, as a DAW plays from its insert marker. */
+  const playAll = () => void play(arrangementFromPlayhead(playhead, rate), playhead > 0 ? SET_COPY.arrangementFrom(arrangeSeconds(playhead, rate)) : SET_COPY.arrangement);
   const stop = async () => {
     if (!run.active) return;
     try {
@@ -298,7 +301,7 @@ export function ArrangementScreen() {
     const lower = k.toLowerCase();
     if (k === " ") {
       if (run.active) void stop();
-      else void play({ kind: "arrangement" }, SET_COPY.arrangement);
+      else playAll();
     } else if (k === "Enter") {
       if (sel?.kind === "scene") void play({ kind: "scene", goalId: sel.scene }, sceneOf(sel.scene)?.title ?? "");
       else if (sel?.kind === "track") void play({ kind: "track", goalId: sel.track }, trackOf(sel.track)?.title ?? "");
@@ -316,6 +319,7 @@ export function ArrangementScreen() {
     else if (!ctrl && lower === "i") insertPicked();
     else if (!ctrl && lower === "r") replacePicked();
     else if (k === "Escape") select(null);
+    else if (k === "Home") setPlayhead(0);
     else if (k === "," || k === ".") {
       const t = selTrack ? trackOf(selTrack) : null;
       const id = t ? stepSelection(t.layout, sel?.kind === "instance" ? sel.id : null, k === "," ? -1 : 1) : null;
@@ -338,7 +342,7 @@ export function ArrangementScreen() {
         actions={<>
           {run.active
             ? <button onClick={() => void stop()}><HubIcon name="pause" size={12} /> {SET_COPY.stop}</button>
-            : <button className="primary" onClick={() => void play({ kind: "arrangement" }, SET_COPY.arrangement)} title={SET_COPY.playArrangement} disabled={!tracks.length}><HubIcon name="play" size={12} /> {SET_COPY.play}</button>}
+            : <button className="primary" onClick={playAll} title={SET_COPY.playArrangement} disabled={!tracks.length}><HubIcon name="play" size={12} /> {SET_COPY.play}</button>}
           <button className="ghost" onClick={addTrack} title={SET_COPY.addTrackHint}><HubIcon name="plus" size={12} /> {SET_COPY.addTrack}</button>
           <button className="ghost" onClick={addScene}><HubIcon name="plus" size={12} /> {SET_COPY.addScene}</button>
         </>}

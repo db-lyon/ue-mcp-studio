@@ -6,6 +6,7 @@ import {
   arrangeSeconds,
   arrangeStep,
   arrangementCursor,
+  arrangementFromPlayhead,
   arrangementOn,
   awaitingChecks,
   candidateLines,
@@ -65,6 +66,11 @@ describe("set api", () => {
 });
 
 describe("time", () => {
+  it("plays the arrangement from the playhead, in frames at 60 a second", () => {
+    expect(arrangementFromPlayhead(0, 60)).toEqual({ kind: "arrangement" });
+    expect(arrangementFromPlayhead(90, 60)).toEqual({ kind: "arrangement", from: 90 });
+    expect(arrangementFromPlayhead(45, 30)).toEqual({ kind: "arrangement", from: 90 });
+  });
   it("snaps to quarter seconds, or whole seconds with Shift, and shows seconds", () => {
     expect(arrangeStep(60)).toBe(15);
     expect(arrangeStep(60, true)).toBe(60);
