@@ -156,7 +156,9 @@ const clipHash = `#/playtests/clips/${enc(CLIP_PATH)}`;
 
 /** A set of three tracks and three scenes, one timeline clip trimmed, a step-list playtest, a muted track and a finding. */
 const SETS = "/Game/EmberHollow/Clips";
-const setLayout = (id: string, kind: "clip" | "script", target: string, start: number, length: number, known = true) => ({ id, kind, target, name: target.split("/").pop()!, start, end: start + length, length, known });
+const setLayout = (id: string, kind: "clip" | "script", target: string, start: number, length: number, known = true) => ({
+  id, kind, target, name: target.split("/").pop()!, start, end: start + length, length, known, ...(kind === "clip" && known ? { clipRate: 60, clipLength: length + 60 } : {}),
+});
 const DEMO_SET = {
   rate: 60,
   text: "",
@@ -192,9 +194,15 @@ const SET_RUN = {
   instances: [setInstance("hero", "i1", "CL_DoorOpens", 0, 240, "passed"), setInstance("hero", "i2", "PT_LedgeGrab", 300, 900, "running"), setInstance("hero", "i3", "CL_LedgeHop", 960, 1140, "pending"), setInstance("guard", "i1", "CL_Patrl", 120, 720, "failed")],
   segments: [{ index: 0, kind: "clip", runId: "seg-1", offset: 0, length: 300, state: "finished" }, { index: 1, kind: "script", runId: "seg-2", offset: 300, length: 600, state: "running" }],
 };
+/** The same run held at a manual step in the script clip, waiting for a verdict. */
+const SET_RUN_WAITING = {
+  ...SET_RUN,
+  instances: SET_RUN.instances.map((i) => (i.id === "i2" && i.goalId === "hero" ? { ...i, status: "awaiting_verdict", awaiting: [{ check: "2", instruction: "Does Mara grab the ledge and pull herself up without clipping through the wall?" }] } : i)),
+};
 
-/** A hub scenario on the set's routes, with the Arrangement playing when `playing`. */
-function setScenario(title: string, hash: string, extra: Partial<Scenario> = {}, playing = false): Scenario {
+/** A hub scenario on the set's routes, with the Arrangement playing `run` when given. */
+function setScenario(title: string, hash: string, extra: Partial<Scenario> = {}, run: object | null = null): Scenario {
+  const playing = run !== null;
   const s = hub(title, hash, full, extra);
   const demo = s.get!;
   return {
@@ -203,7 +211,7 @@ function setScenario(title: string, hash: string, extra: Partial<Scenario> = {},
       if (p === "/v1/health") return { ...(demo(p, url) as object), features: ["checkpoints", "hub", "hub.goalDelete", "hub.arrangement", "events.clip"] };
       if (p === "/v1/hub/set") return DEMO_SET;
       if (p === "/v1/hub/clips") return SET_CLIPS;
-      if (playing && p.startsWith("/v1/hub/runs/run-set")) return { record: {}, run: null, steps: [], arrangement: SET_RUN };
+      if (playing && p.startsWith("/v1/hub/runs/run-set")) return { record: {}, run: null, steps: [], arrangement: run };
       const a = demo(p, url);
       if (playing && p === "/v1/hub" && a) {
         const o = a as { queue: Record<string, unknown> };
@@ -218,7 +226,10 @@ export const HUB_SCENARIOS: Record<string, Scenario> = {
   "hub-arrangement": setScenario("Arrangement: each track's timeline under one ruler with mute, solo and player, a trimmed clip, a step-list clip's reserved space, a clip of unknown length, a muted track, Clips, Scenes and a finding with its fix", "#/playtests/arrangement"),
   "hub-arrangement-instance": setScenario("A clip selected on a timeline: its name, color, Open clip, Duplicate, Make unique and Delete", "#/playtests/arrangement", { clicks: [".hub-set-block.kind-clip"] }),
   "hub-arrangement-scene": setScenario("A scene selected: the tracks it plays ticked, the others dimmed, and its name, color and order", "#/playtests/arrangement", { clicks: [".hub-set-scene .hub-set-title"] }),
-  "hub-arrangement-playing": setScenario("The Arrangement playing: the playhead, results on each block, Stop, and per-track status", "#/playtests/arrangement", {}, true),
+  "hub-arrangement-playing": setScenario("The Arrangement playing: the playhead, results on each block, Stop, and per-track status", "#/playtests/arrangement", {}, SET_RUN),
+  "hub-arrangement-verdict": setScenario("The Arrangement held at a manual step: the verdict card with the step's question", "#/playtests/arrangement", {}, SET_RUN_WAITING),
+  "hub-arrangement-replace": setScenario("A clip picked in Clips and a clip selected on a timeline: Replace with the picked clip", "#/playtests/arrangement", { clicks: [".hub-set-clips li:nth-child(3) .hub-set-clip", ".hub-set-block.kind-clip"] }),
+  "hub-arrangement-delete": setScenario("Deleting a track: the confirmation naming the scenes that stop playing it", "#/playtests/arrangement", { clicks: [".hub-set-row .hub-set-label .hub-set-title", ".hub-set-inspector > button:last-of-type"] }),
   "hub-clips": clipScenario("Timeline clips: each clip with its newest run, and New timeline clip", "#/playtests/clips"),
   "hub-clip-edit": clipScenario("A timeline clip: regions, an axis curve and Boolean notes per Input Action, check notes in their modes, an event, and a warning with its candidates", clipHash),
   "hub-clip-note": clipScenario("A note selected on the timeline: its start and length in the inspector", clipHash, { clicks: [".hub-clip-note"] }),
