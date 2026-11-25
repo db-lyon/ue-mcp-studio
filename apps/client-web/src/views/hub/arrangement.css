@@ -37,8 +37,9 @@
 .hub-set-swatch[aria-pressed="true"] { outline: 2px solid var(--text); outline-offset: 1px; }
 
 .hub-set-verdicts { display: flex; flex-direction: column; gap: 6px; margin-bottom: 8px; }
-.hub-set-verdict { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; border-left: 3px solid var(--warn); }
-.hub-set-verdict-ask { flex: 1 1 100%; }
+.hub-set-verdicts .hub-set-verdict { display: flex; flex-direction: row; flex-wrap: wrap; align-items: center; justify-content: flex-start; gap: 6px; padding: 8px 10px; text-align: left; border-left: 3px solid var(--warn); }
+.hub-set-verdicts .hub-set-verdict strong, .hub-set-verdict-ask { flex: 1 1 100%; }
+.hub-set-verdicts .hub-set-verdict input { flex: 1 1 200px; min-width: 0; height: auto; }
 
 /* Scenes */
 .hub-set-side { flex: 0 0 220px; display: flex; flex-direction: column; gap: 16px; min-width: 0; }
@@ -54,8 +55,9 @@
 .hub-set-toggle { min-height: 0; width: 22px; height: 20px; padding: 0; font: 600 11px/1 var(--sans); }
 .hub-set-toggle.mute.on { background: var(--warn); color: var(--panel); }
 .hub-set-toggle.solo.on { background: var(--accent); color: var(--panel); }
-.hub-set-io { display: inline-flex; align-items: center; gap: 4px; }
-.hub-set-io input { width: 44px; }
+.hub-set-io { margin-left: auto; width: 76px; min-height: 0; height: 24px; padding: 0 4px; }
+/* A track or scene with no color of its own: a plain edge, not the accent. */
+.hub-set-scene:not([class*=" c-"]), .hub-set-label:not([class*=" c-"]) { border-left-color: var(--line-strong); }
 .muted { opacity: 0.55; }
 
 .hub-set-block.flagged { box-shadow: inset 0 -3px 0 var(--warn); }
@@ -89,10 +91,12 @@
 .hub-set-playhead { position: absolute; top: 0; bottom: 0; width: 0; border-left: 1px dashed var(--muted); pointer-events: none; z-index: 1; }
 .hub-set-cursor { position: absolute; top: 0; bottom: 0; width: 0; border-left: 2px solid var(--bad); pointer-events: none; z-index: 5; }
 
+.hub-set-delete-scenes p { margin: 0 0 6px; }
+
 .hub-set-keys dl { display: grid; grid-template-columns: max-content 1fr; gap: 2px 12px; margin: 6px 0 0; }
 .hub-set-keys dl > div { display: contents; }
 .hub-set-keys dd { margin: 0; }
 
 .hub-root.narrow .hub-set-body { flex-direction: column; align-items: stretch; }
 .hub-root.narrow .hub-set-side { flex: none; }
-.hub-root.narrow .hub-set-label { flex-basis: 150px; }
+.hub-root.narrow .hub-set-label { flex-basis: 200px; }

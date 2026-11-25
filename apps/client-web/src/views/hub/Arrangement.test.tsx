@@ -275,7 +275,7 @@ describe("tracks and scenes", () => {
   it("lists scenes, plays one, and edits its tracks, name, color, order and copies", async () => {
     render(<Harness />);
     await block(/^CL_Walk/);
-    fireEvent.click(screen.getByRole("button", { name: "Play Boss fight" }));
+    fireEvent.click(screen.getByRole("button", { name: "Play Boss fight from the start" }));
     await waitFor(() => expect(m.set.run).toHaveBeenCalledWith({ kind: "scene", goalId: "boss" }));
     fireEvent.click(screen.getByRole("button", { name: "Boss fight", pressed: false }));
     const guardIn = screen.getByRole("checkbox", { name: "Guard plays in Boss fight" }) as HTMLInputElement;

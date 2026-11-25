@@ -67,6 +67,8 @@ type Sel = { kind: "scene"; scene: string } | { kind: "track"; track: string } |
 export const CLIP_MIME = "application/x-ue-mcp-clip";
 
 const ROW_H = 44;
+/** The most remote clients a track may drive, as ue-mcp's SET_PLAYER_MAX. */
+const SET_PLAYER_MAX = 15;
 const typing = (t: EventTarget | null): boolean => {
   const el = t as HTMLElement | null;
   return !!el && (el.tagName === "INPUT" || el.tagName === "SELECT" || el.tagName === "TEXTAREA");
@@ -456,12 +458,12 @@ function DeleteConfirm({ what, set, onClose, onDeleted }: { what: { kind: "track
       <div className="overlay-head">{question}</div>
       <p className="small">{what.kind === "track" ? SET_COPY.deleteTrackKeeps : SET_COPY.deleteSceneKeeps}</p>
       {scenes.length > 0 && (
-        <>
+        <div className="hub-set-delete-scenes">
           <p className="small" id="hub-set-delete-scenes">{SET_COPY.deleteUnlinks}</p>
           <ul className="hub-delete-list" aria-labelledby="hub-set-delete-scenes">
             {scenes.map((s) => <li key={s.id} className="small">{s.title}</li>)}
           </ul>
-        </>
+        </div>
       )}
       {error && <div className="banner bad small" role="alert">{error}</div>}
       <div className="hub-form-actions">
@@ -527,15 +529,15 @@ function ScenesPanel({ scenes, ctx }: { scenes: SetScene[]; ctx: ViewCtx }) {
 
 /** A track's player, shown where a DAW shows a track's input and output: 0 is the editor's own player, N remote client N. */
 function PlayerField({ t, edit }: { t: SetTrack; edit: ViewCtx["edit"] }) {
+  const players = Array.from({ length: Math.max(SET_PLAYER_MAX, t.player) + 1 }, (_, n) => n);
   return (
-    <label className="hub-set-io small" title={SET_COPY.player}>
-      <span>{SET_COPY.playerName(t.player)}</span>
-      <input type="number" min={0} step={1} value={t.player} aria-label={SET_COPY.playerFor(t.title)}
-        onChange={(e) => {
-          const n = Number(e.target.value);
-          if (Number.isInteger(n) && n >= 0 && n !== t.player) void edit([SET_OPS.trackPlayer(t.id, n)]);
-        }} />
-    </label>
+    <select className="hub-set-io small" value={t.player} title={SET_COPY.player} aria-label={SET_COPY.playerFor(t.title)}
+      onChange={(e) => {
+        const n = Number(e.target.value);
+        if (n !== t.player) void edit([SET_OPS.trackPlayer(t.id, n)]);
+      }}>
+      {players.map((n) => <option key={n} value={n}>{SET_COPY.playerName(n)}</option>)}
+    </select>
   );
 }
 
