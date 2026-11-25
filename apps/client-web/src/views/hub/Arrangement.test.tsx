@@ -204,6 +204,23 @@ describe("timelines", () => {
     await waitFor(() => expect(lastLines()).toBe("unique walk/i1"));
   });
 
+  it("replaces a clip from Clips by dropping it on a block, with R, or from the inspector", async () => {
+    render(<Harness />);
+    const walk = await block(/^CL_Walk/);
+    fireEvent.drop(walk, { clientX: 0, dataTransfer: dt({ "application/x-ue-mcp-clip": JSON.stringify({ kind: "clip", target: PATROL }) }) });
+    await waitFor(() => expect(lastLines()).toBe(`retarget walk/i1 ${PATROL}`));
+    // The drop did not also add the clip to the lane under the block.
+    expect(m.set.edit.mock.calls.flatMap((c) => c[0])).not.toContain(`add walk clip ${PATROL} at 0`);
+    await pick(/^CL_Walk/);
+    const clips = screen.getByRole("region", { name: "Clips" });
+    fireEvent.click(await within(clips).findByRole("button", { name: /^PT_Door/ }));
+    fireEvent.click(screen.getByRole("button", { name: "Replace with PT_Door" }));
+    await waitFor(() => expect(lastLines()).toBe(`retarget walk/i1 script ${DOOR}`));
+    fireEvent.click(within(clips).getByRole("button", { name: /^CL_Patrol/ }));
+    fireEvent.keyDown(surface(), { key: "r" });
+    await waitFor(() => expect(lastLines()).toBe(`retarget walk/i1 ${PATROL}`));
+  });
+
   it("opens a timeline clip's piano roll on double-click", async () => {
     render(<Harness />);
     fireEvent.doubleClick(await block(/^CL_Walk/));
