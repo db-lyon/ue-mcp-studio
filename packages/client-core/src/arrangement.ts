@@ -61,6 +61,8 @@ const kv = (k: string, v: number | null | undefined): string => (v === undefined
 /** The set's ops in their text form, one line each, as ue-mcp's issue 2113 lists them. */
 export const SET_OPS = {
   trackAdd: (name: string) => `track add ${q(name)}`,
+  trackDelete: (t: string) => `track delete ${t}`,
+  sceneDelete: (s: string) => `scene delete ${s}`,
   trackRename: (t: string, name: string) => `track rename ${t} ${q(name)}`,
   trackColor: (t: string, color: string) => `track color ${t} ${color}`,
   trackMove: (t: string, to: number) => `track move ${t} to ${to}`,
@@ -329,6 +331,13 @@ export const SET_COPY = {
   makeUnique: "Make unique",
   makeUniqueHint: "Copy the clip asset and use the copy here only",
   remove: "Delete",
+  deleteTitle: (kind: "track" | "scene", title: string) => `Delete the ${kind} "${title}"?`,
+  deleteTrackKeeps: "Its timeline goes with it. The clips on it stay in the library and keep their past runs.",
+  deleteSceneKeeps: "The tracks it plays stay as they are.",
+  deleteUnlinks: "These scenes will stop playing it:",
+  deleteKind: (kind: "track" | "scene") => (kind === "track" ? "Delete track" : "Delete scene"),
+  deleted: (title: string) => `Deleted ${title}`,
+  cancel: "Cancel",
   open: "Open clip",
   copied: (name: string) => `Copied ${name}`,
   block: (name: string, from: string, to: string) => `${name}, ${from} to ${to}`,

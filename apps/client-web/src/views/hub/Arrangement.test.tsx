@@ -7,7 +7,7 @@
  * with their candidates, and a run's playhead, results and verdicts.
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { useState } from "react";
 import type { DaemonEvent } from "ue-mcp/daemon";
 import type { HubOverview, SetAnswer } from "@ue-mcp-studio/shared";
@@ -271,6 +271,27 @@ describe("tracks and scenes", () => {
     await waitFor(() => expect(lastLines()).toBe('scene insert "Scene 3" at 0'));
     fireEvent.keyDown(s, { key: "Enter" });
     await waitFor(() => expect(m.set.run).toHaveBeenLastCalledWith({ kind: "scene", goalId: "boss" }));
+  });
+
+  it("deletes a track or scene through its op after a confirmation, and keeps a refusal in the dialog", async () => {
+    render(<Harness />);
+    await block(/^CL_Walk/);
+    fireEvent.click(screen.getByRole("button", { name: "Walk", pressed: false }));
+    fireEvent.keyDown(surface(), { key: "Delete" });
+    const dialog = await screen.findByRole("dialog", { name: 'Delete the track "Walk"?' });
+    // Boss fight plays Walk, so the dialog names it.
+    expect(within(dialog).getByRole("list").textContent).toContain("Boss fight");
+    m.set.edit.mockRejectedValueOnce(new ApiError(400, "refused", { error: "refused", finding: { id: "walk", field: "delete", message: '"Walk" can\'t be deleted while a run made for it is queued or running', blocks: true } }));
+    fireEvent.click(within(dialog).getByRole("button", { name: "Delete track" }));
+    expect((await within(dialog).findByRole("alert")).textContent).toContain("can't be deleted while a run made for it is queued or running");
+    expect(lastLines()).toBe("track delete walk");
+    fireEvent.click(within(dialog).getByRole("button", { name: "Delete track" }));
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+    expect(m.hub.overview).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole("button", { name: "Calm", pressed: false }));
+    fireEvent.click(screen.getByRole("button", { name: "Delete" }));
+    fireEvent.click(within(await screen.findByRole("dialog", { name: 'Delete the scene "Calm"?' })).getByRole("button", { name: "Delete scene" }));
+    await waitFor(() => expect(lastLines()).toBe("scene delete calm"));
   });
 });
 
