@@ -280,7 +280,7 @@ function Studio({ daemon }: { daemon: DaemonState }) {
             <main className={`view-${tab.toLowerCase()}${tab === "Playtests" && hubOn ? " hub-host" : ""}`}>
               <ErrorBoundary what={tab} resetKey={tab}>
                 {tab === "Playtests" && (hubOn
-                  ? <HubView data={hub} narrow={narrow} onOpenChat={openPlaytest} onChat={() => setTab("Chat")} canDeleteGoals={canDeleteGoals(daemon.health)} />
+                  ? <HubView data={hub} narrow={narrow} onOpenChat={openPlaytest} onChat={() => setTab("Chat")} canDeleteGoals={canDeleteGoals(daemon.health)} events={daemon.events} health={daemon.health} />
                   // A hub link before the setting has been read waits for it rather than flashing the old page.
                   : experiments === null && readLocation().sub ? null
                   : <PlaytestsView daemon={daemon} index={playtests} onOpenSession={openPlaytest} onChat={() => setTab("Chat")} />)}

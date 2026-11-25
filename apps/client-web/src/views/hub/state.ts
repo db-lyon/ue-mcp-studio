@@ -169,6 +169,9 @@ export interface HubContextValue {
   trail: HubTrail;
   /** Go back this many screens along the trail (past its first, to the tab it came from). */
   goBack: (steps: number) => void;
+  /** The daemon's recent events and health, for screens that follow a run live (the timeline). */
+  events?: DaemonState["events"];
+  health?: unknown;
 }
 
 export interface LeaveGuard {

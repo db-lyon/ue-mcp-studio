@@ -51,7 +51,7 @@ import { RunScreen } from "./Run";
 import { DraftScreen } from "./Draft";
 import { QueueScreen } from "./Queue";
 import { ClipsScreen } from "./Clips";
-import { ClipScreen } from "./Timeline";
+import { ClipRunView } from "./TimelineRun";
 import { CheckPicker, DeleteDialog, DescribeDialog, GoalDeleteDialog, GoalDialog, GoalPicker, LeaveDialog, RequirePicker } from "./dialogs";
 import type { GoalPreset } from "./state";
 import "./hub.css";
@@ -110,8 +110,11 @@ function useHubRoute(guard: MutableRefObject<LeaveGuard | null>, onBlocked: (r: 
   return [route, go, trail];
 }
 
-export function HubView({ data, narrow, onOpenChat, onChat, canDeleteGoals = false }: {
+export function HubView({ data, narrow, onOpenChat, onChat, canDeleteGoals = false, events, health }: {
   data: HubData;
+  /** The daemon's recent events and health, which the timeline follows runs by. */
+  events?: HubContextValue["events"];
+  health?: unknown;
   narrow: boolean;
   /** The daemon offers deleting goals (canDeleteGoals of its health). */
   canDeleteGoals?: boolean;
@@ -254,6 +257,8 @@ export function HubView({ data, narrow, onOpenChat, onChat, canDeleteGoals = fal
       guard.current = g;
     },
     trail,
+    events,
+    health,
     // The browser's own history: the entry there holds the screen and its trail, and the leave guard still asks.
     goBack: (steps) => {
       keepScroll();
@@ -273,7 +278,7 @@ export function HubView({ data, narrow, onOpenChat, onChat, canDeleteGoals = fal
       case "draft": return <DraftScreen key={hubPath(route)} checkId={route.checkId} goalId={route.goalId} />;
       case "queue": return <QueueScreen />;
       case "clips": return <ClipsScreen />;
-      case "clip": return <ClipScreen key={route.path} path={route.path} />;
+      case "clip": return <ClipRunView key={route.path} path={route.path} />;
     }
   })();
 

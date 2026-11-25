@@ -3,7 +3,26 @@
  * agent's /clips routes, the grid edits snap to, the ops a drawn change
  * becomes, undo and redo through clip_edit's rollback, and the copy.
  */
-import type { Clip, ClipEditAnswer, ClipFinding, ClipListEntry, ClipRead, ClipRunsAnswer, ClipRunStatus, ClipTrack, ClipTrackType, ClipValue } from "@ue-mcp-studio/shared";
+import { CLIP_EVENTS_FEATURE, CLIP_TAKE_EVENTS_FEATURE } from "@ue-mcp-studio/shared";
+import type {
+  Clip,
+  ClipCheckResult,
+  ClipDrift,
+  ClipEditAnswer,
+  ClipFinding,
+  ClipListEntry,
+  ClipLiveTake,
+  ClipRead,
+  ClipRegionResult,
+  ClipRunsAnswer,
+  ClipRunStatus,
+  ClipRunSummary,
+  ClipRunTally,
+  ClipTakeTrack,
+  ClipTrack,
+  ClipTrackType,
+  ClipValue,
+} from "@ue-mcp-studio/shared";
 import type { HubRequest } from "./hub.js";
 
 export const CLIPS_BASE = "/v1/ext/studio/clips";
@@ -163,6 +182,143 @@ export function findingFix(c: Clip, f: ClipFinding, candidate: string): ClipOp |
   return { op: "set", id: at.id, [field]: candidate };
 }
 
+// ---------- Runs ----------
+
+/** A run as the timeline follows it: from clip_status, then clip.* events or polling. */
+export interface ClipLive {
+  runId: string;
+  clip?: string;
+  mode: "play" | "record";
+  state: string;
+  position: number;
+  length: number;
+  holding: string | null;
+  awaiting: string[];
+  checks: Record<string, ClipCheckResult>;
+  regions: Record<string, ClipRegionResult>;
+  passed?: boolean;
+  summary?: ClipRunTally;
+  stopReason?: string;
+  drift?: ClipDrift;
+  /** The take so far while a recording plays, when ue-mcp offers it. */
+  take: ClipLiveTake | null;
+  seq: number;
+}
+
+/** Poll clip_status this often while a run plays and the daemon has no clip events. */
+export const CLIP_POLL_MS = 250;
+
+export const clipEventsOn = (health: unknown): boolean => featureOn(health, CLIP_EVENTS_FEATURE);
+export const clipTakeEventsOn = (health: unknown): boolean => featureOn(health, CLIP_TAKE_EVENTS_FEATURE);
+function featureOn(health: unknown, f: string): boolean {
+  const features = Array.isArray(health) ? health : (health as { features?: unknown } | null)?.features;
+  return Array.isArray(features) && features.includes(f);
+}
+
+/** Whether a run is still going: armed or running. */
+export const clipPlaying = (l: ClipLive | null): boolean => !!l && (l.state === "running" || l.state === "armed");
+
+const byId = <T extends { id: string }>(rows: T[] | undefined): Record<string, T> => Object.fromEntries((rows ?? []).filter((r) => r && typeof r.id === "string").map((r) => [r.id, r]));
+
+/** A run from clip_status. */
+export function clipLiveFromStatus(s: ClipRunStatus): ClipLive {
+  return {
+    runId: s.run_id,
+    clip: s.clip,
+    mode: s.mode === "record" ? "record" : "play",
+    state: s.state ?? "running",
+    position: s.position ?? 0,
+    length: s.length ?? 0,
+    holding: s.holding ?? null,
+    awaiting: s.awaiting ?? [],
+    checks: byId(s.checks),
+    regions: byId(s.regions),
+    passed: s.passed,
+    summary: s.summary,
+    stopReason: s.stop_reason,
+    drift: s.drift,
+    take: s.take?.live_take ? { ...s.take.live_take, tracks: s.take.live_take.tracks ?? [] } : null,
+    seq: 0,
+  };
+}
+
+/** A run from clip_runs' history, for showing its results on the timeline. */
+export function clipLiveFromSummary(r: ClipRunSummary): ClipLive {
+  return { ...clipLiveFromStatus({ run_id: r.run_id, clip: r.clip, mode: r.mode, state: r.state ?? "finished", passed: r.passed, summary: r.summary, checks: r.checks, regions: r.regions, drift: r.drift, stop_reason: r.stop_reason }), take: null };
+}
+
+/** The take after a clip.take_progress: each track's notes replaced, its keys appended at keysFrom. */
+export function applyTakeProgress(take: ClipLiveTake | null, d: Record<string, unknown>): ClipLiveTake {
+  const tracks = new Map((take?.tracks ?? []).map((t) => [t.action, t]));
+  for (const raw of Array.isArray(d.tracks) ? (d.tracks as ClipTakeTrack[]) : []) {
+    if (!raw || typeof raw.action !== "string") continue;
+    const had = tracks.get(raw.action);
+    const from = typeof raw.keysFrom === "number" ? raw.keysFrom : had?.keys?.length ?? 0;
+    const keys = raw.keys?.length ? [...(had?.keys ?? []).slice(0, from), ...raw.keys] : had?.keys ?? [];
+    tracks.set(raw.action, { action: raw.action, type: raw.type ?? had?.type, notes: raw.notes ?? had?.notes ?? [], keys });
+  }
+  return {
+    takeId: typeof d.takeId === "string" ? d.takeId : take?.takeId,
+    punchIn: typeof d.punchIn === "number" ? d.punchIn : take?.punchIn,
+    samples: typeof d.samples === "number" ? d.samples : take?.samples,
+    frame: typeof d.frame === "number" ? d.frame : take?.frame,
+    tracks: [...tracks.values()],
+  };
+}
+
+/**
+ * The run after one daemon event, or the run unchanged when the event is for
+ * another clip or an older run. clip.run_started for this clip starts a new run.
+ */
+export function foldClipEvent(live: ClipLive | null, e: { type: string; data: Record<string, unknown> }, clipPath: string): ClipLive | null {
+  const d = e.data ?? {};
+  if (!e.type.startsWith("clip.") || typeof d.runId !== "string") return live;
+  if (typeof d.clip === "string" && clipPackage(d.clip) !== clipPackage(clipPath)) return live;
+  const seq = typeof d.seq === "number" ? d.seq : 0;
+  let l = live;
+  if (e.type === "clip.run_started" && (!l || l.runId !== d.runId)) {
+    l = { ...clipLiveFromStatus({ run_id: d.runId, clip: d.clip as string | undefined, mode: d.mode as "play" | "record", state: "running" }), seq: -1 };
+  }
+  if (!l || l.runId !== d.runId) return live;
+  if (seq && seq <= l.seq) return l;
+  const n: ClipLive = { ...l, seq: seq || l.seq };
+  const num = (k: string, v: number) => (typeof d[k] === "number" ? (d[k] as number) : v);
+  switch (e.type) {
+    case "clip.run_started":
+    case "clip.position":
+      n.position = num("position", n.position);
+      n.length = num("length", n.length);
+      if (typeof d.state === "string") n.state = d.state;
+      if (e.type === "clip.position") n.holding = typeof d.holding === "string" ? d.holding : null;
+      break;
+    case "clip.check":
+      if (d.check && typeof (d.check as ClipCheckResult).id === "string") n.checks = { ...n.checks, [(d.check as ClipCheckResult).id]: d.check as ClipCheckResult };
+      break;
+    case "clip.region":
+      if (d.region && typeof (d.region as ClipRegionResult).id === "string") n.regions = { ...n.regions, [(d.region as ClipRegionResult).id]: d.region as ClipRegionResult };
+      break;
+    case "clip.verdict_requested":
+      n.awaiting = Array.isArray(d.awaiting) ? (d.awaiting as string[]) : [];
+      break;
+    case "clip.take_progress":
+      n.take = applyTakeProgress(n.take, d);
+      break;
+    case "clip.run_finished":
+      n.state = typeof d.state === "string" ? d.state : "finished";
+      n.passed = typeof d.passed === "boolean" ? d.passed : n.passed;
+      n.summary = (d.summary as ClipRunTally | undefined) ?? n.summary;
+      n.drift = (d.drift as ClipDrift | undefined) ?? n.drift;
+      n.stopReason = typeof d.stopReason === "string" ? d.stopReason : n.stopReason;
+      n.holding = null;
+      n.awaiting = [];
+      break;
+  }
+  return n;
+}
+
+/** A region's drift against the reference, as a short label: "4.8 cm". */
+export const driftText = (d: ClipDrift | undefined): string | undefined => (typeof d?.max_position_cm === "number" ? `${d.max_position_cm.toFixed(1)} cm` : undefined);
+
 // ---------- Copy ----------
 
 export const CLIP_MODE_LABEL: Record<string, string> = { by_end: "By the end", throughout: "Throughout", hold: "Hold until true" };
@@ -234,4 +390,36 @@ export const CLIP_COPY = {
   tryAgain: "Try again",
   newRegion: (n: number) => `Region ${n}`,
   arm: "Record into this track",
+  play: "Play",
+  wholeClip: "Whole clip",
+  record: "Record",
+  punchIn: "Punch in at",
+  frameZero: "Frame 0",
+  holdCheck: (name: string) => `Check ${name}`,
+  stop: "Stop",
+  stopRecording: "Stop recording",
+  starting: "Starting",
+  playing: (pos: number, len: number) => (len > 0 ? `Playing frame ${Math.round(pos)} of ${Math.round(len)}` : `Playing frame ${Math.round(pos)}`),
+  recording: (pos: number) => `Recording at frame ${Math.round(pos)}`,
+  pausedAt: (pos: number) => `Paused at frame ${Math.round(pos)}`,
+  holdingAt: (check: string) => `Waiting at check ${check} until it holds`,
+  armNone: "Choose at least one track to record into.",
+  passedSummary: (passed: number, total: number) => `Passed ${passed} of ${total} checks`,
+  failedSummary: (failed: number, total: number) => `Failed ${failed} of ${total} checks`,
+  stopped: (reason?: string) => (reason ? `Stopped: ${reason}` : "Stopped"),
+  unreachable: "The editor stopped answering during the run.",
+  drift: (cm: string) => `Drift from the recording: up to ${cm}`,
+  verdictTitle: "Waiting for your verdict",
+  pass: "Pass",
+  fail: "Fail",
+  skip: "Skip",
+  verdictNote: "Note (optional)",
+  runs: "Runs",
+  noRuns: "No runs yet.",
+  runsUnavailable: "Past runs need a newer ue-mcp. Update it in Settings.",
+  played: "Played",
+  recorded: "Recorded",
+  showingRun: (when: string) => `Showing the run from ${when}`,
+  showLatest: "Show the latest",
+  liveTakeHidden: "The take appears on the timeline once it is saved. A newer ue-mcp draws it while you play.",
 } as const;
