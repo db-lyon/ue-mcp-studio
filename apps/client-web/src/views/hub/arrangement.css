@@ -57,7 +57,7 @@
 .hub-set-grid { position: relative; display: flex; flex-direction: column; min-height: 100%; }
 .hub-set-row { display: flex; align-items: stretch; flex: none; box-sizing: border-box; border-bottom: 1px solid var(--line); }
 .hub-set-row.ruler { position: sticky; top: 0; z-index: 6; height: 30px; border-bottom-color: var(--line-strong); }
-.hub-set-corner { position: sticky; left: 0; z-index: 7; flex: 0 0 168px; width: 168px; min-width: 0; overflow: hidden; box-sizing: border-box; display: flex; align-items: center; padding: 0 4px; border-right: 1px solid var(--line-strong); background: var(--panel); }
+.hub-set-corner { position: sticky; left: 0; z-index: 7; flex: 0 0 150px; width: 150px; min-width: 0; overflow: hidden; box-sizing: border-box; display: flex; align-items: center; padding: 0 4px; border-right: 1px solid var(--line-strong); background: var(--panel); }
 .hub-root button.hub-set-add-track { height: 22px; min-height: 0; padding: 0 6px; font: 600 11.5px/1 var(--sans); letter-spacing: 0; color: var(--muted); }
 .hub-root button.hub-set-add-track:hover { color: var(--text); }
 .hub-set-ruler { position: relative; flex: 0 0 auto; background: var(--panel-2); user-select: none; }
@@ -73,7 +73,8 @@
 .hub-set-marker { position: absolute; top: 11px; width: 0; height: 0; margin-left: -5px; border-left: 5px solid transparent; border-right: 5px solid transparent; border-top: 7px solid var(--text); pointer-events: none; }
 
 .hub-set-rows { position: relative; flex: 1; display: flex; flex-direction: column; }
-.hub-set-head { position: sticky; left: 0; z-index: 3; flex: 0 0 168px; width: 168px; min-width: 0; overflow: hidden; box-sizing: border-box; display: flex; flex-direction: column; justify-content: center; gap: 3px; padding: 2px 5px 2px 6px; border-left: 4px solid var(--clip); border-right: 1px solid var(--line-strong); background: var(--panel); }
+/* 150px wide: the name on the first line, Play, M, S and the player on the second. */
+.hub-set-head { position: sticky; left: 0; z-index: 3; flex: 0 0 150px; width: 150px; min-width: 0; overflow: hidden; box-sizing: border-box; display: flex; flex-direction: column; justify-content: center; gap: 3px; padding: 2px 4px 2px 5px; border-left: 4px solid var(--clip); border-right: 1px solid var(--line-strong); background: var(--panel); }
 .hub-set-head:not([class*=" c-"]) { border-left-color: var(--line-strong); }
 .hub-set-head.on { background: var(--panel-3); box-shadow: inset 0 0 0 1px var(--accent-line); }
 .hub-set-row.on .hub-set-head:not(.on) { background: var(--panel-2); }
@@ -82,11 +83,11 @@
 .hub-set-title-text { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .hub-root button.hub-set-warn { flex: none; width: 18px; height: 18px; min-height: 0; padding: 0; justify-content: center; border: 0; background: transparent; color: var(--warn); }
 .hub-set-head-ctl { display: flex; align-items: center; gap: 2px; min-width: 0; }
-.hub-root button.hub-set-toggle { flex: none; width: 20px; height: 18px; min-height: 0; padding: 0; justify-content: center; border: 1px solid var(--line-strong); border-radius: 2px; background: var(--panel-2); color: var(--muted); font: 700 10px/1 var(--mono); letter-spacing: 0; }
+.hub-root button.hub-set-toggle { flex: none; width: 18px; height: 18px; min-height: 0; padding: 0; justify-content: center; border: 1px solid var(--line-strong); border-radius: 2px; background: var(--panel-2); color: var(--muted); font: 700 10px/1 var(--mono); letter-spacing: 0; }
 .hub-root button.hub-set-toggle:hover { color: var(--text); }
 .hub-root button.hub-set-toggle.mute.on { background: var(--warn); border-color: var(--warn); color: var(--panel); }
 .hub-root button.hub-set-toggle.solo.on { background: var(--accent); border-color: var(--accent); color: var(--on-accent, var(--panel)); }
-.hub-set-io { flex: 1; min-width: 0; height: 18px; min-height: 0; margin-left: 2px; padding: 0 2px; font-size: 11px; }
+.hub-set-io { flex: 0 1 52px; width: 52px; min-width: 0; max-width: 52px; height: 18px; min-height: 0; margin-left: 2px; padding: 0 2px; box-sizing: border-box; font-size: 11px; }
 .muted .hub-set-lane { opacity: 0.5; }
 .muted .hub-set-title-text { color: var(--muted); }
 
@@ -184,3 +185,5 @@
 .hub-root.narrow .hub-head.compact, .hub-root.narrow .hub-head.compact .hub-head-actions { flex-wrap: wrap; }
 .hub-root.narrow .hub-set-zoom { margin-left: 0; }
 .hub-root.narrow .hub-set-swatches { display: none; }
+/* The phone's 44px touch minimum would push the player out of the 150px header. */
+.hub-root .hub-set-head .hub-set-head-ctl button.hub-set-toggle.hub-set-toggle { min-width: 0; }

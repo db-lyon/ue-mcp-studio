@@ -35,7 +35,7 @@ export type Sel = { kind: "track"; track: string } | { kind: "instance"; track: 
 
 /** A track row's height, and the header column's width: narrow, as a DAW keeps it. */
 export const ROW_H = 48;
-export const HEAD_W = 168;
+export const HEAD_W = 150;
 /** The fewest rows the grid draws, tracks and empty rows together. */
 export const MIN_ROWS = 6;
 /** The most remote clients a track may drive, as ue-mcp's SET_PLAYER_MAX. */
@@ -86,12 +86,12 @@ const carriesClip = (e: ReactDragEvent) => Array.from(e.dataTransfer?.types ?? [
 function PlayerField({ t, edit }: { t: SetTrack; edit: ViewCtx["edit"] }) {
   const players = Array.from({ length: Math.max(SET_PLAYER_MAX, t.player) + 1 }, (_, n) => n);
   return (
-    <select className="hub-set-io small" value={t.player} title={SET_COPY.player} aria-label={SET_COPY.playerFor(t.title)}
+    <select className="hub-set-io small" value={t.player} title={`${SET_COPY.playerName(t.player)}\n${SET_COPY.player}`} aria-label={SET_COPY.playerFor(t.title)}
       onChange={(e) => {
         const n = Number(e.target.value);
         if (n !== t.player) void edit([SET_OPS.trackPlayer(t.id, n)]);
       }}>
-      {players.map((n) => <option key={n} value={n}>{SET_COPY.playerName(n)}</option>)}
+      {players.map((n) => <option key={n} value={n} title={SET_COPY.playerName(n)} aria-label={SET_COPY.playerName(n)}>{SET_COPY.playerShort(n)}</option>)}
     </select>
   );
 }
