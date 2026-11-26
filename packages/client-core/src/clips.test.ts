@@ -3,7 +3,7 @@
  * stacks, finding fixes, and the hub's addresses for the clip screens.
  */
 import { describe, expect, it } from "vitest";
-import type { Clip } from "@ue-mcp-studio/shared";
+import type { Clip, ClipLane } from "@ue-mcp-studio/shared";
 import {
   applyTakeProgress,
   clipEventsOn,
@@ -159,7 +159,7 @@ describe("addresses", () => {
 });
 
 describe("move, action and value lanes", () => {
-  const move = { id: "L1", kind: "move" as const, points: [{ id: "p1", t: 0, at: [0, 0, 0] as [number, number, number] }, { id: "p2", t: 120, at: [400, -50, 0] as [number, number, number], radius: 30 }] };
+  const move: Extract<ClipLane, { kind: "move" }> = { id: "L1", kind: "move", points: [{ id: "p1", t: 0, at: [0, 0, 0] }, { id: "p2", t: 120, at: [400, -50, 0], radius: 30 }] };
   const action = { id: "L2", kind: "action" as const, performer: { kind: "actor" as const, actor: "Gate" }, calls: [{ id: "a1", t: 200, fn: "Open", args: [1] }] };
   const value = { id: "L3", kind: "value" as const, target: "bb:Alert", type: "axis1d" as const, keys: [{ id: "v1", t: 60, v: 0 }, { id: "v2", t: 180, v: 10 }] };
   const clip: Clip = { rate: 60, performer: { kind: "actor", actor: "Guard" }, lanes: [move, action, value] };
