@@ -80,6 +80,11 @@ describe("Studio updates", () => {
     expect(isNewer("0.1.25-beta.51-dev.2", "0.1.25-beta.51")).toBe(true);
     expect(isNewer("0.1.25-beta.51-dev.2", "0.1.25-beta.51-dev.1")).toBe(true);
     expect(isNewer("0.1.25-beta.51", "0.1.25-beta.51-dev.1")).toBe(false);
+    // On a prerelease base it joins with a dot, so the next prerelease still outranks it.
+    expect(isNewer("0.1.25-beta.51.dev.2", "0.1.25-beta.51")).toBe(true);
+    expect(isNewer("0.1.25-beta.51.dev.2", "0.1.25-beta.51.dev.1")).toBe(true);
+    expect(isNewer("0.1.25-beta.52", "0.1.25-beta.51.dev.2")).toBe(true);
+    expect(isNewer("0.1.25-beta.52", "0.1.25-beta.51-dev.2")).toBe(false);
   });
 
   it("says what is newer for Studio and for the plugin on this project's engine", async () => {
