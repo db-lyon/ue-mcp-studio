@@ -1,14 +1,15 @@
 /**
  * The Arrangement's timelines: a ruler with the loop brace and the playhead's
  * marker, then one row per track, a narrow header (name, then play, Mute,
- * Solo and the player under it) beside the track's lane. The header column
+ * Solo and the performer it drives under it) beside the track's lane. The header column
  * and the ruler stay put while the lanes scroll. Rows below the tracks are
  * empty grid, at least six rows in all, as a DAW draws an empty arrangement;
  * a clip dropped there gets a track of its own.
  */
-import { useEffect, useRef, type CSSProperties, type DragEvent as ReactDragEvent, type PointerEvent as ReactPointerEvent, type RefObject } from "react";
+import { useEffect, useRef, useState, type CSSProperties, type DragEvent as ReactDragEvent, type PointerEvent as ReactPointerEvent, type RefObject } from "react";
 import {
   INSTANCE_STATUS_LOOK,
+  PERFORMER_COPY,
   SET_COPY,
   SET_OPS,
   arrangeClock,
@@ -17,6 +18,8 @@ import {
   arrangeStep,
   clipScale,
   dragLines,
+  performerId,
+  performerOfTrack,
   replaceLines,
   rulerEvery,
   rulerFrames,
@@ -26,8 +29,9 @@ import {
   spanProgress,
   type ArrangeDragMode,
 } from "@ue-mcp-studio/client-core";
-import type { InstanceKind, InstanceLayout, InstanceStatus, SetAnswer, SetRunScope, SetTrackView as SetTrack } from "@ue-mcp-studio/shared";
+import type { InstanceKind, InstanceLayout, InstanceStatus, PerformerCandidate, PerformersView, SetAnswer, SetRunScope, SetTrackView as SetTrack } from "@ue-mcp-studio/shared";
 import { HubIcon, StatusMark } from "./parts";
+import { PerformerPicker, pickerAt, type PickerAt } from "./PerformerPicker";
 import { CLIP_MIME } from "./ClipBrowser";
 import type { ClipRef } from "./arrangement-sync";
 import { capture, followPointer, hold, type DragPoint } from "./drag";
@@ -73,6 +77,11 @@ export interface ViewCtx {
   loopOn: boolean;
   setLoop: (l: Loop) => void;
   onAddTrack: () => void;
+  /** A daemon with hub.performers: what a track can drive, a new track for one, and the edit that gives a track one. Absent, the header picks a player. */
+  performers?: {
+    load: () => Promise<PerformersView>;
+    addTrackFor: (c: PerformerCandidate) => void;
+  } | null;
   onRename: () => void;
   scrollRef: RefObject<HTMLDivElement>;
 }
@@ -87,7 +96,20 @@ function readDrag(e: ReactDragEvent, mime: string): { kind?: InstanceKind; targe
 }
 const carriesClip = (e: ReactDragEvent) => Array.from(e.dataTransfer?.types ?? []).includes(CLIP_MIME);
 
-/** A track's player, shown where a DAW shows a track's input and output: 0 is the editor's own player, N remote client N. */
+/** A track's performer, shown where a DAW shows a track's input: P or A for a player or an actor, then its name; a press opens the picker. */
+function PerformerField({ t, open, onOpen }: { t: SetTrack; open: boolean; onOpen: (el: HTMLElement) => void }) {
+  const p = performerOfTrack(t);
+  return (
+    <button className={`hub-set-io hub-set-performer kind-${p.kind}`} data-picker-opener="" aria-haspopup="dialog" aria-expanded={open}
+      title={`${PERFORMER_COPY.kind(p)}: ${PERFORMER_COPY.name(p)}\n${PERFORMER_COPY.hint}`} aria-label={`${PERFORMER_COPY.pickFor(t.title)}: ${PERFORMER_COPY.name(p)}`}
+      onClick={(e) => onOpen(e.currentTarget)}>
+      <span className="hub-set-performer-kind" aria-hidden="true">{PERFORMER_COPY.marker(p)}</span>
+      <span className="hub-set-performer-name">{PERFORMER_COPY.short(p)}</span>
+    </button>
+  );
+}
+
+/** A track's player on a daemon without performers, shown where a DAW shows a track's input and output: 0 is the editor's own player, N remote client N. */
 function PlayerField({ t, edit }: { t: SetTrack; edit: ViewCtx["edit"] }) {
   const players = Array.from({ length: Math.max(SET_PLAYER_MAX, t.player) + 1 }, (_, n) => n);
   return (
@@ -117,6 +139,17 @@ export function Timelines({ ctx }: { ctx: ViewCtx }) {
   const playheadRef = useRef<HTMLSpanElement>(null);
   const braceRef = useRef<HTMLSpanElement>(null);
   const shadeRef = useRef<HTMLSpanElement>(null);
+  /** The performer picker open: for a track, or for a new one (null), at its opener. */
+  const [pick, setPick] = useState<{ track: string | null; at: PickerAt } | null>(null);
+  const openPick = (track: string | null, el: HTMLElement) => setPick((p) => (p && p.track === track ? null : { track, at: pickerAt(el) }));
+  const picked = (c: PerformerCandidate) => {
+    const p = pick;
+    setPick(null);
+    if (!p) return;
+    if (p.track === null) return ctx.performers?.addTrackFor(c);
+    const t = tracks.find((x) => x.id === p.track);
+    if (t && performerId(performerOfTrack(t)) !== performerId(c.performer)) void edit([SET_OPS.trackPerformer(t.id, c.performer)]);
+  };
   // A drag still under way when the view goes away stops listening.
   useEffect(() => () => blockDrag.current?.stop(), []);
   const frames = rulerFrames(Math.max(arrangeEnd(tracks.map((t) => t.layout)), ctx.runLength, loop?.end ?? 0), rate);
@@ -376,7 +409,7 @@ export function Timelines({ ctx }: { ctx: ViewCtx }) {
             <button className="hub-set-toggle play" aria-label={SET_COPY.playTrack(t.title)} title={SET_COPY.playTrack(t.title)} onClick={() => void play({ kind: "track", goalId: t.id }, t.title)}><HubIcon name="play" size={9} /></button>
             <button className={`hub-set-toggle mute ${t.mute ? "on" : ""}`} aria-pressed={t.mute} aria-label={`${SET_COPY.mute} ${t.title}`} title={SET_COPY.mute} onClick={() => void edit([SET_OPS.trackMute(t.id, !t.mute)])}>M</button>
             <button className={`hub-set-toggle solo ${t.solo ? "on" : ""}`} aria-pressed={t.solo} aria-label={`${SET_COPY.solo} ${t.title}`} title={SET_COPY.solo} onClick={() => void edit([SET_OPS.trackSolo(t.id, !t.solo)])}>S</button>
-            <PlayerField t={t} edit={edit} />
+            {ctx.performers ? <PerformerField t={t} open={pick?.track === t.id} onOpen={(el) => openPick(t.id, el)} /> : <PlayerField t={t} edit={edit} />}
           </div>
         </div>
         <div className="hub-set-lane" style={{ width }} aria-label={t.title} role="group"
@@ -432,6 +465,10 @@ export function Timelines({ ctx }: { ctx: ViewCtx }) {
         <div className="hub-set-row ruler">
           <div className="hub-set-corner">
             <button className="ghost small-button hub-set-add-track" onClick={ctx.onAddTrack} title={SET_COPY.addTrackHint}><HubIcon name="plus" size={11} /> {SET_COPY.addTrack}</button>
+            {ctx.performers && (
+              <button className="ghost icon-button hub-set-add-for" data-picker-opener="" aria-haspopup="dialog" aria-expanded={pick?.track === null}
+                aria-label={PERFORMER_COPY.newTrackFor} title={PERFORMER_COPY.newTrackFor} onClick={(e) => openPick(null, e.currentTarget)}><HubIcon name="caret" size={11} /></button>
+            )}
           </div>
           <div className="hub-set-ruler" style={{ width }}>
             <div className="hub-set-loopzone" aria-label={SET_COPY.loopRange} onPointerDown={braceDown}>
@@ -469,6 +506,13 @@ export function Timelines({ ctx }: { ctx: ViewCtx }) {
           </div>
         </div>
       </div>
+      {pick && ctx.performers && (() => {
+        const t = pick.track ? tracks.find((x) => x.id === pick.track) : undefined;
+        return (
+          <PerformerPicker at={pick.at} title={t ? PERFORMER_COPY.pickFor(t.title) : PERFORMER_COPY.newTrackFor} current={t ? performerOfTrack(t) : null}
+            load={ctx.performers.load} onPick={picked} onClose={() => setPick(null)} />
+        );
+      })()}
     </div>
   );
 }

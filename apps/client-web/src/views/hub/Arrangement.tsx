@@ -36,9 +36,13 @@ import {
   foldRun,
   foldSegmentEvents,
   nextName,
+  PERFORMER_COPY,
+  performersOn,
+  placePerformerFindings,
   refusalFindings,
   replaceLines,
   runFeedback,
+  runTracksOf,
   setResults,
   snapTo,
   stepSelection,
@@ -55,6 +59,7 @@ import {
   type ArrangementSummary,
   type HubClipEntry,
   type InstanceKind,
+  type PerformerCandidate,
   type SetAnswer,
   type SetRunScope,
 } from "@ue-mcp-studio/shared";
@@ -382,6 +387,12 @@ export function ArrangementScreen({ arrangementId = null }: { arrangementId?: st
       hub.notify(f.text, f.tone);
       hub.data.reload();
     } catch (e) {
+      // A refused run (a lane its track's performer does not take, a clip that cannot be read) lists its findings with the warnings, each on its block.
+      const findings = e instanceof ApiError && e.status === 400 ? refusalFindings(e.body) : [];
+      if (findings.length && set) {
+        setRefused({ lines: [], findings: placePerformerFindings(findings, set, runTracksOf(scope, set)) });
+        setWarnOpen(true);
+      }
       hub.notify((e as Error).message, "bad");
     }
   };
@@ -413,6 +424,15 @@ export function ArrangementScreen({ arrangementId = null }: { arrangementId?: st
     const id = newTrack(a);
     if (id) select({ kind: "track", track: id });
   });
+  /** A new track that drives a performer, named after it. */
+  const addTrackFor = (c: PerformerCandidate) => {
+    const taken = tracks.map((t) => t.title);
+    const name = c.performer.kind === "player" ? PERFORMER_COPY.name(c.performer) : c.label;
+    void edit([SET_OPS.trackAddFor(taken.includes(name) ? nextName(name, taken) : name, c.performer)], (a) => {
+      const id = newTrack(a);
+      if (id) select({ kind: "track", track: id });
+    });
+  };
   /** A clip onto a track at a frame, selected once it is there; onto a new track when there is none, as dropping below the tracks does. */
   const addClip = (clip: ClipRef, to: string | null, at: number) => {
     const put = (t: string) => void edit([SET_OPS.add(t, clip.kind, clip.target, at)], (a) => {
@@ -665,6 +685,7 @@ export function ArrangementScreen({ arrangementId = null }: { arrangementId?: st
     },
     zoom, playhead, setPlayhead, showClock, loop, loopOn, setLoop: (l) => setLoop(l),
     onAddTrack: addTrack, onRename: () => setRenameAsk((n) => n + 1), scrollRef,
+    performers: performersOn(hub.health) ? { load: () => api.set.performers(shownId), addTrackFor } : null,
   };
   const instanceSel = sel?.kind === "instance" ? instOf(sel.track, sel.id) : undefined;
   const at = run.cursor ?? playhead;

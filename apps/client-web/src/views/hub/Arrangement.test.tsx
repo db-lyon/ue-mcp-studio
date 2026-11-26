@@ -16,7 +16,7 @@ import type { HubOverview, SetAnswer } from "@ue-mcp-studio/shared";
 
 const m = vi.hoisted(() => ({
   hub: { overview: vi.fn(), cancelPlan: vi.fn(), resultsUrl: (id: string) => `/r/${id}` },
-  set: { read: vi.fn(), edit: vi.fn(), clips: vi.fn(), run: vi.fn(), runDetail: vi.fn(), verdict: vi.fn() },
+  set: { read: vi.fn(), edit: vi.fn(), clips: vi.fn(), run: vi.fn(), runDetail: vi.fn(), verdict: vi.fn(), performers: vi.fn() },
   // The piano roll a double-click opens; it never answers here.
   clips: { read: () => new Promise(() => {}), runs: () => new Promise(() => {}), status: () => new Promise(() => {}) },
 }));
@@ -596,5 +596,96 @@ describe("runs", () => {
     await waitFor(() => expect(m.set.verdict).toHaveBeenCalledWith("run-9", "walk-i1.c4", "pass", undefined));
     fireEvent.keyDown(surface(), { key: " " });
     await waitFor(() => expect(m.hub.cancelPlan).toHaveBeenCalledWith("p1"));
+  });
+});
+
+describe("performers", () => {
+  const PERF = ["hub", "hub.arrangement", "events.clip", "hub.performers"];
+  const players = [0, 1, 2, 3].map((client) => ({ performer: { kind: "player", client }, label: client ? `Client ${client}` : "Editor player", capabilities: ["input", "action", "value"] }));
+  const actors = [
+    { performer: { kind: "actor", actor: "BP_Gate_2" }, label: "Gate 2", className: "BP_Gate_C", capabilities: ["move", "action", "value"] },
+    { performer: { kind: "actor", actor: "BP_Wolf_1" }, label: "Wolf", className: "BP_Wolf_C", pawn: true, capabilities: ["move", "action", "value"] },
+  ];
+  const withActor = (): SetAnswer => {
+    const f = setFixture();
+    f.tracks[1] = { ...f.tracks[1], player: 0, performer: { kind: "actor", actor: "BP_Wolf_1" } };
+    return f;
+  };
+
+  it("shows each track's performer and gives a track an actor from the open level", async () => {
+    m.set.read.mockResolvedValue(withActor());
+    m.set.performers.mockResolvedValue({ level: "/Game/Maps/L_Keep", performers: [...players, ...actors] });
+    render(<Harness features={PERF} />);
+    await block(/^CL_Walk/);
+    expect(screen.queryByLabelText("Player for Walk")).toBeNull();
+    const walk = screen.getByRole("button", { name: "Performer for Walk: Editor" });
+    expect(walk.textContent).toBe("PEd");
+    expect(screen.getByRole("button", { name: "Performer for Guard: BP_Wolf_1" }).textContent).toBe("ABP_Wolf_1");
+    fireEvent.click(walk);
+    const pop = await screen.findByRole("dialog", { name: "Performer for Walk" });
+    expect(m.set.performers).toHaveBeenCalledWith(null);
+    await within(pop).findByText("Actors in L_Keep");
+    // Pawns first, each actor with its class.
+    expect(within(pop).getAllByRole("option").map((o) => o.textContent)).toEqual(["PEditor", "PClient 1", "PClient 2", "PClient 3", "AWolfBP_Wolf_C · Pawn", "AGate 2BP_Gate_C"]);
+    expect(within(pop).getByRole("option", { name: /Editor/ }).getAttribute("aria-selected")).toBe("true");
+    fireEvent.click(within(pop).getByRole("option", { name: /Gate 2/ }));
+    await waitFor(() => expect(lastLines()).toBe("track performer walk actor:BP_Gate_2"));
+    expect(screen.queryByRole("dialog")).toBeNull();
+  });
+
+  it("keeps the players and says why when the level's actors cannot be listed", async () => {
+    m.set.performers.mockResolvedValue({ level: null, performers: players, reason: "no editor answered" });
+    render(<Harness features={PERF} />);
+    await block(/^CL_Walk/);
+    fireEvent.click(screen.getByRole("button", { name: "Performer for Guard: Client 1" }));
+    const pop = await screen.findByRole("dialog", { name: "Performer for Guard" });
+    await within(pop).findByText("No actors listed: no editor answered");
+    fireEvent.click(within(pop).getByRole("option", { name: /Client 2/ }));
+    await waitFor(() => expect(lastLines()).toBe("track performer guard player:2"));
+  });
+
+  it("closes the picker on Escape without an edit, and on picking the performer the track already has", async () => {
+    m.set.performers.mockResolvedValue({ level: null, performers: players });
+    render(<Harness features={PERF} />);
+    await block(/^CL_Walk/);
+    fireEvent.click(screen.getByRole("button", { name: "Performer for Walk: Editor" }));
+    const pop = await screen.findByRole("dialog");
+    fireEvent.keyDown(pop, { key: "Escape" });
+    expect(screen.queryByRole("dialog")).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Performer for Walk: Editor" }));
+    fireEvent.click(within(await screen.findByRole("dialog")).getByRole("option", { name: /Editor/ }));
+    expect(m.set.edit).not.toHaveBeenCalled();
+  });
+
+  it("adds a track for a performer, named after it", async () => {
+    m.set.performers.mockResolvedValue({ level: "/Game/Maps/L_Keep", performers: [...players, ...actors] });
+    render(<Harness features={PERF} />);
+    await block(/^CL_Walk/);
+    fireEvent.click(screen.getByRole("button", { name: "Add a track for a performer" }));
+    const pop = await screen.findByRole("dialog", { name: "Add a track for a performer" });
+    fireEvent.click(await within(pop).findByRole("option", { name: /Wolf/ }));
+    await waitFor(() => expect(lastLines()).toBe('track add "Wolf" performer=actor:BP_Wolf_1'));
+  });
+
+  it("puts a refused run's performer findings with the warnings, flagged on the block", async () => {
+    m.set.read.mockResolvedValue(withActor());
+    m.set.run.mockRejectedValue(new ApiError(400, "the run cannot play", {
+      error: "the run cannot play",
+      finding: { id: "1-i1", field: "performer", message: "1-i1: Editor player takes input, action, value lanes, and move lane L1 is a move lane", candidates: ["input", "action", "value"], blocks: true },
+    }));
+    render(<Harness features={PERF} />);
+    const walk = await block(/^CL_Walk/);
+    fireEvent.click(screen.getByRole("button", { name: /^Play$/ }));
+    const list = await screen.findByRole("region", { name: "Warnings" });
+    expect(within(list).getByText("Editor player takes input, action, value lanes, and move lane L1 is a move lane")).toBeTruthy();
+    await waitFor(() => expect(walk.className).toContain("flagged"));
+  });
+
+  it("picks a player from the list on a daemon without performers", async () => {
+    render(<Harness />);
+    await block(/^CL_Walk/);
+    expect(screen.queryByRole("button", { name: /^Performer for/ })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Add a track for a performer" })).toBeNull();
+    expect((screen.getByLabelText("Player for Guard") as HTMLSelectElement).value).toBe("1");
   });
 });
