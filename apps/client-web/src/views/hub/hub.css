@@ -64,6 +64,21 @@ button.hub-rail-keys { justify-content: flex-start; margin-top: 8px; font: 500 1
 .hub-live-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--accent); box-shadow: var(--mark-glow); animation: hub-pulse 1.4s ease-in-out infinite; }
 @keyframes hub-pulse { 50% { opacity: 0.35; } }
 
+/* The rail folded to its icons on a screen that takes the whole page (the Arrangement): labels stay for screen readers and tooltips. */
+.hub-root.slim nav.hub-rail { width: 48px; padding: 8px 6px; }
+.hub-root.slim .hub-rail-item, .hub-root.slim button.hub-find, .hub-root.slim button.hub-rail-keys { position: relative; justify-content: center; padding: 4px; gap: 0; }
+.hub-root.slim .hub-rail-label, .hub-root.slim .hub-rail-count, .hub-root.slim button.hub-find > :not(svg), .hub-root.slim .hub-rail-keys > :not(svg), .hub-root.slim .hub-rail-head,
+.hub-root.slim .hub-rail-item > :not(svg):not(.hub-mark) { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+.hub-root.slim .hub-rail-goals { display: none; }
+.hub-root.slim button.hub-find, .hub-root.slim button.hub-rail-keys { font-size: 0; color: var(--muted); }
+.hub-main.fill { display: flex; flex-direction: column; overflow: hidden; padding: 8px 10px 0; }
+.hub-main.fill > .hub-screen { flex: 1; min-height: 0; max-width: none; width: 100%; margin: 0; }
+.hub-head.compact { align-items: center; flex-wrap: nowrap; gap: 8px; }
+.hub-head.compact .hub-head-text { flex: 0 1 auto; display: flex; align-items: center; gap: 8px; }
+.hub-head.compact .hub-crumbs { margin-bottom: 0; flex-wrap: nowrap; }
+.hub-head.compact .hub-title { font-size: 15px; white-space: nowrap; overflow-wrap: normal; }
+.hub-head.compact .hub-head-actions { flex: 1; flex-wrap: nowrap; align-items: center; justify-content: flex-start; min-width: 0; }
+
 /* Bar (narrow) */
 .hub-bar { display: flex; align-items: center; gap: 6px; padding: 6px 10px; border-bottom: 1px solid var(--line); background: var(--bar-bg); flex-shrink: 0; }
 nav.hub-seg { flex: 1; min-width: 0; height: auto; gap: 2px; padding: 2px; border-radius: var(--radius); background: var(--panel-2); overflow-x: auto; }

@@ -101,9 +101,30 @@ export function replaceLines(t: string, inst: Pick<Instance, "id" | "kind" | "ta
 
 // ---------- Time ----------
 
-/** Pixels per second of game time the zoom steps through. */
-export const ARRANGE_ZOOMS = [20, 40, 80, 160, 320] as const;
+/** Pixels per second of game time: the default, and the range zooming stays in, from a long overview to single frames. */
 export const ARRANGE_DEFAULT_ZOOM = 80;
+export const ARRANGE_ZOOM_MIN = 4;
+export const ARRANGE_ZOOM_MAX = 1280;
+
+/** A zoom inside the range. */
+export const clampZoom = (z: number): number => Math.min(ARRANGE_ZOOM_MAX, Math.max(ARRANGE_ZOOM_MIN, Number.isFinite(z) ? z : ARRANGE_DEFAULT_ZOOM));
+
+/** One step in (1) or out (-1), as + and - take it: half again, or two thirds. */
+export const zoomStep = (z: number, dir: 1 | -1): number => clampZoom(dir > 0 ? z * 1.5 : z / 1.5);
+
+/** The zoom that shows frames `from` to `to` across `width` pixels, never closer than half a second across. */
+export const zoomToFit = (from: number, to: number, rate: number, width: number): number =>
+  clampZoom(Math.max(1, width) / Math.max(0.5, (to - from) / (rate || ARRANGEMENT_DEFAULT_RATE)));
+
+/** Frames as a clock: "0:05", "1:30", or with hundredths, "0:01.25", for the playhead's position. */
+export function arrangeClock(f: number, rate: number, hundredths = false): string {
+  const total = Math.max(0, f) / (rate || ARRANGEMENT_DEFAULT_RATE);
+  const m = Math.floor(total / 60);
+  const s = total - m * 60;
+  if (!hundredths) return `${m}:${String(Math.floor(s + 1e-6)).padStart(2, "0")}`;
+  const cs = Math.round(s * 100);
+  return `${m + Math.floor(cs / 6000)}:${(((cs % 6000) / 100).toFixed(2)).padStart(5, "0")}`;
+}
 
 /** Frames per grid step: a quarter second, or a whole second with `coarse` (Shift). */
 export const arrangeStep = (rate: number, coarse = false): number => (coarse ? rate : Math.max(1, Math.round(rate / 4)));
@@ -126,10 +147,20 @@ export const rulerFrames = (end: number, rate: number): number => Math.max(end +
 
 /** Ruler ticks, in seconds, spaced so labels never crowd at this zoom. */
 export function rulerTicks(frames: number, rate: number, zoom: number): number[] {
-  const every = [1, 2, 5, 10, 30, 60].find((s) => s * zoom >= 60) ?? 60;
+  const every = rulerEvery(zoom);
   const out: number[] = [];
   for (let s = 0; s * rate <= frames; s += every) out.push(s);
   return out;
+}
+
+/** Seconds between labelled ruler ticks at this zoom: the closest spacing at least 60 pixels apart. */
+export const rulerEvery = (zoom: number): number => [0.25, 0.5, 1, 2, 5, 10, 30, 60, 120, 300, 600].find((s) => s * zoom >= 60) ?? 600;
+
+/** Seconds between the unlabelled grid lines between labelled ticks: each tick split in four or five, never under 8 pixels apart. */
+export function rulerMinor(zoom: number): number {
+  const every = rulerEvery(zoom);
+  const parts = [5, 10, 30, 300].includes(every) ? 5 : every === 60 || every === 600 ? 6 : 4;
+  return every / parts * zoom >= 8 ? every / parts : every;
 }
 
 // ---------- Lines from drags and keys ----------
@@ -189,6 +220,29 @@ export function refusalFindings(body: unknown): ArrangementFinding[] {
   const b = (body ?? {}) as { finding?: ArrangementFinding; findings?: ArrangementFinding[] };
   const all = Array.isArray(b.findings) ? b.findings : [];
   return b.finding ? [b.finding, ...all.filter((f) => f.id !== b.finding!.id || f.field !== b.finding!.field)] : all;
+}
+
+/**
+ * The findings the Arrangement shows: a refused edit's first, then the set's.
+ * A scene's own findings are left out, since scenes belong to the Session
+ * view; one about a track or an instance stays.
+ */
+export function arrangementFindings(set: Pick<SetAnswer, "findings" | "tracks" | "scenes">, refused: readonly ArrangementFinding[] = []): ArrangementFinding[] {
+  const scenes = new Set(set.scenes.map((s) => s.id));
+  const tracks = new Set(set.tracks.map((t) => t.id));
+  const own = set.findings.filter((f) => {
+    const head = f.id.split("/")[0];
+    return !(scenes.has(head) && !tracks.has(head)) && !refused.some((r) => r.id === f.id && r.field === f.field);
+  });
+  return [...refused, ...own];
+}
+
+/** The track, and the instance on it, a finding is about; null when it names neither. */
+export function findingPlace(f: Pick<ArrangementFinding, "id">, set: Pick<SetAnswer, "tracks">): { track: string; instance?: string } | null {
+  const [a, b] = f.id.split("/");
+  const track = set.tracks.find((t) => t.id === a);
+  if (!track) return null;
+  return b && track.layout.some((l) => l.id === b) ? { track: track.id, instance: b } : { track: track.id };
 }
 
 /** The instance before or after `selected` on one timeline, by start. */
@@ -317,24 +371,24 @@ export const SET_COPY = {
   notOffered: "Update ue-mcp to use the Arrangement.",
   play: "Play",
   stop: "Stop",
-  playArrangement: "Play every track from the playhead, respecting Mute and Solo (Space)",
+  playArrangement: "Play from the playhead, or from the loop range when Loop is on (Space)",
+  stopHint: "Stop (Space)",
   arrangementFrom: (at: string) => `Arrangement from ${at}`,
   playTrack: (title: string) => `Play ${title} from the start`,
-  playScene: (title: string) => `Play ${title} from the start`,
+  transport: "Transport",
+  zoom: "Zoom",
+  position: "Playhead position",
+  loop: "Loop",
+  loopHint: "Repeat the loop range (Ctrl+L: set it to the selection)",
+  loopRange: "Loop range",
   addTrack: "Add track",
   addTrackHint: "Add track (Ctrl+T)",
-  addScene: "Add scene",
   track: "Track",
-  scene: "Scene",
-  scenes: "Scenes",
-  noScenes: "A scene plays chosen tracks together. Add one, select it, then check the tracks it plays.",
-  inScene: (scene: string, track: string) => `${track} plays in ${scene}`,
-  trackCount: (n: number) => `${n} ${n === 1 ? "track" : "tracks"}`,
-  emptySet: "No tracks yet. Add a track, then drag clips onto its timeline.",
-  emptyLane: "Drag a clip here from Clips.",
+  dropHere: "Drop clips here",
+  dropHint: "Dropping a clip here adds a track for it.",
   mute: "Mute",
   solo: "Solo",
-  player: "Player this track drives: the editor or a remote client",
+  player: "The player this track drives: the editor or a client",
   playerFor: (title: string) => `Player for ${title}`,
   playerName: (n: number) => (n === 0 ? "Editor" : `Client ${n}`),
   moveUp: "Move up",
@@ -346,7 +400,18 @@ export const SET_COPY = {
   kindClip: "Timeline",
   kindScript: "Script",
   noClips: "No clips match.",
-  browserHint: "Drag a clip onto a track to add it, or onto a clip on a track to replace that clip. With a clip selected here, press I to add it at the playhead or R to replace the clip selected on the timeline.",
+  browserHint: "Drag a clip onto a track, or onto a clip to replace it. Double-click a clip to add it to the selected track at the playhead.",
+  showClips: "Show or hide Clips (Ctrl+Alt+B)",
+  popOut: "Open Clips in its own window",
+  poppedOut: "Clips is open in its own window.",
+  bringBack: "Show Clips here",
+  focusWindow: "Show the Clips window",
+  add: (name: string) => `Add ${name}`,
+  addTo: (track: string, at: string) => `Adds to ${track} at ${at}`,
+  addToNew: (at: string) => `Adds to a new track at ${at}`,
+  pickedGoes: (name: string, track: string | null, at: string) => `${name} goes to ${track ?? "a new track"} at ${at}`,
+  openClip: (name: string) => `Open ${name}`,
+  noArrangement: "Open the Arrangement in Studio to add clips from here.",
   selection: "Selection",
   name: "Name",
   color: "Color",
@@ -355,13 +420,13 @@ export const SET_COPY = {
   makeUnique: "Make unique",
   makeUniqueHint: "Copy the clip asset and use the copy here only",
   replace: (name: string) => `Replace with ${name}`,
-  replaceHint: "Use the clip selected in Clips here instead, keeping this clip's place, name and color (R)",
+  replaceHint: "Replace this clip with the one selected in Clips, keeping its position, name and color (R)",
   remove: "Delete",
-  deleteTitle: (kind: "track" | "scene", title: string) => `Delete the ${kind} "${title}"?`,
+  renameHint: "Double-click or press F2 to rename",
+  deleteTitle: (title: string) => `Delete the track "${title}"?`,
   deleteTrackKeeps: "Its timeline is deleted with it. The clips it used stay in Clips and keep their past runs.",
-  deleteSceneKeeps: "The tracks it plays stay as they are.",
   deleteUnlinks: "These scenes will stop playing it:",
-  deleteKind: (kind: "track" | "scene") => (kind === "track" ? "Delete track" : "Delete scene"),
+  deleteTrack: "Delete track",
   deleted: (title: string) => `Deleted ${title}`,
   cancel: "Cancel",
   open: "Open clip",
@@ -369,9 +434,15 @@ export const SET_COPY = {
   block: (name: string, from: string, to: string) => `${name}, ${from} to ${to}`,
   blockHint: "Double-click to open",
   unknownLength: "Length unknown: the clip could not be read",
+  reserved: "Script playtest: its steps have no fixed length, so the block shows the time reserved for it",
   useCandidate: (c: string) => `Use ${c}`,
-  zoomIn: "Zoom in",
-  zoomOut: "Zoom out",
+  warnings: (n: number) => `${n} ${n === 1 ? "warning" : "warnings"}`,
+  warningsTitle: "Warnings",
+  showWarning: "Show",
+  zoomIn: "Zoom in (+)",
+  zoomOut: "Zoom out (-)",
+  zoomFit: "Zoom to fit all tracks (W)",
+  zoomSelection: "Zoom to the selection (Z)",
   needsVerdict: (name: string) => `${name} needs your verdict`,
   pass: "Pass",
   fail: "Fail",
@@ -379,23 +450,28 @@ export const SET_COPY = {
   note: "Note (optional)",
   keys: "Shortcuts",
   keyList: [
-    ["Drag", "Move a clip, or drag its edge to trim it (Alt: duplicate it). Drop a clip from Clips onto a clip on a track to replace that clip."],
-    ["Space", "Play the Arrangement from the playhead, or stop"],
-    ["Home", "Move the playhead to the start"],
-    ["Enter", "Play the selected scene or track, or open the selected clip"],
+    ["Drag", "Move a clip, or drag its edge to trim it (Alt: duplicate it)"],
+    ["Drag from Clips", "Drop on a track to add the clip, on a clip to replace it, or below the tracks to add a track for it"],
+    ["Space", "Play from the playhead (or the loop range when Loop is on), or stop"],
+    ["Home, End", "Move the playhead to the start or the end"],
+    ["Enter", "Play the selected track, or open the selected clip"],
     ["Left, Right", "Move the selected clip by a quarter second (Shift: a second); with no clip selected, move the playhead"],
-    ["Up, Down", "Move the selected clip to the track above or below; with no clip selected, select the track or scene above or below"],
+    ["Up, Down", "Move the selected clip to the track above or below; with no clip selected, select the track above or below"],
     ["Alt + Left, Right", "Trim the selected clip's end (Shift: its start)"],
-    ["Alt + Up, Down", "Reorder the selected track or scene"],
-    ["Ctrl + D", "Duplicate"],
-    ["Ctrl + C, Ctrl + V", "Copy the selected clip; paste it on the selected track at the playhead"],
-    ["Delete", "Delete"],
-    ["F2", "Rename"],
+    ["Alt + Up, Down", "Reorder the selected track"],
+    ["Ctrl + D", "Duplicate the selected clip"],
+    ["Ctrl + C, X, V", "Copy or cut the selected clip; paste it on the selected track at the playhead"],
+    ["Delete, Backspace", "Delete the selected clip or track"],
+    ["Ctrl + R, F2", "Rename the selected clip or track"],
     ["Ctrl + T", "Add a track"],
-    ["Ctrl + I", "Insert a scene above the selected one"],
+    ["Ctrl + L", "Set the loop range to the selection and turn Loop on"],
+    ["Ctrl + Alt + B", "Show or hide Clips"],
     ["I", "Add the clip selected in Clips at the playhead"],
     ["R", "Replace the selected clip with the one selected in Clips"],
-    [", and .", "Select the previous or next clip"],
+    ["+, -", "Zoom in or out (Ctrl + scroll zooms around the pointer)"],
+    ["W", "Zoom to fit all tracks"],
+    ["Z, X", "Zoom to the selection, or back to the previous zoom"],
+    ["Comma, Period", "Select the previous or next clip"],
     ["Escape", "Clear the selection"],
   ] as ReadonlyArray<readonly [string, string]>,
   colorName: (c: string) => c[0].toUpperCase() + c.slice(1),

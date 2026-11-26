@@ -105,11 +105,17 @@ const ICON_PATHS = {
   back: "M10 3.5 5.5 8l4.5 4.5",
   keyboard: "M2 4.5h12v7H2zM4.5 7h1M7.5 7h1M10.5 7h1M5 9.5h6",
   expand: "M9.5 2.5h4v4M13.5 2.5 9 7M6.5 13.5h-4v-4M2.5 13.5 7 9",
+  warn: "M8 2 14.5 13.5h-13zM8 6.5v3.2M8 11.4v.3",
+  stop: "M4 4h8v8H4z",
+  loop: "M2.5 8V6.5a2 2 0 0 1 2-2h8M10.5 2.5l2 2-2 2M13.5 8v1.5a2 2 0 0 1-2 2h-8M5.5 13.5l-2-2 2-2",
+  fit: "M2.5 4v8M13.5 4v8M5 8h6M6.5 6 4.5 8l2 2M9.5 6l2 2-2 2",
+  focus: "M2.5 5.5v-3h3M10.5 2.5h3v3M13.5 10.5v3h-3M5.5 13.5h-3v-3M6 8h4",
+  arrange: "M2 4h6M5 8h9M2 12h5M2 2.5v11",
 } as const;
 export type HubIconName = keyof typeof ICON_PATHS;
 
 export function HubIcon({ name, size = 14 }: { name: HubIconName; size?: number }) {
-  const filled = name === "play";
+  const filled = name === "play" || name === "stop";
   return (
     <svg width={size} height={size} viewBox="0 0 16 16" fill={filled ? "currentColor" : "none"} stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
       <path d={ICON_PATHS[name]} />
@@ -181,10 +187,10 @@ export function HubField({ id, label, error, children }: {
  * going back to that screen); a screen reached fresh shows `back`, its parent
  * in the hub's map, instead.
  */
-export function ScreenHead({ title, eyebrow, sub, actions, back }: { title: ReactNode; eyebrow?: ReactNode; sub?: ReactNode; actions?: ReactNode; back?: { label: string; route: HubRoute } }) {
+export function ScreenHead({ title, eyebrow, sub, actions, back, compact }: { title: ReactNode; eyebrow?: ReactNode; sub?: ReactNode; actions?: ReactNode; back?: { label: string; route: HubRoute }; compact?: boolean }) {
   const { go, trail } = useHub();
   return (
-    <header className="hub-head">
+    <header className={`hub-head ${compact ? "compact" : ""}`}>
       <div className="hub-head-text">
         {trailHasBack(trail) ? <Crumbs /> : back && <HubLink className="hub-back small" href={hubHash(back.route)} onGo={() => go(back.route)}><HubIcon name="back" size={12} />{back.label}</HubLink>}
         {eyebrow && <div className="hub-eyebrow">{eyebrow}</div>}

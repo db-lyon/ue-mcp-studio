@@ -288,9 +288,10 @@ export function HubView({ data, narrow, onOpenChat, onChat, canDeleteGoals = fal
 
   return (
     <HubContext.Provider value={ctx}>
-      <div className={`hub-root ${narrow ? "narrow" : "wide"}`}>
+      {/* The Arrangement takes the whole page, as a DAW's does: the rail folds to its icons and the screen fills the height. */}
+      <div className={`hub-root ${narrow ? "narrow" : "wide"} ${route.screen === "arrangement" ? "slim" : ""}`}>
         {narrow ? <HubBar onPalette={() => setOverlay({ kind: "palette" })} /> : <HubRail onPalette={() => setOverlay({ kind: "palette" })} onShortcuts={() => setOverlay({ kind: "shortcuts" })} />}
-        <div className="hub-main" ref={main}>
+        <div className={`hub-main ${route.screen === "arrangement" ? "fill" : ""}`} ref={main}>
           {data.error && <div className="banner warn small" role="alert">Could not refresh: {data.error}</div>}
           {screen}
         </div>
@@ -413,7 +414,7 @@ function HubRail({ onPalette, onShortcuts }: { onPalette: () => void; onShortcut
         ))}
         {arrangementOn(ctx.health) && (
           <HubLink href={hubHash(SET_ROUTE)} onGo={() => go(SET_ROUTE)} className={`hub-rail-item ${route.screen === "arrangement" ? "active" : ""}`}>
-            <HubIcon name="queue" />
+            <HubIcon name="arrange" />
             <span className="hub-rail-label">{SET_COPY.arrangement}</span>
           </HubLink>
         )}
