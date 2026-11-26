@@ -96,6 +96,8 @@ describe("hub routes", () => {
       { screen: "check", checkId: "script:/Game/Tests/Jump Test" },
       { screen: "run", runId: "run/42:a" },
       { screen: "arrangement" },
+      { screen: "arrangement", arrangementId: "boss-rush-k3f9" },
+      { screen: "arrangements" },
     ];
     for (const r of routes) expect(parseHubPath(hubPath(r))).toEqual(r);
     expect(hubHash({ screen: "check", checkId: "script:/Game/X" })).toBe("#/playtests/checks/script%3A%2FGame%2FX");

@@ -14,6 +14,9 @@ import type { ArrangementFinding, ArrangementRun, ClipEntry, PlanScope, SetColor
 /** Listed in GET /v1/health features by a daemon that serves the set routes. */
 export const ARRANGEMENT_FEATURE = "hub.arrangement";
 
+/** Listed by a daemon whose projects hold named arrangements (GET /hub/arrangements). */
+export const ARRANGEMENTS_FEATURE = "hub.arrangements";
+
 /** Frames per second a timeline is laid out in when it says nothing else. */
 export const ARRANGEMENT_DEFAULT_RATE = ARRANGEMENT_RATE;
 

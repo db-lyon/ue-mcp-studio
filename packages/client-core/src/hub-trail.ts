@@ -72,6 +72,7 @@ export function hubRouteLabel(route: HubRoute, o: Pick<HubOverview, "goals" | "c
     case "clips": return CLIP_COPY.clips;
     case "clip": return clipName(route.path);
     case "arrangement": return SET_COPY.arrangement;
+    case "arrangements": return SET_COPY.arrangements;
   }
 }
 

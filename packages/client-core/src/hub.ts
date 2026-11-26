@@ -156,7 +156,7 @@ export const hubApiOver = (transport: Transport): HubApi =>
 
 // ---------- Routes inside #/playtests ----------
 
-export type HubScreen = "overview" | "milestones" | "goals" | "goal" | "library" | "check" | "run" | "draft" | "queue" | "clips" | "clip" | "arrangement";
+export type HubScreen = "overview" | "milestones" | "goals" | "goal" | "library" | "check" | "run" | "draft" | "queue" | "clips" | "clip" | "arrangement" | "arrangements";
 export type HubRoute =
   | { screen: "overview" }
   /** The queue: what runs now, what waits, schedules and what finished. */
@@ -175,8 +175,10 @@ export type HubRoute =
   | { screen: "clips" }
   /** One clip on its timeline, by asset path. */
   | { screen: "clip"; path: string }
-  /** The Arrangement: every track's timeline under one ruler, and the scenes that play tracks together. */
-  | { screen: "arrangement" };
+  /** An Arrangement: every track's timeline under one ruler. Without an id, the project's first arrangement. */
+  | { screen: "arrangement"; arrangementId?: string }
+  /** The project's arrangements, to open, create, rename, duplicate, delete and give a level. */
+  | { screen: "arrangements" };
 
 const decode = (s: string): string | null => {
   try {
@@ -210,7 +212,8 @@ export function parseHubPath(sub: string | null | undefined): HubRoute {
       return value ? { screen: "goal", goalId: value } : { screen: "goals" };
     case "runs": return value ? { screen: "run", runId: value } : { screen: "overview" };
     case "clips": return value && value.startsWith("/") ? { screen: "clip", path: value } : { screen: "clips" };
-    case "arrangement": return { screen: "arrangement" };
+    case "arrangement": return value ? { screen: "arrangement", arrangementId: value } : { screen: "arrangement" };
+    case "arrangements": return { screen: "arrangements" };
     default: return { screen: "overview" };
   }
 }
@@ -229,7 +232,8 @@ export function hubPath(r: HubRoute): string {
     case "draft": return r.checkId ? `checks/${enc(r.checkId)}/edit` : r.goalId ? `goals/${enc(r.goalId)}/new` : "checks/new";
     case "clips": return "clips";
     case "clip": return `clips/${enc(r.path)}`;
-    case "arrangement": return "arrangement";
+    case "arrangement": return r.arrangementId ? `arrangement/${enc(r.arrangementId)}` : "arrangement";
+    case "arrangements": return "arrangements";
   }
 }
 

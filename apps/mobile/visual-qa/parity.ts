@@ -341,6 +341,9 @@ export const PARITY: Record<string, ParityEntry> = {
   // The Playtest Hub, behind its experimental setting.
   "hub-overview": {notOnPhone: HUB},
   "hub-arrangement": {notOnPhone: HUB},
+  "hub-arrangements": {notOnPhone: HUB},
+  "hub-arrangements-new": {notOnPhone: HUB},
+  "hub-arrangement-switcher": {notOnPhone: HUB},
   "hub-arrangement-instance": {notOnPhone: HUB},
   "hub-arrangement-track": {notOnPhone: HUB},
   "hub-arrangement-playing": {notOnPhone: HUB},

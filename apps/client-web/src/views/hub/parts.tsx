@@ -102,6 +102,7 @@ const ICON_PATHS = {
   sparkle: "M8 2v3M8 11v3M2 8h3M11 8h3M4 4l2 2M10 10l2 2M12 4l-2 2M6 10l-2 2",
   calendar: "M3 4.5h10v8.5H3zM3 7h10M5.5 3v3M10.5 3v3",
   chevron: "M6 3.5 10.5 8 6 12.5",
+  caret: "M4.5 6.5 8 10l3.5-3.5",
   back: "M10 3.5 5.5 8l4.5 4.5",
   keyboard: "M2 4.5h12v7H2zM4.5 7h1M7.5 7h1M10.5 7h1M5 9.5h6",
   expand: "M9.5 2.5h4v4M13.5 2.5 9 7M6.5 13.5h-4v-4M2.5 13.5 7 9",

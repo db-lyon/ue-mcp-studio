@@ -244,7 +244,35 @@ function setScenario(title: string, hash: string, extra: Partial<Scenario> = {},
   };
 }
 
+/** A project with named arrangements: the story pass beside a boss rush and a night pass, each with its own tracks and level. */
+const ARRANGEMENTS = {
+  default: "main",
+  arrangements: [
+    { id: "main", title: "Story", order: 0, level: "/Game/EmberHollow/Maps/L_Hollow", tracks: 4, scenes: 2, status: "failing", lastRun: { runId: "run-set", outcome: "failed", at: new Date(Date.now() - 40 * 60_000).toISOString() } },
+    { id: "boss-rush-k3f9", title: "Boss rush", order: 1, level: "/Game/EmberHollow/Maps/L_Arena", tracks: 3, scenes: 1, status: "met", lastRun: { runId: "run-boss", outcome: "passed", at: new Date(Date.now() - 3 * 3_600_000).toISOString() } },
+    { id: "night-pass-a1b2", title: "Night pass with every lantern lit and the fog turned up", order: 2, level: null, tracks: 1, scenes: 0, status: "not_started", lastRun: null },
+  ],
+};
+
+/** The Arrangement on a daemon whose projects hold named arrangements: the switcher in the transport, and the list. */
+function arrangementsScenario(title: string, hash: string, extra: Partial<Scenario> = {}): Scenario {
+  const s = setScenario(title, hash, extra);
+  const base = s.get!;
+  return {
+    ...s,
+    get: (p, url) => {
+      if (p === "/v1/health") return { ...(base(p, url) as { features: string[] }), features: ["checkpoints", "hub", "hub.goalDelete", "hub.arrangement", "hub.arrangements", "events.clip"] };
+      if (p === "/v1/hub/arrangements") return ARRANGEMENTS;
+      if (p === "/v1/hub/set") return { ...DEMO_SET, arrangement: { id: "main", title: "Story", order: 0, level: "/Game/EmberHollow/Maps/L_Hollow" } };
+      return base(p, url);
+    },
+  };
+}
+
 export const HUB_SCENARIOS: Record<string, Scenario> = {
+  "hub-arrangements": arrangementsScenario("A project's arrangements: each with its status, track and scene counts, the level it opens and its last run, with Rename, Level, Duplicate and Delete, and New arrangement", "#/playtests/arrangements"),
+  "hub-arrangements-new": arrangementsScenario("New arrangement: its name and the level its runs open", "#/playtests/arrangements", { clicks: [".hub-head-actions .primary"] }),
+  "hub-arrangement-switcher": arrangementsScenario("The Arrangement's switcher open in the transport: the arrangement shown, the others with their counts, and All arrangements", "#/playtests/arrangement", { clicks: [".hub-set-switch"] }),
   "hub-arrangement": setScenario("Arrangement: the transport, each track's timeline under one ruler with a 150px header (the name on one line, Play, M, S and the player as Ed or C1 on the next), a trimmed clip, a step-list clip's reserved space, a clip of unknown length with its warning marker, a muted track, empty rows to six, and the warnings count", "#/playtests/arrangement"),
   "hub-arrangement-instance": setScenario("A clip selected on a timeline: the footer inspector with its name, color, Open clip, Duplicate, Make unique and Delete", "#/playtests/arrangement", { clicks: [".hub-set-block.kind-clip"] }),
   "hub-arrangement-track": setScenario("A track selected: its header lit, and its name, color, order and Delete in the footer inspector", "#/playtests/arrangement", { clicks: [".hub-set-head .hub-set-title"] }),
