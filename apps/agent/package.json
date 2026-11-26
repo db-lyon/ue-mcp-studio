@@ -10,7 +10,10 @@
       "min": 1,
       "max": 2
     },
-    "ueMcp": "1.4.16-beta.4"
+    "ueMcp": "1.4.16-beta.4",
+    "permissions": [
+      "registry.account"
+    ]
   },
   "scripts": {
     "build": "tsc -p tsconfig.json --noEmit && node ../../scripts/bundle-agent.mjs && node ../../scripts/agent-keys.mjs",
