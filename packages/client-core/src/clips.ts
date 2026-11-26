@@ -10,6 +10,8 @@ import type {
   ClipDrift,
   ClipEditAnswer,
   ClipFinding,
+  ClipLane,
+  ClipLaneResult,
   ClipListEntry,
   ClipLiveTake,
   ClipRead,
@@ -22,8 +24,10 @@ import type {
   ClipTrack,
   ClipTrackType,
   ClipValue,
+  Performer,
 } from "@ue-mcp-studio/shared";
 import type { HubRequest } from "./hub.js";
+import { takesLane } from "./performers.js";
 
 export const CLIPS_BASE = "/v1/ext/studio/clips";
 const enc = encodeURIComponent;
@@ -93,6 +97,7 @@ export function clipEnd(c: Clip): number {
   }
   for (const k of c.checks ?? []) end = Math.max(end, k.start + k.length);
   for (const e of c.events ?? []) end = Math.max(end, e.at);
+  for (const l of c.lanes ?? []) for (const x of laneItems(l)) end = Math.max(end, x.t);
   return Math.max(end, clipRate(c) * 2);
 }
 
@@ -141,6 +146,108 @@ export function newKeyValue(track: ClipTrack, f: number): ClipValue {
   return n === 1 ? 0 : Array.from({ length: n }, () => 0);
 }
 
+// ---------- Move, action and value lanes ----------
+
+/** The lane kinds beside Input Action lanes. */
+export type ClipLaneKind = ClipLane["kind"];
+export const CLIP_LANE_KINDS: readonly ClipLaneKind[] = ["move", "action", "value"];
+
+/** The points, calls or keys on a lane, each with its id and frame. */
+export const laneItems = (l: ClipLane): Array<{ id: string; t: number }> => (l.kind === "move" ? l.points : l.kind === "action" ? l.calls : l.keys) ?? [];
+
+/** The performer a lane names: its own, else the clip's; null when neither does, and its track's performer drives it. */
+export const lanePerformer = (l: Pick<ClipLane, "performer">, c: Pick<Clip, "performer">): Performer | null => l.performer ?? c.performer ?? null;
+
+/** The kinds a new lane may be for a performer: those it takes, or all three when none is named. */
+export const laneKindsFor = (p: Performer | null): ClipLaneKind[] => CLIP_LANE_KINDS.filter((k) => !p || takesLane(p, k));
+
+/** A lane's name: Move to, Actions, or a value lane's target. */
+export const laneTitle = (l: ClipLane): string => (l.kind === "value" ? l.target : l.kind === "move" ? CLIP_COPY.laneMove : CLIP_COPY.laneAction);
+
+/** clip_edit's ops for lanes and what is on them, as docs/pie-clips.md in ue-mcp lists them. */
+export const LANE_OPS = {
+  /** A lane of a kind; a value lane needs its target. */
+  add: (kind: ClipLaneKind, o: { performer?: Performer | null; target?: string; type?: "axis1d" | "bool"; watch?: string[] } = {}): ClipOp => ({
+    op: "add",
+    kind: "lane",
+    capability: kind,
+    ...(o.performer ? { performer: o.performer } : {}),
+    ...(kind === "value" ? { target: o.target ?? "", type: o.type ?? "axis1d" } : {}),
+    ...(kind === "action" && o.watch?.length ? { watch: o.watch } : {}),
+  }),
+  point: (lane: string, time: number, at: [number, number, number], radius?: number): ClipOp => ({ op: "add", kind: "point", lane, time, at, ...(radius !== undefined ? { radius } : {}) }),
+  call: (lane: string, time: number, fn: string, args?: unknown[]): ClipOp => ({ op: "add", kind: "call", lane, time, fn, ...(args?.length ? { args } : {}) }),
+  key: (lane: string, time: number, value: number | boolean, interp?: string): ClipOp => ({ op: "add", kind: "key", lane, time, value, ...(interp ? { interp } : {}) }),
+  /** A lane's performer (null: the clip's), target, type or watch list. */
+  set: (id: string, fields: { performer?: Performer | null; target?: string; type?: "axis1d" | "bool"; watch?: string[] }): ClipOp => ({ op: "set", id, ...fields }),
+  /** The clip's performer; null clears it. */
+  clipPerformer: (p: Performer | null): ClipOp => ({ op: "set_clip", performer: p }),
+};
+
+/** A point's coordinates as the inspector shows them: "120, -40, 0". */
+export const atText = (at: readonly number[]): string => at.map((n) => String(Math.round(n * 100) / 100)).join(", ");
+
+/** Coordinates from "x, y, z", or null when they are not three numbers. */
+export function parseAt(text: string): [number, number, number] | null {
+  const parts = text.split(/[,\s]+/).map((s) => s.trim()).filter(Boolean).map(Number);
+  return parts.length === 3 && parts.every((n) => Number.isFinite(n)) ? [parts[0], parts[1], parts[2]] : null;
+}
+
+/** A call's arguments as the inspector shows them: a JSON array, empty for none. */
+export const argsText = (args: unknown[] | undefined): string => (args?.length ? JSON.stringify(args) : "");
+
+/** Arguments from a JSON array, or one JSON value as the only argument; [] for empty, null when it is not JSON. */
+export function parseArgs(text: string): unknown[] | null {
+  if (!text.trim()) return [];
+  try {
+    const v = JSON.parse(text) as unknown;
+    return Array.isArray(v) ? v : [v];
+  } catch {
+    return null;
+  }
+}
+
+/** Where a new point goes: where the point before it went, or the origin. */
+export function newPointAt(l: Extract<ClipLane, { kind: "move" }>, f: number): [number, number, number] {
+  const before = [...l.points].filter((p) => p.t <= f).sort((a, b) => b.t - a.t)[0] ?? [...l.points].sort((a, b) => a.t - b.t)[0];
+  return before ? [...before.at] as [number, number, number] : [0, 0, 0];
+}
+
+/** A value lane's value at a frame: nothing before its first key, the last key's after it, linear between unless a key is constant. */
+export function laneValueAt(l: Extract<ClipLane, { kind: "value" }>, f: number): number | boolean | undefined {
+  const keys = [...l.keys].sort((a, b) => a.t - b.t);
+  if (!keys.length || f < keys[0].t) return undefined;
+  let i = 0;
+  while (i + 1 < keys.length && keys[i + 1].t <= f) i++;
+  const a = keys[i];
+  const b = keys[i + 1];
+  if (!b || a.interp === "constant" || typeof a.v !== "number" || typeof b.v !== "number") return a.v;
+  return a.v + (b.v - a.v) * ((f - a.t) / (b.t - a.t));
+}
+
+/** The value a new key on a value lane gets: the curve's own at that frame, or zero (false). */
+export const newLaneValue = (l: Extract<ClipLane, { kind: "value" }>, f: number): number | boolean => laneValueAt(l, f) ?? (l.type === "bool" ? false : 0);
+
+/** The span a value lane's curve is drawn over: 0 to 1 for a Boolean, its keys' range otherwise, never flat. */
+export function laneValueRange(l: Extract<ClipLane, { kind: "value" }>): { min: number; max: number } {
+  if (l.type === "bool") return { min: 0, max: 1 };
+  const vs = l.keys.map((k) => Number(k.v)).filter((n) => Number.isFinite(n));
+  if (!vs.length) return { min: -1, max: 1 };
+  let min = Math.min(0, ...vs);
+  let max = Math.max(...vs);
+  if (max - min < 1e-6) max = min + 1;
+  const pad = (max - min) * 0.1;
+  return { min: min - pad, max: max + pad };
+}
+
+/** A value lane's value as typed: a number, or true and false on a Boolean lane. Null when it is neither. */
+export function parseLaneValue(text: string, type: "axis1d" | "bool"): number | boolean | null {
+  const t = text.trim().toLowerCase();
+  if (type === "bool") return t === "true" || t === "1" ? true : t === "false" || t === "0" ? false : null;
+  const n = Number(t);
+  return t !== "" && Number.isFinite(n) ? n : null;
+}
+
 // ---------- Undo ----------
 
 /** Undo and redo, each a stack of clip_update params. */
@@ -160,11 +267,15 @@ export const historyAfterRedo = (h: ClipHistory, back: ClipUpdate): ClipHistory 
 // ---------- Findings ----------
 
 /** Where a finding points on the clip, so selecting it is possible. */
-export function findingTarget(c: Clip, f: ClipFinding): { kind: "note" | "key" | "check" | "event" | "region"; id: string; track?: string } | null {
+export function findingTarget(c: Clip, f: ClipFinding): { kind: "note" | "key" | "check" | "event" | "region" | "lane" | "point" | "call" | "laneKey"; id: string; track?: string; lane?: string } | null {
   if (!f.id) return null;
   for (const t of c.tracks ?? []) {
     if (t.notes?.some((n) => n.id === f.id)) return { kind: "note", id: f.id, track: t.action };
     if (t.keys?.some((k) => k.id === f.id)) return { kind: "key", id: f.id, track: t.action };
+  }
+  for (const l of c.lanes ?? []) {
+    if (l.id === f.id) return { kind: "lane", id: f.id, lane: l.id };
+    if (laneItems(l).some((x) => x.id === f.id)) return { kind: l.kind === "move" ? "point" : l.kind === "action" ? "call" : "laneKey", id: f.id, lane: l.id };
   }
   if (c.checks?.some((k) => k.id === f.id)) return { kind: "check", id: f.id };
   if (c.events?.some((e) => e.id === f.id)) return { kind: "event", id: f.id };
@@ -178,7 +289,8 @@ export function findingFix(c: Clip, f: ClipFinding, candidate: string): ClipOp |
   if (!at || !f.field) return null;
   const field = f.field.replace(/^expect\./, "");
   if (at.kind === "check" && (field === "value" || field === "op" || field === "target")) return { op: "set", id: at.id, expect: { [field]: candidate } };
-  if (field === "id" || field === "track") return null;
+  // A performer finding's candidates are the lane kinds it takes, not values to set.
+  if (field === "id" || field === "track" || field === "lane" || field === "performer") return null;
   return { op: "set", id: at.id, [field]: candidate };
 }
 
@@ -202,6 +314,8 @@ export interface ClipLive {
   drift?: ClipDrift;
   /** The take so far while a recording plays, when ue-mcp offers it. */
   take: ClipLiveTake | null;
+  /** Each move, action and value lane: what it fired and its errors. */
+  lanes: Record<string, ClipLaneResult>;
   seq: number;
 }
 
@@ -238,6 +352,7 @@ export function clipLiveFromStatus(s: ClipRunStatus): ClipLive {
     stopReason: s.stop_reason,
     drift: s.drift,
     take: s.take?.live_take ? { ...s.take.live_take, tracks: s.take.live_take.tracks ?? [] } : null,
+    lanes: byId(s.lanes),
     seq: 0,
   };
 }
@@ -309,6 +424,7 @@ export function foldClipEvent(live: ClipLive | null, e: { type: string; data: Re
       n.summary = (d.summary as ClipRunTally | undefined) ?? n.summary;
       n.drift = (d.drift as ClipDrift | undefined) ?? n.drift;
       n.stopReason = typeof d.stopReason === "string" ? d.stopReason : n.stopReason;
+      if (Array.isArray(d.lanes)) n.lanes = byId(d.lanes as ClipLaneResult[]);
       n.holding = null;
       n.awaiting = [];
       break;
@@ -353,7 +469,39 @@ export const CLIP_COPY = {
   zoomOut: "Zoom out",
   snap: "Snap",
   frames: "frames",
-  hint: "Drag on a lane to draw a note. Drag a note to move it, or its right edge to trim it. Arrow keys nudge the selection.",
+  hint: "Drag on an Input Action lane to draw a note, or click a move, action or value lane to add a point, call or key. Drag an item to move it, or a note's right edge to trim it. Arrow keys nudge the selection.",
+  laneMove: "Move to",
+  laneAction: "Actions",
+  laneValue: "Value",
+  lane: "Lane",
+  point: "Point",
+  call: "Call",
+  performer: "Performer",
+  /** What an empty performer field means on the clip, and on a lane. */
+  trackPerformer: "The track's performer",
+  clipPerformerIs: (name: string) => `The clip's: ${name}`,
+  performerHelp: "A player or an actor in the level. Left empty, the track's performer drives it.",
+  at: "Walk to (x, y, z)",
+  radius: "Arrival radius (cm)",
+  radiusHelp: "Left empty, the controller's own.",
+  fn: "Function",
+  fnPlaceholder: "OpenGate or Weapon.Fire",
+  args: "Arguments (JSON array)",
+  laneTarget: "Property or blackboard key",
+  laneTargetPlaceholder: "Health or bb:TargetActor",
+  laneTypeNumber: "Number",
+  laneTypeBool: "Boolean",
+  watch: "Watch (properties, comma separated)",
+  laneKind: "Lane",
+  addLaneOf: (kind: string) => `Add ${kind === "move" ? "move" : kind === "action" ? "action" : "value"} lane`,
+  addCall: "Add call",
+  needTarget: "Name a property or a blackboard key.",
+  needFn: "Name the function to call.",
+  badAt: "Enter three numbers: x, y, z.",
+  badArgs: 'Enter a JSON array, such as [1, "Gate"].',
+  badBool: "Enter true or false.",
+  laneFired: (n: number) => `Fired ${n}`,
+  laneErrors: (n: number) => `${n} ${n === 1 ? "error" : "errors"}`,
   addTrack: "Add lane",
   addRegion: "Add region",
   addCheck: "Add check",

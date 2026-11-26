@@ -4,7 +4,7 @@
  * clip), while the edit goes out in the background. The answer replaces the
  * ghost in the same frame; a refusal drops it and the item slides back.
  */
-import type { Clip, ClipTrack, InstanceLayout, SetTrackView as SetTrack } from "@ue-mcp-studio/shared";
+import type { Clip, ClipLane, ClipTrack, InstanceLayout, SetTrackView as SetTrack } from "@ue-mcp-studio/shared";
 import type { ArrangeDragMode, ClipOp } from "@ue-mcp-studio/client-core";
 
 type Inst = SetTrack["arrangement"]["instances"][number];
@@ -96,8 +96,8 @@ type Spanned = { id: string; start: number; length: number };
 
 /**
  * A clip with the piano roll's move, trim and add ops applied as clip_edit
- * would: items are found by id across notes, keys, checks, regions and
- * events. Ops it does not draw ahead (set, delete, quantize) leave the clip
+ * would: items are found by id across notes, keys, checks, regions,
+ * events, and the points, calls and keys of move, action and value lanes. Ops it does not draw ahead (set, delete, quantize) leave the clip
  * as it is, and their answer draws them.
  */
 export function applyClipOps(clip: Clip, ops: readonly ClipOp[]): Clip {
@@ -126,9 +126,16 @@ function applyOne(c: Clip, op: ClipOp): Clip {
     notes: t.notes?.map((n) => (n.id === id ? { ...n, ...span(n) } : n)),
     keys: t.keys?.map((k) => (k.id === id ? { ...k, t: span({ id, start: k.t, length: 0 }).start } : k)),
   }));
+  const at = (t: number): number => span({ id, start: t, length: 0 }).start;
+  const lanes = c.lanes?.map((l): ClipLane => {
+    if (l.kind === "move") return { ...l, points: l.points.map((p) => (p.id === id ? { ...p, t: at(p.t) } : p)) };
+    if (l.kind === "action") return { ...l, calls: l.calls.map((x) => (x.id === id ? { ...x, t: at(x.t) } : x)) };
+    return { ...l, keys: l.keys.map((k) => (k.id === id ? { ...k, t: at(k.t) } : k)) };
+  });
   return {
     ...c,
     ...(tracks ? { tracks } : {}),
+    ...(lanes ? { lanes } : {}),
     ...(c.checks ? { checks: c.checks.map((x) => (x.id === id ? { ...x, ...span(x) } : x)) } : {}),
     ...(c.events ? { events: c.events.map((e) => (e.id === id ? { ...e, at: span({ id, start: e.at, length: 0 }).start } : e)) } : {}),
     ...(c.regions ? { regions: c.regions.map((r) => {
@@ -143,6 +150,19 @@ function addOne(c: Clip, op: ClipOp): Clip {
   if (op.kind === "region") {
     const start = num(op.start) ?? 0;
     return { ...c, regions: [...(c.regions ?? []), { id: NEW_ID, name: String(op.name ?? ""), start, end: num(op.end) ?? start }] };
+  }
+  if (typeof op.lane === "string" && (op.kind === "point" || op.kind === "call" || op.kind === "key")) {
+    const t = num(op.time) ?? 0;
+    return {
+      ...c,
+      lanes: c.lanes?.map((l): ClipLane => {
+        if (l.id !== op.lane) return l;
+        if (l.kind === "move" && op.kind === "point") return { ...l, points: [...l.points, { id: NEW_ID, t, at: (op.at as [number, number, number]) ?? [0, 0, 0] }] };
+        if (l.kind === "action" && op.kind === "call") return { ...l, calls: [...l.calls, { id: NEW_ID, t, fn: String(op.fn ?? "") }] };
+        if (l.kind === "value" && op.kind === "key") return { ...l, keys: [...l.keys, { id: NEW_ID, t, v: op.value as number | boolean }] };
+        return l;
+      }),
+    };
   }
   if (op.kind !== "note" && op.kind !== "key") return c;
   const track = String(op.track);

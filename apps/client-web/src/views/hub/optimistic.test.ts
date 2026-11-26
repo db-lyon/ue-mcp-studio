@@ -65,4 +65,24 @@ describe("the piano roll's ops", () => {
     expect(c.regions![0]).toMatchObject({ start: 5, end: 90 });
     expect(c.events![0].at).toBe(8);
   });
+
+  it("moves and adds the points, calls and keys of move, action and value lanes", () => {
+    const clip: Clip = { rate: 60, lanes: [
+      { id: "L1", kind: "move", points: [{ id: "p1", t: 10, at: [0, 0, 0] }] },
+      { id: "L2", kind: "action", calls: [{ id: "a1", t: 20, fn: "Open" }] },
+      { id: "L3", kind: "value", target: "Health", type: "axis1d", keys: [{ id: "v1", t: 30, v: 1 }] },
+    ] };
+    const c = applyClipOps(clip, [
+      { op: "move", id: "p1", to: 40 },
+      { op: "move", id: "a1", by: 5 },
+      { op: "move", id: "v1", to: 0 },
+      { op: "add", kind: "point", lane: "L1", time: 90, at: [1, 2, 3] },
+      { op: "add", kind: "call", lane: "L2", time: 70, fn: "Close" },
+      { op: "add", kind: "key", lane: "L3", time: 50, value: 4 },
+    ]);
+    const [move, action, value] = c.lanes!;
+    expect(move.kind === "move" && move.points).toEqual([{ id: "p1", t: 40, at: [0, 0, 0] }, { id: NEW_ID, t: 90, at: [1, 2, 3] }]);
+    expect(action.kind === "action" && action.calls).toEqual([{ id: "a1", t: 25, fn: "Open" }, { id: NEW_ID, t: 70, fn: "Close" }]);
+    expect(value.kind === "value" && value.keys).toEqual([{ id: "v1", t: 0, v: 1 }, { id: NEW_ID, t: 50, v: 4 }]);
+  });
 });

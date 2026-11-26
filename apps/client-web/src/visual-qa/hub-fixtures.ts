@@ -269,7 +269,90 @@ function arrangementsScenario(title: string, hash: string, extra: Partial<Scenar
   };
 }
 
+/** A set whose tracks drive actors as well as players: a wolf on patrol, the north gate, and a lane the gate does not take. */
+const ACTOR_SET = {
+  ...DEMO_SET,
+  findings: [{ id: "gate/i1", field: "performer", message: "BP_Gate_North takes move, action and value lanes, and the clip has an Input Action lane for IA_Interact", candidates: ["move", "action", "value"], blocks: true }],
+  tracks: [
+    { ...DEMO_SET.tracks[0], performer: { kind: "player", client: 0 } },
+    { id: "wolf", title: "Wolf patrol", order: 1, color: "violet", player: 0, performer: { kind: "actor", actor: "Wolf_Alpha" }, mute: false, solo: false, status: "passing",
+      arrangement: { rate: 60, instances: [{ id: "i1", kind: "clip", target: `${SETS}/CL_WolfPatrol`, start: 60 }, { id: "i2", kind: "clip", target: `${SETS}/CL_WolfPatrol`, start: 600 }] },
+      layout: [setLayout("i1", "clip", `${SETS}/CL_WolfPatrol`, 60, 360), setLayout("i2", "clip", `${SETS}/CL_WolfPatrol`, 600, 360)] },
+    { id: "gate", title: "North gate", order: 2, color: "teal", player: 0, performer: { kind: "actor", actor: "BP_Gate_North" }, mute: false, solo: false, status: "not_started",
+      arrangement: { rate: 60, instances: [{ id: "i1", kind: "clip", target: `${SETS}/CL_GateOpens`, start: 180 }] },
+      layout: [setLayout("i1", "clip", `${SETS}/CL_GateOpens`, 180, 240)] },
+    { ...DEMO_SET.tracks[1], player: 1, performer: { kind: "player", client: 1 }, order: 3 },
+  ],
+};
+const PERFORMERS = {
+  level: "/Game/EmberHollow/Maps/L_Ashwood",
+  performers: [
+    ...[0, 1, 2, 3].map((client) => ({ performer: { kind: "player", client }, label: client ? `Client ${client}` : "Editor player", capabilities: ["input", "action", "value"] })),
+    ...[
+      ["Wolf_Alpha", "BP_Wolf_C", true],
+      ["Wolf_Beta", "BP_Wolf_C", true],
+      ["Mara_Companion", "BP_Companion_C", true],
+      ["BP_Gate_North", "BP_Gate_C", false],
+      ["Lantern_03", "BP_Lantern_C", false],
+    ].map(([actor, className, pawn]) => ({ performer: { kind: "actor", actor }, label: actor, className, pawn, capabilities: ["move", "action", "value"] })),
+  ],
+};
+const PERFORMER_FEATURES = ["checkpoints", "hub", "hub.goalDelete", "hub.arrangement", "hub.performers", "events.clip", "events.clip.take"];
+
+/** The Arrangement on a daemon whose tracks drive performers, with the open level's actors to pick from. */
+function performerScenario(title: string, hash: string, extra: Partial<Scenario> = {}): Scenario {
+  const s = setScenario(title, hash, extra, null, ACTOR_SET);
+  const base = s.get!;
+  return {
+    ...s,
+    get: (p, url) => {
+      if (p === "/v1/health") return { ...(base(p, url) as object), features: PERFORMER_FEATURES };
+      if (p === "/v1/hub/performers") return PERFORMERS;
+      return base(p, url);
+    },
+  };
+}
+
+/** A wolf's patrol: walk to three points, the gate opened and locked by its own lane, and the wolf's alert level and sprint over time. */
+const LANE_CLIP_PATH = `${SETS}/CL_WolfPatrol`;
+const LANE_CLIP: Clip = {
+  rate: 60,
+  length: 360,
+  grid: "frame",
+  performer: { kind: "actor", actor: "Wolf_Alpha" },
+  regions: [{ id: "r1", name: "Patrol to the gate", start: 0, end: 200 }, { id: "r2", name: "Alert", start: 200, end: 360 }],
+  tracks: [],
+  lanes: [
+    { id: "L1", kind: "move", points: [{ id: "p1", t: 0, at: [1200, -340, 92] }, { id: "p2", t: 90, at: [1480, -340, 92], radius: 40 }, { id: "p3", t: 210, at: [1480, 120, 92] }] },
+    { id: "L2", kind: "action", performer: { kind: "actor", actor: "BP_Gate_North" }, calls: [{ id: "a1", t: 150, fn: "OpenGate" }, { id: "a2", t: 300, fn: "Lock.Engage", args: [true] }], watch: ["bOpen"] },
+    { id: "L3", kind: "value", target: "bb:AlertLevel", type: "axis1d", keys: [{ id: "v1", t: 0, v: 0 }, { id: "v2", t: 200, v: 0.2 }, { id: "v3", t: 260, v: 1, interp: "constant" }] },
+    { id: "L4", kind: "value", target: "bIsSprinting", type: "bool", keys: [{ id: "v4", t: 0, v: false }, { id: "v5", t: 240, v: true }] },
+  ],
+  events: [],
+  checks: [{ id: "c1", start: 200, length: 0, mode: "hold", expect: { value: "BP_Gate_North.bOpen", op: "eq", target: true } }],
+};
+
+/** The piano roll on a clip with move, action and value lanes. */
+function laneScenario(title: string, extra: Partial<Scenario> = {}): Scenario {
+  const s = clipScenario(title, `#/playtests/clips/${enc(LANE_CLIP_PATH)}`, extra);
+  const base = s.get!;
+  return {
+    ...s,
+    get: (p, url) => {
+      if (p === "/v1/health") return { ...(base(p, url) as object), features: PERFORMER_FEATURES };
+      if (p === "/v1/hub/performers") return PERFORMERS;
+      if (p === "/v1/ext/studio/clips/clip") return { path: LANE_CLIP_PATH, clip: LANE_CLIP, warnings: [] };
+      return base(p, url);
+    },
+  };
+}
+
 export const HUB_SCENARIOS: Record<string, Scenario> = {
+  "hub-arrangement-actor": performerScenario("Tracks that drive actors: each header shows its performer, P and the player or A and the actor, a wolf's patrol and the north gate beside the players, and a lane the gate does not take flagged on its clip", "#/playtests/arrangement"),
+  "hub-arrangement-performer-picker": performerScenario("A track's performer picker open: the players, then the open level's actors with their classes, pawns first", "#/playtests/arrangement", { clicks: ["[data-track=wolf] .hub-set-performer"] }),
+  "hub-clip-lanes": laneScenario("A clip with actor lanes: points the wolf walks to with their coordinates, the gate's calls by function, a number curve and a Boolean curve, each lane naming its performer"),
+  "hub-clip-lane-point": laneScenario("A move lane's point selected: its frame, coordinates and arrival radius in the inspector", { clicks: [".hub-clip-point:nth-of-type(2)"] }),
+  "hub-clip-lane-header": laneScenario("A lane selected from its header: its performer, target and type, and a lane of a kind its performer takes to add", { clicks: ["[data-lane=L3] .hub-clip-track-name"] }),
   "hub-arrangements": arrangementsScenario("A project's arrangements: each with its status, track and scene counts, the level it opens and its last run, with Rename, Level, Duplicate and Delete, and New arrangement", "#/playtests/arrangements"),
   "hub-arrangements-new": arrangementsScenario("New arrangement: its name and the level its runs open", "#/playtests/arrangements", { clicks: [".hub-head-actions .primary"] }),
   "hub-arrangement-switcher": arrangementsScenario("The Arrangement's switcher open in the transport: the arrangement shown, the others with their counts, and All arrangements", "#/playtests/arrangement", { clicks: [".hub-set-switch"] }),

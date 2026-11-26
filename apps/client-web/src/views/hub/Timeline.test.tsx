@@ -6,7 +6,7 @@
  * warning's candidate applied as a fix.
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { Profiler, useState } from "react";
 import type { Clip, HubOverview } from "@ue-mcp-studio/shared";
 
@@ -249,5 +249,132 @@ describe("editing on the timeline", () => {
       fireEvent.blur(length);
     });
     expect(m.clips.edit).toHaveBeenCalledWith(PATH, [{ op: "trim", id: "n1", length: 10 }]);
+  });
+});
+
+describe("move, action and value lanes", () => {
+  const lanes = (): Clip => ({
+    ...base(),
+    performer: { kind: "actor", actor: "Guard" },
+    lanes: [
+      { id: "L1", kind: "move", points: [{ id: "p1", t: 0, at: [0, 0, 0] }, { id: "p2", t: 120, at: [400, -50, 0], radius: 30 }] },
+      { id: "L2", kind: "action", performer: { kind: "actor", actor: "Gate" }, calls: [{ id: "a1", t: 200, fn: "Open", args: [1] }] },
+      { id: "L3", kind: "value", target: "bb:Alert", type: "axis1d", keys: [{ id: "v1", t: 60, v: 0 }, { id: "v2", t: 180, v: 10 }] },
+    ],
+  });
+  const open = async () => {
+    m.clips.read.mockResolvedValue({ path: PATH, clip: lanes(), warnings: [] });
+    window.location.hash = `#/playtests/clips/${encodeURIComponent(PATH)}`;
+    render(<Harness start={hubFixture()} />);
+    await screen.findByRole("heading", { name: "CL_Door" });
+  };
+  const answer = (changed: string[] = []) => ({ path: PATH, clip: lanes(), changed, warnings: [], rollback: { path: PATH, clip: lanes() } });
+  const laneEl = (name: string) => screen.getByRole("group", { name });
+  const commit = (label: string, value: string) => {
+    const box = screen.getByLabelText(label);
+    fireEvent.change(box, { target: { value } });
+    fireEvent.blur(box);
+  };
+
+  it("draws each lane beside the Input Action lanes: points with their coordinates, calls with their function, and a value curve", async () => {
+    await open();
+    expect(screen.getByRole("button", { name: "Move to" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Actions" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "bb:Alert" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: /Point p2/ }).textContent).toBe("400, -50, 0");
+    expect(screen.getByRole("button", { name: /Call a1/ }).textContent).toBe("Open");
+    expect(laneEl("bb:Alert").querySelector("polyline")).toBeTruthy();
+    // Each lane names its performer: its own, else the clip's.
+    expect(document.querySelector("[data-lane=L2] .hub-clip-lane-who")?.textContent).toBe("Gate");
+    expect(document.querySelector("[data-lane=L1] .hub-clip-lane-who")?.textContent).toBe("Guard");
+  });
+
+  it("adds a point where the last one went and a key on the curve with a click, and a call through the inspector", async () => {
+    await open();
+    m.clips.edit.mockResolvedValue(answer(["p3"]));
+    // A pixel is a quarter frame: 600 is frame 150.
+    fireEvent.pointerDown(laneEl("Move to"), { button: 0, clientX: 600, pointerId: 1 });
+    await waitFor(() => expect(m.clips.edit).toHaveBeenLastCalledWith(PATH, [{ op: "add", kind: "point", lane: "L1", time: 150, at: [400, -50, 0] }]));
+    m.clips.edit.mockResolvedValue(answer(["v3"]));
+    fireEvent.pointerDown(laneEl("bb:Alert"), { button: 0, clientX: 480, pointerId: 1 });
+    await waitFor(() => expect(m.clips.edit).toHaveBeenLastCalledWith(PATH, [{ op: "add", kind: "key", lane: "L3", time: 120, value: 5 }]));
+    fireEvent.pointerDown(laneEl("Actions"), { button: 0, clientX: 400, pointerId: 1 });
+    const form = await screen.findByRole("region", { name: /Add call/ });
+    fireEvent.change(within(form).getByLabelText("Function"), { target: { value: "Weapon.Fire" } });
+    fireEvent.change(within(form).getByLabelText("Arguments (JSON array)"), { target: { value: "[2" } });
+    fireEvent.click(within(form).getByRole("button", { name: "Add call" }));
+    expect(within(form).getByText(/Enter a JSON array/)).toBeTruthy();
+    fireEvent.change(within(form).getByLabelText("Arguments (JSON array)"), { target: { value: '[2, "x"]' } });
+    m.clips.edit.mockResolvedValue(answer(["a2"]));
+    fireEvent.click(within(form).getByRole("button", { name: "Add call" }));
+    await waitFor(() => expect(m.clips.edit).toHaveBeenLastCalledWith(PATH, [{ op: "add", kind: "call", lane: "L2", time: 100, fn: "Weapon.Fire", args: [2, "x"] }]));
+  });
+
+  it("drags a call in time, edits a point's coordinates and radius, a call's function, and a key's value", async () => {
+    await open();
+    m.clips.edit.mockResolvedValue(answer(["a1"]));
+    const call = screen.getByRole("button", { name: /Call a1/ });
+    fireEvent.pointerDown(call, { button: 0, clientX: 802, pointerId: 1 });
+    fireEvent.pointerMove(call, { clientX: 882, pointerId: 1 });
+    fireEvent.pointerUp(call, { clientX: 882, pointerId: 1 });
+    await waitFor(() => expect(m.clips.edit).toHaveBeenLastCalledWith(PATH, [{ op: "move", id: "a1", to: 220 }]));
+
+    fireEvent.click(screen.getByRole("button", { name: /Point p2/ }));
+    await screen.findByRole("region", { name: /Point p2/ });
+    commit("Walk to (x, y, z)", "1, 2");
+    expect(screen.getByText("Enter three numbers: x, y, z.")).toBeTruthy();
+    commit("Walk to (x, y, z)", "1, 2, 3");
+    await waitFor(() => expect(m.clips.edit).toHaveBeenLastCalledWith(PATH, [{ op: "set", id: "p2", at: [1, 2, 3] }]));
+    commit("Arrival radius (cm)", "50");
+    await waitFor(() => expect(m.clips.edit).toHaveBeenLastCalledWith(PATH, [{ op: "set", id: "p2", radius: 50 }]));
+
+    fireEvent.click(screen.getByRole("button", { name: /Call a1/ }));
+    await screen.findByRole("region", { name: /Call a1/ });
+    commit("Function", "Close");
+    await waitFor(() => expect(m.clips.edit).toHaveBeenLastCalledWith(PATH, [{ op: "set", id: "a1", fn: "Close" }]));
+
+    fireEvent.click(screen.getByRole("button", { name: /Key v2/ }));
+    await screen.findByRole("region", { name: /Key v2/ });
+    commit("Value", "7.5");
+    await waitFor(() => expect(m.clips.edit).toHaveBeenLastCalledWith(PATH, [{ op: "set", id: "v2", v: 7.5 }]));
+  });
+
+  it("sets a lane's performer and target from its header, adds a lane its performer takes, and deletes a lane", async () => {
+    await open();
+    m.clips.edit.mockResolvedValue(answer());
+    fireEvent.click(screen.getByRole("button", { name: "bb:Alert" }));
+    await screen.findByRole("region", { name: /Value · bb:Alert/ });
+    expect((screen.getByLabelText("Performer") as HTMLInputElement).placeholder).toBe("The clip's: Guard");
+    commit("Performer", "Client 2");
+    await waitFor(() => expect(m.clips.edit).toHaveBeenLastCalledWith(PATH, [{ op: "set", id: "L3", performer: { kind: "player", client: 2 } }]));
+    commit("Property or blackboard key", "Health");
+    await waitFor(() => expect(m.clips.edit).toHaveBeenLastCalledWith(PATH, [{ op: "set", id: "L3", target: "Health" }]));
+    // The lane names no performer of its own, so a new one inherits the clip's: an actor takes move lanes.
+    expect(Array.from((screen.getByLabelText("Lane") as HTMLSelectElement).options).map((o) => o.value)).toEqual(["move", "action", "value"]);
+    fireEvent.click(screen.getByRole("button", { name: "Add move lane" }));
+    await waitFor(() => expect(m.clips.edit).toHaveBeenLastCalledWith(PATH, [{ op: "add", kind: "lane", capability: "move" }]));
+    fireEvent.click(screen.getByRole("button", { name: "Actions" }));
+    fireEvent.keyDown(screen.getByRole("group", { name: "Timeline clip" }), { key: "Delete" });
+    await waitFor(() => expect(m.clips.edit).toHaveBeenLastCalledWith(PATH, [{ op: "delete", id: "L2" }]));
+  });
+
+  it("sets the clip's performer, and offers only the lanes a player takes", async () => {
+    m.clips.read.mockResolvedValue({ path: PATH, clip: { ...base(), performer: { kind: "player", client: 0 } }, warnings: [] });
+    window.location.hash = `#/playtests/clips/${encodeURIComponent(PATH)}`;
+    render(<Harness start={hubFixture()} />);
+    await screen.findByRole("heading", { name: "CL_Door" });
+    expect(Array.from((screen.getByLabelText("Lane") as HTMLSelectElement).options).map((o) => o.value)).toEqual(["action", "value"]);
+    fireEvent.change(screen.getByLabelText("Lane"), { target: { value: "value" } });
+    // A value lane needs its target.
+    expect((screen.getByRole("button", { name: "Add value lane" }) as HTMLButtonElement).disabled).toBe(true);
+    fireEvent.change(screen.getByLabelText("Property or blackboard key"), { target: { value: "Stamina" } });
+    m.clips.edit.mockResolvedValue({ path: PATH, clip: base(), changed: ["L9"], warnings: [], rollback: null });
+    fireEvent.click(screen.getByRole("button", { name: "Add value lane" }));
+    await waitFor(() => expect(m.clips.edit).toHaveBeenLastCalledWith(PATH, [{ op: "add", kind: "lane", capability: "value", target: "Stamina", type: "axis1d" }]));
+    m.clips.edit.mockResolvedValue({ path: PATH, clip: { ...base(), performer: { kind: "actor", actor: "Guard 2" } }, changed: [], warnings: [], rollback: null });
+    commit("Performer", "actor:Guard 2");
+    await waitFor(() => expect(m.clips.edit).toHaveBeenLastCalledWith(PATH, [{ op: "set_clip", performer: { kind: "actor", actor: "Guard 2" } }]));
+    commit("Performer", "");
+    await waitFor(() => expect(m.clips.edit).toHaveBeenLastCalledWith(PATH, [{ op: "set_clip", performer: null }]));
   });
 });

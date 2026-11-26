@@ -46,6 +46,25 @@
 .hub-clip-key { position: absolute; width: 10px; height: 10px; margin: -5px 0 0 -5px; padding: 0; border: 1px solid var(--accent-hi); border-radius: 2px; background: var(--panel); transform: rotate(45deg); cursor: grab; touch-action: none; z-index: 1; }
 .hub-clip-event { position: absolute; top: 8px; width: 12px; height: 12px; margin-left: -6px; padding: 0; border: 1px solid var(--warn); border-radius: 50%; background: var(--panel); cursor: grab; touch-action: none; }
 .hub-clip-curve { position: absolute; left: 0; top: 0; pointer-events: none; }
+/* Move, action and value lanes: a marker at each point's or call's frame, labelled with where it walks to or what it calls. */
+.hub-clip-lane-kind { flex: none; display: inline-flex; align-items: center; justify-content: center; width: 13px; height: 13px; border-radius: 2px; font: 700 8.5px/1 var(--mono); color: var(--panel); background: var(--muted); }
+.hub-clip-lane-kind.kind-move { background: var(--ok); }
+.hub-clip-lane-kind.kind-action { background: var(--warn); }
+.hub-clip-lane-kind.kind-value { background: var(--accent); }
+.hub-clip-lane-who { margin-left: auto; min-width: 0; max-width: 40%; overflow: hidden; text-overflow: ellipsis; }
+.hub-clip-lane-who.kind-actor { color: var(--accent-hi); }
+.hub-clip-label.bad { box-shadow: inset 3px 0 0 var(--bad); }
+.hub-clip-lane-errors { flex: none; display: inline-flex; color: var(--bad); }
+.hub-clip-point, .hub-clip-call { position: absolute; top: 5px; height: 18px; max-width: 160px; margin: 0; padding: 0 5px 0 9px; box-sizing: border-box; display: flex; align-items: center; border: 1px solid var(--line-strong); border-left-width: 0; border-radius: 0 3px 3px 0; background: var(--panel-2); color: var(--text); font-size: 10.5px; white-space: nowrap; overflow: hidden; cursor: grab; touch-action: none; z-index: 1; }
+.hub-clip-point::before, .hub-clip-call::before { content: ""; position: absolute; left: 0; top: -1px; bottom: -1px; width: 3px; }
+.hub-clip-point::before { background: var(--ok); }
+.hub-clip-call::before { background: var(--warn); }
+.hub-clip-call .hub-clip-marker-text { font-family: var(--mono); }
+.hub-clip-marker-text { pointer-events: none; overflow: hidden; text-overflow: ellipsis; }
+/* A narrow page's touch sizing must not grow a key's diamond or a marker. */
+.hub-root .hub-clip-lanes .hub-clip-lane button.hub-clip-key.hub-clip-key.hub-clip-key { width: 10px; height: 10px; min-width: 0; min-height: 0; padding: 0; }
+.hub-root .hub-clip-lanes button.hub-clip-point, .hub-root .hub-clip-lanes button.hub-clip-call { height: 18px; min-height: 0; }
+.hub-clip-point.on, .hub-clip-call.on { outline: 2px solid var(--accent); outline-offset: 1px; z-index: 2; }
 .hub-clip-curve polyline { fill: none; stroke: var(--accent); stroke-width: 1.5; }
 .hub-clip-curve polyline.c1 { stroke: var(--warn); }
 .hub-clip-curve polyline.c2 { stroke: var(--ok); }

@@ -7,13 +7,32 @@
  * with ue-mcp's candidates as one-click fixes.
  */
 import { useEffect, useLayoutEffect, useMemo, useRef, useState, type KeyboardEvent as ReactKeyboardEvent, type PointerEvent as ReactPointerEvent, type ReactNode } from "react";
-import type { Clip, ClipCheck, ClipFinding, ClipRefusal, ClipTrack, ClipTrackType } from "@ue-mcp-studio/shared";
+import type { Clip, ClipCheck, ClipFinding, ClipLane, ClipLaneResult, ClipRefusal, ClipTrack, ClipTrackType, Performer, PerformerCandidate } from "@ue-mcp-studio/shared";
 import {
   CLIP_COPY,
   CLIP_GRIDS,
   CLIP_GRID_LABEL,
   CLIP_INTERP_LABEL,
   CLIP_MODE_LABEL,
+  LANE_KIND_LABEL,
+  LANE_OPS,
+  PERFORMER_COPY,
+  argsText,
+  atText,
+  fallbackPlayers,
+  laneKindsFor,
+  lanePerformer,
+  laneTitle,
+  laneValueRange,
+  newLaneValue,
+  newPointAt,
+  parseArgs,
+  parseAt,
+  parseLaneValue,
+  performerId,
+  performersOn,
+  resolvePerformer,
+  type ClipLaneKind,
   clipEnd,
   clipName,
   clipRate,
@@ -40,12 +59,15 @@ import { capture, followPointer, hold, keyed, slideFrom } from "./drag";
 import { NEW_ID, applyClipOps } from "./optimistic";
 import "./timeline.css";
 
-/** What is selected: an item on the clip, a track, or a check being added over a span. */
+/** What is selected: an item on the clip, a track or lane, or a check or call being added. */
 export type ClipSel =
   | { kind: "note" | "key"; track: string; id: string }
+  | { kind: "point" | "call" | "laneKey"; lane: string; id: string }
   | { kind: "check" | "event" | "region"; id: string }
   | { kind: "track"; track: string }
+  | { kind: "lane"; lane: string }
   | { kind: "newCheck"; start: number; length: number }
+  | { kind: "newCall"; lane: string; t: number }
   | null;
 
 /** How an item drag changes it: moved, or trimmed at its end or start. */
@@ -63,9 +85,11 @@ export interface LaneOverlay {
   cursor?: number;
   checkStatus?: Record<string, string>;
   regionStatus?: Record<string, { status: string; drift?: string }>;
-  /** Input Actions armed for recording, and how to arm one; absent hides the arm boxes. */
+  /** Input Actions and lane ids armed for recording, and how to arm one; absent hides the arm boxes. */
   armed?: Set<string>;
   onArm?: (action: string, on: boolean) => void;
+  /** A run's result per move, action and value lane. */
+  laneStatus?: Record<string, ClipLaneResult>;
   /** Extra notes drawn on a track while a take records: action to spans. */
   take?: Record<string, Array<{ start: number; length: number; open?: boolean }>>;
   takeKeys?: Record<string, Array<{ t: number; v: number | number[] }>>;
@@ -96,6 +120,17 @@ export function ClipScreen({ path, children }: { path: string; children?: (c: { 
   const [announce, setAnnounce] = useState("");
   const root = useRef<HTMLDivElement>(null);
   const fitted = useRef(false);
+  /** The performers a lane or the clip can name: the daemon's list when it has one, else the players. */
+  const [candidates, setCandidates] = useState<PerformerCandidate[]>(fallbackPlayers);
+  const perfOn = performersOn(hub.health);
+  useEffect(() => {
+    if (!perfOn) return;
+    let live = true;
+    api.set.performers().then((v) => live && v.performers?.length && setCandidates(v.performers), () => {});
+    return () => {
+      live = false;
+    };
+  }, [perfOn]);
 
   // The first time the clip shows, zoom so all of it fits when it can.
   useEffect(() => {
@@ -245,12 +280,13 @@ export function ClipScreen({ path, children }: { path: string; children?: (c: { 
         <span className="small dim">{CLIP_COPY.hint}</span>
       </div>
       <Lanes clip={clip} zoom={zoom} narrow={hub.narrow} sel={sel} onSelect={setSel} onEdit={edit} onHistory={(d) => void step(d)} overlay={extra.overlay} />
-      <Inspector key={selKey(sel)} clip={clip} sel={sel} busy={busy} onEdit={edit} onSelect={setSel} />
+      <Inspector key={selKey(sel)} clip={clip} sel={sel} busy={busy} candidates={candidates} onEdit={edit} onSelect={setSel} />
     </div>
   );
 }
 
-const selKey = (s: ClipSel): string => (!s ? "clip" : s.kind === "newCheck" ? `new:${s.start}:${s.length}` : s.kind === "track" ? `track:${s.track}` : `${s.kind}:${s.id}`);
+const selKey = (s: ClipSel): string =>
+  !s ? "clip" : s.kind === "newCheck" ? `new:${s.start}:${s.length}` : s.kind === "track" ? `track:${s.track}` : s.kind === "lane" ? `lane:${s.lane}` : s.kind === "newCall" ? `newCall:${s.lane}:${s.t}` : `${s.kind}:${s.id}`;
 const selId = (s: ClipSel): string | null => (s && "id" in s ? s.id : null);
 
 /** One finding: its message, Select when it names something on the clip, and its candidates as fixes where they are field values. */
@@ -261,7 +297,12 @@ function FindingLine({ clip, finding, onSelect, onFix }: { clip: Clip; finding: 
   return (
     <div className="hub-clip-finding small">
       <span>{finding.message}</span>
-      {at && <button className="ghost small-button" onClick={() => onSelect(at.kind === "note" || at.kind === "key" ? { kind: at.kind, id: at.id, track: at.track! } : { kind: at.kind, id: at.id })}>{CLIP_COPY.selectIt}</button>}
+      {at && <button className="ghost small-button" onClick={() => onSelect(
+        at.kind === "note" || at.kind === "key" ? { kind: at.kind, id: at.id, track: at.track! }
+          : at.kind === "lane" ? { kind: "lane", lane: at.id }
+          : at.kind === "point" || at.kind === "call" || at.kind === "laneKey" ? { kind: at.kind, lane: at.lane!, id: at.id }
+          : { kind: at.kind, id: at.id },
+      )}>{CLIP_COPY.selectIt}</button>}
       {fixes.some((f) => f.op) && <span className="dim">{CLIP_COPY.replaceWith}</span>}
       {fixes.filter((f) => f.op).map((f) => <button key={f.c} className="small-button mono" onClick={() => onFix(f.op!)}>{f.c}</button>)}
       {plain.length > 0 && <span className="dim">{CLIP_COPY.closest}: <span className="mono">{plain.join(", ")}</span></span>}
@@ -304,6 +345,7 @@ function Lanes({ clip, zoom, narrow, sel, onSelect, onEdit, onHistory, overlay }
   const step = gridStep(clip);
   const snap = (f: number) => snapFrame(f, clip);
   const tracks = clip.tracks ?? [];
+  const lanes = clip.lanes ?? [];
   const checkRows = useMemo(() => stackRows(clip.checks ?? []), [clip.checks]);
 
   /** Where an item lands after a drag of dx pixels: its start and length on the clip's grid. */
@@ -406,6 +448,19 @@ function Lanes({ clip, zoom, narrow, sel, onSelect, onEdit, onHistory, overlay }
     else if (d.lane === "checks") onSelect({ kind: "newCheck", start, length: drawn });
   };
 
+  /**
+   * Press on an empty move, action or value lane: a point where the one
+   * before it went, a call to fill in, or a key on the curve, at that frame.
+   */
+  const actorLaneDown = (e: ReactPointerEvent<HTMLElement>, l: ClipLane) => {
+    if (e.button !== 0 || e.target !== e.currentTarget) return;
+    dragStop.current?.();
+    const f = snap((e.clientX - e.currentTarget.getBoundingClientRect().left) / zoom);
+    if (l.kind === "move") void onEdit([LANE_OPS.point(l.id, f, newPointAt(l, f))], (c) => (c[0] ? { kind: "point", lane: l.id, id: c[0] } : null));
+    else if (l.kind === "action") onSelect({ kind: "newCall", lane: l.id, t: f });
+    else void onEdit([LANE_OPS.key(l.id, f, newLaneValue(l, f))], (c) => (c[0] ? { kind: "laneKey", lane: l.id, id: c[0] } : null));
+  };
+
   /** Delete, arrow nudges and undo from the keyboard while the timeline has focus. */
   const onKey = (e: ReactKeyboardEvent) => {
     const t = e.target as HTMLElement;
@@ -416,6 +471,7 @@ function Lanes({ clip, zoom, narrow, sel, onSelect, onEdit, onHistory, overlay }
     else if (ctrl && e.key.toLowerCase() === "y") onHistory("redo");
     else if ((e.key === "Delete" || e.key === "Backspace") && id) void onEdit([{ op: "delete", id }], () => null);
     else if ((e.key === "Delete" || e.key === "Backspace") && sel?.kind === "track") void onEdit([{ op: "delete", id: sel.track }], () => null);
+    else if ((e.key === "Delete" || e.key === "Backspace") && sel?.kind === "lane") void onEdit([{ op: "delete", id: sel.lane }], () => null);
     else if ((e.key === "ArrowLeft" || e.key === "ArrowRight") && id && sel?.kind !== "newCheck") void onEdit([{ op: "move", id, by: (e.key === "ArrowLeft" ? -1 : 1) * (step || 1) }], () => sel);
     else return;
     e.preventDefault();
@@ -493,6 +549,64 @@ function Lanes({ clip, zoom, narrow, sel, onSelect, onEdit, onHistory, overlay }
             </div>
           );
         })}
+        {lanes.map((l) => {
+          const h = l.kind === "value" ? AXIS_H : LANE_H;
+          const armed = overlay?.armed;
+          const p = lanePerformer(l, clip);
+          const st = overlay?.laneStatus?.[l.id];
+          const errors = st?.errors ?? [];
+          const status = st ? [st.fired !== undefined ? CLIP_COPY.laneFired(st.fired) : null, ...errors].filter(Boolean).join("\n") : "";
+          return (
+            <div key={l.id} className="hub-clip-row" style={{ height: h }} data-lane={l.id}>
+              <div className={`hub-clip-label small ${sel?.kind === "lane" && sel.lane === l.id ? "on" : ""} ${errors.length ? "bad" : ""}`}>
+                {armed && (
+                  <input type="checkbox" className="hub-clip-arm" checked={armed.has(l.id)} disabled={!overlay?.onArm} aria-label={`${CLIP_COPY.arm}: ${laneTitle(l)}`} title={CLIP_COPY.arm} onChange={(e) => overlay?.onArm?.(l.id, e.target.checked)} />
+                )}
+                <span className={`hub-clip-lane-kind kind-${l.kind}`} aria-hidden="true">{LANE_KIND_LABEL[l.kind][0]}</span>
+                <button className="ghost hub-clip-track-name" title={[`${LANE_KIND_LABEL[l.kind]}: ${laneTitle(l)}`, `${CLIP_COPY.performer}: ${p ? PERFORMER_COPY.name(p) : CLIP_COPY.trackPerformer}`, status].filter(Boolean).join("\n")}
+                  onClick={() => onSelect({ kind: "lane", lane: l.id })}>{laneTitle(l)}</button>
+                {p && <span className={`dim hub-clip-type hub-clip-lane-who kind-${p.kind}`} title={`${CLIP_COPY.performer}: ${PERFORMER_COPY.name(p)}`}>{PERFORMER_COPY.short(p)}</span>}
+                {errors.length > 0 && <span className="hub-clip-lane-errors" title={status}><HubIcon name="warn" size={11} /></span>}
+              </div>
+              <div className={`hub-clip-lane lane-${l.kind} ${l.kind === "value" ? "axis" : ""}`} style={{ width, height: h }} onPointerDown={(e) => actorLaneDown(e, l)} aria-label={laneTitle(l)} role="group">
+                {l.kind === "value" && <LaneCurve lane={l} zoom={zoom} width={width} height={h} />}
+                {l.kind === "move" && l.points.map((pt) => {
+                  const target: ClipSel = { kind: "point", lane: l.id, id: pt.id };
+                  return (
+                    <button key={pt.id} data-id={pt.id} className={`hub-clip-point ${selId(sel) === pt.id ? "on" : ""}`} style={{ left: pt.t * zoom }}
+                      title={`${pt.id}: ${pt.t}, ${atText(pt.at)}${pt.radius !== undefined ? `, ${pt.radius} cm` : ""}`} aria-label={`${CLIP_COPY.point} ${pt.id}, ${CLIP_COPY.time} ${pt.t}, ${atText(pt.at)}`}
+                      onPointerDown={(e) => itemDown(e, target, false, pt.t, 0, 0, itemCommit(pt.id, target, pt.t, 0))} onClick={() => onSelect(target)}>
+                      <span className="hub-clip-marker-text">{atText(pt.at)}</span>
+                    </button>
+                  );
+                })}
+                {l.kind === "action" && l.calls.map((c) => {
+                  const target: ClipSel = { kind: "call", lane: l.id, id: c.id };
+                  return (
+                    <button key={c.id} data-id={c.id} className={`hub-clip-call ${selId(sel) === c.id ? "on" : ""}`} style={{ left: c.t * zoom }}
+                      title={`${c.id}: ${c.t} ${c.fn}(${c.args?.length ? argsText(c.args).slice(1, -1) : ""})`} aria-label={`${CLIP_COPY.call} ${c.id}, ${CLIP_COPY.time} ${c.t}, ${c.fn}`}
+                      onPointerDown={(e) => itemDown(e, target, false, c.t, 0, 0, itemCommit(c.id, target, c.t, 0))} onClick={() => onSelect(target)}>
+                      <span className="hub-clip-marker-text">{c.fn}</span>
+                    </button>
+                  );
+                })}
+                {l.kind === "value" && (() => {
+                  const r = laneValueRange(l);
+                  return l.keys.map((k) => {
+                    const target: ClipSel = { kind: "laneKey", lane: l.id, id: k.id };
+                    const y = (1 - (Math.max(r.min, Math.min(r.max, Number(k.v))) - r.min) / (r.max - r.min)) * h;
+                    return (
+                      <button key={k.id} data-id={k.id} className={`hub-clip-key ${selId(sel) === k.id ? "on" : ""}`} style={{ left: k.t * zoom, top: y }}
+                        title={`${k.id}: ${k.t} = ${String(k.v)}`} aria-label={`${CLIP_COPY.key} ${k.id}, ${CLIP_COPY.time} ${k.t}, ${CLIP_COPY.value} ${String(k.v)}`}
+                        onPointerDown={(e) => itemDown(e, target, false, k.t, 0, 0, itemCommit(k.id, target, k.t, 0))} onClick={() => onSelect(target)} />
+                    );
+                  });
+                })()}
+                {cursor}
+              </div>
+            </div>
+          );
+        })}
         <div className="hub-clip-row" style={{ height: Math.max(1, checkRows.count) * LANE_H }}>
           <div className="hub-clip-label small">{CLIP_COPY.checks}</div>
           <div className="hub-clip-lane hub-clip-checks" style={{ width, height: Math.max(1, checkRows.count) * LANE_H }} onPointerDown={(e) => laneDown(e, "checks")}>
@@ -561,6 +675,21 @@ function Curve({ track, zoom, width, height, extra }: { track: ClipTrack; zoom: 
   );
 }
 
+/** A value lane's curve over its keys' range (0 to 1 for a Boolean), held flat after a constant key and after the last one. */
+function LaneCurve({ lane, zoom, width, height }: { lane: Extract<ClipLane, { kind: "value" }>; zoom: number; width: number; height: number }) {
+  const r = laneValueRange(lane);
+  const y = (v: number) => (1 - (Math.max(r.min, Math.min(r.max, v)) - r.min) / (r.max - r.min)) * height;
+  const keys = [...lane.keys].sort((a, b) => a.t - b.t).map((k) => ({ t: k.t, v: Number(k.v), interp: lane.type === "bool" ? "constant" : k.interp }));
+  const [line] = linesOf(keys, zoom, width, y);
+  if (!line) return null;
+  return (
+    <svg className="hub-clip-curve" width={width} height={height} aria-hidden="true">
+      {r.min < 0 && r.max > 0 && <line x1={0} x2={width} y1={y(0)} y2={y(0)} className="zero" />}
+      <polyline points={line} />
+    </svg>
+  );
+}
+
 /** Polyline points per component of a curve, held flat after a constant key and after the last one. */
 function linesOf(keys: Array<{ t: number; v: number | number[]; interp?: string }>, zoom: number, until: number, y: (v: number) => number): string[] {
   if (!keys.length) return [];
@@ -621,9 +750,10 @@ function TextField({ id, label, value, onCommit, check, mono, list, placeholder 
 /** A check's target as typed: a number, true or false, or text. */
 const targetOf = (s: string): unknown => (s.trim() === "" ? undefined : s === "true" ? true : s === "false" ? false : Number.isFinite(Number(s)) ? Number(s) : s);
 
-function Inspector({ clip, sel, busy, onEdit, onSelect }: { clip: Clip; sel: ClipSel; busy: boolean; onEdit: (ops: ClipOp[], then?: (changed: string[]) => ClipSel) => Promise<void>; onSelect: (s: ClipSel) => void }) {
+function Inspector({ clip, sel, busy, candidates, onEdit, onSelect }: { clip: Clip; sel: ClipSel; busy: boolean; candidates: PerformerCandidate[]; onEdit: (ops: ClipOp[], then?: (changed: string[]) => ClipSel) => Promise<void>; onSelect: (s: ClipSel) => void }) {
   const del = (id: string) => <button className="danger-button small-button" disabled={busy} onClick={() => void onEdit([{ op: "delete", id }], () => null)}><HubIcon name="trash" size={12} /> {CLIP_COPY.delete}</button>;
   const track = sel && "track" in sel ? clip.tracks?.find((t) => t.action === sel.track) : undefined;
+  const lane = sel && "lane" in sel ? clip.lanes?.find((l) => l.id === sel.lane) : undefined;
   const set = (id: string, fields: Record<string, unknown>) => void onEdit([{ op: "set", id, ...fields }], () => sel);
   const ops = <datalist id="clip-ops">{OPS.map((o) => <option key={o} value={o} />)}</datalist>;
 
@@ -659,6 +789,64 @@ function Inspector({ clip, sel, busy, onEdit, onSelect }: { clip: Clip; sel: Cli
       <div className="mono small dim">{track.action} · {track.type}</div>
       {del(track.action)}
     </>;
+  } else if (sel?.kind === "lane" && lane) {
+    const own = lane.performer ?? null;
+    const p = lanePerformer(lane, clip);
+    title = `${LANE_KIND_LABEL[lane.kind]} · ${laneTitle(lane)}`;
+    body = <>
+      <PerformerField id="ci-performer" value={own} placeholder={clip.performer ? CLIP_COPY.clipPerformerIs(PERFORMER_COPY.name(clip.performer)) : CLIP_COPY.trackPerformer} candidates={candidates}
+        onCommit={(v) => set(lane.id, { performer: v })} />
+      {lane.kind === "value" && <>
+        <TextField id="ci-target" label={CLIP_COPY.laneTarget} value={lane.target} mono placeholder={CLIP_COPY.laneTargetPlaceholder} check={(s) => (s.trim() ? null : CLIP_COPY.needTarget)} onCommit={(s) => set(lane.id, { target: s.trim() })} />
+        <HubField id="ci-type" label={CLIP_COPY.trackType}>
+          {(a) => <select {...a} value={lane.type} disabled={busy} onChange={(e) => set(lane.id, { type: e.target.value })}><option value="axis1d">{CLIP_COPY.laneTypeNumber}</option><option value="bool">{CLIP_COPY.laneTypeBool}</option></select>}
+        </HubField>
+      </>}
+      {lane.kind === "action" && <TextField id="ci-watch" label={CLIP_COPY.watch} value={(lane.watch ?? []).join(", ")} mono onCommit={(s) => set(lane.id, { watch: s.split(",").map((x) => x.trim()).filter(Boolean) })} />}
+      {del(lane.id)}
+      <AddLane idPrefix="ci" performer={p} busy={busy} onAdd={(op) => void onEdit([own ? { ...op, performer: own } : op], (c) => (c[0] ? { kind: "lane", lane: c[0] } : null))} />
+    </>;
+  } else if (sel?.kind === "point" && lane?.kind === "move") {
+    const pt = lane.points.find((x) => x.id === sel.id);
+    if (pt) {
+      title = `${CLIP_COPY.point} ${pt.id} · ${laneTitle(lane)}`;
+      body = <>
+        <NumField id="ci-time" label={`${CLIP_COPY.time} (${CLIP_COPY.frames})`} value={pt.t} onCommit={(v) => void onEdit([{ op: "move", id: pt.id, to: v }], () => sel)} />
+        <TextField id="ci-at" label={CLIP_COPY.at} value={atText(pt.at)} mono check={(s) => (parseAt(s) ? null : CLIP_COPY.badAt)} onCommit={(s) => set(pt.id, { at: parseAt(s) })} />
+        <TextField id="ci-radius" label={CLIP_COPY.radius} value={pt.radius === undefined ? "" : String(pt.radius)} placeholder={CLIP_COPY.radiusHelp}
+          check={(s) => (s.trim() === "" || (Number.isFinite(Number(s)) && Number(s) >= 0) ? null : CLIP_COPY.badValue(1))} onCommit={(s) => s.trim() !== "" && set(pt.id, { radius: Number(s) })} />
+        {del(pt.id)}
+      </>;
+    }
+  } else if (sel?.kind === "call" && lane?.kind === "action") {
+    const c = lane.calls.find((x) => x.id === sel.id);
+    if (c) {
+      title = `${CLIP_COPY.call} ${c.id} · ${c.fn}`;
+      body = <>
+        <NumField id="ci-time" label={`${CLIP_COPY.time} (${CLIP_COPY.frames})`} value={c.t} onCommit={(v) => void onEdit([{ op: "move", id: c.id, to: v }], () => sel)} />
+        <TextField id="ci-fn" label={CLIP_COPY.fn} value={c.fn} mono placeholder={CLIP_COPY.fnPlaceholder} check={(s) => (s.trim() ? null : CLIP_COPY.needFn)} onCommit={(s) => set(c.id, { fn: s.trim() })} />
+        <TextField id="ci-args" label={CLIP_COPY.args} value={argsText(c.args)} mono check={(s) => (parseArgs(s) ? null : CLIP_COPY.badArgs)} onCommit={(s) => set(c.id, { args: parseArgs(s) })} />
+        {del(c.id)}
+      </>;
+    }
+  } else if (sel?.kind === "laneKey" && lane?.kind === "value") {
+    const k = lane.keys.find((x) => x.id === sel.id);
+    if (k) {
+      title = `${CLIP_COPY.key} ${k.id} · ${lane.target}`;
+      body = <>
+        <NumField id="ci-time" label={`${CLIP_COPY.time} (${CLIP_COPY.frames})`} value={k.t} onCommit={(v) => void onEdit([{ op: "move", id: k.id, to: v }], () => sel)} />
+        <TextField id="ci-value" label={CLIP_COPY.value} value={String(k.v)} mono check={(s) => (parseLaneValue(s, lane.type) === null ? (lane.type === "bool" ? CLIP_COPY.badBool : CLIP_COPY.badValue(1)) : null)} onCommit={(s) => set(k.id, { v: parseLaneValue(s, lane.type) })} />
+        {lane.type !== "bool" && (
+          <HubField id="ci-interp" label={CLIP_COPY.interp}>
+            {(a) => <select {...a} value={k.interp ?? "linear"} disabled={busy} onChange={(e) => set(k.id, { interp: e.target.value })}>{Object.entries(CLIP_INTERP_LABEL).map(([v, l]) => <option key={v} value={v}>{l}</option>)}</select>}
+          </HubField>
+        )}
+        {del(k.id)}
+      </>;
+    }
+  } else if (sel?.kind === "newCall" && lane?.kind === "action") {
+    title = `${CLIP_COPY.addCall} · ${laneTitle(lane)}`;
+    body = <NewCall t={sel.t} busy={busy} onAdd={(t, fn, args) => void onEdit([LANE_OPS.call(lane.id, t, fn, args)], (c) => (c[0] ? { kind: "call", lane: lane.id, id: c[0] } : null))} />;
   } else if (sel?.kind === "check") {
     const c = clip.checks?.find((x) => x.id === sel.id);
     if (c) {
@@ -709,7 +897,7 @@ function Inspector({ clip, sel, busy, onEdit, onSelect }: { clip: Clip; sel: Cli
     body = <NewCheck start={sel.start} length={sel.length} busy={busy} ops={ops} onAdd={(fields) => void onEdit([{ op: "add", kind: "check", ...fields }], (c) => (c[0] ? { kind: "check", id: c[0] } : null))} />;
   }
   if (!body) {
-    body = <ClipSettings clip={clip} busy={busy} onEdit={onEdit} onSelect={onSelect} />;
+    body = <ClipSettings clip={clip} busy={busy} candidates={candidates} onEdit={onEdit} onSelect={onSelect} />;
   }
   return (
     <section className="hub-clip-inspector" aria-label={title}>
@@ -765,7 +953,67 @@ function NewCheck({ start, length, busy, ops, onAdd }: { start: number; length: 
   );
 }
 
-function ClipSettings({ clip, busy, onEdit, onSelect }: { clip: Clip; busy: boolean; onEdit: (ops: ClipOp[], then?: (changed: string[]) => ClipSel) => Promise<void>; onSelect: (s: ClipSel) => void }) {
+/** A performer as a name with the candidates offered; empty leaves it to the clip or the track. */
+function PerformerField({ id, value, placeholder, candidates, onCommit }: { id: string; value: Performer | null; placeholder: string; candidates: PerformerCandidate[]; onCommit: (p: Performer | null) => void }) {
+  const listId = `${id}-list`;
+  return (
+    <>
+      <TextField id={id} label={CLIP_COPY.performer} value={value ? PERFORMER_COPY.name(value) : ""} placeholder={placeholder} list={listId} onCommit={(s) => onCommit(resolvePerformer(s, candidates))} />
+      <datalist id={listId}>
+        {candidates.map((c) => <option key={performerId(c.performer)} value={c.performer.kind === "player" ? PERFORMER_COPY.name(c.performer) : c.label}>{c.className ?? PERFORMER_COPY.kind(c.performer)}</option>)}
+      </datalist>
+    </>
+  );
+}
+
+/** A new move, action or value lane, of the kinds the performer takes. */
+function AddLane({ idPrefix, performer, busy, onAdd }: { idPrefix: string; performer: Performer | null; busy: boolean; onAdd: (op: ClipOp) => void }) {
+  const kinds = laneKindsFor(performer);
+  const [kind, setKind] = useState<ClipLaneKind>(kinds[0] ?? "action");
+  const [target, setTarget] = useState("");
+  const [type, setType] = useState<"axis1d" | "bool">("axis1d");
+  const k = kinds.includes(kind) ? kind : kinds[0];
+  if (!k) return null;
+  return (
+    <div className="hub-clip-add">
+      <HubField id={`${idPrefix}-lane-kind`} label={CLIP_COPY.laneKind}>
+        {(a) => <select {...a} value={k} onChange={(e) => setKind(e.target.value as ClipLaneKind)}>{kinds.map((x) => <option key={x} value={x}>{LANE_KIND_LABEL[x]}</option>)}</select>}
+      </HubField>
+      {k === "value" && <>
+        <HubField id={`${idPrefix}-lane-target`} label={CLIP_COPY.laneTarget}>{(a) => <input {...a} className="mono" spellCheck={false} placeholder={CLIP_COPY.laneTargetPlaceholder} value={target} onChange={(e) => setTarget(e.target.value)} />}</HubField>
+        <HubField id={`${idPrefix}-lane-type`} label={CLIP_COPY.trackType}>
+          {(a) => <select {...a} value={type} onChange={(e) => setType(e.target.value as "axis1d" | "bool")}><option value="axis1d">{CLIP_COPY.laneTypeNumber}</option><option value="bool">{CLIP_COPY.laneTypeBool}</option></select>}
+        </HubField>
+      </>}
+      <button className="small-button" disabled={busy || (k === "value" && !target.trim())} onClick={() => {
+        onAdd(LANE_OPS.add(k, k === "value" ? { target: target.trim(), type } : {}));
+        setTarget("");
+      }}>{CLIP_COPY.addLaneOf(k)}</button>
+    </div>
+  );
+}
+
+/** A call being added on an action lane: its frame, function and arguments. */
+function NewCall({ t, busy, onAdd }: { t: number; busy: boolean; onAdd: (t: number, fn: string, args: unknown[]) => void }) {
+  const [time, setTime] = useState(String(t));
+  const [fn, setFn] = useState("");
+  const [args, setArgs] = useState("");
+  const [error, setError] = useState<string | undefined>();
+  return (
+    <>
+      <HubField id="nc-time" label={`${CLIP_COPY.time} (${CLIP_COPY.frames})`}>{(a) => <input {...a} inputMode="decimal" value={time} onChange={(e) => setTime(e.target.value)} />}</HubField>
+      <HubField id="nc-fn" label={CLIP_COPY.fn}>{(a) => <input {...a} className="mono" spellCheck={false} placeholder={CLIP_COPY.fnPlaceholder} value={fn} onChange={(e) => setFn(e.target.value)} />}</HubField>
+      <HubField id="nc-args" label={CLIP_COPY.args} error={error}>{(a) => <input {...a} className="mono" spellCheck={false} placeholder="[]" value={args} onChange={(e) => { setArgs(e.target.value); setError(undefined); }} />}</HubField>
+      <button className="primary small-button" disabled={busy || !fn.trim()} onClick={() => {
+        const parsed = parseArgs(args);
+        if (!parsed) return setError(CLIP_COPY.badArgs);
+        onAdd(Number(time) || 0, fn.trim(), parsed);
+      }}>{CLIP_COPY.addCall}</button>
+    </>
+  );
+}
+
+function ClipSettings({ clip, busy, candidates, onEdit, onSelect }: { clip: Clip; busy: boolean; candidates: PerformerCandidate[]; onEdit: (ops: ClipOp[], then?: (changed: string[]) => ClipSel) => Promise<void>; onSelect: (s: ClipSel) => void }) {
   const [action, setAction] = useState("");
   const [type, setType] = useState<ClipTrackType>("bool");
   const [evAt, setEvAt] = useState("0");
@@ -781,6 +1029,10 @@ function ClipSettings({ clip, busy, onEdit, onSelect }: { clip: Clip; busy: bool
         <HubField id="cs-type" label={CLIP_COPY.trackType}>{(a) => <select {...a} value={type} onChange={(e) => setType(e.target.value as ClipTrackType)}>{TYPES.map((t) => <option key={t} value={t}>{t}</option>)}</select>}</HubField>
         <button className="small-button" disabled={busy || !action.startsWith("/")} onClick={() => void onEdit([{ op: "add", kind: "track", action: action.trim(), type }], () => { setAction(""); return null; })}>{CLIP_COPY.addTrack}</button>
       </div>
+      <div className="hub-clip-add">
+        <PerformerField id="cs-performer" value={clip.performer ?? null} placeholder={CLIP_COPY.trackPerformer} candidates={candidates} onCommit={(p) => void onEdit([LANE_OPS.clipPerformer(p)])} />
+      </div>
+      <AddLane idPrefix="cs" performer={clip.performer ?? null} busy={busy} onAdd={(op) => void onEdit([op], (c) => (c[0] ? { kind: "lane", lane: c[0] } : null))} />
       <div className="hub-clip-add">
         <button className="small-button" disabled={busy} onClick={() => void onEdit([{ op: "add", kind: "region", name: CLIP_COPY.newRegion((clip.regions?.length ?? 0) + 1), start: 0, end: rate }], (c) => (c[0] ? { kind: "region", id: c[0] } : null))}>{CLIP_COPY.addRegion}</button>
         <button className="small-button" disabled={busy} onClick={() => onSelect({ kind: "newCheck", start: 0, length: 0 })}>{CLIP_COPY.addCheck}</button>

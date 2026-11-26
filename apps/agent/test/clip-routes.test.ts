@@ -99,8 +99,8 @@ describe("transport", () => {
   });
 
   it("records from a region or a hold check with the armed tracks, never both punch-ins", async () => {
-    await clips().record({ path: PATH, from_check: "c2", armed: ["/Game/Input/IA_Move.IA_Move", 4] });
-    expect(calls[0]).toEqual({ action: "clip_record", args: { path: PATH, from_check: "c2", armed: ["/Game/Input/IA_Move.IA_Move"] } });
+    await clips().record({ path: PATH, from_check: "c2", armed: ["/Game/Input/IA_Move.IA_Move", 4, "L2", ""] });
+    expect(calls[0]).toEqual({ action: "clip_record", args: { path: PATH, from_check: "c2", armed: ["/Game/Input/IA_Move.IA_Move", "L2"] } });
     expect((await clips().record({ path: PATH, region: "r1", from_check: "c2" })).status).toBe(400);
   });
 

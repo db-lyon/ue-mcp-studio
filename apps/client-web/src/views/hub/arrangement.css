@@ -214,3 +214,23 @@
 .hub-root.narrow .hub-set-swatches { display: none; }
 /* The phone's 44px touch minimum would push the player out of the 150px header. */
 .hub-root .hub-set-head .hub-set-head-ctl button.hub-set-toggle.hub-set-toggle { min-width: 0; }
+
+/* A track's performer in its header: the P or A marker, then the name cut short, filling the rest of the line. */
+.hub-root .hub-set-head .hub-set-head-ctl button.hub-set-performer { flex: 1 1 auto; width: auto; height: 18px; min-height: 0; max-width: none; min-width: 0; display: flex; align-items: center; justify-content: flex-start; gap: 3px; padding: 0 3px; border: 1px solid var(--line-strong); border-radius: 2px; background: var(--panel-2); color: var(--text); font: 500 11px/16px var(--sans); letter-spacing: 0; }
+.hub-root .hub-set-head .hub-set-head-ctl button.hub-set-performer:hover { border-color: var(--accent-line, var(--line-strong)); }
+.hub-set-performer-kind, .hub-perf-kind { flex: none; display: inline-flex; align-items: center; justify-content: center; width: 12px; height: 12px; border-radius: 2px; font: 700 8.5px/1 var(--mono); color: var(--panel); background: var(--muted); }
+.hub-set-performer.kind-actor .hub-set-performer-kind, .hub-perf-kind.kind-actor { background: var(--accent); color: var(--on-accent, var(--panel)); }
+.hub-set-performer-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.hub-root .hub-set-corner button.hub-set-add-for.hub-set-add-for.hub-set-add-for { flex: none; width: 20px; height: 22px; min-height: 0; min-width: 0; padding: 0; justify-content: center; color: var(--muted); }
+.hub-root .hub-set-corner button.hub-set-add-for:hover { color: var(--text); }
+
+.hub-perf-pop { position: fixed; z-index: 40; width: 300px; max-height: min(420px, calc(100vh - 120px)); overflow: auto; box-sizing: border-box; padding: 6px; border: 1px solid var(--line-strong); border-radius: var(--radius); background: var(--panel); box-shadow: 0 8px 24px rgba(0, 0, 0, 0.35); }
+.hub-root.narrow .hub-perf-pop { left: 16px !important; right: 16px; width: auto; }
+.hub-perf-group { padding: 6px 6px 3px; font: 600 11px/1.2 var(--sans); color: var(--muted); text-transform: uppercase; letter-spacing: 0.04em; }
+.hub-perf-pop ul { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 1px; }
+.hub-root button.hub-perf-item { width: 100%; min-height: 28px; display: flex; align-items: center; justify-content: flex-start; gap: 6px; padding: 3px 6px; border: 0; border-radius: 2px; background: transparent; color: var(--text); font: 500 12.5px/1.3 var(--sans); letter-spacing: 0; text-align: left; }
+.hub-root button.hub-perf-item:hover, .hub-root button.hub-perf-item:focus-visible { background: var(--panel-2); }
+.hub-root button.hub-perf-item.on { background: var(--panel-3); box-shadow: inset 2px 0 0 var(--accent); }
+.hub-perf-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.hub-perf-class { margin-left: auto; flex: none; max-width: 45%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 11.5px; }
+.hub-perf-note { margin: 4px 6px 6px; line-height: 1.4; }
