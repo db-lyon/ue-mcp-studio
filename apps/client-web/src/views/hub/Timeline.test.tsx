@@ -7,7 +7,7 @@
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
-import { useState } from "react";
+import { Profiler, useState } from "react";
 import type { Clip, HubOverview } from "@ue-mcp-studio/shared";
 
 const m = vi.hoisted(() => ({
@@ -164,6 +164,79 @@ describe("editing on the timeline", () => {
     const alert = await screen.findByRole("alert");
     expect(alert.textContent).toContain("No check c9");
     expect(alert.textContent).toContain("Closest: c1");
+  });
+
+  it("keeps a dropped note, region and check where they were let go while clip_edit is out", async () => {
+    await open();
+    let reply!: (a: ReturnType<typeof answer>) => void;
+    m.clips.edit.mockImplementationOnce(() => new Promise((r) => (reply = r)));
+    const note = screen.getByRole("button", { name: /Note n1/ });
+    fireEvent.pointerDown(note, { button: 0, clientX: 172, pointerId: 1 });
+    fireEvent.pointerMove(note, { clientX: 252, pointerId: 1 });
+    fireEvent.pointerUp(note, { clientX: 252, pointerId: 1 });
+    // At frame 60 in the same render as the drop; no placeholder takes the timeline's place.
+    const there = screen.getByRole("button", { name: /Note n1, Start 60/ });
+    expect(there.style.left).toBe("240px");
+    expect(screen.queryByLabelText("Loading")).toBeNull();
+    await waitFor(() => expect(m.clips.edit).toHaveBeenCalledWith(PATH, [{ op: "move", id: "n1", to: 60 }]));
+    // A second drag while the first is out waits its turn, drawn at once all the same.
+    m.clips.edit.mockImplementationOnce(() => new Promise(() => {}));
+    const region = screen.getByTitle(/^Walk \(0 to 120\)/);
+    fireEvent.pointerDown(region, { button: 0, clientX: 200, pointerId: 1 });
+    fireEvent.pointerMove(region, { clientX: 240, pointerId: 1 });
+    fireEvent.pointerUp(region, { clientX: 240, pointerId: 1 });
+    expect(region.style.left).toBe("40px");
+    expect(m.clips.edit).toHaveBeenCalledTimes(1);
+    const moved = base();
+    moved.tracks![0].notes![0].start = 60;
+    await act(async () => reply(answer(moved, ["n1"])));
+    expect(screen.getByRole("button", { name: /Note n1, Start 60/ }).style.left).toBe("240px");
+    await waitFor(() => expect(m.clips.edit).toHaveBeenLastCalledWith(PATH, [{ op: "move", id: "r1", to: 10 }]));
+    expect(region.style.left).toBe("40px");
+  });
+
+  it("takes a refused drag back and says why", async () => {
+    await open();
+    m.clips.edit.mockRejectedValueOnce(new ApiError(409, "The edit was not applied", { error: "n1 would overlap n2", errors: [] }));
+    const note = screen.getByRole("button", { name: /Note n1/ });
+    fireEvent.pointerDown(note, { button: 0, clientX: 172, pointerId: 1 });
+    fireEvent.pointerMove(note, { clientX: 252, pointerId: 1 });
+    fireEvent.pointerUp(note, { clientX: 252, pointerId: 1 });
+    expect(await screen.findByText("Put back: n1 would overlap n2")).toBeTruthy();
+    expect(screen.getByRole("button", { name: /Note n1, Start 40/ }).style.left).toBe("160px");
+  });
+
+  it("moves a note and draws a span without rendering while the pointer moves", async () => {
+    let commits = 0;
+    window.location.hash = `#/playtests/clips/${encodeURIComponent(PATH)}`;
+    const raf = window.requestAnimationFrame;
+    window.requestAnimationFrame = (cb: FrameRequestCallback) => {
+      cb(0);
+      return 0;
+    };
+    try {
+      render(<Profiler id="t" onRender={() => commits++}><Harness start={hubFixture()} /></Profiler>);
+      await screen.findByRole("heading", { name: "CL_Door" });
+      const note = screen.getByRole("button", { name: /Note n1/ });
+      fireEvent.pointerDown(note, { button: 0, clientX: 172, pointerId: 1 });
+      commits = 0;
+      for (let x = 176; x <= 252; x += 4) fireEvent.pointerMove(note, { clientX: x, pointerId: 1 });
+      expect(commits).toBe(0);
+      expect(note.style.left).toBe("240px");
+      fireEvent.keyDown(window, { key: "Escape" });
+      expect(note.style.left).toBe("160px");
+      const lane = document.querySelectorAll(".hub-clip-lane")[2] as HTMLElement;
+      fireEvent.pointerDown(lane, { button: 0, clientX: 400, pointerId: 1 });
+      commits = 0;
+      for (let x = 404; x <= 448; x += 4) fireEvent.pointerMove(lane, { clientX: x, pointerId: 1 });
+      expect(commits).toBe(0);
+      const span = lane.querySelector(".hub-clip-drawing") as HTMLElement;
+      expect([span.style.left, span.style.width]).toEqual(["400px", "48px"]);
+      fireEvent.pointerUp(lane, { clientX: 448, pointerId: 1 });
+      expect(lane.querySelector(".hub-clip-drawing")).toBeNull();
+    } finally {
+      window.requestAnimationFrame = raf;
+    }
   });
 
   it("edits a note's length from the inspector", async () => {

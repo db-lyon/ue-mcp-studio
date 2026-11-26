@@ -389,6 +389,8 @@ export const CLIP_COPY = {
   badValue: (n: number) => (n === 1 ? "Enter a number." : `Enter ${n} numbers separated by commas.`),
   badJson: "Enter valid JSON.",
   loadFailed: "The timeline clip did not load",
+  /** A toast when an edit drawn ahead of clip_edit's answer was refused and taken back. */
+  putBack: (why: string) => `Put back: ${why}`,
   tryAgain: "Try again",
   newRegion: (n: number) => `Region ${n}`,
   arm: "Record into this lane",

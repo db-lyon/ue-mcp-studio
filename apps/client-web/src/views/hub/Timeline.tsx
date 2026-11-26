@@ -6,7 +6,7 @@
  * and the rollback of that undo is redo. Warnings and refusals show inline
  * with ue-mcp's candidates as one-click fixes.
  */
-import { useEffect, useMemo, useRef, useState, type KeyboardEvent as ReactKeyboardEvent, type PointerEvent as ReactPointerEvent, type ReactNode } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState, type KeyboardEvent as ReactKeyboardEvent, type PointerEvent as ReactPointerEvent, type ReactNode } from "react";
 import type { Clip, ClipCheck, ClipFinding, ClipRefusal, ClipTrack, ClipTrackType } from "@ue-mcp-studio/shared";
 import {
   CLIP_COPY,
@@ -36,6 +36,8 @@ import {
 import { ApiError, api } from "../../api";
 import { useHub } from "./state";
 import { HubField, HubIcon, Placeholder, ScreenHead } from "./parts";
+import { capture, followPointer, hold, keyed, slideFrom } from "./drag";
+import { NEW_ID, applyClipOps } from "./optimistic";
 import "./timeline.css";
 
 /** What is selected: an item on the clip, a track, or a check being added over a span. */
@@ -46,10 +48,8 @@ export type ClipSel =
   | { kind: "newCheck"; start: number; length: number }
   | null;
 
-/** A drag under way: an item moved or trimmed by dx pixels, or a span drawn on a lane. */
-type Drag =
-  | { kind: "item"; id: string; mode: "move" | "trim" | "trimStart"; x0: number; dx: number; target: ClipSel }
-  | { kind: "draw"; lane: string; f0: number; f1: number };
+/** How an item drag changes it: moved, or trimmed at its end or start. */
+type ItemMode = "move" | "trim" | "trimStart";
 
 const ZOOMS = [0.5, 1, 2, 4, 8, 16];
 const LANE_H = 28;
@@ -73,7 +73,19 @@ export interface LaneOverlay {
 
 export function ClipScreen({ path, children }: { path: string; children?: (c: { clip: Clip; sel: ClipSel; select: (s: ClipSel) => void; reload: () => void }) => { overlay?: LaneOverlay; panel?: ReactNode; actions?: ReactNode } }) {
   const hub = useHub();
-  const [clip, setClip] = useState<Clip | null>(null);
+  /** The clip as clip_edit last answered it; what shows is this with the edits still out drawn over it. */
+  const [server, setClip] = useState<Clip | null>(null);
+  const [pending, setPending] = useState<Array<{ n: number; ops: ClipOp[] }>>([]);
+  const clip = useMemo(() => (server ? pending.reduce((c, p) => applyClipOps(c, p.ops), server) : null), [server, pending]);
+  const editN = useRef(0);
+  /** Edits sent and not answered yet, drawn ahead or not. */
+  const [out, setOut] = useState(0);
+  /** One clip_edit at a time: each goes once the one before it is answered, so ids and the undo history stay in order. */
+  const editQueue = useRef<Promise<void>>(Promise.resolve());
+  const [slideBack, setSlideBack] = useState<{ id: string; from: DOMRect | null; n: number } | null>(null);
+  useLayoutEffect(() => {
+    if (slideBack) slideFrom(keyed(root.current, "data-id", slideBack.id), slideBack.from);
+  }, [slideBack?.n]);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [warnings, setWarnings] = useState<ClipFinding[]>([]);
   const [refusal, setRefusal] = useState<ClipRefusal | null>(null);
@@ -109,42 +121,74 @@ export function ClipScreen({ path, children }: { path: string; children?: (c: { 
     setRefusal({ error: body?.error ?? (e as Error).message, errors: body?.errors ?? [] });
   };
 
-  /** Apply ops through clip_edit; `then` picks what to select from the ids it changed. */
-  const edit = async (ops: ClipOp[], then?: (changed: string[]) => ClipSel) => {
-    if (busy || !ops.length) return;
-    setBusy(true);
-    try {
-      const r = await api.clips.edit(path, ops);
-      setClip(r.clip);
-      setWarnings(r.warnings ?? []);
-      setRefusal(null);
-      setHistory((h) => historyAfterEdit(h, r.rollback));
-      if (then) setSel(then(r.changed));
-    } catch (e) {
-      refused(e);
-    } finally {
-      setBusy(false);
-    }
+  /**
+   * Apply ops through clip_edit; `then` picks what to select from the ids it
+   * changed. Moves, trims and drawn notes, keys and regions show at once and
+   * clip_edit's answer replaces them in the same render; a refusal takes them
+   * back, slides the item to where it was and says why. Edits go one at a
+   * time, behind any edit or undo still out.
+   */
+  const edit = (ops: ClipOp[], then?: (changed: string[]) => ClipSel): Promise<void> => {
+    if (!ops.length) return Promise.resolve();
+    const n = ++editN.current;
+    const ahead = ops.some((o) => o.op === "move" || o.op === "trim" || o.op === "add");
+    if (ahead) setPending((p) => [...p, { n, ops }]);
+    setOut((c) => c + 1);
+    const drop = () => {
+      setPending((p) => p.filter((x) => x.n !== n));
+      setOut((c) => c - 1);
+    };
+    const send = async () => {
+      try {
+        const r = await api.clips.edit(path, ops);
+        setClip(r.clip);
+        drop();
+        setWarnings(r.warnings ?? []);
+        setRefusal(null);
+        setHistory((h) => historyAfterEdit(h, r.rollback));
+        if (then) setSel(then(r.changed));
+      } catch (e) {
+        if (ahead) {
+          const id = ops.map((o) => (o.op === "add" ? NEW_ID : typeof o.id === "string" ? o.id : null)).find((x): x is string => !!x);
+          const from = id ? keyed(root.current, "data-id", id)?.getBoundingClientRect() ?? null : null;
+          if (id && id !== NEW_ID) setSlideBack({ id, from, n });
+          const body = e instanceof ApiError ? (e.body as Partial<ClipRefusal> | undefined) : undefined;
+          hub.notify(CLIP_COPY.putBack(body?.error ?? (e as Error).message), "bad");
+        }
+        drop();
+        refused(e);
+      }
+    };
+    const p = editQueue.current.then(send, send);
+    editQueue.current = p;
+    return p;
   };
 
-  const step = async (dir: "undo" | "redo") => {
-    const stack = dir === "undo" ? history.undo : history.redo;
-    const payload = stack[stack.length - 1];
-    if (!payload || busy || !clip) return;
-    setBusy(true);
-    try {
-      const r = await api.clips.update(payload);
-      const back = r.rollback ?? { path, clip };
-      setHistory((h) => (dir === "undo" ? historyAfterUndo(h, back) : historyAfterRedo(h, back)));
-      setClip(r.clip);
-      setWarnings(r.warnings ?? []);
-      setRefusal(null);
-      setAnnounce(dir === "undo" ? CLIP_COPY.undo : CLIP_COPY.redo);
-    } catch (e) {
-      refused(e);
-    } finally {
-      setBusy(false);
-    }
+  const step = (dir: "undo" | "redo") => {
+    // Undo takes back the newest answered edit, so it waits until none is out.
+    if (busy || out) return;
+    const run = async () => {
+      const stack = dir === "undo" ? history.undo : history.redo;
+      const payload = stack[stack.length - 1];
+      if (!payload || !server) return;
+      setBusy(true);
+      try {
+        const r = await api.clips.update(payload);
+        const back = r.rollback ?? { path, clip: server };
+        setHistory((h) => (dir === "undo" ? historyAfterUndo(h, back) : historyAfterRedo(h, back)));
+        setClip(r.clip);
+        setWarnings(r.warnings ?? []);
+        setRefusal(null);
+        setAnnounce(dir === "undo" ? CLIP_COPY.undo : CLIP_COPY.redo);
+      } catch (e) {
+        refused(e);
+      } finally {
+        setBusy(false);
+      }
+    };
+    const p = editQueue.current.then(run, run);
+    editQueue.current = p;
+    return p;
   };
 
   if (loadError) {
@@ -168,8 +212,8 @@ export function ClipScreen({ path, children }: { path: string; children?: (c: { 
         sub={<span className="mono small dim hub-path">{path}</span>}
         actions={<>
           {extra.actions}
-          <button onClick={() => void step("undo")} disabled={busy || !history.undo.length} title={`${CLIP_COPY.undo} (Ctrl+Z)`}>{CLIP_COPY.undo}</button>
-          <button onClick={() => void step("redo")} disabled={busy || !history.redo.length} title={`${CLIP_COPY.redo} (Ctrl+Y)`}>{CLIP_COPY.redo}</button>
+          <button onClick={() => void step("undo")} disabled={busy || out > 0 || !history.undo.length} title={`${CLIP_COPY.undo} (Ctrl+Z)`}>{CLIP_COPY.undo}</button>
+          <button onClick={() => void step("redo")} disabled={busy || out > 0 || !history.redo.length} title={`${CLIP_COPY.redo} (Ctrl+Y)`}>{CLIP_COPY.redo}</button>
         </>}
       />
       <span className="sr-only" role="status">{announce}</span>
@@ -241,8 +285,10 @@ function Lanes({ clip, zoom, narrow, sel, onSelect, onEdit, onHistory, overlay }
   onHistory: (d: "undo" | "redo") => void;
   overlay?: LaneOverlay;
 }) {
-  const [drag, setDrag] = useState<Drag | null>(null);
   const box = useRef<HTMLDivElement>(null);
+  /** The drag under way, so a new press or leaving the view ends it. */
+  const dragStop = useRef<(() => void) | null>(null);
+  useEffect(() => () => dragStop.current?.(), []);
   const rate = clipRate(clip);
   // Keep playback's cursor in view.
   useEffect(() => {
@@ -260,72 +306,97 @@ function Lanes({ clip, zoom, narrow, sel, onSelect, onEdit, onHistory, overlay }
   const tracks = clip.tracks ?? [];
   const checkRows = useMemo(() => stackRows(clip.checks ?? []), [clip.checks]);
 
-  const frameAt = (e: ReactPointerEvent, lane: HTMLElement) => (e.clientX - lane.getBoundingClientRect().left) / zoom;
-  const dxOf = (id: string) => (drag?.kind === "item" && drag.id === id ? drag : null);
-  const shift = (id: string, start: number, length: number): [number, number] => {
-    const d = dxOf(id);
-    if (!d) return [start, length];
-    const df = snap(start + d.dx / zoom) - start;
-    if (d.mode === "move") return [start + df, length];
-    if (d.mode === "trim") return [start, Math.max(step || 1, snap(start + length + d.dx / zoom) - start)];
-    const s = Math.min(start + length - (step || 1), snap(start + d.dx / zoom));
+  /** Where an item lands after a drag of dx pixels: its start and length on the clip's grid. */
+  const land = (mode: ItemMode, start: number, length: number, dx: number): [number, number] => {
+    const df = snap(start + dx / zoom) - start;
+    if (mode === "move") return [start + df, length];
+    if (mode === "trim") return [start, Math.max(step || 1, snap(start + length + dx / zoom) - start)];
+    const s = Math.min(start + length - (step || 1), snap(start + dx / zoom));
     return [s, start + length - s];
   };
 
-  /** Press on an item: select it, and drag to move, or by an edge to trim. */
-  const itemDown = (e: ReactPointerEvent<HTMLElement>, id: string, target: ClipSel, trimmable: boolean) => {
+  /**
+   * Press on an item: select it, and drag to move it, or by an edge to trim
+   * it. The drag writes the item's left and width itself, once a frame, and
+   * `commit` gets where it landed once, on release.
+   */
+  const itemDown = (e: ReactPointerEvent<HTMLElement>, target: ClipSel, trimmable: boolean, start: number, length: number, minW: number, commit: (mode: ItemMode, s: number, l: number) => void) => {
     if (e.button !== 0) return;
     e.stopPropagation();
-    const r = e.currentTarget.getBoundingClientRect();
+    dragStop.current?.();
+    const el = e.currentTarget;
+    const r = el.getBoundingClientRect();
     const edge = Math.min(6, r.width / 3);
-    const mode = trimmable && e.clientX > r.right - edge ? "trim" : trimmable && e.clientX < r.left + edge ? "trimStart" : "move";
-    try {
-      e.currentTarget.setPointerCapture(e.pointerId);
-    } catch {
-      // jsdom and some pens have no capture; the drag still ends on pointerup.
-    }
+    const mode: ItemMode = trimmable && e.clientX > r.right - edge ? "trim" : trimmable && e.clientX < r.left + edge ? "trimStart" : "move";
+    capture(el, e.pointerId);
     onSelect(target);
-    setDrag({ kind: "item", id, mode, x0: e.clientX, dx: 0, target });
+    const restore = hold(el);
+    const end = () => {
+      restore();
+      dragStop.current = null;
+    };
+    dragStop.current = followPointer(e, {
+      move: (p) => {
+        if (Math.abs(p.dx) < 3) return restore();
+        const [s, l] = land(mode, start, length, p.dx);
+        el.dataset.dragging = "";
+        el.style.left = `${s * zoom}px`;
+        if (trimmable) el.style.width = `${Math.max(l * zoom, minW)}px`;
+      },
+      cancel: end,
+      up: (p) => {
+        end();
+        if (Math.abs(p.dx) < 3) return;
+        const [s, l] = land(mode, start, length, p.dx);
+        commit(mode, s, l);
+      },
+    });
   };
-  const itemMove = (e: ReactPointerEvent) => setDrag((d) => (d?.kind === "item" ? { ...d, dx: e.clientX - d.x0 } : d));
-  const itemUp = (start: number, length: number) => {
-    const d = drag;
-    setDrag(null);
-    if (d?.kind !== "item" || Math.abs(d.dx) < 3) return;
-    const [s, l] = shift(d.id, start, length);
-    if (d.mode === "move" && s !== start) void onEdit([{ op: "move", id: d.id, to: s }], () => d.target);
-    else if (d.mode === "trim" && l !== length) void onEdit([{ op: "trim", id: d.id, length: l }], () => d.target);
-    else if (d.mode === "trimStart" && s !== start) void onEdit([{ op: "trim", id: d.id, start: s, length: l }], () => d.target);
+  /** A note, key, check or event dropped: one move or trim op, drawn at once. */
+  const itemCommit = (id: string, target: ClipSel, start: number, length: number) => (mode: ItemMode, s: number, l: number) => {
+    if (mode === "move" && s !== start) void onEdit([{ op: "move", id, to: s }], () => target);
+    else if (mode === "trim" && l !== length) void onEdit([{ op: "trim", id, length: l }], () => target);
+    else if (mode === "trimStart" && s !== start) void onEdit([{ op: "trim", id, start: s, length: l }], () => target);
   };
-  const regionUp = (r: { id: string; start: number; end: number }) => {
-    const d = drag;
-    setDrag(null);
-    if (d?.kind !== "item" || Math.abs(d.dx) < 3) return;
-    const [s, l] = shift(d.id, r.start, r.end - r.start);
-    if (d.mode === "move" && s !== r.start) void onEdit([{ op: "move", id: d.id, to: s }], () => d.target);
-    else if (s !== r.start || s + l !== r.end) void onEdit([{ op: "trim", id: d.id, start: s, end: s + l }], () => d.target);
+  const regionCommit = (r: { id: string; start: number; end: number }) => (mode: ItemMode, s: number, l: number) => {
+    const target: ClipSel = { kind: "region", id: r.id };
+    if (mode === "move" && s !== r.start) void onEdit([{ op: "move", id: r.id, to: s }], () => target);
+    else if (mode !== "move" && (s !== r.start || s + l !== r.end)) void onEdit([{ op: "trim", id: r.id, start: s, end: s + l }], () => target);
   };
 
-  /** Press on an empty lane: draw a span. */
-  const laneDown = (e: ReactPointerEvent<HTMLElement>, lane: string) => {
+  /** Press on an empty lane: draw a span, drawn by the drag itself and handed over once, on release. */
+  const laneDown = (e: ReactPointerEvent<HTMLElement>, lane: string, track?: ClipTrack) => {
     if (e.button !== 0 || e.target !== e.currentTarget) return;
-    const f = snap(frameAt(e, e.currentTarget));
-    try {
-      e.currentTarget.setPointerCapture(e.pointerId);
-    } catch {
-      // As above.
-    }
-    setDrag({ kind: "draw", lane, f0: f, f1: f });
+    dragStop.current?.();
+    const laneEl = e.currentTarget;
+    const at = (x: number) => snap((x - laneEl.getBoundingClientRect().left) / zoom);
+    const f0 = at(e.clientX);
+    capture(laneEl, e.pointerId);
+    const span = document.createElement("span");
+    span.className = "hub-clip-drawing";
+    span.setAttribute("aria-hidden", "true");
+    span.style.display = "none";
+    laneEl.appendChild(span);
+    const end = () => {
+      span.remove();
+      dragStop.current = null;
+    };
+    dragStop.current = followPointer(e, {
+      move: (p) => {
+        const f1 = at(p.clientX);
+        span.style.display = f1 === f0 ? "none" : "";
+        span.style.left = `${Math.min(f0, f1) * zoom}px`;
+        span.style.width = `${Math.abs(f1 - f0) * zoom}px`;
+      },
+      cancel: end,
+      up: (p) => {
+        end();
+        drawn(lane, track, f0, at(p.clientX));
+      },
+    });
   };
-  const laneMove = (e: ReactPointerEvent<HTMLElement>) => {
-    if (drag?.kind !== "draw") return;
-    const f = snap(frameAt(e, e.currentTarget));
-    setDrag({ ...drag, f1: f });
-  };
-  const laneUp = (track?: ClipTrack) => {
-    const d = drag;
-    setDrag(null);
-    if (d?.kind !== "draw") return;
+  const drawn = (lane: string, track: ClipTrack | undefined, f0: number, f1: number) => {
+    const d = { lane, f0, f1 };
     const start = Math.min(d.f0, d.f1);
     const drawn = Math.abs(d.f1 - d.f0);
     const length = drawn > 0 ? drawn : step || 1;
@@ -353,9 +424,6 @@ function Lanes({ clip, zoom, narrow, sel, onSelect, onEdit, onHistory, overlay }
   const ticks: number[] = [];
   const every = rulerStep(zoom, rate);
   for (let s = 0; s * rate <= end + rate; s += every) ticks.push(s);
-  const drawSpan = (lane: string) => drag?.kind === "draw" && drag.lane === lane && drag.f1 !== drag.f0
-    ? <span className="hub-clip-drawing" style={{ left: Math.min(drag.f0, drag.f1) * zoom, width: Math.abs(drag.f1 - drag.f0) * zoom }} aria-hidden="true" />
-    : null;
   const cursor = overlay?.cursor !== undefined ? <span className="hub-clip-cursor" style={{ left: overlay.cursor * zoom }} aria-hidden="true" /> : null;
 
   return (
@@ -370,20 +438,18 @@ function Lanes({ clip, zoom, narrow, sel, onSelect, onEdit, onHistory, overlay }
         </div>
         <div className="hub-clip-row">
           <div className="hub-clip-label small">{CLIP_COPY.regions}</div>
-          <div className="hub-clip-lane hub-clip-regions" style={{ width }} onPointerDown={(e) => laneDown(e, "regions")} onPointerMove={laneMove} onPointerUp={() => laneUp()}>
+          <div className="hub-clip-lane hub-clip-regions" style={{ width }} onPointerDown={(e) => laneDown(e, "regions")}>
             {(clip.regions ?? []).map((r) => {
-              const [s, l] = shift(r.id, r.start, r.end - r.start);
               const st = overlay?.regionStatus?.[r.id];
               return (
-                <button key={r.id} className={`hub-clip-item hub-clip-region ${selId(sel) === r.id ? "on" : ""} ${st ? `st-${st.status}` : ""}`} style={{ left: s * zoom, width: Math.max(l * zoom, 6) }}
+                <button key={r.id} data-id={r.id} className={`hub-clip-item hub-clip-region ${selId(sel) === r.id ? "on" : ""} ${st ? `st-${st.status}` : ""}`} style={{ left: r.start * zoom, width: Math.max((r.end - r.start) * zoom, 6) }}
                   title={`${r.name} (${r.start} to ${r.end})${st?.drift ? `, ${st.drift}` : ""}`}
-                  onPointerDown={(e) => itemDown(e, r.id, { kind: "region", id: r.id }, true)} onPointerMove={itemMove} onPointerUp={() => regionUp(r)}
+                  onPointerDown={(e) => itemDown(e, { kind: "region", id: r.id }, true, r.start, r.end - r.start, 6, regionCommit(r))}
                   onClick={() => onSelect({ kind: "region", id: r.id })}>
                   <span className="hub-clip-item-text">{r.name}{st?.drift ? ` · ${st.drift}` : ""}</span>
                 </button>
               );
             })}
-            {drawSpan("regions")}
             {cursor}
           </div>
         </div>
@@ -400,31 +466,28 @@ function Lanes({ clip, zoom, narrow, sel, onSelect, onEdit, onHistory, overlay }
                 <button className="ghost hub-clip-track-name" title={t.action} onClick={() => onSelect({ kind: "track", track: t.action })}>{trackName(t.action)}</button>
                 <span className="dim mono hub-clip-type">{t.type}</span>
               </div>
-              <div className={`hub-clip-lane ${axis ? "axis" : ""}`} style={{ width, height: h }} onPointerDown={(e) => laneDown(e, t.action)} onPointerMove={laneMove} onPointerUp={() => laneUp(t)}>
+              <div className={`hub-clip-lane ${axis ? "axis" : ""}`} style={{ width, height: h }} onPointerDown={(e) => laneDown(e, t.action, t)}>
                 {axis && <Curve track={t} zoom={zoom} width={width} height={h} extra={overlay?.takeKeys?.[t.action]} />}
                 {(t.notes ?? []).map((n) => {
-                  const [s, l] = shift(n.id, n.start, n.length);
                   const target: ClipSel = { kind: "note", track: t.action, id: n.id };
                   return (
-                    <button key={n.id} className={`hub-clip-item hub-clip-note ${selId(sel) === n.id ? "on" : ""}`} style={{ left: s * zoom, width: Math.max(l * zoom, 4) }}
+                    <button key={n.id} data-id={n.id} className={`hub-clip-item hub-clip-note ${selId(sel) === n.id ? "on" : ""}`} style={{ left: n.start * zoom, width: Math.max(n.length * zoom, 4) }}
                       title={`${n.id}: ${n.start} + ${n.length}${n.value !== undefined ? ` = ${valueText(n.value)}` : ""}`} aria-label={`${CLIP_COPY.note} ${n.id}, ${CLIP_COPY.start} ${n.start}, ${CLIP_COPY.length} ${n.length}`}
-                      onPointerDown={(e) => itemDown(e, n.id, target, true)} onPointerMove={itemMove} onPointerUp={() => itemUp(n.start, n.length)} onClick={() => onSelect(target)} />
+                      onPointerDown={(e) => itemDown(e, target, true, n.start, n.length, 4, itemCommit(n.id, target, n.start, n.length))} onClick={() => onSelect(target)} />
                   );
                 })}
                 {(t.keys ?? []).map((k) => {
-                  const [s] = shift(k.id, k.t, 0);
                   const target: ClipSel = { kind: "key", track: t.action, id: k.id };
                   const y = typeof k.v === "number" ? (1 - (Math.max(-1, Math.min(1, k.v)) + 1) / 2) * h : h / 2;
                   return (
-                    <button key={k.id} className={`hub-clip-key ${selId(sel) === k.id ? "on" : ""}`} style={{ left: s * zoom, top: y }}
+                    <button key={k.id} data-id={k.id} className={`hub-clip-key ${selId(sel) === k.id ? "on" : ""}`} style={{ left: k.t * zoom, top: y }}
                       title={`${k.id}: ${k.t} = ${valueText(k.v)}`} aria-label={`${CLIP_COPY.key} ${k.id}, ${CLIP_COPY.time} ${k.t}, ${CLIP_COPY.value} ${valueText(k.v)}`}
-                      onPointerDown={(e) => itemDown(e, k.id, target, false)} onPointerMove={itemMove} onPointerUp={() => itemUp(k.t, 0)} onClick={() => onSelect(target)} />
+                      onPointerDown={(e) => itemDown(e, target, false, k.t, 0, 0, itemCommit(k.id, target, k.t, 0))} onClick={() => onSelect(target)} />
                   );
                 })}
                 {(overlay?.take?.[t.action] ?? []).map((n, i) => (
                   <span key={`take${i}`} className={`hub-clip-take ${n.open ? "open" : ""}`} style={{ left: n.start * zoom, width: Math.max(n.length * zoom, 3) }} aria-hidden="true" />
                 ))}
-                {drawSpan(t.action)}
                 {cursor}
               </div>
             </div>
@@ -432,21 +495,20 @@ function Lanes({ clip, zoom, narrow, sel, onSelect, onEdit, onHistory, overlay }
         })}
         <div className="hub-clip-row" style={{ height: Math.max(1, checkRows.count) * LANE_H }}>
           <div className="hub-clip-label small">{CLIP_COPY.checks}</div>
-          <div className="hub-clip-lane hub-clip-checks" style={{ width, height: Math.max(1, checkRows.count) * LANE_H }} onPointerDown={(e) => laneDown(e, "checks")} onPointerMove={laneMove} onPointerUp={() => laneUp()}>
+          <div className="hub-clip-lane hub-clip-checks" style={{ width, height: Math.max(1, checkRows.count) * LANE_H }} onPointerDown={(e) => laneDown(e, "checks")}>
             {(clip.checks ?? []).map((c) => {
-              const [s, l] = shift(c.id, c.start, c.length);
               const st = overlay?.checkStatus?.[c.id];
+              const target: ClipSel = { kind: "check", id: c.id };
               return (
-                <button key={c.id} className={`hub-clip-item hub-clip-check mode-${c.manual ? "manual" : c.mode} ${selId(sel) === c.id ? "on" : ""} ${st ? `st-${st}` : ""}`}
-                  style={{ left: s * zoom, width: Math.max(l * zoom, 8), top: (checkRows.row[c.id] ?? 0) * LANE_H + 3 }}
+                <button key={c.id} data-id={c.id} className={`hub-clip-item hub-clip-check mode-${c.manual ? "manual" : c.mode} ${selId(sel) === c.id ? "on" : ""} ${st ? `st-${st}` : ""}`}
+                  style={{ left: c.start * zoom, width: Math.max(c.length * zoom, 8), top: (checkRows.row[c.id] ?? 0) * LANE_H + 3 }}
                   title={`${checkTitle(c)}${st ? ` (${st.replace("_", " ")})` : ""}`}
-                  onPointerDown={(e) => itemDown(e, c.id, { kind: "check", id: c.id }, c.length > 0)} onPointerMove={itemMove} onPointerUp={() => itemUp(c.start, c.length)}
+                  onPointerDown={(e) => itemDown(e, target, c.length > 0, c.start, c.length, 8, itemCommit(c.id, target, c.start, c.length))}
                   onClick={() => onSelect({ kind: "check", id: c.id })}>
                   <span className="hub-clip-item-text">{checkTitle(c)}</span>
                 </button>
               );
             })}
-            {drawSpan("checks")}
             {cursor}
           </div>
         </div>
@@ -454,10 +516,10 @@ function Lanes({ clip, zoom, narrow, sel, onSelect, onEdit, onHistory, overlay }
           <div className="hub-clip-label small">{CLIP_COPY.events}</div>
           <div className="hub-clip-lane" style={{ width }}>
             {(clip.events ?? []).map((ev) => {
-              const [s] = shift(ev.id, ev.at, 0);
+              const target: ClipSel = { kind: "event", id: ev.id };
               return (
-                <button key={ev.id} className={`hub-clip-event ${selId(sel) === ev.id ? "on" : ""}`} style={{ left: s * zoom }} title={`${ev.id}: ${JSON.stringify(ev.do)}`} aria-label={`${CLIP_COPY.event} ${ev.id}, ${ev.at}`}
-                  onPointerDown={(e) => itemDown(e, ev.id, { kind: "event", id: ev.id }, false)} onPointerMove={itemMove} onPointerUp={() => itemUp(ev.at, 0)} onClick={() => onSelect({ kind: "event", id: ev.id })} />
+                <button key={ev.id} data-id={ev.id} className={`hub-clip-event ${selId(sel) === ev.id ? "on" : ""}`} style={{ left: ev.at * zoom }} title={`${ev.id}: ${JSON.stringify(ev.do)}`} aria-label={`${CLIP_COPY.event} ${ev.id}, ${ev.at}`}
+                  onPointerDown={(e) => itemDown(e, target, false, ev.at, 0, 0, itemCommit(ev.id, target, ev.at, 0))} onClick={() => onSelect(target)} />
               );
             })}
             {cursor}
