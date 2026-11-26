@@ -1,8 +1,17 @@
 import { describe, expect, it, vi } from "vitest";
 import type { ArrangementRun, HubOverview, Instance, InstanceLayout, InstanceStatus, RunRecord, SetAnswer } from "@ue-mcp-studio/shared";
 import {
+  ARRANGE_ZOOM_MAX,
+  ARRANGE_ZOOM_MIN,
   SET_OPS,
   activeSetRun,
+  arrangeClock,
+  arrangementFindings,
+  clampZoom,
+  findingPlace,
+  rulerMinor,
+  zoomStep,
+  zoomToFit,
   arrangeSeconds,
   arrangeStep,
   arrangementCursor,
@@ -80,8 +89,24 @@ describe("time", () => {
     expect(arrangeSeconds(0, 60)).toBe("0 s");
     expect(rulerTicks(600, 60, 80)).toEqual([0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10]);
     expect(rulerTicks(600, 60, 20)).toEqual([0, 5, 10]);
+    expect(rulerTicks(60, 60, 320)).toEqual([0, 0.25, 0.5, 0.75, 1]);
+    expect(rulerMinor(80)).toBe(0.25);
+    expect(rulerMinor(20)).toBe(1);
+    expect(rulerMinor(4)).toBe(6);
     expect(spanProgress(100, 200, 150)).toBe(0.5);
     expect(spanProgress(100, 200, null)).toBe(0);
+  });
+  it("shows time as a clock, and zooms in steps, to fit, and inside its range", () => {
+    expect(arrangeClock(0, 60)).toBe("0:00");
+    expect(arrangeClock(5430, 60)).toBe("1:30");
+    expect(arrangeClock(75, 60, true)).toBe("0:01.25");
+    expect(arrangeClock(3599.7, 60, true)).toBe("1:00.00");
+    expect(zoomStep(80, 1)).toBe(120);
+    expect(zoomStep(5, -1)).toBe(ARRANGE_ZOOM_MIN);
+    expect(clampZoom(1e9)).toBe(ARRANGE_ZOOM_MAX);
+    // Twenty seconds across 800 pixels; a single frame is shown as half a second.
+    expect(zoomToFit(0, 1200, 60, 800)).toBe(40);
+    expect(zoomToFit(100, 101, 60, 800)).toBe(1280);
   });
 });
 
@@ -135,6 +160,23 @@ describe("findings", () => {
     const b = { id: "walk/i4", field: "target", message: "missing", blocks: false };
     expect(refusalFindings({ error: "x", finding: a, findings: [a, b] })).toEqual([a, b]);
     expect(refusalFindings(undefined)).toEqual([]);
+  });
+  it("leaves a scene's findings to the Session view and places the rest on a track or a block", () => {
+    const s = {
+      tracks: [{ id: "walk", layout: [lay("i1", 0, 60)] }],
+      scenes: [{ id: "boss" }],
+      findings: [
+        { id: "boss", field: "tracks", message: "plays nothing", blocks: false },
+        { id: "walk/i1", field: "target", message: "missing", blocks: false },
+        { id: "walk", field: "player", message: "no client 4", blocks: false },
+      ],
+    } as unknown as SetAnswer;
+    const refused = [{ id: "walk/i1", field: "target", message: "missing", blocks: true }];
+    expect(arrangementFindings(s).map((f) => f.id)).toEqual(["walk/i1", "walk"]);
+    expect(arrangementFindings(s, refused)).toEqual([refused[0], s.findings[2]]);
+    expect(findingPlace({ id: "walk/i1" }, s)).toEqual({ track: "walk", instance: "i1" });
+    expect(findingPlace({ id: "walk" }, s)).toEqual({ track: "walk" });
+    expect(findingPlace({ id: "/Game/C/Jmp" }, s)).toBeNull();
   });
   it("steps the selection by start", () => {
     const l = [lay("i2", 300, 10), lay("i1", 0, 10)];

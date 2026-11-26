@@ -2,9 +2,10 @@
 /**
  * The Arrangement against stubbed daemon answers: dragging clips in from
  * Clips, moving, trimming and Alt-duplicating instances and moving them to
- * another track, every drag's keyboard equivalent, tracks and scenes (add,
- * rename, color, reorder, mute, solo, player, a scene's tracks), findings
- * with their candidates, and a run's playhead, results and verdicts.
+ * another track, every drag's keyboard equivalent, tracks (add, rename,
+ * color, reorder, mute, solo, player), a track for a clip dropped below the
+ * tracks, the Clips drawer, zoom and loop keys, warnings with their
+ * candidates and no scenes, and a run's playhead, results and verdicts.
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
@@ -82,6 +83,11 @@ const surface = () => screen.getByRole("group", { name: "Arrangement" });
 const lastLines = (): string => m.set.edit.mock.calls[m.set.edit.mock.calls.length - 1][0].join("\n");
 const dt = (data: Record<string, string>) => ({ types: Object.keys(data), getData: (t: string) => data[t] ?? "", setData: () => {} });
 const block = (name: RegExp) => screen.findByRole("button", { name });
+/** The Clips drawer starts closed, as the timelines get the page. */
+const openClips = () => {
+  const t = screen.getByRole("button", { name: "Clips" });
+  if (t.getAttribute("aria-expanded") !== "true") fireEvent.click(t);
+};
 const pick = async (name: RegExp) => {
   const b = await block(name);
   fireEvent.pointerDown(b, { button: 0, clientX: 0 });
@@ -99,6 +105,7 @@ beforeEach(() => {
   m.set.run.mockResolvedValue({ plan: { id: "p1", title: "Arrangement", items: [] }, placement: { state: "started", position: 0, ahead: 0 } });
   m.set.verdict.mockResolvedValue({});
   window.location.hash = "#/playtests/arrangement";
+  window.localStorage.clear();
 });
 afterEach(() => {
   cleanup();
@@ -118,6 +125,9 @@ describe("feature", () => {
     fireEvent.click(await screen.findByRole("link", { name: /^Arrangement/ }));
     await waitFor(() => expect(window.location.hash).toBe("#/playtests/arrangement"));
     expect(await block(/^CL_Walk, 0 s to 4 s/)).toBeTruthy();
+    // The Arrangement is lit in the rail, and Overview is not.
+    const lit = [...document.querySelectorAll("nav.hub-rail .hub-rail-item.active")].map((a) => a.textContent);
+    expect(lit).toEqual(["Arrangement"]);
   });
 });
 
@@ -194,7 +204,8 @@ describe("timelines", () => {
     fireEvent.keyDown(s, { key: "ArrowRight", shiftKey: true });
     fireEvent.keyDown(s, { key: "v", ctrlKey: true });
     await waitFor(() => expect(lastLines()).toBe("copy walk/i1 to guard at 60"));
-    fireEvent.click(await screen.findByRole("button", { name: /CL_Patrol/ }));
+    openClips();
+    fireEvent.click(await screen.findByRole("button", { name: /^CL_Patrol/ }));
     fireEvent.keyDown(s, { key: "i" });
     await waitFor(() => expect(lastLines()).toBe(`add guard clip ${PATROL} at 60`));
   });
@@ -222,6 +233,7 @@ describe("timelines", () => {
     // The drop did not also add the clip to the lane under the block.
     expect(m.set.edit.mock.calls.flatMap((c) => c[0])).not.toContain(`add walk clip ${PATROL} at 0`);
     await pick(/^CL_Walk/);
+    openClips();
     const clips = screen.getByRole("region", { name: "Clips" });
     fireEvent.click(await within(clips).findByRole("button", { name: /^PT_Door/ }));
     fireEvent.click(screen.getByRole("button", { name: "Replace with PT_Door" }));
@@ -251,7 +263,7 @@ describe("timelines", () => {
   });
 });
 
-describe("tracks and scenes", () => {
+describe("tracks, Clips and warnings", () => {
   it("adds, reorders, mutes, solos and sets a track's player", async () => {
     render(<Harness />);
     await block(/^CL_Walk/);
@@ -271,36 +283,119 @@ describe("tracks and scenes", () => {
     await waitFor(() => expect(m.set.run).toHaveBeenCalledWith({ kind: "track", goalId: "walk" }));
   });
 
-  it("lists scenes, plays one, and edits its tracks, name, color, order and copies", async () => {
+  it("shows no scenes or scene warnings, and counts the rest with a marker on the block", async () => {
+    const f = setFixture();
+    f.findings = [
+      { id: "boss", field: "tracks", message: "Boss fight plays no track with clips", blocks: false },
+      { id: "walk/i1", field: "target", message: "No timeline clip at /Game/Clips/CL_Walk", candidates: [PATROL], blocks: false },
+    ];
+    m.set.read.mockResolvedValue(f);
     render(<Harness />);
-    await block(/^CL_Walk/);
-    fireEvent.click(screen.getByRole("button", { name: "Play Boss fight from the start" }));
-    await waitFor(() => expect(m.set.run).toHaveBeenCalledWith({ kind: "scene", goalId: "boss" }));
-    fireEvent.click(screen.getByRole("button", { name: "Boss fight", pressed: false }));
-    const guardIn = screen.getByRole("checkbox", { name: "Guard plays in Boss fight" }) as HTMLInputElement;
-    expect(guardIn.checked).toBe(false);
-    expect((screen.getByRole("checkbox", { name: "Walk plays in Boss fight" }) as HTMLInputElement).checked).toBe(true);
-    fireEvent.click(guardIn);
-    await waitFor(() => expect(lastLines()).toBe("scene track boss add guard"));
-    const s = surface();
-    fireEvent.keyDown(s, { key: "F2" });
-    const name = screen.getByLabelText("Name") as HTMLInputElement;
-    fireEvent.change(name, { target: { value: "Boss rush" } });
-    fireEvent.blur(name);
-    await waitFor(() => expect(lastLines()).toBe('scene rename boss "Boss rush"'));
-    fireEvent.click(screen.getByRole("button", { name: "Pink" }));
-    await waitFor(() => expect(lastLines()).toBe("scene color boss pink"));
-    fireEvent.keyDown(s, { key: "ArrowDown", altKey: true });
-    await waitFor(() => expect(lastLines()).toBe("scene move boss to 1"));
-    fireEvent.keyDown(s, { key: "d", ctrlKey: true });
-    await waitFor(() => expect(lastLines()).toBe("scene duplicate boss"));
-    fireEvent.keyDown(s, { key: "i", ctrlKey: true });
-    await waitFor(() => expect(lastLines()).toBe('scene insert "Scene 3" at 0'));
-    fireEvent.keyDown(s, { key: "Enter" });
-    await waitFor(() => expect(m.set.run).toHaveBeenLastCalledWith({ kind: "scene", goalId: "boss" }));
+    const walk = await block(/^CL_Walk/);
+    expect(screen.queryByText("Boss fight")).toBeNull();
+    expect(screen.queryByRole("checkbox")).toBeNull();
+    expect(screen.queryByText(/Add scene/)).toBeNull();
+    expect(walk.className).toContain("flagged");
+    // One count, not a row per warning; it opens the list with the fix and Show.
+    const count = screen.getByRole("button", { name: "1 warning" });
+    expect(screen.queryByText("No timeline clip at /Game/Clips/CL_Walk")).toBeNull();
+    fireEvent.click(count);
+    const list = screen.getByRole("region", { name: "Warnings" });
+    expect(list.textContent).not.toContain("Boss fight");
+    fireEvent.click(within(list).getByRole("button", { name: "Show" }));
+    expect((await block(/^CL_Walk/)).getAttribute("aria-pressed")).toBe("true");
+    fireEvent.click(screen.getByRole("button", { name: "1 warning" }));
+    fireEvent.click(within(screen.getByRole("region", { name: "Warnings" })).getByRole("button", { name: `Use ${PATROL}` }));
+    await waitFor(() => expect(lastLines()).toBe(`retarget walk/i1 ${PATROL}`));
   });
 
-  it("deletes a track or scene through its op after a confirmation, and keeps a refusal in the dialog", async () => {
+  it("adds a track for a clip dropped below the tracks, and adds the clip to it", async () => {
+    m.set.edit.mockImplementationOnce(async () => ({ ...setFixture(), tracks: [...setFixture().tracks, { ...setFixture().tracks[1], id: "t3", title: "Track 3", order: 2 }], changed: ["t3"] }));
+    render(<Harness />);
+    await block(/^CL_Walk/);
+    const spare = document.querySelector(".hub-set-lane.spare") as HTMLElement;
+    // Two tracks: four empty rows make six.
+    expect(document.querySelectorAll(".hub-set-row.spare")).toHaveLength(4);
+    fireEvent.drop(spare, { clientX: 80, dataTransfer: dt({ "application/x-ue-mcp-clip": JSON.stringify({ kind: "clip", target: PATROL }) }) });
+    await waitFor(() => expect(m.set.edit.mock.calls.map((c) => c[0].join("\n"))).toEqual(['track add "Track 3"', `add t3 clip ${PATROL} at 60`]));
+  });
+
+  it("adds a clip from Clips with a double-click or Add, to the selected track at the playhead", async () => {
+    render(<Harness />);
+    await block(/^CL_Walk/);
+    fireEvent.click(screen.getByRole("button", { name: "Guard", pressed: false }));
+    fireEvent.keyDown(surface(), { key: "End" });
+    openClips();
+    const clips = screen.getByRole("region", { name: "Clips" });
+    fireEvent.doubleClick(await within(clips).findByRole("button", { name: /^CL_Patrol/ }));
+    await waitFor(() => expect(lastLines()).toBe(`add guard clip ${PATROL} at 840`));
+    fireEvent.click(within(clips).getByRole("button", { name: "Add PT_Door" }));
+    await waitFor(() => expect(lastLines()).toBe(`add guard script ${DOOR} at 840`));
+  });
+
+  it("keeps the Clips drawer closed until asked, and remembers it", async () => {
+    render(<Harness />);
+    await block(/^CL_Walk/);
+    expect(screen.queryByRole("region", { name: "Clips" })).toBeNull();
+    fireEvent.keyDown(surface(), { key: "b", ctrlKey: true, altKey: true });
+    expect(screen.getByRole("region", { name: "Clips" })).toBeTruthy();
+    expect(window.localStorage.getItem("studio.arrangement.drawer")).toBe("open");
+    // Only Studio's own window offers the pop-out.
+    expect(screen.queryByRole("button", { name: "Open Clips in its own window" })).toBeNull();
+  });
+
+  it("takes picks and adds from the Clips window, and says where an add goes", async () => {
+    render(<Harness />);
+    await block(/^CL_Walk/);
+    const win = new BroadcastChannel("ue-mcp-studio.arrangement");
+    const heard: Array<{ t: string; addsTo?: string; picked?: unknown }> = [];
+    win.onmessage = (e) => heard.push(e.data);
+    try {
+      win.postMessage({ t: "hello" });
+      expect(await screen.findByRole("button", { name: "Show Clips here" })).toBeTruthy();
+      fireEvent.click(screen.getByRole("button", { name: "Guard", pressed: false }));
+      await waitFor(() => expect(heard.some((m) => m.t === "state" && m.addsTo === "Adds to Guard at 0:00.00")).toBe(true));
+      win.postMessage({ t: "pick", clip: { kind: "clip", target: PATROL, name: "CL_Patrol" } });
+      await waitFor(() => expect(heard.some((m) => m.t === "state" && (m.picked as { target?: string } | null)?.target === PATROL)).toBe(true));
+      win.postMessage({ t: "add", clip: { kind: "script", target: DOOR } });
+      await waitFor(() => expect(lastLines()).toBe(`add guard script ${DOOR} at 0`));
+      win.postMessage({ t: "bye" });
+      await waitFor(() => expect(screen.queryByRole("button", { name: "Show Clips here" })).toBeNull());
+    } finally {
+      win.close();
+    }
+  });
+
+  it("zooms with + and -, to fit with W and back with X, and cuts with Ctrl+X", async () => {
+    render(<Harness />);
+    await block(/^CL_Walk, 0 s to 4 s/);
+    const s = surface();
+    const width = () => (screen.getAllByRole("button", { name: /^CL_Walk, / })[0] as HTMLElement).style.width;
+    expect(width()).toBe("320px");
+    fireEvent.keyDown(s, { key: "+" });
+    expect(width()).toBe("480px");
+    fireEvent.keyDown(s, { key: "-" });
+    expect(width()).toBe("320px");
+    // jsdom lays nothing out: fitting 14 s (the end, 840 frames) into the 160 pixel floor.
+    fireEvent.keyDown(s, { key: "w" });
+    expect(width()).toBe(`${(240 / 60) * (160 / 14)}px`);
+    fireEvent.keyDown(s, { key: "x" });
+    expect(width()).toBe("320px");
+    await pick(/^CL_Walk/);
+    fireEvent.keyDown(s, { key: "x", ctrlKey: true });
+    await waitFor(() => expect(lastLines()).toBe("delete walk/i1"));
+  });
+
+  it("loops the selection with Ctrl+L, playing from the loop's start", async () => {
+    render(<Harness />);
+    await pick(/^PT_Door/);
+    fireEvent.keyDown(surface(), { key: "l", ctrlKey: true });
+    expect(screen.getByRole("button", { name: /Loop/ }).getAttribute("aria-pressed")).toBe("true");
+    fireEvent.keyDown(surface(), { key: " " });
+    await waitFor(() => expect(m.set.run).toHaveBeenLastCalledWith({ kind: "arrangement", from: 240 }));
+  });
+
+  it("deletes a track through its op after a confirmation, and keeps a refusal in the dialog", async () => {
     render(<Harness />);
     await block(/^CL_Walk/);
     fireEvent.click(screen.getByRole("button", { name: "Walk", pressed: false }));
@@ -315,10 +410,10 @@ describe("tracks and scenes", () => {
     fireEvent.click(within(dialog).getByRole("button", { name: "Delete track" }));
     await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
     expect(m.hub.overview).not.toHaveBeenCalled();
-    fireEvent.click(screen.getByRole("button", { name: "Calm", pressed: false }));
+    fireEvent.click(screen.getByRole("button", { name: "Guard", pressed: false }));
     fireEvent.click(screen.getByRole("button", { name: "Delete" }));
-    fireEvent.click(within(await screen.findByRole("dialog", { name: 'Delete the scene "Calm"?' })).getByRole("button", { name: "Delete scene" }));
-    await waitFor(() => expect(lastLines()).toBe("scene delete calm"));
+    fireEvent.click(within(await screen.findByRole("dialog", { name: 'Delete the track "Guard"?' })).getByRole("button", { name: "Delete track" }));
+    await waitFor(() => expect(lastLines()).toBe("track delete guard"));
   });
 });
 

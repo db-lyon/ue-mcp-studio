@@ -143,10 +143,17 @@ window.open = () => null;
 // newest line: the transcript follows new lines, not text that reflows later, and the race was the shot's.
 const fontsLoaded = Promise.all([...document.fonts].map((f) => f.load().catch(() => undefined)));
 
-void Promise.all([import("../App"), fontsLoaded]).then(([{ App }]) => {
-  createRoot(document.getElementById("root")!).render(
-    <StrictMode>
-      <App />
-    </StrictMode>,
-  );
-});
+// The Arrangement's Clips window is its own page, as main.tsx draws it.
+if (scenario.hash === "#/clips-window") {
+  void Promise.all([import("../views/hub/ClipsWindow"), fontsLoaded]).then(([{ ClipsWindow }]) => {
+    createRoot(document.getElementById("root")!).render(<StrictMode><ClipsWindow /></StrictMode>);
+  });
+} else {
+  void Promise.all([import("../App"), fontsLoaded]).then(([{ App }]) => {
+    createRoot(document.getElementById("root")!).render(
+      <StrictMode>
+        <App />
+      </StrictMode>,
+    );
+  });
+}
