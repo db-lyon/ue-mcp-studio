@@ -391,6 +391,8 @@ export const SET_COPY = {
   player: "The player this track drives: the editor or a client",
   playerFor: (title: string) => `Player for ${title}`,
   playerName: (n: number) => (n === 0 ? "Editor" : `Client ${n}`),
+  /** The player as the narrow track header shows it, with the full name on hover. */
+  playerShort: (n: number) => (n === 0 ? "Ed" : `C${n}`),
   moveUp: "Move up",
   moveDown: "Move down",
   clips: "Clips",

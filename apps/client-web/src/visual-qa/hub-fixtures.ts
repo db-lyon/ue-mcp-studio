@@ -245,7 +245,7 @@ function setScenario(title: string, hash: string, extra: Partial<Scenario> = {},
 }
 
 export const HUB_SCENARIOS: Record<string, Scenario> = {
-  "hub-arrangement": setScenario("Arrangement: the transport, each track's timeline under one ruler with a narrow two-line header, a trimmed clip, a step-list clip's reserved space, a clip of unknown length with its warning marker, a muted track, empty rows to six, and the warnings count", "#/playtests/arrangement"),
+  "hub-arrangement": setScenario("Arrangement: the transport, each track's timeline under one ruler with a 150px header (the name on one line, Play, M, S and the player as Ed or C1 on the next), a trimmed clip, a step-list clip's reserved space, a clip of unknown length with its warning marker, a muted track, empty rows to six, and the warnings count", "#/playtests/arrangement"),
   "hub-arrangement-instance": setScenario("A clip selected on a timeline: the footer inspector with its name, color, Open clip, Duplicate, Make unique and Delete", "#/playtests/arrangement", { clicks: [".hub-set-block.kind-clip"] }),
   "hub-arrangement-track": setScenario("A track selected: its header lit, and its name, color, order and Delete in the footer inspector", "#/playtests/arrangement", { clicks: [".hub-set-head .hub-set-title"] }),
   "hub-arrangement-playing": setScenario("The Arrangement playing: the run's playhead, results on each block, Stop, and per-track status", "#/playtests/arrangement", {}, SET_RUN),
@@ -255,7 +255,7 @@ export const HUB_SCENARIOS: Record<string, Scenario> = {
   "hub-arrangement-warnings": setScenario("The warnings list open from its count: each warning with its fix and Show", "#/playtests/arrangement", { clicks: [".hub-set-warnings"] }),
   "hub-arrangement-loop": setScenario("Loop turned on with a clip selected: the loop brace on the ruler and the range shaded", "#/playtests/arrangement", { clicks: [".hub-set-block.kind-clip", ".hub-set-transport-btn[aria-pressed]"] }),
   "hub-arrangement-keys": setScenario("The Arrangement's shortcuts, opened from the keyboard button", "#/playtests/arrangement", { clicks: [".hub-set-pop-anchor > .icon-button"] }),
-  "hub-arrangement-busy": setScenario("Ten tracks: long names cut short, a warning on a track header, and the timelines scrolling under the sticky ruler and headers", "#/playtests/arrangement", {}, null, BUSY_SET),
+  "hub-arrangement-busy": setScenario("Ten tracks in 150px headers: long names cut short with an ellipsis, short player labels (Ed, C1, C4), a warning on a track header, and the timelines scrolling under the sticky ruler and headers", "#/playtests/arrangement", {}, null, BUSY_SET),
   "hub-arrangement-empty": setScenario("An empty Arrangement: six empty rows with Drop clips here, and Add track above the header column", "#/playtests/arrangement", {}, null, EMPTY_SET),
   "hub-arrangement-window": setScenario("In Studio's own window: the button that opens Clips in a window of its own", "#/playtests/arrangement", { studioWindow: true }),
   "hub-arrangement-clips-window": setScenario("The Clips window popped out of the Arrangement, before the Arrangement answers", "#/clips-window", { height: 760 }),
