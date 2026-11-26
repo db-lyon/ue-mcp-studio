@@ -118,6 +118,9 @@ describe("feature", () => {
     fireEvent.click(await screen.findByRole("link", { name: /^Arrangement/ }));
     await waitFor(() => expect(window.location.hash).toBe("#/playtests/arrangement"));
     expect(await block(/^CL_Walk, 0 s to 4 s/)).toBeTruthy();
+    // The Arrangement is lit in the rail, and Overview is not.
+    const lit = [...document.querySelectorAll("nav.hub-rail .hub-rail-item.active")].map((a) => a.textContent);
+    expect(lit).toEqual(["Arrangement"]);
   });
 });
 
