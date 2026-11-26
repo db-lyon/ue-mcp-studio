@@ -18,6 +18,7 @@ import {
   HUB_RECENT_KEY,
   SET_COPY,
   arrangementOn,
+  arrangementsOn,
   hubHash,
   hubKeymap,
   hubPath,
@@ -55,6 +56,7 @@ import { QueueScreen } from "./Queue";
 import { ClipsScreen } from "./Clips";
 import { ClipRunView } from "./TimelineRun";
 import { ArrangementScreen } from "./Arrangement";
+import { ArrangementsScreen } from "./Arrangements";
 import { CheckPicker, DeleteDialog, DescribeDialog, GoalDeleteDialog, GoalDialog, GoalPicker, LeaveDialog, RequirePicker } from "./dialogs";
 import type { GoalPreset } from "./state";
 import "./hub.css";
@@ -282,13 +284,14 @@ export function HubView({ data, narrow, onOpenChat, onChat, canDeleteGoals = fal
       case "queue": return <QueueScreen />;
       case "clips": return <ClipsScreen />;
       case "clip": return <ClipRunView key={route.path} path={route.path} />;
-      case "arrangement": return <ArrangementScreen />;
+      case "arrangement": return <ArrangementScreen key={route.arrangementId ?? ""} arrangementId={route.arrangementId ?? null} />;
+      case "arrangements": return <ArrangementsScreen />;
     }
   })();
 
   return (
     <HubContext.Provider value={ctx}>
-      {/* The Arrangement takes the whole page, as a DAW's does: the rail folds to its icons and the screen fills the height. */}
+      {/* The Arrangement takes the whole page, as a DAW's does: the rail folds to its icons and the screen fills the height. The list of arrangements is an ordinary screen. */}
       <div className={`hub-root ${narrow ? "narrow" : "wide"} ${route.screen === "arrangement" ? "slim" : ""}`}>
         {narrow ? <HubBar onPalette={() => setOverlay({ kind: "palette" })} /> : <HubRail onPalette={() => setOverlay({ kind: "palette" })} onShortcuts={() => setOverlay({ kind: "shortcuts" })} />}
         <div className={`hub-main ${route.screen === "arrangement" ? "fill" : ""}`} ref={main}>
@@ -382,12 +385,22 @@ function sectionCount(id: string, ctx: Pick<HubContextValue, "o">): ReactNode {
 
 const sectionRoute = (id: SectionId): HubRoute => ({ screen: id });
 const SET_ROUTE: HubRoute = { screen: "arrangement" };
+const LIST_ROUTE: HubRoute = { screen: "arrangements" };
+/** Whether a screen is an arrangement's or their list: the rail's Arrangement entry is lit, and no section is. */
+const onArrangement = (r: HubRoute): boolean => r.screen === "arrangement" || r.screen === "arrangements";
+
+/** The rail's Arrangement entry: the list of arrangements where the daemon has several, else the one Arrangement. */
+function arrangementEntry(health: unknown): { route: HubRoute; label: string } | null {
+  if (arrangementsOn(health)) return { route: LIST_ROUTE, label: SET_COPY.arrangements };
+  return arrangementOn(health) ? { route: SET_ROUTE, label: SET_COPY.arrangement } : null;
+}
 
 /** The wide hub's rail: the four screens, then the goals and playtests opened last. */
 function HubRail({ onPalette, onShortcuts }: { onPalette: () => void; onShortcuts: () => void }) {
   const ctx = useHub();
   const { o, route, go } = ctx;
   const at = hubSection(route);
+  const entry = arrangementEntry(ctx.health);
   const recent = useRecent(route).flatMap((r) => {
     if (r.kind === "goal") {
       const g = o.goals.find((x) => x.goal.id === r.id && !x.goal.archived);
@@ -406,16 +419,16 @@ function HubRail({ onPalette, onShortcuts }: { onPalette: () => void; onShortcut
       </button>
       <div className="hub-rail-group">
         {SECTIONS.map((s) => (
-          <HubLink key={s.id} href={hubHash(sectionRoute(s.id))} onGo={() => go(sectionRoute(s.id))} className={`hub-rail-item ${at === s.id && route.screen !== "goal" && route.screen !== "arrangement" ? "active" : ""}`} title={s.keys ? `${s.label} (${s.keys})` : s.label}>
+          <HubLink key={s.id} href={hubHash(sectionRoute(s.id))} onGo={() => go(sectionRoute(s.id))} className={`hub-rail-item ${at === s.id && route.screen !== "goal" && !onArrangement(route) ? "active" : ""}`} title={s.keys ? `${s.label} (${s.keys})` : s.label}>
             <HubIcon name={s.icon} />
             <span className="hub-rail-label">{s.label}</span>
             {sectionCount(s.id, ctx)}
           </HubLink>
         ))}
-        {arrangementOn(ctx.health) && (
-          <HubLink href={hubHash(SET_ROUTE)} onGo={() => go(SET_ROUTE)} className={`hub-rail-item ${route.screen === "arrangement" ? "active" : ""}`}>
+        {entry && (
+          <HubLink href={hubHash(entry.route)} onGo={() => go(entry.route)} className={`hub-rail-item ${onArrangement(route) ? "active" : ""}`} title={entry.label}>
             <HubIcon name="arrange" />
-            <span className="hub-rail-label">{SET_COPY.arrangement}</span>
+            <span className="hub-rail-label">{entry.label}</span>
           </HubLink>
         )}
       </div>
@@ -438,18 +451,19 @@ function HubRail({ onPalette, onShortcuts }: { onPalette: () => void; onShortcut
 function HubBar({ onPalette }: { onPalette: () => void }) {
   const ctx = useHub();
   const at = hubSection(ctx.route);
+  const entry = arrangementEntry(ctx.health);
   return (
     <div className="hub-bar">
       <nav className="hub-seg" aria-label={HUB_COPY.title}>
         {SECTIONS.map((s) => (
-          <HubLink key={s.id} href={hubHash(sectionRoute(s.id))} onGo={() => ctx.go(sectionRoute(s.id))} className={`hub-seg-item ${at === s.id && ctx.route.screen !== "arrangement" ? "active" : ""}`}>
+          <HubLink key={s.id} href={hubHash(sectionRoute(s.id))} onGo={() => ctx.go(sectionRoute(s.id))} className={`hub-seg-item ${at === s.id && !onArrangement(ctx.route) ? "active" : ""}`}>
             <span>{s.label}</span>
             {s.id === "overview" && sectionCount(s.id, ctx)}
           </HubLink>
         ))}
-        {arrangementOn(ctx.health) && (
-          <HubLink href={hubHash(SET_ROUTE)} onGo={() => ctx.go(SET_ROUTE)} className={`hub-seg-item ${ctx.route.screen === "arrangement" ? "active" : ""}`}>
-            <span>{SET_COPY.arrangement}</span>
+        {entry && (
+          <HubLink href={hubHash(entry.route)} onGo={() => ctx.go(entry.route)} className={`hub-seg-item ${onArrangement(ctx.route) ? "active" : ""}`}>
+            <span>{entry.label}</span>
           </HubLink>
         )}
       </nav>

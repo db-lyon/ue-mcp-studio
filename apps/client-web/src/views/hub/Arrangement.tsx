@@ -25,6 +25,7 @@ import {
   arrangementFindings,
   arrangementFromPlayhead,
   arrangementOn,
+  arrangementsOn,
   awaitingChecks,
   candidateLines,
   clampZoom,
@@ -51,6 +52,7 @@ import {
   checkId,
   type ArrangementFinding,
   type ArrangementRun,
+  type ArrangementSummary,
   type HubClipEntry,
   type InstanceKind,
   type SetAnswer,
@@ -100,14 +102,14 @@ function store(key: string, v: string): void {
  * out, is older than what is drawn and is dropped, so it cannot move a block
  * back. The edit's own answer, or the read after it, brings the set.
  */
-function useSet(version: number, on: boolean, edits: { current: number }, waiting: { current: number }) {
+function useSet(version: number, on: boolean, edits: { current: number }, waiting: { current: number }, arrangementId: string | null) {
   const [set, setSet] = useState<SetAnswer | null>(null);
   const [error, setError] = useState<string | null>(null);
   useEffect(() => {
     if (!on) return;
     let live = true;
     const at = edits.current;
-    api.set.read().then((a) => {
+    api.set.read(arrangementId).then((a) => {
       if (!live) return;
       setError(null);
       setSet((had) => (had && (edits.current !== at || waiting.current > 0) ? had : a));
@@ -119,10 +121,24 @@ function useSet(version: number, on: boolean, edits: { current: number }, waitin
   return { set, setSet, error };
 }
 
-/** The run playing now and the newest results: its detail, playhead and the checks waiting on a person. */
-function useSetRun(mine: { planId: string; runId: string } | null) {
+/** The project's arrangements for the switcher, read again whenever the hub hears a change; null where the daemon has only one. */
+function useArrangements(version: number, on: boolean): ArrangementSummary[] | null {
+  const [list, setList] = useState<ArrangementSummary[] | null>(null);
+  useEffect(() => {
+    if (!on) return;
+    let live = true;
+    api.set.arrangements().then((a) => live && setList(a.arrangements), () => {});
+    return () => {
+      live = false;
+    };
+  }, [version, on]);
+  return on ? list : null;
+}
+
+/** The run playing now and the newest results: its detail, playhead and the checks waiting on a person. Another arrangement's run is not this view's. */
+function useSetRun(mine: { planId: string; runId: string } | null, arrangementId: string | null) {
   const hub = useHub();
-  const active = activeSetRun(hub.o, mine);
+  const active = activeSetRun(hub.o, mine, arrangementId);
   const [detail, setDetail] = useState<ArrangementRun | null>(null);
   useEffect(() => {
     if (!active) {
@@ -162,12 +178,57 @@ function usePopover(open: boolean, close: () => void) {
   return ref;
 }
 
-export function ArrangementScreen() {
+/**
+ * The switcher at the head of the transport: the arrangement shown, and a
+ * list of the others to open in its place. Opening one is a move in history,
+ * so Back returns to the one before.
+ */
+function Switcher({ current, list }: { current: string | null; list: ArrangementSummary[] }) {
+  const hub = useHub();
+  const [open, setOpen] = useState(false);
+  const ref = usePopover(open, () => setOpen(false));
+  const shown = list.find((a) => a.id === current) ?? list[0];
+  return (
+    <div className="hub-set-pop-anchor hub-set-switcher" ref={ref}>
+      <button className="hub-set-transport-btn hub-set-switch" aria-haspopup="listbox" aria-expanded={open} aria-label={`${SET_COPY.switcher}: ${shown?.title ?? ""}`} title={SET_COPY.switcher} onClick={() => setOpen((v) => !v)}>
+        <span className="hub-set-switch-name">{shown?.title ?? SET_COPY.arrangement}</span>
+        <HubIcon name="caret" size={12} />
+      </button>
+      {open && (
+        <div className="hub-set-pop switcher" role="listbox" aria-label={SET_COPY.switcher}>
+          <ul>
+            {list.map((a) => (
+              <li key={a.id}>
+                <button role="option" aria-selected={a.id === shown?.id} className={`hub-set-switch-item ${a.id === shown?.id ? "at" : ""}`}
+                  onClick={() => {
+                    setOpen(false);
+                    if (a.id !== shown?.id) hub.go({ screen: "arrangement", arrangementId: a.id });
+                  }}>
+                  <span className="hub-set-switch-title">{a.title}</span>
+                  <span className="hub-set-switch-meta dim small">{SET_COPY.arrangementCounts(a.tracks, a.scenes)}</span>
+                </button>
+              </li>
+            ))}
+          </ul>
+          <button className="ghost small-button hub-set-switch-all" onClick={() => {
+            setOpen(false);
+            hub.go({ screen: "arrangements" });
+          }}>{SET_COPY.allArrangements}</button>
+        </div>
+      )}
+    </div>
+  );
+}
+
+export function ArrangementScreen({ arrangementId = null }: { arrangementId?: string | null }) {
   const hub = useHub();
   const on = arrangementOn(hub.health);
   const editsSent = useRef(0);
   const editsWaiting = useRef(0);
-  const { set, setSet, error } = useSet(hub.data.version, on, editsSent, editsWaiting);
+  const { set, setSet, error } = useSet(hub.data.version, on, editsSent, editsWaiting, arrangementId);
+  const arrangements = useArrangements(hub.data.version, on && arrangementsOn(hub.health));
+  /** The arrangement shown: the one the daemon answered for, so edits and runs go to it even when the address named none. */
+  const shownId = set?.arrangement?.id ?? arrangementId;
   /** Edits drawn ahead of their answers, oldest first, each under its own number. */
   const [ghosts, setGhosts] = useState<Array<Ghost & { n: number }>>([]);
   const ghostN = useRef(0);
@@ -177,7 +238,7 @@ export function ArrangementScreen() {
   const [slideBack, setSlideBack] = useState<{ key: string; attr: string; from: DOMRect | null; n: number } | null>(null);
   const clockRef = useRef<HTMLOutputElement>(null);
   const [mine, setMine] = useState<{ planId: string; runId: string } | null>(null);
-  const run = useSetRun(mine);
+  const run = useSetRun(mine, shownId);
   const [refused, setRefused] = useState<{ lines: string[]; findings: ArrangementFinding[] } | null>(null);
   const [sel, setSel] = useState<Sel>(null);
   const [copied, setCopied] = useState<{ track: string; id: string } | null>(null);
@@ -282,7 +343,7 @@ export function ArrangementScreen() {
     const send = async () => {
       setRefused(null);
       try {
-        const a = await api.set.edit(lines);
+        const a = await api.set.edit(lines, shownId);
         editsWaiting.current--;
         setSet(a);
         drop();
@@ -327,7 +388,7 @@ export function ArrangementScreen() {
   /** Play and Space: every timeline from the playhead, as a DAW plays from its insert marker; from the loop's start when Loop is on. */
   const playAll = () => {
     const from = loopOn && loop ? loop.start : playhead;
-    void play(arrangementFromPlayhead(from, rate), from > 0 ? SET_COPY.arrangementFrom(arrangeSeconds(from, rate)) : SET_COPY.arrangement);
+    void play(arrangementFromPlayhead(from, rate, shownId), from > 0 ? SET_COPY.arrangementFrom(arrangeSeconds(from, rate)) : SET_COPY.arrangement);
   };
   const stop = async () => {
     if (!run.active) return;
@@ -342,7 +403,7 @@ export function ArrangementScreen() {
   loopTick.current = () => {
     if (!loopOn || !loop || !run.active || run.cursor === null || run.cursor < loop.end || restarting.current) return;
     restarting.current = true;
-    void stop().then(() => play(arrangementFromPlayhead(loop.start, rate), SET_COPY.arrangementFrom(arrangeSeconds(loop.start, rate)))).finally(() => {
+    void stop().then(() => play(arrangementFromPlayhead(loop.start, rate, shownId), SET_COPY.arrangementFrom(arrangeSeconds(loop.start, rate)))).finally(() => {
       restarting.current = false;
     });
   };
@@ -629,6 +690,7 @@ export function ArrangementScreen() {
         title={SET_COPY.arrangement}
         actions={<>
           <div className="hub-set-transport" role="group" aria-label={SET_COPY.transport}>
+            {arrangements && arrangements.length > 0 && <Switcher current={shownId} list={arrangements} />}
             {run.active
               ? <button className="hub-set-transport-btn on" onClick={() => void stop()} title={SET_COPY.stopHint}><HubIcon name="stop" size={11} /> {SET_COPY.stop}</button>
               : <button className="hub-set-transport-btn primary" onClick={playAll} title={SET_COPY.playArrangement} disabled={!tracks.length}><HubIcon name="play" size={11} /> {SET_COPY.play}</button>}
@@ -751,7 +813,7 @@ export function ArrangementScreen() {
         )}
       </footer>
       {deleting && (
-        <DeleteConfirm track={deleting} set={set} onClose={() => setDeleting(null)}
+        <DeleteConfirm track={deleting} set={set} arrangementId={shownId} onClose={() => setDeleting(null)}
           onDeleted={(a, title) => {
             setDeleting(null);
             setSet(a);
@@ -768,7 +830,7 @@ export function ArrangementScreen() {
  * stop playing it, since that changes them out of sight. A refusal (a run
  * made for it is queued or running) stays in the dialog.
  */
-function DeleteConfirm({ track, set, onClose, onDeleted }: { track: string; set: SetAnswer; onClose: () => void; onDeleted: (a: SetAnswer, title: string) => void }) {
+function DeleteConfirm({ track, set, arrangementId, onClose, onDeleted }: { track: string; set: SetAnswer; arrangementId: string | null; onClose: () => void; onDeleted: (a: SetAnswer, title: string) => void }) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const x = set.tracks.find((t) => t.id === track);
@@ -780,7 +842,7 @@ function DeleteConfirm({ track, set, onClose, onDeleted }: { track: string; set:
     setBusy(true);
     setError(null);
     try {
-      onDeleted(await api.set.edit([SET_OPS.trackDelete(track)]), x.title);
+      onDeleted(await api.set.edit([SET_OPS.trackDelete(track)], arrangementId), x.title);
     } catch (e) {
       setBusy(false);
       setError(e instanceof ApiError && e.status === 400 ? refusalFindings(e.body)[0]?.message ?? e.message : (e as Error).message);

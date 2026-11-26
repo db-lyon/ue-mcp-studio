@@ -21,6 +21,26 @@
 .hub-set-transport { display: flex; align-items: center; gap: 4px; margin-left: 6px; }
 .hub-root button.hub-set-transport-btn { height: 26px; min-height: 0; padding: 0 10px; font: 600 12px/1 var(--sans); letter-spacing: 0; }
 .hub-root button.hub-set-transport-btn.on { background: var(--accent-wash); border-color: var(--accent); color: var(--accent); }
+/* The switcher at the head of the transport: the arrangement shown, and the others to open in its place. */
+.hub-root button.hub-set-switch { display: inline-flex; align-items: center; gap: 6px; max-width: 200px; margin-right: 4px; }
+.hub-set-switch-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.hub-set-pop.switcher { left: 0; right: auto; min-width: 240px; }
+.hub-set-pop.switcher li { padding: 0; border-left: 0; }
+.hub-root.narrow .hub-set-transport { flex-wrap: wrap; row-gap: 6px; margin-left: 0; }
+/* On a narrow page the list spans the page under the switcher, wherever the transport wrapped it. */
+.hub-root.narrow .hub-set-pop.switcher { position: fixed; top: auto; left: 16px; right: 16px; min-width: 0; width: auto; max-width: none; }
+.hub-root button.hub-set-switch-item { display: flex; flex-direction: column; align-items: flex-start; gap: 1px; width: 100%; min-height: 0; padding: 6px 8px; border: 1px solid transparent; background: transparent; text-align: left; color: var(--text); font: 500 12.5px/1.3 var(--sans); }
+.hub-root button.hub-set-switch-item:hover { background: var(--panel-2); }
+.hub-root button.hub-set-switch-item.at { background: var(--accent-wash); border-color: var(--accent-line); }
+.hub-set-switch-title { max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 600; }
+.hub-root .hub-set-switch-all { width: 100%; margin-top: 4px; justify-content: center; }
+/* The list of arrangements: each row opens one; its actions sit at its end and fold under it on a narrow screen. */
+.hub-arrangement-list .hub-goal-line > .hub-row { flex: 1; min-width: 0; }
+.hub-arrangement-list .hub-row-actions { gap: 4px; }
+@media (max-width: 760px) {
+  .hub-arrangement-list .hub-goal-line { flex-wrap: wrap; }
+  .hub-arrangement-list .hub-row-actions { width: 100%; justify-content: flex-end; padding: 0 8px 6px; }
+}
 .hub-set-clock { display: inline-block; min-width: 74px; padding: 4px 8px; box-sizing: border-box; border: 1px solid var(--line); border-radius: var(--radius); background: var(--panel-2); font: 600 12.5px/1 var(--mono); text-align: center; color: var(--text); font-variant-numeric: tabular-nums; }
 .hub-root button.hub-set-warnings { height: 26px; min-height: 0; padding: 0 8px; border: 1px solid var(--line-strong); background: transparent; color: var(--warn); font: 600 12px/1 var(--sans); letter-spacing: 0; }
 .hub-root button.hub-set-warnings.bad { color: var(--bad); border-color: var(--bad); }
