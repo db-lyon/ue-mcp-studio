@@ -4,9 +4,11 @@
  * and results, and the copy. The daemon validates and lays out; the views
  * draw what it answers and send ops.
  */
-import { ARRANGEMENT_DEFAULT_RATE, ARRANGEMENT_FEATURE } from "@ue-mcp-studio/shared";
+import { ARRANGEMENT_DEFAULT_RATE, ARRANGEMENT_FEATURE, ARRANGEMENTS_FEATURE } from "@ue-mcp-studio/shared";
 import type {
   ArrangementFinding,
+  ArrangementInfo,
+  ArrangementsView,
   ArrangementRun,
   HubClipEntry,
   HubOverview,
@@ -31,11 +33,27 @@ export function arrangementOn(health: unknown): boolean {
   return Array.isArray(features) && features.includes(ARRANGEMENT_FEATURE);
 }
 
-/** The daemon's set routes under /v1/hub. Edits go as op lines (SET_OPS). */
+/** Whether the daemon serves a project's named arrangements (GET /hub/arrangements and the `arrangement` the set routes take). */
+export function arrangementsOn(health: unknown): boolean {
+  const features = Array.isArray(health) ? health : (health as { features?: unknown } | null)?.features;
+  return Array.isArray(features) && features.includes(ARRANGEMENTS_FEATURE);
+}
+
+/**
+ * The daemon's set routes under /v1/hub. Edits go as op lines (SET_OPS).
+ * `arrangement` names which arrangement; without it the daemon answers its
+ * first one, as a daemon that predates arrangements always does.
+ */
 export function setApi(request: HubRequest) {
+  const of = (arrangement?: string | null) => (arrangement ? `?arrangement=${enc(arrangement)}` : "");
   return {
-    read: () => request<SetAnswer>("GET", `${HUB_BASE}/set`),
-    edit: (lines: readonly string[]) => request<SetAnswer>("POST", `${HUB_BASE}/set/edit`, { ops: lines.join("\n") }),
+    read: (arrangement?: string | null) => request<SetAnswer>("GET", `${HUB_BASE}/set${of(arrangement)}`),
+    edit: (lines: readonly string[], arrangement?: string | null) => request<SetAnswer>("POST", `${HUB_BASE}/set/edit`, arrangement ? { ops: lines.join("\n"), arrangement } : { ops: lines.join("\n") }),
+    arrangements: () => request<ArrangementsView>("GET", `${HUB_BASE}/arrangements`),
+    createArrangement: (title: string, level?: string | null) => request<{ arrangement: ArrangementInfo }>("POST", `${HUB_BASE}/arrangements`, level ? { title, level } : { title }),
+    updateArrangement: (id: string, change: { title?: string; level?: string | null }) => request<{ arrangement: ArrangementInfo }>("PUT", `${HUB_BASE}/arrangements/${enc(id)}`, change),
+    duplicateArrangement: (id: string, title?: string) => request<{ arrangement: ArrangementInfo }>("POST", `${HUB_BASE}/arrangements/${enc(id)}/duplicate`, title ? { title } : {}),
+    deleteArrangement: (id: string) => request<void>("DELETE", `${HUB_BASE}/arrangements/${enc(id)}`),
     clips: (q = "", kind?: InstanceKind) => {
       const p = new URLSearchParams();
       if (q) p.set("q", q);
@@ -135,9 +153,16 @@ export const snapTo = (f: number, step: number): number => Math.max(0, step > 0 
 /** Frames as seconds of game time: "1.5 s". */
 export const arrangeSeconds = (f: number, rate: number): string => `${(f / rate).toFixed(2).replace(/\.?0+$/, "") || "0"} s`;
 
-/** The arrangement run from the playhead (`at` frames at `rate`): from the start when it is at 0. */
-export const arrangementFromPlayhead = (at: number, rate: number): SetRunScope =>
-  at > 0 ? { kind: "arrangement", from: Math.round(((at * ARRANGEMENT_DEFAULT_RATE) / (rate || ARRANGEMENT_DEFAULT_RATE)) * 1000) / 1000 } : { kind: "arrangement" };
+/** The arrangement run from the playhead (`at` frames at `rate`): from the start when it is at 0. `arrangementId` names which arrangement plays. */
+export const arrangementFromPlayhead = (at: number, rate: number, arrangementId?: string | null): SetRunScope => ({
+  kind: "arrangement",
+  ...(at > 0 ? { from: Math.round(((at * ARRANGEMENT_DEFAULT_RATE) / (rate || ARRANGEMENT_DEFAULT_RATE)) * 1000) / 1000 } : {}),
+  ...(arrangementId ? { arrangementId } : {}),
+});
+
+/** Whether a plan is another arrangement's: the Arrangement view shows only its own runs. A plan without an arrangement (an older daemon's) is anyone's. */
+export const otherArrangement = (plan: { arrangementId?: string } | null | undefined, arrangementId: string | null | undefined): boolean =>
+  !!plan?.arrangementId && !!arrangementId && plan.arrangementId !== arrangementId;
 
 /** Where the last instance on these timelines ends. */
 export const arrangeEnd = (layouts: ReadonlyArray<readonly InstanceLayout[]>): number => layouts.reduce((m, l) => l.reduce((n, x) => Math.max(n, x.end), m), 0);
@@ -269,9 +294,9 @@ const SET_SCOPES = ["track", "scene", "arrangement"];
  * elsewhere (an agent, a schedule) is the queue's current plan when it plays
  * part of the set, by the run its item records.
  */
-export function activeSetRun(o: Pick<HubOverview, "queue">, mine?: { planId: string; runId: string } | null): { planId: string; runId: string } | null {
+export function activeSetRun(o: Pick<HubOverview, "queue">, mine?: { planId: string; runId: string } | null, arrangementId?: string | null): { planId: string; runId: string } | null {
   const cur = o.queue.current;
-  if (!cur || !SET_SCOPES.includes((cur.scope as { kind: string }).kind)) return null;
+  if (!cur || !SET_SCOPES.includes((cur.scope as { kind: string }).kind) || otherArrangement(cur, arrangementId)) return null;
   if (mine && mine.planId === cur.id) return mine;
   const item = [...cur.items].reverse().find((i) => i.runId);
   return item?.runId ? { planId: cur.id, runId: item.runId } : null;
@@ -369,6 +394,36 @@ export const INSTANCE_STATUS_LOOK: Record<InstanceStatus, StatusLook> = {
 export const SET_COPY = {
   arrangement: "Arrangement",
   notOffered: "Update ue-mcp to use the Arrangement.",
+  // A project's arrangements: the list, and the switcher in the transport.
+  arrangements: "Arrangements",
+  arrangementsLead: "Each arrangement has its own tracks, scenes and level. Clips are shared by all of them.",
+  newArrangement: "New arrangement",
+  switcher: "Arrangement shown",
+  allArrangements: "All arrangements",
+  openArrangement: (title: string) => `Open ${title}`,
+  arrangementCounts: (tracks: number, scenes: number) => `${tracks} ${tracks === 1 ? "track" : "tracks"}, ${scenes} ${scenes === 1 ? "scene" : "scenes"}`,
+  noLevel: "Opens no level",
+  levelOf: (level: string) => `Opens ${level.split("/").pop()}`,
+  lastRun: (outcome: string, when: string) => `Last run ${outcome}, ${when}`,
+  neverRun: "Not run yet",
+  rename: "Rename",
+  setLevel: "Level",
+  duplicateArrangement: "Duplicate",
+  deleteArrangement: "Delete",
+  arrangementTitle: "Name",
+  levelLabel: "Level",
+  levelPlaceholder: "/Game/Maps/MyMap",
+  levelHelp: "The map a run of this arrangement opens before Play In Editor starts. Leave it empty to play whichever map is open.",
+  create: "Create",
+  save: "Save",
+  renameTitle: (title: string) => `Rename "${title}"`,
+  levelTitle: (title: string) => `Level for "${title}"`,
+  deleteArrangementTitle: (title: string) => `Delete the arrangement "${title}"?`,
+  deleteArrangementKeeps: (tracks: number, scenes: number) => `Its ${tracks} ${tracks === 1 ? "track" : "tracks"} and ${scenes} ${scenes === 1 ? "scene" : "scenes"} are deleted with it. Clips stay in Clips with their past runs.`,
+  deleteLast: "This is the project's only arrangement. Create another before deleting it.",
+  created: (title: string) => `Created ${title}`,
+  duplicated: (title: string) => `Duplicated as ${title}`,
+  deletedArrangement: (title: string) => `Deleted ${title}`,
   play: "Play",
   stop: "Stop",
   playArrangement: "Play from the playhead, or from the loop range when Loop is on (Space)",
