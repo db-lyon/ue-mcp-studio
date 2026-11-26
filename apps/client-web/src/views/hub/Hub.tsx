@@ -288,9 +288,10 @@ export function HubView({ data, narrow, onOpenChat, onChat, canDeleteGoals = fal
 
   return (
     <HubContext.Provider value={ctx}>
-      <div className={`hub-root ${narrow ? "narrow" : "wide"}`}>
+      {/* The Arrangement takes the whole page, as a DAW's does: the rail folds to its icons and the screen fills the height. */}
+      <div className={`hub-root ${narrow ? "narrow" : "wide"} ${route.screen === "arrangement" ? "slim" : ""}`}>
         {narrow ? <HubBar onPalette={() => setOverlay({ kind: "palette" })} /> : <HubRail onPalette={() => setOverlay({ kind: "palette" })} onShortcuts={() => setOverlay({ kind: "shortcuts" })} />}
-        <div className="hub-main" ref={main}>
+        <div className={`hub-main ${route.screen === "arrangement" ? "fill" : ""}`} ref={main}>
           {data.error && <div className="banner warn small" role="alert">Could not refresh: {data.error}</div>}
           {screen}
         </div>
@@ -405,7 +406,7 @@ function HubRail({ onPalette, onShortcuts }: { onPalette: () => void; onShortcut
       </button>
       <div className="hub-rail-group">
         {SECTIONS.map((s) => (
-          <HubLink key={s.id} href={hubHash(sectionRoute(s.id))} onGo={() => go(sectionRoute(s.id))} className={`hub-rail-item ${at === s.id && route.screen !== "goal" ? "active" : ""}`} title={s.keys ? `${s.label} (${s.keys})` : s.label}>
+          <HubLink key={s.id} href={hubHash(sectionRoute(s.id))} onGo={() => go(sectionRoute(s.id))} className={`hub-rail-item ${at === s.id && route.screen !== "goal" && route.screen !== "arrangement" ? "active" : ""}`} title={s.keys ? `${s.label} (${s.keys})` : s.label}>
             <HubIcon name={s.icon} />
             <span className="hub-rail-label">{s.label}</span>
             {sectionCount(s.id, ctx)}
@@ -413,7 +414,7 @@ function HubRail({ onPalette, onShortcuts }: { onPalette: () => void; onShortcut
         ))}
         {arrangementOn(ctx.health) && (
           <HubLink href={hubHash(SET_ROUTE)} onGo={() => go(SET_ROUTE)} className={`hub-rail-item ${route.screen === "arrangement" ? "active" : ""}`}>
-            <HubIcon name="queue" />
+            <HubIcon name="arrange" />
             <span className="hub-rail-label">{SET_COPY.arrangement}</span>
           </HubLink>
         )}
@@ -441,7 +442,7 @@ function HubBar({ onPalette }: { onPalette: () => void }) {
     <div className="hub-bar">
       <nav className="hub-seg" aria-label={HUB_COPY.title}>
         {SECTIONS.map((s) => (
-          <HubLink key={s.id} href={hubHash(sectionRoute(s.id))} onGo={() => ctx.go(sectionRoute(s.id))} className={`hub-seg-item ${at === s.id ? "active" : ""}`}>
+          <HubLink key={s.id} href={hubHash(sectionRoute(s.id))} onGo={() => ctx.go(sectionRoute(s.id))} className={`hub-seg-item ${at === s.id && ctx.route.screen !== "arrangement" ? "active" : ""}`}>
             <span>{s.label}</span>
             {s.id === "overview" && sectionCount(s.id, ctx)}
           </HubLink>
