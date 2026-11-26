@@ -16,6 +16,8 @@ import type {
   InstanceKind,
   InstanceLayout,
   InstanceStatus,
+  Performer,
+  PerformersView,
   PlanPlacement,
   PlanRun,
   RunDetail,
@@ -24,6 +26,7 @@ import type {
   SetRunScope,
 } from "@ue-mcp-studio/shared";
 import { HUB_BASE, type HubRequest, type StatusLook } from "./hub.js";
+import { performerText, placePerformerFindings } from "./performers.js";
 
 const enc = encodeURIComponent;
 
@@ -49,6 +52,8 @@ export function setApi(request: HubRequest) {
   return {
     read: (arrangement?: string | null) => request<SetAnswer>("GET", `${HUB_BASE}/set${of(arrangement)}`),
     edit: (lines: readonly string[], arrangement?: string | null) => request<SetAnswer>("POST", `${HUB_BASE}/set/edit`, arrangement ? { ops: lines.join("\n"), arrangement } : { ops: lines.join("\n") }),
+    /** What a track can drive: the players, then the open level's actors (a daemon with hub.performers). */
+    performers: (arrangement?: string | null) => request<PerformersView>("GET", `${HUB_BASE}/performers${of(arrangement)}`),
     arrangements: () => request<ArrangementsView>("GET", `${HUB_BASE}/arrangements`),
     createArrangement: (title: string, level?: string | null) => request<{ arrangement: ArrangementInfo }>("POST", `${HUB_BASE}/arrangements`, level ? { title, level } : { title }),
     updateArrangement: (id: string, change: { title?: string; level?: string | null }) => request<{ arrangement: ArrangementInfo }>("PUT", `${HUB_BASE}/arrangements/${enc(id)}`, change),
@@ -88,6 +93,9 @@ export const SET_OPS = {
   trackMute: (t: string, on: boolean) => `track mute ${t} ${onOff(on)}`,
   trackSolo: (t: string, on: boolean) => `track solo ${t} ${onOff(on)}`,
   trackPlayer: (t: string, n: number) => `track player ${t} ${n}`,
+  /** A new track that drives this performer (a daemon with hub.performers). */
+  trackAddFor: (name: string, p: Performer) => `track add ${q(name)} performer=${performerText(p)}`,
+  trackPerformer: (t: string, p: Performer) => `track performer ${t} ${performerText(p)}`,
   sceneAdd: (name: string) => `scene add ${q(name)}`,
   sceneInsert: (name: string, to: number) => `scene insert ${q(name)} at ${to}`,
   sceneRename: (s: string, name: string) => `scene rename ${s} ${q(name)}`,
@@ -250,12 +258,13 @@ export function refusalFindings(body: unknown): ArrangementFinding[] {
 /**
  * The findings the Arrangement shows: a refused edit's first, then the set's.
  * A scene's own findings are left out, since scenes belong to the Session
- * view; one about a track or an instance stays.
+ * view; one about a track or an instance stays. A performer finding a
+ * scene's composition carries is about an instance, and is placed on it.
  */
 export function arrangementFindings(set: Pick<SetAnswer, "findings" | "tracks" | "scenes">, refused: readonly ArrangementFinding[] = []): ArrangementFinding[] {
   const scenes = new Set(set.scenes.map((s) => s.id));
   const tracks = new Set(set.tracks.map((t) => t.id));
-  const own = set.findings.filter((f) => {
+  const own = placePerformerFindings(set.findings, set).filter((f) => {
     const head = f.id.split("/")[0];
     return !(scenes.has(head) && !tracks.has(head)) && !refused.some((r) => r.id === f.id && r.field === f.field);
   });

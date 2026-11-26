@@ -10,12 +10,16 @@
  */
 import { ARRANGEMENT_RATE, SET_COLORS } from "ue-mcp/hub";
 import type { ArrangementFinding, ArrangementRun, ClipEntry, PlanScope, SetColor, SetView } from "ue-mcp/hub";
+import type { Performer } from "./hub-contract.js";
 
 /** Listed in GET /v1/health features by a daemon that serves the set routes. */
 export const ARRANGEMENT_FEATURE = "hub.arrangement";
 
 /** Listed by a daemon whose projects hold named arrangements (GET /hub/arrangements). */
 export const ARRANGEMENTS_FEATURE = "hub.arrangements";
+
+/** Listed by a daemon whose tracks drive performers, players or actors (GET /hub/performers, the track.performer op). */
+export const PERFORMERS_FEATURE = "hub.performers";
 
 /** Frames per second a timeline is laid out in when it says nothing else. */
 export const ARRANGEMENT_DEFAULT_RATE = ARRANGEMENT_RATE;
@@ -24,14 +28,18 @@ export const ARRANGEMENT_DEFAULT_RATE = ARRANGEMENT_RATE;
 export const HUB_COLORS = SET_COLORS;
 export type HubColor = SetColor;
 
-/** A track as GET /hub/set answers it: a row of the Arrangement, a timeline that drives one player. */
-export type SetTrackView = SetView["tracks"][number];
+/**
+ * A track as GET /hub/set answers it: a row of the Arrangement, a timeline
+ * that drives one performer. `performer` is absent from a daemon that
+ * predates performers, whose tracks drive player `player`.
+ */
+export type SetTrackView = Omit<SetView["tracks"][number], "performer"> & { performer?: Performer };
 
 /** A scene as GET /hub/set answers it: tracks whose timelines play together. */
 export type SetSceneView = SetView["scenes"][number];
 
 /** GET /hub/set, and POST /hub/set/edit with `changed`. */
-export type SetAnswer = SetView & { changed?: string[] };
+export type SetAnswer = Omit<SetView, "tracks"> & { tracks: SetTrackView[]; changed?: string[] };
 
 /** The 400 body of POST /hub/set/edit. */
 export interface SetRefusal {

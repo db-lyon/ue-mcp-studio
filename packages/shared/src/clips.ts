@@ -5,6 +5,7 @@
  * declared here rather than imported, since the ue-mcp version Studio pins
  * may predate them. Every field ue-mcp may leave out is optional.
  */
+import type { ClipLane, Performer } from "./hub-contract.js";
 
 export type ClipTrackType = "bool" | "axis1d" | "axis2d" | "axis3d";
 export type ClipInterp = "linear" | "constant" | "cubic";
@@ -78,7 +79,12 @@ export interface Clip {
   hold_timeout?: number;
   reference?: string;
   regions?: ClipRegion[];
+  /** Input Action lanes. */
   tracks?: ClipTrack[];
+  /** The performer the clip's lanes drive when a lane names none, and its track drives the editor's own player. */
+  performer?: Performer;
+  /** Move, action and value lanes, beside the Input Action lanes in `tracks`. */
+  lanes?: ClipLane[];
   events?: ClipEvent[];
   checks?: ClipCheck[];
   takes?: unknown[];
@@ -191,6 +197,17 @@ export interface ClipRunStatus {
   regions?: ClipRegionResult[];
   drift?: ClipDrift;
   take?: { live_take?: ClipLiveTake; take_id?: string; saved?: boolean; error?: string; [k: string]: unknown };
+  /** Each move, action and value lane: what it fired and what went wrong. */
+  lanes?: ClipLaneResult[];
+}
+
+/** One lane of a run: how many points, calls or keys it fired, and its errors. */
+export interface ClipLaneResult {
+  id: string;
+  kind?: string;
+  performer?: Performer;
+  fired?: number;
+  errors?: string[];
 }
 
 /** A clip_list row. */

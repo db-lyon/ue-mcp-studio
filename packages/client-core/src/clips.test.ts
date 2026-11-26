@@ -17,7 +17,21 @@ import {
   curveAt,
   emptyHistory,
   findingFix,
+  findingTarget,
   gridStep,
+  LANE_OPS,
+  argsText,
+  atText,
+  laneKindsFor,
+  lanePerformer,
+  laneTitle,
+  laneValueAt,
+  laneValueRange,
+  newLaneValue,
+  newPointAt,
+  parseArgs,
+  parseAt,
+  parseLaneValue,
   historyAfterEdit,
   historyAfterRedo,
   historyAfterUndo,
@@ -141,5 +155,82 @@ describe("addresses", () => {
     const r = { screen: "clip" as const, path: "/Game/PIEStudio/Clips/CL_Door" };
     expect(parseHubPath(hubPath(r))).toEqual(r);
     expect(clipName("/Game/PIEStudio/Clips/CL_Door.CL_Door")).toBe("CL_Door");
+  });
+});
+
+describe("move, action and value lanes", () => {
+  const move = { id: "L1", kind: "move" as const, points: [{ id: "p1", t: 0, at: [0, 0, 0] as [number, number, number] }, { id: "p2", t: 120, at: [400, -50, 0] as [number, number, number], radius: 30 }] };
+  const action = { id: "L2", kind: "action" as const, performer: { kind: "actor" as const, actor: "Gate" }, calls: [{ id: "a1", t: 200, fn: "Open", args: [1] }] };
+  const value = { id: "L3", kind: "value" as const, target: "bb:Alert", type: "axis1d" as const, keys: [{ id: "v1", t: 60, v: 0 }, { id: "v2", t: 180, v: 10 }] };
+  const clip: Clip = { rate: 60, performer: { kind: "actor", actor: "Guard" }, lanes: [move, action, value] };
+
+  it("builds clip_edit's lane ops", () => {
+    expect(LANE_OPS.add("value", { target: "Health", type: "bool", performer: { kind: "actor", actor: "Guard" } })).toEqual({ op: "add", kind: "lane", capability: "value", performer: { kind: "actor", actor: "Guard" }, target: "Health", type: "bool" });
+    expect(LANE_OPS.add("move")).toEqual({ op: "add", kind: "lane", capability: "move" });
+    expect(LANE_OPS.add("action", { watch: ["bOpen"] })).toEqual({ op: "add", kind: "lane", capability: "action", watch: ["bOpen"] });
+    expect(LANE_OPS.point("L1", 30, [1, 2, 3])).toEqual({ op: "add", kind: "point", lane: "L1", time: 30, at: [1, 2, 3] });
+    expect(LANE_OPS.point("L1", 30, [1, 2, 3], 50)).toMatchObject({ radius: 50 });
+    expect(LANE_OPS.call("L2", 10, "Fire", [])).toEqual({ op: "add", kind: "call", lane: "L2", time: 10, fn: "Fire" });
+    expect(LANE_OPS.key("L3", 5, true)).toEqual({ op: "add", kind: "key", lane: "L3", time: 5, value: true });
+    expect(LANE_OPS.set("L2", { performer: null })).toEqual({ op: "set", id: "L2", performer: null });
+    expect(LANE_OPS.clipPerformer(null)).toEqual({ op: "set_clip", performer: null });
+  });
+
+  it("names lanes and their performers, and offers the kinds a performer takes", () => {
+    expect(laneTitle(move)).toBe("Move to");
+    expect(laneTitle(action)).toBe("Actions");
+    expect(laneTitle(value)).toBe("bb:Alert");
+    expect(lanePerformer(action, clip)).toEqual({ kind: "actor", actor: "Gate" });
+    expect(lanePerformer(move, clip)).toEqual({ kind: "actor", actor: "Guard" });
+    expect(lanePerformer(move, {})).toBeNull();
+    expect(laneKindsFor({ kind: "player", client: 0 })).toEqual(["action", "value"]);
+    expect(laneKindsFor({ kind: "actor", actor: "Guard" })).toEqual(["move", "action", "value"]);
+    expect(laneKindsFor(null)).toEqual(["move", "action", "value"]);
+  });
+
+  it("reads coordinates, arguments and values as typed", () => {
+    expect(parseAt("120, -40, 0")).toEqual([120, -40, 0]);
+    expect(parseAt("1 2 3")).toEqual([1, 2, 3]);
+    expect(parseAt("1, 2")).toBeNull();
+    expect(atText([1.234, -5, 0])).toBe("1.23, -5, 0");
+    expect(parseArgs("")).toEqual([]);
+    expect(parseArgs('[1, "Gate"]')).toEqual([1, "Gate"]);
+    expect(parseArgs("5")).toEqual([5]);
+    expect(parseArgs("[1,")).toBeNull();
+    expect(argsText([1, "a"])).toBe('[1,"a"]');
+    expect(argsText(undefined)).toBe("");
+    expect(parseLaneValue("true", "bool")).toBe(true);
+    expect(parseLaneValue("0", "bool")).toBe(false);
+    expect(parseLaneValue("yes", "bool")).toBeNull();
+    expect(parseLaneValue("2.5", "axis1d")).toBe(2.5);
+    expect(parseLaneValue("", "axis1d")).toBeNull();
+  });
+
+  it("puts a new point where the one before it went, and a new key on the curve", () => {
+    expect(newPointAt(move, 200)).toEqual([400, -50, 0]);
+    expect(newPointAt(move, 60)).toEqual([0, 0, 0]);
+    expect(newPointAt({ ...move, points: [] }, 60)).toEqual([0, 0, 0]);
+    expect(laneValueAt(value, 30)).toBeUndefined();
+    expect(laneValueAt(value, 120)).toBe(5);
+    expect(laneValueAt(value, 999)).toBe(10);
+    expect(newLaneValue(value, 120)).toBe(5);
+    expect(newLaneValue({ ...value, type: "bool", keys: [] }, 0)).toBe(false);
+    expect(laneValueRange(value)).toEqual({ min: -1, max: 11 });
+    expect(laneValueRange({ ...value, type: "bool" })).toEqual({ min: 0, max: 1 });
+  });
+
+  it("counts lanes in the clip's end, selects their items from a finding, and offers no fix for a performer finding", () => {
+    expect(clipEnd({ rate: 60, lanes: [{ ...action, calls: [{ id: "a1", t: 900, fn: "Open" }] }] })).toBe(900);
+    expect(findingTarget(clip, { id: "p2", message: "x" })).toEqual({ kind: "point", id: "p2", lane: "L1" });
+    expect(findingTarget(clip, { id: "a1", message: "x" })).toEqual({ kind: "call", id: "a1", lane: "L2" });
+    expect(findingTarget(clip, { id: "v1", message: "x" })).toEqual({ kind: "laneKey", id: "v1", lane: "L3" });
+    expect(findingTarget(clip, { id: "L3", message: "x" })).toEqual({ kind: "lane", id: "L3", lane: "L3" });
+    expect(findingFix(clip, { id: "L1", field: "performer", message: "x", candidates: ["input"] }, "input")).toBeNull();
+  });
+
+  it("reads each lane's result from a run", () => {
+    const l = clipLiveFromStatus({ run_id: "r", state: "finished", lanes: [{ id: "L1", kind: "move", fired: 2, errors: [] }, { id: "L2", kind: "action", fired: 0, errors: ["Gate has no function Open"] }] });
+    expect(l.lanes.L2.errors).toEqual(["Gate has no function Open"]);
+    expect(l.lanes.L1.fired).toBe(2);
   });
 });
