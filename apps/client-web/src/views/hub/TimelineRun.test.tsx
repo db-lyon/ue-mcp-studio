@@ -153,4 +153,18 @@ describe("recording", () => {
     expect(await screen.findByText(/The take appears when it is saved/)).toBeTruthy();
     expect(m.clips.record).toHaveBeenCalledWith({ path: PATH, armed: [MOVE, JUMP] });
   });
+
+  it("records into a move lane once it is armed, and shows a lane's errors from the run", async () => {
+    m.clips.read.mockResolvedValue({ path: PATH, clip: { ...CLIP, performer: { kind: "actor", actor: "Guard" }, lanes: [{ id: "L1", kind: "move", points: [] }, { id: "L2", kind: "action", calls: [] }] }, warnings: [] });
+    m.clips.status.mockResolvedValue({ run_id: "clip-0", clip: PATH, mode: "play", state: "finished", lanes: [{ id: "L2", kind: "action", fired: 0, errors: ["Guard has no function Open"] }] });
+    render(<Harness features={["events.clip"]} />);
+    await screen.findByRole("heading", { name: "CL_Door" });
+    const arm = screen.getByRole("checkbox", { name: "Record into this lane: Move to" }) as HTMLInputElement;
+    expect(arm.checked).toBe(false);
+    fireEvent.click(arm);
+    await waitFor(() => expect(document.querySelector("[data-lane=L2] .hub-clip-label.bad .hub-clip-lane-errors")?.getAttribute("title")).toContain("Guard has no function Open"));
+    m.clips.record.mockResolvedValue({ run_id: "clip-1", clip: PATH, mode: "record", state: "running" });
+    fireEvent.click(screen.getByRole("button", { name: "Record" }));
+    await waitFor(() => expect(m.clips.record).toHaveBeenCalledWith({ path: PATH, armed: [MOVE, JUMP, "L1"] }));
+  });
 });

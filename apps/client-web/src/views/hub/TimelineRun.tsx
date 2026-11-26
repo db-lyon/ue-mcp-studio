@@ -124,11 +124,13 @@ export function ClipRunView({ path }: { path: string }) {
     <ClipScreen path={path}>
       {({ clip, reload }) => {
         reloadClip.current = reload;
+        // Input Action lanes are armed until a person says otherwise; a move, action or value lane only when armed, so a take never replaces drawn actor lanes unasked.
         const arm = armed ?? new Set((clip.tracks ?? []).map((t) => t.action));
         const overlay: LaneOverlay = {
           cursor: view && !shown && playing ? view.position : undefined,
           checkStatus: view ? Object.fromEntries(Object.values(view.checks).map((c) => [c.id, c.status])) : undefined,
           regionStatus: view ? Object.fromEntries(Object.values(view.regions).map((r) => [r.id, { status: r.status, drift: driftText(r.drift) }])) : undefined,
+          laneStatus: view?.lanes,
           armed: arm,
           onArm: playing ? undefined : (action, on) => {
             const next = new Set(arm);
