@@ -405,7 +405,7 @@ function HubRail({ onPalette, onShortcuts }: { onPalette: () => void; onShortcut
       </button>
       <div className="hub-rail-group">
         {SECTIONS.map((s) => (
-          <HubLink key={s.id} href={hubHash(sectionRoute(s.id))} onGo={() => go(sectionRoute(s.id))} className={`hub-rail-item ${at === s.id && route.screen !== "goal" ? "active" : ""}`} title={s.keys ? `${s.label} (${s.keys})` : s.label}>
+          <HubLink key={s.id} href={hubHash(sectionRoute(s.id))} onGo={() => go(sectionRoute(s.id))} className={`hub-rail-item ${at === s.id && route.screen !== "goal" && route.screen !== "arrangement" ? "active" : ""}`} title={s.keys ? `${s.label} (${s.keys})` : s.label}>
             <HubIcon name={s.icon} />
             <span className="hub-rail-label">{s.label}</span>
             {sectionCount(s.id, ctx)}
@@ -441,7 +441,7 @@ function HubBar({ onPalette }: { onPalette: () => void }) {
     <div className="hub-bar">
       <nav className="hub-seg" aria-label={HUB_COPY.title}>
         {SECTIONS.map((s) => (
-          <HubLink key={s.id} href={hubHash(sectionRoute(s.id))} onGo={() => ctx.go(sectionRoute(s.id))} className={`hub-seg-item ${at === s.id ? "active" : ""}`}>
+          <HubLink key={s.id} href={hubHash(sectionRoute(s.id))} onGo={() => ctx.go(sectionRoute(s.id))} className={`hub-seg-item ${at === s.id && ctx.route.screen !== "arrangement" ? "active" : ""}`}>
             <span>{s.label}</span>
             {s.id === "overview" && sectionCount(s.id, ctx)}
           </HubLink>
