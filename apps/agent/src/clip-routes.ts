@@ -179,7 +179,8 @@ export class Clips {
     const path = asPath(b.path);
     if (!path) return { status: 400, body: { error: "path must be an asset path" } };
     if (str(b.region) && str(b.from_check)) return { status: 400, body: { error: "punch in at a region or at a check, not both" } };
-    const armed = Array.isArray(b.armed) ? b.armed.filter((a): a is string => typeof a === "string" && a.startsWith("/")) : null;
+    // Input Action paths, and the ids of move, action and value lanes.
+    const armed = Array.isArray(b.armed) ? b.armed.filter((a): a is string => typeof a === "string" && a.trim() !== "") : null;
     const g = this.gate();
     if (g) return g;
     const r = await this.call("clip_record", {
