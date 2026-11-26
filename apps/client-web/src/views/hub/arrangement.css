@@ -216,13 +216,13 @@
 .hub-root .hub-set-head .hub-set-head-ctl button.hub-set-toggle.hub-set-toggle { min-width: 0; }
 
 /* A track's performer in its header: the P or A marker, then the name cut short, filling the rest of the line. */
-.hub-root .hub-set-head .hub-set-head-ctl button.hub-set-performer { flex: 1 1 auto; width: auto; max-width: none; min-width: 0; display: flex; align-items: center; justify-content: flex-start; gap: 3px; padding: 0 3px; border: 1px solid var(--line-strong); border-radius: 2px; background: var(--panel-2); color: var(--text); font: 500 11px/16px var(--sans); letter-spacing: 0; }
+.hub-root .hub-set-head .hub-set-head-ctl button.hub-set-performer { flex: 1 1 auto; width: auto; height: 18px; min-height: 0; max-width: none; min-width: 0; display: flex; align-items: center; justify-content: flex-start; gap: 3px; padding: 0 3px; border: 1px solid var(--line-strong); border-radius: 2px; background: var(--panel-2); color: var(--text); font: 500 11px/16px var(--sans); letter-spacing: 0; }
 .hub-root .hub-set-head .hub-set-head-ctl button.hub-set-performer:hover { border-color: var(--accent-line, var(--line-strong)); }
 .hub-set-performer-kind, .hub-perf-kind { flex: none; display: inline-flex; align-items: center; justify-content: center; width: 12px; height: 12px; border-radius: 2px; font: 700 8.5px/1 var(--mono); color: var(--panel); background: var(--muted); }
 .hub-set-performer.kind-actor .hub-set-performer-kind, .hub-perf-kind.kind-actor { background: var(--accent); color: var(--on-accent, var(--panel)); }
 .hub-set-performer-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.hub-root button.hub-set-add-for { width: 20px; height: 22px; min-height: 0; min-width: 0; padding: 0; justify-content: center; color: var(--muted); }
-.hub-root button.hub-set-add-for:hover { color: var(--text); }
+.hub-root .hub-set-corner button.hub-set-add-for.hub-set-add-for.hub-set-add-for { flex: none; width: 20px; height: 22px; min-height: 0; min-width: 0; padding: 0; justify-content: center; color: var(--muted); }
+.hub-root .hub-set-corner button.hub-set-add-for:hover { color: var(--text); }
 
 .hub-perf-pop { position: fixed; z-index: 40; width: 300px; max-height: min(420px, calc(100vh - 120px)); overflow: auto; box-sizing: border-box; padding: 6px; border: 1px solid var(--line-strong); border-radius: var(--radius); background: var(--panel); box-shadow: 0 8px 24px rgba(0, 0, 0, 0.35); }
 .hub-root.narrow .hub-perf-pop { left: 16px !important; right: 16px; width: auto; }
