@@ -6,7 +6,7 @@
  * empty grid, at least six rows in all, as a DAW draws an empty arrangement;
  * a clip dropped there gets a track of its own.
  */
-import { useState, type CSSProperties, type DragEvent as ReactDragEvent, type PointerEvent as ReactPointerEvent, type RefObject } from "react";
+import { useEffect, useRef, type CSSProperties, type DragEvent as ReactDragEvent, type PointerEvent as ReactPointerEvent, type RefObject } from "react";
 import {
   INSTANCE_STATUS_LOOK,
   SET_COPY,
@@ -30,6 +30,8 @@ import type { InstanceKind, InstanceLayout, InstanceStatus, SetAnswer, SetRunSco
 import { HubIcon, StatusMark } from "./parts";
 import { CLIP_MIME } from "./ClipBrowser";
 import type { ClipRef } from "./arrangement-sync";
+import { capture, followPointer, hold, type DragPoint } from "./drag";
+import { dragGhost, type Ghost } from "./optimistic";
 
 export type Sel = { kind: "track"; track: string } | { kind: "instance"; track: string; id: string } | null;
 
@@ -50,7 +52,8 @@ export interface ViewCtx {
   rate: number;
   sel: Sel;
   select: (s: Sel) => void;
-  edit: (lines: string[] | null, after?: (a: SetAnswer) => void) => Promise<void>;
+  /** Send op lines, one edit at a time; a ghost draws the edit at once, until the answer replaces it or a refusal slides it back. */
+  edit: (lines: string[] | null, after?: (a: SetAnswer) => void, ghost?: Ghost | null) => Promise<void>;
   play: (scope: SetRunScope, what: string) => Promise<void>;
   open: (kind: InstanceKind, target: string) => void;
   /** Add a clip to a track (a new one when null) at a frame. */
@@ -64,6 +67,8 @@ export interface ViewCtx {
   zoom: number;
   playhead: number;
   setPlayhead: (f: number) => void;
+  /** Show a frame on the transport's clock while the playhead is dragged, or null to show the playhead again. */
+  showClock?: (f: number | null) => void;
   loop: Loop | null;
   loopOn: boolean;
   setLoop: (l: Loop) => void;
@@ -96,14 +101,24 @@ function PlayerField({ t, edit }: { t: SetTrack; edit: ViewCtx["edit"] }) {
   );
 }
 
-/** A drag under way: an instance moved (across tracks too) or trimmed, or the loop brace moved or resized, by dx, dy pixels. */
-interface Drag { track: string; id: string; mode: ArrangeDragMode; x0: number; y0: number; dx: number; dy: number; alt: boolean }
-interface BraceDrag { mode: "move" | "start" | "end" | "new"; x0: number; f0: number; loop: Loop }
+/**
+ * The block drag under way: the element it moves, and how far it has gone.
+ * It lives in a ref and is drawn by writing the element's style, so the
+ * arrangement does not re-render while the pointer moves.
+ */
+interface BlockDrag { el: HTMLElement; track: string; id: string; mode: ArrangeDragMode; alt: boolean; copy: HTMLElement | null; stop: () => void }
+type BraceMode = "move" | "start" | "end" | "new";
+
 
 export function Timelines({ ctx }: { ctx: ViewCtx }) {
   const { tracks, rate, zoom, playhead, setPlayhead, sel, select, edit, play, open, results, cursor, flagged, loop, loopOn, setLoop, scrollRef } = ctx;
-  const [drag, setDrag] = useState<Drag | null>(null);
-  const [brace, setBrace] = useState<BraceDrag | null>(null);
+  const blockDrag = useRef<BlockDrag | null>(null);
+  const markerRef = useRef<HTMLSpanElement>(null);
+  const playheadRef = useRef<HTMLSpanElement>(null);
+  const braceRef = useRef<HTMLSpanElement>(null);
+  const shadeRef = useRef<HTMLSpanElement>(null);
+  // A drag still under way when the view goes away stops listening.
+  useEffect(() => () => blockDrag.current?.stop(), []);
   const frames = rulerFrames(Math.max(arrangeEnd(tracks.map((t) => t.layout)), ctx.runLength, loop?.end ?? 0), rate);
   const px = (f: number) => (f / rate) * zoom;
   const fr = (x: number) => (x / zoom) * rate;
@@ -112,41 +127,140 @@ export function Timelines({ ctx }: { ctx: ViewCtx }) {
   const fillers = Math.max(1, MIN_ROWS - tracks.length);
   const gridStyle = { width: HEAD_W + width, "--major": `${rulerEvery(zoom) * zoom}px`, "--minor": `${rulerMinor(zoom) * zoom}px` } as CSSProperties;
 
+  /** Where a drag lands: the frame delta on the grid (Shift for single frames) and, for a move, the track it is over. */
+  const landing = (mode: ArrangeDragMode, track: string, l: InstanceLayout, dx: number, dy: number, free: boolean) => {
+    const snap = (f: number) => (free ? Math.max(0, Math.round(f)) : snapTo(f, step));
+    const edgeAt = mode === "trimEnd" ? l.end : l.start;
+    const df = snap(edgeAt + fr(dx)) - edgeAt;
+    const ti = tracks.findIndex((t) => t.id === track);
+    const rows = mode === "move" ? Math.max(-ti, Math.min(tracks.length - 1 - ti, Math.round(dy / ROW_H))) : 0;
+    return { df, rows, to: mode === "move" ? tracks[ti + rows]?.id : undefined };
+  };
+
+  /** Press on a block: select it, then drag to move it (Alt: a copy), or by an edge to trim it. */
   const blockDown = (e: ReactPointerEvent<HTMLElement>, t: SetTrack, l: InstanceLayout) => {
     if (e.button !== 0) return;
     e.stopPropagation();
+    blockDrag.current?.stop();
+    const el = e.currentTarget;
     const edge = (e.target as HTMLElement).dataset.edge;
-    try {
-      e.currentTarget.setPointerCapture(e.pointerId);
-    } catch {
-      // jsdom and some pens have no capture; the drag still ends on pointerup.
-    }
+    const mode: ArrangeDragMode = edge === "start" ? "trimStart" : edge === "end" ? "trimEnd" : "move";
+    capture(el, e.pointerId);
     select({ kind: "instance", track: t.id, id: l.id });
-    setDrag({ track: t.id, id: l.id, mode: edge === "start" ? "trimStart" : edge === "end" ? "trimEnd" : "move", x0: e.clientX, y0: e.clientY, dx: 0, dy: 0, alt: e.altKey });
+    const w0 = Math.max(6, px(l.length));
+    const restore = hold(el);
+    const d: BlockDrag = { el, track: t.id, id: l.id, mode, alt: e.altKey, copy: null, stop: () => {} };
+    const far = (p: DragPoint) => Math.abs(p.dx) >= 3 || Math.abs(p.dy) >= ROW_H / 2;
+    /** An Alt drag moves a copy and leaves the block where it is; the copy comes and goes with Alt. */
+    const mover = (copy: boolean): HTMLElement => {
+      if (copy && !d.copy) {
+        restore();
+        d.copy = el.cloneNode(true) as HTMLElement;
+        d.copy.removeAttribute("aria-label");
+        d.copy.removeAttribute("data-key");
+        d.copy.setAttribute("aria-hidden", "true");
+        d.copy.dataset.ghost = "";
+        el.parentElement?.appendChild(d.copy);
+      } else if (!copy && d.copy) {
+        d.copy.remove();
+        d.copy = null;
+      }
+      return d.copy ?? el;
+    };
+    const draw = (p: DragPoint) => {
+      if (!far(p)) {
+        mover(false);
+        restore();
+        return;
+      }
+      const { df, rows } = landing(mode, t.id, l, p.dx, p.dy, p.shift);
+      if (mode !== "move") el.dataset.dragging = "";
+      if (mode === "move") {
+        const m = mover(d.alt || p.alt);
+        m.dataset.dragging = "";
+        m.style.transform = `translate(${px(df)}px, ${rows * ROW_H}px)`;
+      } else if (mode === "trimEnd") el.style.width = `${Math.max(6, w0 + px(df))}px`;
+      else {
+        const dd = Math.min(df, l.length - 1);
+        el.style.transform = `translateX(${px(dd)}px)`;
+        el.style.width = `${Math.max(6, w0 - px(dd))}px`;
+      }
+    };
+    const end = () => {
+      d.copy?.remove();
+      restore();
+      if (blockDrag.current === d) blockDrag.current = null;
+    };
+    d.stop = followPointer(e, {
+      move: draw,
+      cancel: end,
+      up: (p) => {
+        end();
+        if (!far(p)) return;
+        // Read the block as it is drawn now: an earlier drop may still be on its way.
+        const now = ctx.tracks.find((x) => x.id === t.id);
+        const lay = now?.layout.find((x) => x.id === l.id) ?? l;
+        const inst = now?.arrangement.instances.find((i) => i.id === l.id);
+        if (!now || !inst) return;
+        const { df, to } = landing(mode, t.id, lay, p.dx, p.dy, p.shift);
+        const dup = d.alt || p.alt;
+        const opts = { scale: clipScale(now.arrangement.rate || rate, lay.clipRate), duplicate: dup, toTrack: to };
+        void edit(dragLines(t.id, inst, lay, mode, df, opts), (a) => {
+          const id = dup ? a.changed?.find((c) => c !== l.id) : l.id;
+          if (id) select({ kind: "instance", track: to ?? t.id, id });
+        }, dragGhost(t.id, inst, lay, mode, df, opts));
+        if (!dup) select({ kind: "instance", track: to ?? t.id, id: l.id });
+      },
+    });
+    blockDrag.current = d;
   };
-  const blockMove = (e: ReactPointerEvent) => setDrag((d) => (d ? { ...d, dx: e.clientX - d.x0, dy: e.clientY - d.y0 } : d));
-  /** Where a drag lands: the frame delta on the grid (Shift for single frames) and, for a move, the track it is over. */
-  const landing = (d: Drag, l: InstanceLayout, free: boolean) => {
-    const snap = (f: number) => (free ? Math.max(0, Math.round(f)) : snapTo(f, step));
-    const edgeAt = d.mode === "trimEnd" ? l.end : l.start;
-    const df = snap(edgeAt + fr(d.dx)) - edgeAt;
-    const ti = tracks.findIndex((t) => t.id === d.track);
-    const to = d.mode === "move" ? tracks[Math.max(0, Math.min(tracks.length - 1, ti + Math.round(d.dy / ROW_H)))] : undefined;
-    return { df, to: to?.id };
-  };
-  const blockUp = (e: ReactPointerEvent, t: SetTrack, l: InstanceLayout) => {
-    const d = drag;
-    setDrag(null);
-    if (!d || (Math.abs(d.dx) < 3 && Math.abs(d.dy) < ROW_H / 2)) return;
-    const inst = t.arrangement.instances.find((i) => i.id === l.id);
-    if (!inst) return;
-    const { df, to } = landing(d, l, e.shiftKey);
-    const dup = d.alt || e.altKey;
-    void edit(dragLines(t.id, inst, l, d.mode, df, { scale: clipScale(t.arrangement.rate || rate, l.clipRate), duplicate: dup, toTrack: to }), (a) => {
-      const id = dup ? a.changed?.find((c) => c !== l.id) : l.id;
-      if (id) select({ kind: "instance", track: to ?? t.id, id });
+
+  /** Press on a track's header and drag it up or down to put the track elsewhere; the rows it passes make room. */
+  const headDown = (e: ReactPointerEvent<HTMLElement>, t: SetTrack) => {
+    if (e.button !== 0 || (e.target as HTMLElement).closest(".hub-set-head-ctl, .hub-set-warn")) return;
+    const head = e.currentTarget;
+    if (e.target === head) select({ kind: "track", track: t.id });
+    const row = head.closest<HTMLElement>(".hub-set-row");
+    const rowsEl = row?.parentElement;
+    if (!row || !rowsEl) return;
+    const from = tracks.findIndex((x) => x.id === t.id);
+    const others = () => Array.from(rowsEl.querySelectorAll<HTMLElement>(".hub-set-row[data-track]"));
+    const shiftOf = (dy: number) => Math.max(-from, Math.min(tracks.length - 1 - from, Math.round(dy / ROW_H)));
+    let captured = false;
+    const held = others().map(hold);
+    const clear = () => {
+      delete rowsEl.dataset.reordering;
+      held.forEach((r) => r());
+    };
+    followPointer(e, {
+      move: (p) => {
+        if (Math.abs(p.dy) < ROW_H / 3 && !captured) return;
+        if (!captured) {
+          captured = true;
+          capture(head, e.pointerId);
+        }
+        const by = shiftOf(p.dy);
+        rowsEl.dataset.reordering = "";
+        row.dataset.dragging = "";
+        row.style.zIndex = "3";
+        row.style.transform = `translateY(${by * ROW_H}px)`;
+        others().forEach((r, i) => {
+          if (r === row) return;
+          const between = by > 0 ? i > from && i <= from + by : i < from && i >= from + by;
+          r.style.transform = between ? `translateY(${by > 0 ? -ROW_H : ROW_H}px)` : "";
+        });
+      },
+      cancel: clear,
+      up: (p) => {
+        clear();
+        const by = Math.abs(p.dy) < ROW_H / 3 ? 0 : shiftOf(p.dy);
+        if (!by) return;
+        const index = from + by;
+        void edit([SET_OPS.trackMove(t.id, index)], undefined, { kind: "order", track: t.id, index });
+      },
     });
   };
+
   const frameAt = (e: { clientX: number; currentTarget: HTMLElement }) => snapTo(fr(e.clientX - e.currentTarget.getBoundingClientRect().left), step);
   const laneDrop = (e: ReactDragEvent<HTMLElement>, t: SetTrack | null) => {
     e.preventDefault();
@@ -165,39 +279,77 @@ export function Timelines({ ctx }: { ctx: ViewCtx }) {
     void edit(replaceLines(t.id, inst, { kind: clip.kind, target: clip.target }));
   };
 
-  /** The ruler's scale: press or drag to move the playhead, as a DAW's scrub area does. */
-  const scrub = (e: ReactPointerEvent<HTMLElement>) => {
-    if (e.buttons !== 1 && e.type !== "pointerdown") return;
-    setPlayhead(frameAt(e));
+  /** The playhead drawn at a frame without a render: the ruler's marker, the line over the lanes and the clock. */
+  const drawPlayhead = (f: number) => {
+    if (markerRef.current) markerRef.current.style.left = `${px(f)}px`;
+    if (playheadRef.current) playheadRef.current.style.left = `${px(f)}px`;
+    ctx.showClock?.(f);
   };
-  /** The loop strip: drag the brace or its edges, or drag across empty strip to draw a new range. */
+  /** The ruler's scale: press or drag to move the playhead, as a DAW's scrub area does; the playhead is set once, on release. */
+  const scrub = (e: ReactPointerEvent<HTMLElement>) => {
+    if (e.button !== 0) return;
+    const scale = e.currentTarget;
+    const at = (x: number) => snapTo(fr(x - scale.getBoundingClientRect().left), step);
+    const held = [hold(markerRef.current), hold(playheadRef.current)];
+    const undrawPlayhead = () => {
+      held.forEach((r) => r());
+      ctx.showClock?.(null);
+    };
+    capture(scale, e.pointerId);
+    drawPlayhead(at(e.clientX));
+    followPointer(e, {
+      move: (p) => drawPlayhead(at(p.clientX)),
+      cancel: undrawPlayhead,
+      up: (p) => {
+        undrawPlayhead();
+        setPlayhead(at(p.clientX));
+      },
+    });
+  };
+  /** The loop strip: drag the brace or its edges, or drag across empty strip to draw a new range; the loop is set once, on release. */
   const braceDown = (e: ReactPointerEvent<HTMLElement>) => {
     if (e.button !== 0) return;
-    const edge = (e.target as HTMLElement).dataset.brace as BraceDrag["mode"] | undefined;
-    try {
-      e.currentTarget.setPointerCapture(e.pointerId);
-    } catch {
-      // As above.
-    }
+    const edge = (e.target as HTMLElement).dataset.brace as BraceMode | undefined;
+    capture(e.currentTarget, e.pointerId);
     const f0 = frameAt(e);
-    const mode = edge ?? "new";
-    const start = loop ?? { start: f0, end: f0 };
-    setBrace({ mode, x0: e.clientX, f0, loop: mode === "new" ? { start: f0, end: f0 } : start });
-  };
-  const braceMove = (e: ReactPointerEvent<HTMLElement>) => {
-    if (!brace) return;
-    const df = snapTo(Math.abs(fr(e.clientX - brace.x0)), step) * Math.sign(e.clientX - brace.x0);
-    const { start, end } = brace.loop;
-    let next: Loop;
-    if (brace.mode === "move") next = { start: Math.max(0, start + df), end: Math.max(0, start + df) + (end - start) };
-    else if (brace.mode === "start") next = { start: Math.max(0, Math.min(end - step, start + df)), end };
-    else if (brace.mode === "end") next = { start, end: Math.max(start + step, end + df) };
-    else {
-      const a = brace.f0;
-      const b = Math.max(0, a + df);
-      next = { start: Math.min(a, b), end: Math.max(a, b) };
-    }
-    if (next.end - next.start >= step) setLoop(next);
+    const mode: BraceMode = loop ? edge ?? "new" : "new";
+    const from: Loop = mode === "new" ? { start: f0, end: f0 } : loop ?? { start: f0, end: f0 };
+    const rangeAt = (dx: number): Loop | null => {
+      const df = snapTo(Math.abs(fr(dx)), step) * Math.sign(dx);
+      const { start, end } = from;
+      let next: Loop;
+      if (mode === "move") next = { start: Math.max(0, start + df), end: Math.max(0, start + df) + (end - start) };
+      else if (mode === "start") next = { start: Math.max(0, Math.min(end - step, start + df)), end };
+      else if (mode === "end") next = { start, end: Math.max(start + step, end + df) };
+      else {
+        const b = Math.max(0, f0 + df);
+        next = { start: Math.min(f0, b), end: Math.max(f0, b) };
+      }
+      return next.end - next.start >= step ? next : null;
+    };
+    const held = [hold(braceRef.current), hold(shadeRef.current)];
+    const clear = () => held.forEach((r) => r());
+    followPointer(e, {
+      move: (p) => {
+        const next = rangeAt(p.dx);
+        if (!next) return;
+        for (const el of [braceRef.current, shadeRef.current]) {
+          if (!el) continue;
+          el.style.left = `${px(next.start)}px`;
+          el.style.width = `${Math.max(el === braceRef.current ? 4 : 0, px(next.end - next.start))}px`;
+        }
+        if (braceRef.current) {
+          braceRef.current.style.display = "block";
+          braceRef.current.dataset.dragging = "";
+        }
+      },
+      cancel: clear,
+      up: (p) => {
+        clear();
+        const next = rangeAt(p.dx);
+        if (next) setLoop(next);
+      },
+    });
   };
 
   const row = (t: SetTrack) => {
@@ -205,9 +357,9 @@ export function Timelines({ ctx }: { ctx: ViewCtx }) {
     const tSel = (sel?.kind === "track" || sel?.kind === "instance") && sel.track === t.id;
     const warn = flagged.get(t.id);
     return (
-      <div key={t.id} className={`hub-set-row ${t.mute ? "muted" : ""} ${tSel ? "on" : ""}`} style={{ height: ROW_H }}>
-        <div className={`hub-set-head ${colorClass(t.color)} ${sel?.kind === "track" && sel.track === t.id ? "on" : ""}`}
-          onPointerDown={(e) => e.target === e.currentTarget && select({ kind: "track", track: t.id })}>
+      <div key={t.id} className={`hub-set-row ${t.mute ? "muted" : ""} ${tSel ? "on" : ""}`} style={{ height: ROW_H }} data-track={t.id}>
+        <div className={`hub-set-head ${colorClass(t.color)} ${sel?.kind === "track" && sel.track === t.id ? "on" : ""}`} title={SET_COPY.reorderHint}
+          onPointerDown={(e) => headDown(e, t)}>
           <div className="hub-set-head-top">
             <button className="hub-set-title" aria-pressed={sel?.kind === "track" && sel.track === t.id} title={`${t.title}\n${SET_COPY.renameHint}`}
               onClick={() => select({ kind: "track", track: t.id })}
@@ -240,30 +392,16 @@ export function Timelines({ ctx }: { ctx: ViewCtx }) {
             const st = results.instances[key];
             const inst = t.arrangement.instances.find((i) => i.id === l.id);
             const on = sel?.kind === "instance" && sel.track === t.id && sel.id === l.id;
-            const d = drag && drag.track === t.id && drag.id === l.id ? drag : null;
             const flag = flagged.get(key);
-            let left = px(l.start);
-            let w = Math.max(6, px(l.length));
-            let dy = 0;
-            if (d) {
-              const { df } = landing(d, l, false);
-              if (d.mode === "move") {
-                left += px(df);
-                dy = Math.round(d.dy / ROW_H) * ROW_H;
-              } else if (d.mode === "trimEnd") w = Math.max(6, w + px(df));
-              else {
-                left += px(df);
-                w = Math.max(6, w - px(df));
-              }
-            }
+            const w = Math.max(6, px(l.length));
             return (
-              <div key={l.id}
-                className={`hub-set-block kind-${l.kind} ${colorClass(inst?.color ?? t.color)} ${st ? `st-${st}` : ""} ${on ? "on" : ""} ${l.known ? "" : "unknown"} ${flag ? "flagged" : ""} ${d ? "dragging" : ""} ${w < 40 ? "thin" : ""}`}
-                style={{ left, width: w, transform: dy ? `translateY(${dy}px)` : undefined }}
+              <div key={l.id} data-key={key}
+                className={`hub-set-block kind-${l.kind} ${colorClass(inst?.color ?? t.color)} ${st ? `st-${st}` : ""} ${on ? "on" : ""} ${l.known ? "" : "unknown"} ${flag ? "flagged" : ""} ${w < 40 ? "thin" : ""}`}
+                style={{ left: px(l.start), width: w }}
                 role="button" tabIndex={-1} aria-pressed={on}
                 aria-label={SET_COPY.block(l.name, arrangeSeconds(l.start, rate), arrangeSeconds(l.end, rate))}
                 title={[l.name, flag, l.known ? null : SET_COPY.unknownLength, l.kind === "script" && l.known ? SET_COPY.reserved : null, st ? INSTANCE_STATUS_LOOK[st].label : null, SET_COPY.blockHint].filter(Boolean).join("\n")}
-                onPointerDown={(e) => blockDown(e, t, l)} onPointerMove={blockMove} onPointerUp={(e) => blockUp(e, t, l)}
+                onPointerDown={(e) => blockDown(e, t, l)}
                 onDoubleClick={() => open(l.kind, l.target)}
                 onDragOver={(e) => carriesClip(e) && e.preventDefault()}
                 onDrop={(e) => blockDrop(e, t, l)}
@@ -296,19 +434,19 @@ export function Timelines({ ctx }: { ctx: ViewCtx }) {
             <button className="ghost small-button hub-set-add-track" onClick={ctx.onAddTrack} title={SET_COPY.addTrackHint}><HubIcon name="plus" size={11} /> {SET_COPY.addTrack}</button>
           </div>
           <div className="hub-set-ruler" style={{ width }}>
-            <div className="hub-set-loopzone" aria-label={SET_COPY.loopRange} onPointerDown={braceDown} onPointerMove={braceMove} onPointerUp={() => setBrace(null)}>
-              {loop && (
-                <span className={`hub-set-brace ${loopOn ? "on" : ""}`} data-brace="move" style={{ left: px(loop.start), width: Math.max(4, px(loop.end - loop.start)) }}
-                  title={`${SET_COPY.loopRange}: ${arrangeClock(loop.start, rate, true)} to ${arrangeClock(loop.end, rate, true)}`}>
-                  <span className="hub-set-brace-edge start" data-brace="start" />
-                  <span className="hub-set-brace-edge end" data-brace="end" />
-                </span>
-              )}
+            <div className="hub-set-loopzone" aria-label={SET_COPY.loopRange} onPointerDown={braceDown}>
+              {/* Drawn with no loop too, hidden, so drawing a first range has an element to move. */}
+              <span ref={braceRef} className={`hub-set-brace ${loopOn ? "on" : ""}`} data-brace={loop ? "move" : undefined}
+                style={loop ? { left: px(loop.start), width: Math.max(4, px(loop.end - loop.start)) } : { display: "none" }}
+                title={loop ? `${SET_COPY.loopRange}: ${arrangeClock(loop.start, rate, true)} to ${arrangeClock(loop.end, rate, true)}` : undefined}>
+                <span className="hub-set-brace-edge start" data-brace={loop ? "start" : undefined} />
+                <span className="hub-set-brace-edge end" data-brace={loop ? "end" : undefined} />
+              </span>
             </div>
-            <div className="hub-set-scale" onPointerDown={scrub} onPointerMove={scrub}>
+            <div className="hub-set-scale" onPointerDown={scrub}>
               {rulerTicks(frames, rate, zoom).map((s) => <span key={s} className="hub-set-tick" style={{ left: px(s * rate) }}>{rulerEvery(zoom) < 1 ? arrangeClock(s * rate, rate, true) : arrangeClock(s * rate, rate)}</span>)}
             </div>
-            <span className="hub-set-marker" style={{ left: px(playhead) }} aria-hidden="true" />
+            <span ref={markerRef} className="hub-set-marker" style={{ left: px(playhead) }} aria-hidden="true" />
           </div>
         </div>
         <div className="hub-set-rows">
@@ -325,8 +463,8 @@ export function Timelines({ ctx }: { ctx: ViewCtx }) {
             </div>
           ))}
           <div className="hub-set-overlay" style={{ left: HEAD_W, width }} aria-hidden="true">
-            {loop && loopOn && <span className="hub-set-loopshade" style={{ left: px(loop.start), width: px(loop.end - loop.start) }} />}
-            <span className="hub-set-playhead" style={{ left: px(playhead) }} />
+            {loop && loopOn && <span ref={shadeRef} className="hub-set-loopshade" style={{ left: px(loop.start), width: px(loop.end - loop.start) }} />}
+            <span ref={playheadRef} className="hub-set-playhead" style={{ left: px(playhead) }} />
             {cursor !== null && <span className="hub-set-cursor" style={{ left: px(cursor) }} />}
           </div>
         </div>

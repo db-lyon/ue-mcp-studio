@@ -9,7 +9,8 @@
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
-import { useState } from "react";
+import { Profiler, useState } from "react";
+import { arrangeClock } from "@ue-mcp-studio/client-core";
 import type { DaemonEvent } from "ue-mcp/daemon";
 import type { HubOverview, SetAnswer } from "@ue-mcp-studio/shared";
 
@@ -70,12 +71,16 @@ function setFixture(): SetAnswer {
 
 let setEvents: (e: DaemonEvent[]) => void = () => {};
 let setOverview: (f: (o: HubOverview) => HubOverview) => void = () => {};
+/** The hub heard a change: every screen reads its detail again. */
+let bumpVersion: () => void = () => {};
 function Harness({ features = ["hub", "hub.arrangement", "events.clip"] }: { features?: string[] }) {
   const [overview, set] = useState<HubOverview | null>(hubFixture());
   const [events, setE] = useState<DaemonEvent[]>([]);
+  const [version, setVersion] = useState(0);
   setEvents = setE;
   setOverview = (f) => set((o) => (o ? f(o) : o));
-  const data: HubData = { overview, error: null, version: 0, reload: () => {}, patch: (f) => set((o) => (o ? f(o) : o)) };
+  bumpVersion = () => setVersion((v) => v + 1);
+  const data: HubData = { overview, error: null, version, reload: () => {}, patch: (f) => set((o) => (o ? f(o) : o)) };
   return <HubView data={data} narrow={false} onOpenChat={() => {}} events={events} health={{ features }} />;
 }
 
@@ -260,6 +265,135 @@ describe("timelines", () => {
     fireEvent.click(screen.getByRole("button", { name: `Use ${PATROL}` }));
     await waitFor(() => expect(lastLines()).toBe(`add guard clip ${PATROL} at 0`));
     await waitFor(() => expect(screen.queryByRole("alert")).toBeNull());
+  });
+});
+
+describe("drags drawn ahead of the answer", () => {
+  /** Frames run at once, so a move draws before the next line of the test. */
+  let raf: typeof window.requestAnimationFrame;
+  beforeEach(() => {
+    raf = window.requestAnimationFrame;
+    window.requestAnimationFrame = (cb: FrameRequestCallback) => {
+      cb(0);
+      return 0;
+    };
+  });
+  afterEach(() => {
+    window.requestAnimationFrame = raf;
+  });
+  const moved = (f: SetAnswer, id: string, start: number): SetAnswer => {
+    const t = f.tracks[0];
+    t.layout = t.layout.map((l) => (l.id === id ? { ...l, start, end: start + l.length } : l));
+    t.arrangement.instances = t.arrangement.instances.map((i) => (i.id === id ? { ...i, start } : i));
+    return f;
+  };
+
+  it("keeps a dropped block where it was let go while the edit is out, and the answer leaves it there", async () => {
+    let answer!: (a: SetAnswer & { changed: string[] }) => void;
+    m.set.edit.mockImplementationOnce(() => new Promise((r) => (answer = r)));
+    render(<Harness />);
+    const walk = await block(/^CL_Walk, 0 s to 4 s/);
+    fireEvent.pointerDown(walk, { button: 0, clientX: 100, clientY: 10 });
+    fireEvent.pointerMove(walk, { clientX: 140, clientY: 10 });
+    fireEvent.pointerUp(walk, { clientX: 140, clientY: 10 });
+    // Drawn at half a second in the same frame as the drop, with no loading in its place and nothing left of the drag's own styling.
+    const there = screen.getByRole("button", { name: /^CL_Walk, 0\.5 s to 4\.5 s/ });
+    expect(there.style.transform).toBe("");
+    expect(there.style.left).toBe("40px");
+    expect(screen.queryByLabelText("Loading")).toBeNull();
+    await waitFor(() => expect(lastLines()).toBe("move walk/i1 to 30"));
+    // A read of the set that lands while the edit is out is older than the drop, and does not move the block back.
+    const reads = m.set.read.mock.calls.length;
+    act(() => bumpVersion());
+    await waitFor(() => expect(m.set.read.mock.calls.length).toBe(reads + 1));
+    await act(async () => {
+      await Promise.resolve();
+    });
+    expect(screen.getByRole("button", { name: /^CL_Walk, 0\.5 s/ })).toBeTruthy();
+    await act(async () => answer({ ...moved(setFixture(), "i1", 30), changed: ["i1"] }));
+    expect(screen.getByRole("button", { name: /^CL_Walk, 0\.5 s to 4\.5 s/ }).style.left).toBe("40px");
+  });
+
+  it("puts a refused drop back and says why", async () => {
+    m.set.edit.mockRejectedValueOnce(new ApiError(400, "refused", {
+      error: "refused", finding: { id: "walk/i1", field: "start", message: "CL_Walk would overlap PT_Door", blocks: true }, findings: [],
+    }));
+    render(<Harness />);
+    const walk = await block(/^CL_Walk, 0 s to 4 s/);
+    fireEvent.pointerDown(walk, { button: 0, clientX: 100, clientY: 10 });
+    fireEvent.pointerMove(walk, { clientX: 140, clientY: 10 });
+    fireEvent.pointerUp(walk, { clientX: 140, clientY: 10 });
+    expect(await screen.findByText("Put back: CL_Walk would overlap PT_Door")).toBeTruthy();
+    expect(screen.getByRole("button", { name: /^CL_Walk, 0 s to 4 s/ }).style.left).toBe("0px");
+  });
+
+  it("draws a copy at the drop at once on an Alt drag, and names it from the answer", async () => {
+    let answer!: (a: SetAnswer & { changed: string[] }) => void;
+    m.set.edit.mockImplementationOnce(() => new Promise((r) => (answer = r)));
+    render(<Harness />);
+    const walk = await block(/^CL_Walk, 0 s to 4 s/);
+    fireEvent.pointerDown(walk, { button: 0, clientX: 100, clientY: 10, altKey: true });
+    fireEvent.pointerMove(walk, { clientX: 1300, clientY: 10, altKey: true });
+    // The block stays; a copy follows the pointer.
+    expect(walk.style.transform).toBe("");
+    expect(walk.parentElement!.querySelector("[data-ghost]")).toBeTruthy();
+    fireEvent.pointerUp(walk, { clientX: 1300, clientY: 10, altKey: true });
+    expect(walk.parentElement!.querySelector("[data-ghost]")).toBeNull();
+    expect(await screen.findAllByRole("button", { name: /^CL_Walk/ })).toHaveLength(2);
+    const f = setFixture();
+    f.tracks[0].layout.push(lay("i3", "clip", WALK, 900, 240));
+    f.tracks[0].arrangement.instances.push({ id: "i3", kind: "clip", target: WALK, start: 900, in: 0 });
+    await act(async () => answer({ ...f, changed: ["i3"] }));
+    expect(screen.getAllByRole("button", { name: /^CL_Walk/ })).toHaveLength(2);
+    expect(screen.getByRole("button", { name: /^CL_Walk, 15 s/ }).getAttribute("aria-pressed")).toBe("true");
+  });
+
+  it("moves a block, the playhead and the loop brace without rendering while the pointer moves", async () => {
+    let commits = 0;
+    render(<Profiler id="a" onRender={() => commits++}><Harness /></Profiler>);
+    const walk = await block(/^CL_Walk, 0 s to 4 s/);
+    fireEvent.pointerDown(walk, { button: 0, clientX: 100, clientY: 10 });
+    commits = 0;
+    for (let x = 101; x <= 160; x += 3) fireEvent.pointerMove(walk, { clientX: x, clientY: 10 });
+    expect(commits).toBe(0);
+    // Snapped to the quarter-second grid: 58 px is 0.725 s, drawn at 0.75 s.
+    expect(walk.style.transform).toBe("translate(60px, 0px)");
+    fireEvent.pointerUp(walk, { clientX: 158, clientY: 10 });
+    await waitFor(() => expect(lastLines()).toBe("move walk/i1 to 45"));
+
+    const scale = document.querySelector(".hub-set-scale") as HTMLElement;
+    fireEvent.pointerDown(scale, { button: 0, clientX: 80, clientY: 0 });
+    commits = 0;
+    for (let x = 80; x <= 200; x += 10) fireEvent.pointerMove(scale, { clientX: x, clientY: 0 });
+    expect(commits).toBe(0);
+    expect((document.querySelector(".hub-set-playhead") as HTMLElement).style.left).toBe("200px");
+    expect(document.querySelector(".hub-set-clock")!.textContent).toBe(arrangeClock(150, 60, true));
+    fireEvent.pointerUp(scale, { clientX: 200, clientY: 0 });
+    expect(commits).toBeGreaterThan(0);
+    expect((document.querySelector(".hub-set-playhead") as HTMLElement).style.left).toBe("200px");
+
+    const zone = screen.getByLabelText("Loop range");
+    fireEvent.pointerDown(zone, { button: 0, clientX: 0, clientY: 0 });
+    commits = 0;
+    for (let x = 0; x <= 160; x += 10) fireEvent.pointerMove(zone, { clientX: x, clientY: 0 });
+    expect(commits).toBe(0);
+    fireEvent.pointerUp(zone, { clientX: 160, clientY: 0 });
+    const brace = document.querySelector(".hub-set-brace") as HTMLElement;
+    expect([brace.style.left, brace.style.width, brace.style.display]).toEqual(["0px", "160px", ""]);
+  });
+
+  it("reorders a track by dragging its header, drawing the new order at once", async () => {
+    m.set.edit.mockImplementationOnce(() => new Promise(() => {}));
+    render(<Harness />);
+    await block(/^CL_Walk/);
+    const head = screen.getByRole("button", { name: "Walk", pressed: false }).closest(".hub-set-head") as HTMLElement;
+    fireEvent.pointerDown(head, { button: 0, clientX: 20, clientY: 10 });
+    fireEvent.pointerMove(head, { clientX: 20, clientY: 60 });
+    expect((head.closest(".hub-set-row") as HTMLElement).style.transform).toBe("translateY(48px)");
+    fireEvent.pointerUp(head, { clientX: 20, clientY: 60 });
+    await waitFor(() => expect(lastLines()).toBe("track move walk to 1"));
+    await waitFor(() => expect([...document.querySelectorAll(".hub-set-row[data-track]")].map((r) => r.getAttribute("data-track"))).toEqual(["guard", "walk"]));
+    expect((document.querySelector('.hub-set-row[data-track="walk"]') as HTMLElement).style.transform).toBe("");
   });
 });
 

@@ -63,6 +63,8 @@ import { Dialog } from "./dialogs";
 import { ClipBrowser } from "./ClipBrowser";
 import { HEAD_W, Timelines, type Loop, type Sel, type ViewCtx } from "./ArrangementGrid";
 import { canPopOut, openSync, popOutClips, type ClipRef, type SyncMessage } from "./arrangement-sync";
+import { keyed, slideFrom } from "./drag";
+import { dragGhost, ghostKey, withGhosts, type Ghost } from "./optimistic";
 import "./arrangement.css";
 
 export { CLIP_MIME } from "./ClipBrowser";
@@ -91,17 +93,24 @@ function store(key: string, v: string): void {
   }
 }
 
-/** The set, read again whenever the hub hears a change; edits answer with the whole set. */
-function useSet(version: number, on: boolean) {
+/**
+ * The set, read again whenever the hub hears a change; edits answer with the
+ * whole set. `edits` counts edits sent and `waiting` the ones not answered
+ * yet: a read that started before an edit went out, or lands while one is
+ * out, is older than what is drawn and is dropped, so it cannot move a block
+ * back. The edit's own answer, or the read after it, brings the set.
+ */
+function useSet(version: number, on: boolean, edits: { current: number }, waiting: { current: number }) {
   const [set, setSet] = useState<SetAnswer | null>(null);
   const [error, setError] = useState<string | null>(null);
   useEffect(() => {
     if (!on) return;
     let live = true;
+    const at = edits.current;
     api.set.read().then((a) => {
       if (!live) return;
-      setSet(a);
       setError(null);
+      setSet((had) => (had && (edits.current !== at || waiting.current > 0) ? had : a));
     }, (e: Error) => live && setError(e.message));
     return () => {
       live = false;
@@ -156,7 +165,17 @@ function usePopover(open: boolean, close: () => void) {
 export function ArrangementScreen() {
   const hub = useHub();
   const on = arrangementOn(hub.health);
-  const { set, setSet, error } = useSet(hub.data.version, on);
+  const editsSent = useRef(0);
+  const editsWaiting = useRef(0);
+  const { set, setSet, error } = useSet(hub.data.version, on, editsSent, editsWaiting);
+  /** Edits drawn ahead of their answers, oldest first, each under its own number. */
+  const [ghosts, setGhosts] = useState<Array<Ghost & { n: number }>>([]);
+  const ghostN = useRef(0);
+  /** One edit at a time: each is sent once the one before it is answered, so none reads a set another is still changing. */
+  const editQueue = useRef<Promise<void>>(Promise.resolve());
+  /** A refused edit's item, slid back from where it was drawn once the render without its ghost is in. */
+  const [slideBack, setSlideBack] = useState<{ key: string; attr: string; from: DOMRect | null; n: number } | null>(null);
+  const clockRef = useRef<HTMLOutputElement>(null);
   const [mine, setMine] = useState<{ planId: string; runId: string } | null>(null);
   const run = useSetRun(mine);
   const [refused, setRefused] = useState<{ lines: string[]; findings: ArrangementFinding[] } | null>(null);
@@ -200,6 +219,9 @@ export function ArrangementScreen() {
     if (renameAsk) nameBox.current?.focus();
   }, [renameAsk]);
   useEffect(() => loopTick.current(), [run.cursor]);
+  useLayoutEffect(() => {
+    if (slideBack) slideFrom(keyed(scrollRef.current, slideBack.attr, slideBack.key), slideBack.from);
+  }, [slideBack?.n]);
 
   // Ctrl + scroll zooms around the pointer; a plain scroll scrolls. The listener is not passive, so it can keep the page from zooming.
   const wheelZoom = useRef<(e: WheelEvent) => void>(() => {});
@@ -228,7 +250,7 @@ export function ArrangementScreen() {
     return () => s?.close();
   }, []);
 
-  const tracks = set ? [...set.tracks].sort((a, b) => a.order - b.order) : [];
+  const tracks = set ? withGhosts(set.tracks, ghosts).sort((a, b) => a.order - b.order) : [];
   const trackOf = (id: string) => tracks.find((t) => t.id === id);
   const instOf = (t: string, i: string) => trackOf(t)?.arrangement.instances.find((x) => x.id === i);
   const layoutOf = (t: string, i: string) => trackOf(t)?.layout.find((x) => x.id === i);
@@ -243,21 +265,53 @@ export function ArrangementScreen() {
 
   const select = (s: Sel) => setSel(s);
 
-  /** Send op lines; the answer is the set, and a refusal shows its findings and candidates. */
-  const edit = async (lines: string[] | null, after?: (a: SetAnswer) => void) => {
-    if (!lines?.length) return;
-    setRefused(null);
-    try {
-      const a = await api.set.edit(lines);
-      setSet(a);
-      setAnswers((n) => n + 1);
-      after?.(a);
-    } catch (e) {
-      if (e instanceof ApiError && e.status === 400) {
-        setRefused({ lines, findings: refusalFindings(e.body) });
-        setWarnOpen(true);
-      } else hub.notify((e as Error).message, "bad");
-    }
+  /**
+   * Send op lines, one edit at a time. A ghost draws the edit at once and
+   * stays until the answer, which replaces it in the same render: the set the
+   * daemon answers puts the item where the ghost had it. A refusal drops the
+   * ghost, slides the item back and says why; its findings and candidates
+   * show under Warnings.
+   */
+  const edit = (lines: string[] | null, after?: (a: SetAnswer) => void, ghost?: Ghost | null): Promise<void> => {
+    if (!lines?.length) return Promise.resolve();
+    const n = ++ghostN.current;
+    if (ghost) setGhosts((g) => [...g, { ...ghost, n }]);
+    editsSent.current++;
+    editsWaiting.current++;
+    const drop = () => setGhosts((g) => g.filter((x) => x.n !== n));
+    const send = async () => {
+      setRefused(null);
+      try {
+        const a = await api.set.edit(lines);
+        editsWaiting.current--;
+        setSet(a);
+        drop();
+        setAnswers((c) => c + 1);
+        after?.(a);
+      } catch (e) {
+        editsWaiting.current--;
+        const refusal = e instanceof ApiError && e.status === 400 ? refusalFindings(e.body) : null;
+        if (ghost) {
+          const key = ghostKey(ghost);
+          const attr = ghost.kind === "order" ? "data-track" : "data-key";
+          const from = keyed(scrollRef.current, attr, key)?.getBoundingClientRect() ?? null;
+          // The item goes back to where it was: a copy flies back into the clip it was copied from.
+          setSlideBack({ key: ghost.kind === "order" ? ghost.track : `${ghost.track}/${ghost.id}`, attr, from, n });
+          hub.notify(SET_COPY.putBack(refusal?.[0]?.message ?? (e as Error).message), "bad");
+        }
+        drop();
+        if (refusal) {
+          setRefused({ lines, findings: refusal });
+          if (!ghost) setWarnOpen(true);
+        } else if (!ghost) hub.notify((e as Error).message, "bad");
+      }
+    };
+    const p = editQueue.current.then(send, send);
+    editQueue.current = p;
+    return p;
+  };
+  const showClock = (f: number | null) => {
+    if (clockRef.current) clockRef.current.textContent = arrangeClock(f ?? run.cursor ?? playhead, rate, true);
   };
   const play = async (scope: SetRunScope, what: string) => {
     try {
@@ -361,6 +415,12 @@ export function ArrangementScreen() {
     const i = tracks.findIndex((t) => t.id === sel.track) + by;
     return i >= 0 && i < tracks.length ? [SET_OPS.trackMove(sel.track, i)] : null;
   };
+  /** Reorder the selected track, drawn in its new place at once. */
+  const reorderBy = (by: number) => {
+    const lines = reorder(by);
+    if (!lines || sel?.kind !== "track") return;
+    void edit(lines, undefined, { kind: "order", track: sel.track, index: tracks.findIndex((t) => t.id === sel.track) + by });
+  };
   const duplicate = () => {
     if (sel?.kind === "instance") void edit([SET_OPS.duplicate(sel.track, sel.id)], (a) => {
       const id = a.changed?.find((c) => c !== sel.id);
@@ -449,15 +509,21 @@ export function ArrangementScreen() {
       if (!inst || !l) return;
       if (dy) {
         const to = tracks[tracks.findIndex((t) => t.id === sel.track) + dy];
-        if (to) void edit(dragLines(sel.track, inst, l, "move", 0, { toTrack: to.id }), () => select({ kind: "instance", track: to.id, id: sel.id }));
+        if (!to) return;
+        void edit(dragLines(sel.track, inst, l, "move", 0, { toTrack: to.id }), undefined, dragGhost(sel.track, inst, l, "move", 0, { toTrack: to.id }));
+        select({ kind: "instance", track: to.id, id: sel.id });
         return;
       }
       const scale = clipScale(trackOf(sel.track)?.arrangement.rate || rate, l.clipRate);
-      if (alt) return void edit(dragLines(sel.track, inst, l, shift ? "trimStart" : "trimEnd", dir * arrangeStep(rate), { scale }));
-      return void edit(dragLines(sel.track, inst, l, "move", Math.max(-l.start, dir * arrangeStep(rate, shift))));
+      if (alt) {
+        const mode = shift ? "trimStart" : "trimEnd";
+        return void edit(dragLines(sel.track, inst, l, mode, dir * arrangeStep(rate), { scale }), undefined, dragGhost(sel.track, inst, l, mode, dir * arrangeStep(rate), { scale }));
+      }
+      const by = Math.max(-l.start, dir * arrangeStep(rate, shift));
+      return void edit(dragLines(sel.track, inst, l, "move", by), undefined, dragGhost(sel.track, inst, l, "move", by));
     }
     if (dir) return setPlayhead((p) => snapTo(p + dir * arrangeStep(rate, shift), arrangeStep(rate)));
-    if (alt) return void edit(reorder(dy));
+    if (alt) return void reorderBy(dy);
     const ti = selTrack ? tracks.findIndex((t) => t.id === selTrack) : -1;
     const t = tracks[Math.max(0, Math.min(tracks.length - 1, ti + dy))];
     if (t) select({ kind: "track", track: t.id });
@@ -536,7 +602,7 @@ export function ArrangementScreen() {
       setWarnAt(key);
       setWarnOpen(true);
     },
-    zoom, playhead, setPlayhead, loop, loopOn, setLoop: (l) => setLoop(l),
+    zoom, playhead, setPlayhead, showClock, loop, loopOn, setLoop: (l) => setLoop(l),
     onAddTrack: addTrack, onRename: () => setRenameAsk((n) => n + 1), scrollRef,
   };
   const instanceSel = sel?.kind === "instance" ? instOf(sel.track, sel.id) : undefined;
@@ -571,7 +637,7 @@ export function ArrangementScreen() {
                 if (!loop) setLoop(selSpan() ?? { start: playhead, end: playhead + rate * 4 });
                 setLoopOn((v) => !v);
               }}><HubIcon name="loop" size={12} /> {SET_COPY.loop}</button>
-            <output className="hub-set-clock" aria-label={SET_COPY.position} title={SET_COPY.position}>{arrangeClock(at, rate, true)}</output>
+            <output ref={clockRef} className="hub-set-clock" aria-label={SET_COPY.position} title={SET_COPY.position}>{arrangeClock(at, rate, true)}</output>
           </div>
           {findings.length > 0 && (
             <div className="hub-set-pop-anchor" ref={warnRef}>
@@ -669,8 +735,8 @@ export function ArrangementScreen() {
                 )}
               </>}
               {sel?.kind === "track" && <>
-                <button className="ghost icon-button" aria-label={SET_COPY.moveUp} title={SET_COPY.moveUp} disabled={!reorder(-1)} onClick={() => void edit(reorder(-1))}><HubIcon name="up" size={12} /></button>
-                <button className="ghost icon-button" aria-label={SET_COPY.moveDown} title={SET_COPY.moveDown} disabled={!reorder(1)} onClick={() => void edit(reorder(1))}><HubIcon name="down" size={12} /></button>
+                <button className="ghost icon-button" aria-label={SET_COPY.moveUp} title={SET_COPY.moveUp} disabled={!reorder(-1)} onClick={() => reorderBy(-1)}><HubIcon name="up" size={12} /></button>
+                <button className="ghost icon-button" aria-label={SET_COPY.moveDown} title={SET_COPY.moveDown} disabled={!reorder(1)} onClick={() => reorderBy(1)}><HubIcon name="down" size={12} /></button>
               </>}
               <button className="ghost small-button" onClick={remove}>{SET_COPY.remove}</button>
             </div>
