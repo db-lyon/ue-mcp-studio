@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import type { ArrangementRun, HubOverview, Instance, InstanceLayout, RunRecord, SetAnswer } from "@ue-mcp-studio/shared";
+import type { ArrangementRun, HubOverview, Instance, InstanceLayout, InstanceStatus, RunRecord, SetAnswer } from "@ue-mcp-studio/shared";
 import {
   SET_OPS,
   activeSetRun,
@@ -166,7 +166,7 @@ describe("runs", () => {
   });
   it("keeps the newest result of each scene, track in a scene, instance and track", () => {
     const inst = (goalId: string, id: string, status: string) => ({ key: id, goalId, id, kind: "clip", target: "", name: "", player: 0, start: 0, end: 1, status, checks: { total: 0, passed: 0, failed: 0, pending: 0, awaiting: 0 }, segmentRunId: null });
-    const track = (goalId: string, status: string) => ({ goalId, title: "", player: 0, status });
+    const track = (goalId: string, status: InstanceStatus) => ({ goalId, title: "", player: 0, status });
     const rec = (runId: string, kind: string, target: string, outcome: string, arrangement: Partial<ArrangementRun>) =>
       ({ runId, kind, target, name: "", outcome, startedAt: "", source: "person", arrangement: { rate: 60, length: 1, segments: [], instances: [], kind, ...arrangement } }) as unknown as RunRecord;
     const r = setResults([
@@ -180,7 +180,7 @@ describe("runs", () => {
     expect(r.tracks).toEqual({ walk: "passed", guard: "failed" });
   });
   it("draws the playhead at the running segment's offset plus its clip run's position", () => {
-    const run: ArrangementRun = { kind: "arrangement", rate: 60, length: 900, instances: [], segments: [
+    const run: ArrangementRun = { kind: "arrangement", goalId: "arrangement", rate: 60, length: 900, instances: [], segments: [
       { index: 0, kind: "clip", runId: "c1", offset: 0, length: 240, state: "finished" },
       { index: 1, kind: "clip", runId: "c2", offset: 840, length: 60, state: "running" },
     ] };

@@ -52,7 +52,6 @@ const DOOR = "/Game/Tests/PT_Door";
 const lay = (id: string, kind: "clip" | "script", target: string, start: number, length: number) => ({ id, kind, target, name: target.split("/").pop()!, start, end: start + length, length, known: true });
 function setFixture(): SetAnswer {
   return {
-    rate: 60,
     text: "",
     findings: [],
     tracks: [
@@ -62,8 +61,8 @@ function setFixture(): SetAnswer {
       { id: "guard", title: "Guard", order: 1, player: 1, mute: false, solo: false, status: "not_started", arrangement: { rate: 60, instances: [] }, layout: [] },
     ],
     scenes: [
-      { id: "boss", title: "Boss fight", order: 0, color: "orange", status: "failing", tracks: ["walk"] },
-      { id: "calm", title: "Calm", order: 1, status: "not_started", tracks: [] },
+      { id: "boss", title: "Boss fight", order: 0, color: "orange", status: "failing", tracks: ["walk"], slots: [] },
+      { id: "calm", title: "Calm", order: 1, status: "not_started", tracks: [], slots: [] },
     ],
   };
 }

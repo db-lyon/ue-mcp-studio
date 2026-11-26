@@ -43,6 +43,7 @@ import {
   type SegmentLive,
 } from "@ue-mcp-studio/client-core";
 import {
+  ARRANGEMENT_DEFAULT_RATE,
   HUB_COLORS,
   checkId,
   type ArrangementFinding,
@@ -52,8 +53,8 @@ import {
   type InstanceLayout,
   type SetAnswer,
   type SetRunScope,
-  type SetScene,
-  type SetTrack,
+  type SetSceneView as SetScene,
+  type SetTrackView as SetTrack,
 } from "@ue-mcp-studio/shared";
 import { ApiError, api } from "../../api";
 import { useHub } from "./state";
@@ -144,7 +145,7 @@ export function ArrangementScreen() {
 
   const tracks = [...set.tracks].sort((a, b) => a.order - b.order);
   const scenes = [...set.scenes].sort((a, b) => a.order - b.order);
-  const rate = set.rate || 60;
+  const rate = ARRANGEMENT_DEFAULT_RATE;
   const trackOf = (id: string) => tracks.find((t) => t.id === id);
   const sceneOf = (id: string | null) => scenes.find((s) => s.id === id);
   const instOf = (t: string, i: string) => trackOf(t)?.arrangement.instances.find((x) => x.id === i);
