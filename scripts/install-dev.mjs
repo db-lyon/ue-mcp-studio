@@ -30,7 +30,11 @@ const webPkg = JSON.parse(fs.readFileSync(path.join(root, "apps", "client-web", 
 // loads studio@<version> over the unversioned folder.
 // STUDIO_DEV_BASE numbers a branch's dev build above a release that shipped after the branch began, so the
 // editor plugin's update check does not swap the dev build for that release.
-const version = `${process.env.STUDIO_DEV_BASE || webPkg.version}-dev.${Date.now()}`;
+// On a prerelease base the dev number joins its identifiers with a dot: 0.1.46-beta.6-dev.N would
+// sort after beta.7 too, since "6-dev" is not numeric and outranks every number, and every project
+// on beta.7 would then be told a newer Studio is installed. 0.1.46-beta.6.dev.N sorts between them.
+const base = process.env.STUDIO_DEV_BASE || webPkg.version;
+const version = `${base}${base.includes("-") ? "." : "-"}dev.${Date.now()}`;
 const target = path.join(extensions, `studio@${version}`);
 const staging = `${target}.staging`;
 fs.rmSync(staging, { recursive: true, force: true });
