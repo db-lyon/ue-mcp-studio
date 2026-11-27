@@ -11,6 +11,8 @@
 import type {
   Arrangement,
   ArrangementDraft,
+  AuditionRequest,
+  AuditionState,
   ArrangementView,
   Check,
   CheckMode,
@@ -29,8 +31,11 @@ import type {
   QueueRequest,
   QueueState,
   Region,
+  RunnerKind,
   RunRecord,
   RunState,
+  Schedule,
+  ScheduleDraft,
   Suite,
   SuiteDraft,
   SuiteHealth,
@@ -99,6 +104,14 @@ export function hubApi(request: HubRequest) {
     pause: (paused: boolean) => request<QueueState>("PUT", `${B}/queue/paused`, { paused }),
     lease: () => request<{ lease: EditorLease | null }>("GET", `${B}/lease`),
     release: () => request<QueueState>("POST", `${B}/release`, {}),
+    /** Audition: play on the open editor to watch, from the playhead and looping when asked. Not a test run. */
+    play: (req: AuditionRequest) => request<{ play: AuditionState }>("POST", `${B}/play`, req).then((r) => r.play),
+    playState: () => request<{ play: AuditionState | null }>("GET", `${B}/play`).then((r) => r.play),
+    stopPlay: () => request<{ play: AuditionState }>("POST", `${B}/play/stop`, {}).then((r) => r.play),
+    schedules: () => request<{ schedules: Schedule[] }>("GET", `${B}/schedules`).then((r) => r.schedules),
+    createSchedule: (d: ScheduleDraft) => request<{ schedule: Schedule }>("POST", `${B}/schedules`, d).then((r) => r.schedule),
+    updateSchedule: (id: string, d: ScheduleDraft) => request<{ schedule: Schedule }>("PUT", `${B}/schedules/${enc(id)}`, d).then((r) => r.schedule),
+    deleteSchedule: (id: string) => request<void>("DELETE", `${B}/schedules/${enc(id)}`),
   };
 }
 export type HubApi = ReturnType<typeof hubApi>;
@@ -511,6 +524,117 @@ export function queuedText(a: Pick<QueueAnswer, "queued" | "skipped" | "queue">,
   return { text: ahead ? `Queued ${tests} behind ${ahead} more` : `Queued ${tests}`, tone: "ok" };
 }
 
+// ---------- Where a run plays ----------
+
+/** The runner a person picks in Run: auto leaves the choice to the hub. */
+export type RunnerChoice = RunnerKind | "auto";
+
+export const RUNNER_LABEL: Record<RunnerKind, string> = { headless: "Headless", editor: "Open editor" };
+
+export const RUNNER_CHOICES: ReadonlyArray<{ value: RunnerChoice; label: string; help: string }> = [
+  { value: "auto", label: "Automatic", help: "Headless when a hidden editor fits in memory and the test has no manual checks, otherwise the open editor" },
+  { value: "headless", label: "Headless", help: "A hidden editor the hub starts and closes, so the open editor stays free. Manual checks cannot run there." },
+  { value: "editor", label: "Open editor", help: "Play In Editor in the editor you have open, where a person can judge manual checks" },
+];
+
+/** The queue request for a choice: auto sends no runner. */
+export const runnerRequest = (choice: RunnerChoice): { runner?: RunnerKind } => (choice === "auto" ? {} : { runner: choice });
+
+/** Where a queued test plays and why: "Headless, because a hidden editor fits in memory", or "Open editor, as chosen". */
+export function runnerText(i: Pick<QueueItem, "runner" | "runnerReason">): string {
+  return i.runnerReason ? `${RUNNER_LABEL[i.runner]}, because ${i.runnerReason}` : `${RUNNER_LABEL[i.runner]}, as chosen`;
+}
+
+// ---------- Schedules ----------
+
+export const DAY_SHORT = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"] as const;
+/** The days in the order a week reads here: Monday first. */
+export const WEEK_ORDER = [1, 2, 3, 4, 5, 6, 0] as const;
+
+/** A schedule's days in words: "Every day", "Weekdays", "Weekends", or "Mon, Wed, Fri". */
+export function scheduleDaysText(days: readonly number[]): string {
+  const set = new Set(days);
+  if (set.size === 7) return "Every day";
+  if (set.size === 5 && [1, 2, 3, 4, 5].every((d) => set.has(d))) return "Weekdays";
+  if (set.size === 2 && set.has(0) && set.has(6)) return "Weekends";
+  return WEEK_ORDER.filter((d) => set.has(d)).map((d) => DAY_SHORT[d]).join(", ");
+}
+
+/** A day toggled in or out of a schedule's days, never leaving none. */
+export function toggleDay(days: readonly number[], d: number): number[] {
+  const next = days.includes(d) ? days.filter((x) => x !== d) : [...days, d];
+  return next.length ? [...next].sort() : [...days];
+}
+
+/** What a schedule runs, by name: the suite's title or the test's. */
+export function scheduleTarget(s: Pick<Schedule, "suite" | "test">, o: Pick<HubOverview, "suites" | "tests">): string {
+  if (s.suite) return o.suites.find((x) => x.id === s.suite)?.title ?? s.suite;
+  return s.test ? testLabel(s.test, o) : "";
+}
+
+/** The form's value for what a schedule runs: "suite:<id>" or "test:<id>". */
+export const scheduleTargetKey = (s: Pick<Schedule, "suite" | "test">): string => (s.suite ? `suite:${s.suite}` : s.test ? `test:${s.test}` : "");
+export function scheduleTargetOf(key: string): { suite: string } | { test: string } | null {
+  const i = key.indexOf(":");
+  if (i < 0) return null;
+  const kind = key.slice(0, i);
+  const id = key.slice(i + 1);
+  if (!id) return null;
+  return kind === "suite" ? { suite: id } : kind === "test" ? { test: id } : null;
+}
+
+// ---------- Audition and recording ----------
+
+/** Whether an audition is still playing. */
+export const auditionLive = (p: Pick<AuditionState, "state"> | null | undefined): boolean => !!p && (p.state === "starting" || p.state === "running" || p.state === "awaiting_verdict");
+
+/** Whether an audition is of this arrangement: the arrangement itself or one of its regions. */
+export const auditionOf = (p: Pick<AuditionState, "test"> | null | undefined, id: string): boolean => !!p && (p.test === id || p.test.startsWith(`${id}:`));
+
+/** The range Loop plays and the takes record over: one region, or the whole arrangement. */
+export interface LoopRange {
+  start: number;
+  end: number;
+  /** The region it is; absent for the whole arrangement. */
+  region?: string;
+}
+
+/** The loop range Loop sets: the selected region, else the region under the playhead, else the whole arrangement. */
+export function loopRangeOf(a: Pick<Arrangement, "regions">, end: number, playhead: number, selected?: string | null): LoopRange {
+  const r = a.regions.find((x) => x.id === selected) ?? a.regions.find((x) => playhead >= x.start && playhead < x.end);
+  return r ? { start: r.start, end: r.end, region: r.id } : { start: 0, end: Math.max(1, end) };
+}
+
+/** What an audition plays: the loop range's region when looping over one, else the arrangement from the playhead. */
+export function auditionRequest(id: string, playhead: number, loop: LoopRange | null): AuditionRequest {
+  if (loop?.region) return { test: `${id}:${loop.region}`, from: Math.max(loop.start, Math.min(playhead, loop.end - 1)), loop: true };
+  return { test: id, from: Math.max(0, playhead), ...(loop ? { loop: true } : {}) };
+}
+
+export type RecordMode = "playhead" | "range" | "punch";
+
+export const RECORD_MODES: ReadonlyArray<{ value: RecordMode; label: string; help: string }> = [
+  { value: "playhead", label: "From playhead", help: "Records a new take until you stop it, placed on the armed track at the playhead" },
+  { value: "range", label: "Over loop range", help: "Records a new take for the length of the loop range, placed on the armed track at its start" },
+  { value: "punch", label: "Punch in", help: "Records over the loop range inside the clip under it on the armed track, keeping the rest of the clip" },
+];
+
+/** The instance on a track that covers a frame. */
+export function instanceAt(track: Pick<Track, "instances">, frame: number, clips: Record<string, ClipSpan>, rate: number): ClipInstance | null {
+  return track.instances.find((i) => {
+    const s = instanceSpan(i, clips, rate);
+    return frame >= s.start && frame < s.end;
+  }) ?? null;
+}
+
+/** A punch range in the clip's own frames: where the arrangement span falls inside the instance, or null when it misses. */
+export function punchRange(inst: Pick<ClipInstance, "at">, clip: ClipSpan, rate: number, start: number, end: number): { from: number; to: number } | null {
+  const scale = clip.rate / (rate || DEFAULT_RATE);
+  const from = Math.max(0, Math.round((start - inst.at) * scale));
+  const to = Math.min(clip.length, Math.round((end - inst.at) * scale));
+  return to > from ? { from, to } : null;
+}
+
 // ---------- Suites ----------
 
 /** The suites no other suite holds, in title order: the roots of the tree. */
@@ -657,6 +781,34 @@ export const HUB_COPY = {
   noClips: "No clips yet. Record a performance or ask an agent to write one.",
   record: "Record",
   stopRecording: "Stop recording",
+  arm: "Arm for recording",
+  armRemote: "Only the editor's own player records here. Record a remote client from its own editor.",
+  armFirst: "Arm a player track to record",
+  recording: (track: string) => `Recording ${track}: play in the editor now`,
+  takeSaved: (clip: string, track: string) => `${clip} is on ${track}`,
+  takeKept: (clip: string) => `${clip} is saved, but it overlaps a clip on the armed track, so it is only in the Clips drawer`,
+  punched: (clip: string) => `Punched in on ${clip}`,
+  punchMiss: "Punch in needs a clip under the loop range on the armed track",
+  audition: "Play",
+  auditionHelp: "Play from the playhead on the open editor to watch it. Nothing is recorded as a run.",
+  auditioning: "Auditioning",
+  testRun: "Test run",
+  loop: "Loop",
+  loopHelp: "Loop the selected region, the region under the playhead, or the whole arrangement",
+  runHelp: "Queue this arrangement as a test, with its result kept in Runs",
+  where: "Where it runs",
+  schedules: "Schedules",
+  newSchedule: "New schedule",
+  noSchedules: "No schedules. A schedule queues a test or a suite on chosen days at a set time on this computer.",
+  scheduleWhat: "Test or suite",
+  scheduleDays: "Days",
+  scheduleTime: "Time",
+  scheduleTitle: "Name",
+  scheduleSave: "Save",
+  scheduleCancel: "Cancel",
+  scheduleLast: (ago: string) => (ago === "now" ? "Last ran just now" : `Last ran ${ago} ago`),
+  scheduleNever: "Not run yet",
+  scheduleEditorNote: "The open editor must be running at that time.",
   queue: "Queue",
   queuePaused: "The queue is paused.",
   resume: "Resume",

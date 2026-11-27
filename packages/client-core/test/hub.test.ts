@@ -7,7 +7,19 @@ import {
   addNote,
   addRegion,
   arrangementRun,
+  auditionLive,
+  auditionOf,
+  auditionRequest,
   awaitingVerdicts,
+  instanceAt,
+  loopRangeOf,
+  punchRange,
+  runnerRequest,
+  runnerText,
+  scheduleDaysText,
+  scheduleTargetKey,
+  scheduleTargetOf,
+  toggleDay,
   hubAddressRoute,
   hubPath,
   instanceFits,
@@ -141,5 +153,50 @@ describe("run feedback", () => {
   it("roots the suite tree at the suites no other holds", () => {
     const s = (id: string, items: Array<{ test: string } | { suite: string }>) => ({ id, title: id, items }) as never;
     expect(rootSuites([s("b", []), s("a", [{ suite: "b" }])]).map((x: { id: string }) => x.id)).toEqual(["a"]);
+  });
+});
+
+describe("audition, recording and where runs play", () => {
+  it("loops the selected region, the one under the playhead, or the whole arrangement", () => {
+    expect(loopRangeOf(A, 600, 300, "r1")).toEqual({ start: 0, end: 120, region: "r1" });
+    expect(loopRangeOf(A, 600, 30)).toEqual({ start: 0, end: 120, region: "r1" });
+    expect(loopRangeOf(A, 600, 300)).toEqual({ start: 0, end: 600 });
+  });
+
+  it("auditions a region when looping over one, else the arrangement from the playhead", () => {
+    expect(auditionRequest("arena", 200, null)).toEqual({ test: "arena", from: 200 });
+    expect(auditionRequest("arena", 200, { start: 0, end: 600 })).toEqual({ test: "arena", from: 200, loop: true });
+    expect(auditionRequest("arena", 200, { start: 0, end: 120, region: "r1" })).toEqual({ test: "arena:r1", from: 119, loop: true });
+    expect(auditionLive({ state: "running" })).toBe(true);
+    expect(auditionLive({ state: "finished" })).toBe(false);
+    expect(auditionOf({ test: "arena:r1" }, "arena")).toBe(true);
+  });
+
+  it("finds the clip under a frame and turns a range into the clip's own frames", () => {
+    expect(instanceAt(A.tracks[0]!, 60, SPANS, 60)?.id).toBe("i1");
+    expect(instanceAt(A.tracks[0]!, 130, SPANS, 60)).toBeNull();
+    // walk runs at 30 fps: arrangement frames 20 to 80 of an instance at 10 are its frames 5 to 35, clamped to its 60.
+    expect(punchRange({ at: 10 }, SPANS.walk, 60, 20, 80)).toEqual({ from: 5, to: 35 });
+    expect(punchRange({ at: 0 }, SPANS.run, 60, 100, 400)).toEqual({ from: 100, to: 120 });
+    expect(punchRange({ at: 0 }, SPANS.run, 60, 200, 300)).toBeNull();
+  });
+
+  it("says where a queued test plays and why", () => {
+    expect(runnerText({ runner: "headless", runnerReason: "a hidden editor fits in memory" })).toBe("Headless, because a hidden editor fits in memory");
+    expect(runnerText({ runner: "editor" })).toBe("Open editor, as chosen");
+    expect(runnerRequest("auto")).toEqual({});
+    expect(runnerRequest("editor")).toEqual({ runner: "editor" });
+  });
+
+  it("names schedule days and keeps at least one", () => {
+    expect(scheduleDaysText([0, 1, 2, 3, 4, 5, 6])).toBe("Every day");
+    expect(scheduleDaysText([1, 2, 3, 4, 5])).toBe("Weekdays");
+    expect(scheduleDaysText([6, 0])).toBe("Weekends");
+    expect(scheduleDaysText([5, 1, 3])).toBe("Mon, Wed, Fri");
+    expect(toggleDay([1], 1)).toEqual([1]);
+    expect(toggleDay([1], 3)).toEqual([1, 3]);
+    expect(scheduleTargetOf(scheduleTargetKey({ test: "arena:r1" }))).toEqual({ test: "arena:r1" });
+    expect(scheduleTargetOf("suite:smoke")).toEqual({ suite: "smoke" });
+    expect(scheduleTargetOf("nope")).toBeNull();
   });
 });
