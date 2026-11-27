@@ -8,9 +8,8 @@
 import { useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
 import { Linking, Pressable, StyleSheet, View } from "react-native";
 import Svg, { Path } from "react-native-svg";
-import { hubRecordLocation, hubRouteScript, parseHubPath, playtestRecordIndex, studioApi, viewportAllowed, type PanelLocation, type Transport } from "@ue-mcp-studio/client-core";
-import { HubRecordsContext, type HubRecords } from "./chat/HubRecordLink";
-import { playtestMatches, type StudioTheme } from "@ue-mcp-studio/shared";
+import { studioApi, viewportAllowed, type PanelLocation, type Transport } from "@ue-mcp-studio/client-core";
+import type { StudioTheme } from "@ue-mcp-studio/shared";
 import { BackLayer, useBack } from "./back";
 import { useProject } from "./connection";
 import { transportFor, watchUnpaired, type Device } from "./relay";
@@ -22,7 +21,6 @@ import { useNotifications } from "./notifications/useNotifications";
 import { useSettingsApi } from "./screens/settings/hooks";
 import { Banner, Button, font, PageGlow, T, useInsets, useSetTheme, useStyles, useTheme, type Theme } from "./ui";
 import { Chat } from "./views/Chat";
-import { PlaytestsView, usePlaytestIndex } from "./views/Playtests";
 import { LiveButton, PieStatusContext, ViewportSheet, useOwnPieStatus } from "./chat/PieLive";
 import { SettingsHub } from "./views/SettingsHub";
 import { sectionOf, type SettingsSection } from "./views/settings/sections";
@@ -42,11 +40,11 @@ import { CompatBanner } from "./native/CompatBanner";
 import { useDeviceOnline } from "./native/online";
 import { OFFLINE_STRIP } from "./views/OfflineBanner";
 import { FileViewerProvider } from "./chat/FileViewer";
-import { HeldBar, HeldContext, LeaseBar, useHeld, useLease } from "./held";
+import { LeaseBar, useLease } from "./held";
 // Ways out of the project the drawer offers at all times: the projects list and pairing.
 import { Exits } from "./exits";
 
-const TABS = ["Chat", "Playtests", "Settings"] as const;
+const TABS = ["Chat", "Settings"] as const;
 type Tab = (typeof TABS)[number];
 
 const THEMES: StudioTheme[] = ["ue-mcp", "editor", "editor-orange"];
@@ -131,7 +129,9 @@ function Studio({ daemon, initial, onBack, device }: { daemon: ReturnType<typeof
   const setTheme = useSetTheme();
   const [tab, setTab] = useState<Tab>(() => {
     resetLocation(initial);
-    return readLocation().tab;
+    // The phone has no Playtest Hub screens: a link to one opens the chat.
+    const at = readLocation().tab;
+    return at === "Settings" ? "Settings" : "Chat";
   });
   const [section, setSection] = useState<SettingsSection | null>(() => sectionOf(readLocation().section));
   useEffect(() => writeLocation({ tab, section: tab === "Settings" ? section : null }), [tab, section]);
@@ -168,33 +168,6 @@ function Studio({ daemon, initial, onBack, device }: { daemon: ReturnType<typeof
   useNotifications({ events: daemon.events, device, api: settings, streaming: daemon.streaming, onOpen: (n) => n.sessionId && openChat(n.sessionId) });
   const newSession = () => void api.newSession().then((d) => openChat(d.id), () => openChat(null));
   const updates = useUpdateCount();
-  const playtests = usePlaytestIndex(daemon);
-  const playtestsWaiting = (playtests.index?.playtests ?? []).filter((e) => playtestMatches(e, "needs-you")).length;
-  const openPlaytest = (sessionId: string) => openChat(sessionId);
-  // The Playtest Hub experiment, read from the computer's settings and again when they change.
-  const [hubOn, setHubOn] = useState(false);
-  const settingsChanged = [...daemon.events].reverse().find((e) => e.type === "studio.settings.changed" || e.type === "settings.changed");
-  useEffect(() => {
-    api.settings().then((x) => setHubOn(x?.experiments?.playtestHub === true), () => undefined);
-  }, [api, settingsChanged?.id]);
-  // The playtest card a hub link or a start location asked for; `n` tells requests apart.
-  const [focus, setFocus] = useState<{ script: string; n: number } | null>(() => {
-    const script = hubRouteScript(parseHubPath(readLocation().sub));
-    return script ? { script, n: 0 } : null;
-  });
-  // While the hub is on, a link to one of its records opens it on the Playtests page: a playtest at its card.
-  const playtestList = playtests.index?.playtests;
-  const hubRecords = useMemo<HubRecords | null>(() => (hubOn ? {
-    index: playtestList ? playtestRecordIndex(playtestList) : null,
-    open: (route) => {
-      writeLocation(hubRecordLocation(route));
-      setTab("Playtests");
-      const script = hubRouteScript(route);
-      setFocus((f) => (script ? { script, n: (f?.n ?? 0) + 1 } : null));
-    },
-  } : null), [hubOn, playtestList]);
-  // Runs holding at a manual step for a verdict, PIE paused: the bar under the top bar, and the cards' Resume and watch.
-  const held = useHeld(daemon);
   // While the Playtest Hub holds the editor: the bar that says so, with Release the editor.
   const lease = useLease(daemon);
   // The chat stays mounted once shown, parked while another tab is up, so coming back finds the same session and draft.
@@ -204,9 +177,7 @@ function Studio({ daemon, initial, onBack, device }: { daemon: ReturnType<typeof
   useBack(tab === "Chat" ? null : () => (tab === "Settings" && section ? setSection(null) : setTab("Chat")));
 
   return (
-    <HubRecordsContext.Provider value={hubRecords}>
     <PieStatusContext.Provider value={pie}>
-    <HeldContext.Provider value={held}>
     <View style={s.app}>
       {/* body's glow over --bg, under everything; the bar's --bar-bg reads over it as the web's blurred bar does. */}
       <PageGlow top={insets.top} />
@@ -235,7 +206,6 @@ function Studio({ daemon, initial, onBack, device }: { daemon: ReturnType<typeof
       ) : null}
       <DialogBanner daemon={daemon} />
       <LeaseBar lease={lease} />
-      <HeldBar value={held} onOpenCard={(h) => h.sessionId && openChat(h.sessionId)} onWatchLive={watchLive} />
       <PendingDisruptions daemon={daemon} />
       <VersionNotice daemon={daemon} />
       {/* A landscape navigation bar's side; each view pads the end of its own scrolling by the bottom one. */}
@@ -256,10 +226,8 @@ function Studio({ daemon, initial, onBack, device }: { daemon: ReturnType<typeof
           </View>
         ) : null}
         {tab !== "Chat" ? (
-          // The Playtests page pads inside its own scroller, as the web main scrolls with its padding.
-          <View style={[s.main, tab !== "Playtests" && s.padded]}>
+          <View style={[s.main, s.padded]}>
             <ErrorBoundary what={tab} resetKey={tab}>
-              {tab === "Playtests" ? <PlaytestsView daemon={daemon} index={playtests} onOpenSession={openPlaytest} onChat={() => setTab("Chat")} focus={focus} /> : null}
               {tab === "Settings" ? <SettingsHub daemon={daemon} section={section} onSection={setSection} onTheme={(x: StudioTheme) => THEMES.includes(x) && setTheme(x)} updates={updates} narrow /> : null}
             </ErrorBoundary>
           </View>
@@ -273,7 +241,6 @@ function Studio({ daemon, initial, onBack, device }: { daemon: ReturnType<typeof
         tab={tab}
         session={tab === "Chat" ? readLocation().session : null}
         updates={updates}
-        playtestsWaiting={playtestsWaiting}
         onTab={setTab}
         onSession={openChat}
         onNewSession={newSession}
@@ -286,9 +253,7 @@ function Studio({ daemon, initial, onBack, device }: { daemon: ReturnType<typeof
       </NavDrawer>
       {feedback ? <FeedbackDialog onClose={() => setFeedback(false)} /> : null}
     </View>
-    </HeldContext.Provider>
     </PieStatusContext.Provider>
-    </HubRecordsContext.Provider>
   );
 }
 

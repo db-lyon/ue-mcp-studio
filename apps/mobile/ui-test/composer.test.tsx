@@ -308,7 +308,8 @@ describe("the slash menu", () => {
     render(<Box />);
     type("/");
     const menu = screen.getByLabelText("Commands");
-    for (const c of ["/playtest", "/flow", "/action", "/compact"]) expect(within(menu).getByText(c)).toBeTruthy();
+    for (const c of ["/flow", "/action", "/compact"]) expect(within(menu).getByText(c)).toBeTruthy();
+    expect(within(menu).queryByText("/playtest")).toBeNull();
     expect(within(menu).queryByText("/remote")).toBeNull();
     type("/co");
     pressRow(screen.getByRole("menuitem", { name: "/compact" }));
@@ -399,15 +400,15 @@ describe("the @-mention menu", () => {
 
 describe("PillRow", () => {
   it("draws nothing without pills; a tap clears the row and runs the pill", () => {
-    const actions = { playtest: vi.fn() };
+    const actions = { go: vi.fn() };
     const { container, rerender } = render(<PillRow pills={[]} actions={actions} onClear={() => undefined} />);
     expect(container.textContent).toBe("");
     const onClear = vi.fn();
-    rerender(<PillRow pills={[{ id: "p", label: "Make clip", run: (a) => a.playtest({ text: "", turn: 3 }) }]} actions={actions} onClear={onClear} />);
+    rerender(<PillRow pills={[{ id: "p", label: "Try it", run: (a) => a.go!() }]} actions={actions} onClear={onClear} />);
     expect(screen.getByLabelText("Suggestions")).toBeTruthy();
-    fireEvent.click(button("Make clip"));
+    fireEvent.click(button("Try it"));
     expect(onClear).toHaveBeenCalled();
-    expect(actions.playtest).toHaveBeenCalledWith({ text: "", turn: 3 });
+    expect(actions.go).toHaveBeenCalled();
   });
 });
 

@@ -8,7 +8,7 @@
 import { createContext, memo, useContext, useEffect, useId, useMemo, useRef, useState, type ReactNode } from "react";
 import { FlatList, Platform, Pressable, ScrollView, Text, TextInput, View, useWindowDimensions, type LayoutChangeEvent, type NativeScrollEvent, type NativeSyntheticEvent, type TextStyle } from "react-native";
 import Svg, { Defs, LinearGradient, Path, Rect, Stop } from "react-native-svg";
-import { lineDiff, type Attachment, type PlaytestRequest, type PlaytestStage, type ReplyImageInfo, type SessionAgent, type TranscriptEntry, type TurnStatus } from "@ue-mcp-studio/shared";
+import { lineDiff, type Attachment, type ReplyImageInfo, type SessionAgent, type TranscriptEntry, type TurnStatus } from "@ue-mcp-studio/shared";
 import {
   EARLIER_ENTRIES,
   IMAGE_LOAD_FAILED,
@@ -51,7 +51,6 @@ import { DiffView } from "./Diff";
 import { useAgents, useAsked } from "./asked";
 import { breakable } from "./breakable";
 import { DialogLine } from "../screens/chat/items";
-import { QaCard } from "./Qa";
 import { TurnReviewCard } from "../screens/chat/items";
 import { FlowCard } from "./FlowCommand";
 import { PieCard } from "./PieLive";
@@ -109,15 +108,7 @@ export const Entry = memo(function Entry({ entry }: { entry: TranscriptEntry }) 
   }
   if (entry.kind === "note") return <Note text={entry.text} />;
   if (entry.kind === "dialog") return <DialogLine dialog={entry.dialog} />;
-  // A deleted script's cards leave the conversation with it.
-  if (entry.kind === "qa") return entry.run.deleted ? null : <QaCard run={entry.run} />;
   if (entry.kind === "review") return <TurnReviewCard review={entry.review} />;
-  if (entry.kind === "playtest") {
-    return entry.state === "failed"
-      ? <PlaytestFailed errors={entry.errors?.length ? entry.errors : ["The /playtest flow made no clip."]} request={entry.request} />
-      : <PlaytestProgress entry={entry} />;
-  }
-  if (entry.kind === "playtest-failed") return <PlaytestFailed errors={[entry.reason]} request={entry.request} />;
   if (entry.kind === "flow") return <FlowCard entry={entry} />;
   // An extension's card: the app has no extension slots, so it is left out as the web leaves an unregistered one.
   if (entry.kind === "card") return null;
@@ -133,70 +124,6 @@ function Note({ text }: { text: string }) {
   return (
     <Banner kind="warn">
       <Text style={{ ...baseFont(t), color: t.c.warnText }}>{text}</Text>
-    </Banner>
-  );
-}
-
-/**
- * Runs a /playtest from a button: Retry on a failed one. `busy` while a turn
- * runs, when it cannot start. Null where nothing can be sent.
- */
-export const PlaytestCommandContext = createContext<{ busy: boolean; run: (req: PlaytestRequest) => void } | null>(null);
-
-/** The playtest flow's stages, in order, as the card names them. */
-const PLAYTEST_STAGES: Array<[PlaytestStage, string]> = [
-  ["gathering", "Gathering"],
-  ["drafting", "Drafting"],
-  ["checking", "Checking"],
-  ["created", "Created"],
-];
-
-/** A /playtest while its flow runs: the stages, the one in progress marked, and the draft's attempt after a retry. */
-function PlaytestProgress({ entry }: { entry: Extract<TranscriptEntry, { kind: "playtest" }> }) {
-  const t = useTheme();
-  const at = PLAYTEST_STAGES.findIndex(([s]) => s === entry.state);
-  return (
-    <Banner role="status" style={{ borderColor: t.c.line, backgroundColor: t.c.panel2 }}>
-      <View accessibilityLabel="Playtest progress" accessibilityRole="list" style={{ flexDirection: "row", flexWrap: "wrap", alignItems: "center", columnGap: 14, rowGap: 10, marginVertical: 6 }}>
-        {PLAYTEST_STAGES.map(([stage, label], i) => {
-          const state = i < at || entry.state === "created" ? "done" : i === at ? "active" : "dim";
-          return (
-            <Text key={stage} accessibilityState={{ selected: i === at }} style={[small(t, state === "done" ? t.c.ok : t.c.text), state === "active" && font(t, "sans", 600, 12), state === "dim" && { opacity: 0.55 }]}>
-              {state === "done" ? "✓  " : state === "active" ? "●  " : ""}
-              {label}
-              {stage === "drafting" && entry.attempt > 1 ? ` (attempt ${entry.attempt})` : ""}
-            </Text>
-          );
-        })}
-      </View>
-    </Banner>
-  );
-}
-
-/** A /playtest that saved no script: that it failed, the flow's errors, and Retry. */
-function PlaytestFailed({ errors, request }: { errors: string[]; request: PlaytestRequest }) {
-  const t = useTheme();
-  const playtest = useContext(PlaytestCommandContext);
-  const color = t.c.badText;
-  return (
-    <Banner kind="bad" role="status" style={{ gap: 4 }}>
-      <View style={{ flexDirection: "row", alignItems: "center", gap: 10, marginVertical: 6 }}>
-        <Text style={{ ...baseFont(t), ...font(t, "sans", 700, t.base.size), lineHeight: t.base.lineHeight, color }}>No clip was made.</Text>
-        <View style={{ flex: 1 }} />
-        {playtest ? <ContentButton title="Retry" small fontSize={t.base.size} disabled={playtest.busy} onPress={() => playtest.run(request)} /> : null}
-      </View>
-      {errors.length === 1 ? (
-        <Text style={small(t, color)}>{errors[0]}</Text>
-      ) : (
-        <View style={{ paddingLeft: 18 }}>
-          {errors.map((e, i) => (
-            <View key={i}>
-              <Text style={[small(t, color), { position: "absolute", left: -18, width: 18, paddingRight: 5, textAlign: "right" }]}>{"•"}</Text>
-              <Text style={small(t, color)}>{e}</Text>
-            </View>
-          ))}
-        </View>
-      )}
     </Banner>
   );
 }
