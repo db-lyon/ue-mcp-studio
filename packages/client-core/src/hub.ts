@@ -263,7 +263,7 @@ export function checkSummary(c: Pick<Check, "mode" | "expect" | "instruction">):
 export const EXPECT_OPS = ["==", "!=", ">", ">=", "<", "<=", "contains", "exists"] as const;
 
 /** A target typed as text: a number or true/false when it reads as one, else the text. */
-export function targetOf(text: string): unknown {
+export function expectTargetOf(text: string): unknown {
   const t = text.trim();
   if (t === "") return undefined;
   if (t === "true" || t === "false") return t === "true";

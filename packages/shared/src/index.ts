@@ -731,27 +731,11 @@ export interface BusyCall {
 }
 
 /**
- * An editor restart, rebuild, start or stop the daemon is running, step by
- * step: editor.stop_editor, project.build, editor.start_editor,
- * editor.restart_editor, then "connect" while the started editor attaches.
+ * An editor restart, rebuild, start or stop the daemon is running, and how the
+ * last one ended when it did not bring the editor back: ue-mcp's own types.
  */
-export interface EditorOperation {
-  op: "start" | "stop" | "restart" | "rebuild";
-  step: string;
-  /** Daemon clock, epoch ms. */
-  startedAt: number;
-  stepStartedAt: number;
-}
-
-/** How the last editor operation ended when it did not bring the editor back. */
-export interface EditorOperationFailure {
-  op: EditorOperation["op"];
-  step: string;
-  /** What went wrong, in one or two sentences. */
-  reason: string;
-  /** Daemon clock, epoch ms. */
-  at: number;
-}
+import type { EditorOperation, EditorOperationFailure } from "ue-mcp/daemon";
+export type { EditorOperation, EditorOperationFailure };
 
 /** GET /v1/ext/studio/busy, and the data of studio.busy.changed. `now` is the daemon's clock. */
 export interface BusyState {

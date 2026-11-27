@@ -57,7 +57,7 @@ import {
   setTrack,
   shortAgo,
   snapTo,
-  targetOf,
+  expectTargetOf,
   trackWarnings,
   updateCheck,
   updateRegion,
@@ -645,7 +645,7 @@ function Inspector({ a, sel, results, run, spans, edit, onRemove, onMoveTrack }:
             {EXPECT_OPS.map((op) => <option key={op} value={op}>{op}</option>)}
           </select>
           <input className="hub-set-name narrow" aria-label="Target" defaultValue={c.expect?.target === undefined ? "" : String(c.expect.target)} key={`${c.id}:t:${String(c.expect?.target)}`} onBlur={(e) => {
-            const target = targetOf(e.target.value);
+            const target = expectTargetOf(e.target.value);
             edit((x) => updateCheck(x, c.id, { expect: { ...(c.expect ?? { value: "pawn.alive", op: "==" }), ...(target === undefined ? { target: undefined } : { target }) } }));
           }} />
         </>
