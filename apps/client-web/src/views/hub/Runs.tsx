@@ -1,12 +1,14 @@
 /**
- * Runs: what plays now and what waits in the queue, with why the next item
- * waits and Pause, then the recent runs. A run opens on its arrangement,
- * where its checks show their results.
+ * Runs: what plays now and what waits in the queue, each with where it plays
+ * and why, why the next item waits, and Pause; then the schedules, and the
+ * recent runs. A run opens on its arrangement, where its checks show their
+ * results.
  */
-import { HUB_COPY, RUN_STATE_LOOK, runTally, shortAgo } from "@ue-mcp-studio/client-core";
+import { HUB_COPY, RUN_STATE_LOOK, RUNNER_LABEL, runnerText, runTally, shortAgo } from "@ue-mcp-studio/client-core";
 import { parseTestId } from "ue-mcp/hub";
 import { api } from "../../api";
 import { useHub } from "./state";
+import { SchedulesSection } from "./Schedules";
 import { Empty, HubIcon, RouteLink, ScreenHead, StatusMark } from "./parts";
 
 export function RunsScreen() {
@@ -34,7 +36,7 @@ export function RunsScreen() {
                   <RouteLink className="hub-row hub-mini-row" to={{ screen: "arrangement", id: ref?.arrangement ?? i.test, ...(i.runId ? { run: i.runId } : {}) }}>
                     <StatusMark look={i.state === "running" ? look : { glyph: "queued", tone: "idle", label: "Queued" }} label={i.state === "running" ? look.label : "Queued"} />
                     <span className="hub-row-title">{i.title}</span>
-                    <span className="hub-row-meta">{i.suite ? `Suite ${i.suite}` : ""} {i.runner === "headless" ? "Headless" : ""}</span>
+                    <span className="hub-row-meta">{i.suite && <span>Suite {i.suite}</span>}<span>{runnerText(i)}</span></span>
                   </RouteLink>
                   <span className="hub-row-actions">
                     {i.state === "running" && i.runId
@@ -47,6 +49,7 @@ export function RunsScreen() {
           </ul>
         )}
       </section>
+      <SchedulesSection />
       <section className="hub-section">
         <div className="hub-section-head"><h2>{HUB_COPY.recent}</h2></div>
         {o.recent.length === 0 ? <Empty title={HUB_COPY.noRuns} /> : (
@@ -60,7 +63,7 @@ export function RunsScreen() {
                   <RouteLink className="hub-row hub-mini-row" to={{ screen: "arrangement", id: ref?.arrangement ?? r.test, run: r.runId }}>
                     <StatusMark look={look} label={look.label} />
                     <span className="hub-row-title">{r.title}</span>
-                    <span className="hub-row-meta">{t.passed} of {t.total} checks{r.revision ? ` · ${r.revision.slice(0, 8)}` : ""}</span>
+                    <span className="hub-row-meta"><span>{t.passed} of {t.total} checks</span><span>{RUNNER_LABEL[r.runner]}</span>{r.revision && <span className="mono">{r.revision.slice(0, 8)}</span>}</span>
                     <span className="hub-row-when">{shortAgo(r.startedAt)}</span>
                   </RouteLink>
                 </li>
