@@ -30,6 +30,7 @@ import type {
   QueueItem,
   QueueRequest,
   QueueState,
+  RecordingState,
   Region,
   RunnerKind,
   RunRecord,
@@ -78,7 +79,10 @@ export function hubApi(request: HubRequest) {
     createClip: (d: ClipDraft) => request<{ clip: Clip }>("POST", `${B}/clips`, d).then((r) => r.clip),
     putClip: (c: Clip) => request<{ clip: Clip }>("PUT", clip(c.id), c).then((r) => r.clip),
     deleteClip: (id: string) => request<void>("DELETE", clip(id)),
-    recordStart: (body: { performer: Performer; clip?: string; from?: number; to?: number; rate?: number }) => request<{ recording: true }>("POST", `${B}/record/start`, body),
+    /** arrangement, track, at and seconds say where the take lands and how long it runs; the daemon keeps them for recordState. */
+    recordStart: (body: { performer: Performer; clip?: string; from?: number; to?: number; rate?: number; arrangement?: string; track?: string; at?: number; seconds?: number }) => request<{ recording: true }>("POST", `${B}/record/start`, body),
+    /** The recording under way on the open editor, so a reloaded page can show it and stop it. */
+    recordState: () => request<{ recording: RecordingState | null }>("GET", `${B}/record`).then((r) => r.recording),
     recordStop: (body: { id?: string; title?: string } = {}) => request<{ clip: Clip }>("POST", `${B}/record/stop`, body).then((r) => r.clip),
     arrangement: (id: string) => request<ArrangementView>("GET", arr(id)),
     createArrangement: (d: ArrangementDraft) => request<ArrangementView>("POST", `${B}/arrangements`, d),

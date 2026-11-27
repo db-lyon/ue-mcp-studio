@@ -17,6 +17,7 @@ const m = vi.hoisted(() => ({
   stopPlay: vi.fn(),
   recordStart: vi.fn(),
   recordStop: vi.fn(),
+  recordState: vi.fn(),
 }));
 vi.mock("../../api", () => ({ api: { hub: m } }));
 import { HubContext, type HubContextValue } from "./state";
@@ -48,6 +49,7 @@ beforeEach(() => {
   m.playState.mockResolvedValue(null);
   m.play.mockResolvedValue({ playId: "p1", test: "arena", from: 0, loop: false, startedAt: "", state: "running", checks: [] });
   m.recordStart.mockResolvedValue({ recording: true });
+  m.recordState.mockResolvedValue(null);
   m.recordStop.mockResolvedValue({ id: "take", title: "Take", performer: "player", rate: 60, length: 90, input: [] });
 });
 afterEach(() => {
@@ -78,7 +80,7 @@ describe("the Arrangement's transport", () => {
     fireEvent.click(screen.getByLabelText("Arm for recording: Player"));
     fireEvent.click(screen.getByRole("button", { name: "Record" }));
     await flush();
-    expect(m.recordStart).toHaveBeenCalledWith({ performer: { kind: "player", client: 0 }, rate: 60 });
+    expect(m.recordStart).toHaveBeenCalledWith({ performer: { kind: "player", client: 0 }, rate: 60, arrangement: "arena", track: "t1", at: 0 });
     expect(screen.getByText("Recording Player")).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: "Stop recording" }));
     await flush();
@@ -87,5 +89,27 @@ describe("the Arrangement's transport", () => {
     const saved = m.putArrangement.mock.calls.at(-1)![0] as Arrangement;
     expect(saved.tracks[0]!.instances).toEqual([{ id: "i1", clip: "take", at: 0 }]);
     expect(ctx.notify).toHaveBeenCalledWith("Take is on Player");
+  });
+
+  it("picks a recording back up after a reload and still places the take on its track", async () => {
+    m.recordState.mockResolvedValue({ performer: { kind: "player", client: 0 }, rate: 60, startedAt: new Date(Date.now() - 1000).toISOString(), arrangement: "arena", track: "t1", at: 30 });
+    mount();
+    await flush();
+    await flush();
+    expect(screen.getByText("Recording Player")).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Stop recording" }));
+    await flush();
+    expect(m.recordStop).toHaveBeenCalledWith({ title: "Take" });
+    await act(async () => void (await new Promise((r) => setTimeout(r, 250))));
+    const saved = m.putArrangement.mock.calls.at(-1)![0] as Arrangement;
+    expect(saved.tracks[0]!.instances).toEqual([{ id: "i1", clip: "take", at: 30 }]);
+  });
+
+  it("leaves a recording of another arrangement alone", async () => {
+    m.recordState.mockResolvedValue({ performer: { kind: "player", client: 0 }, startedAt: new Date().toISOString(), arrangement: "other", track: "t1", at: 0 });
+    mount();
+    await flush();
+    await flush();
+    expect(screen.queryByText("Recording Player")).toBeNull();
   });
 });

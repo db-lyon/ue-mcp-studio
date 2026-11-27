@@ -194,6 +194,37 @@ export function ArrangementScreen({ id, runId }: { id: string; runId: string | n
     if (stopAt.current) clearTimeout(stopAt.current);
   }, []);
 
+  // The daemon keeps the recording under way, so a page that reloads mid-take reads it back:
+  // the take shows on its track again and a timed take still stops on time. One stopped
+  // elsewhere clears here; a read sent before this page started its own take is ignored.
+  const recNow = useRef(rec);
+  recNow.current = rec;
+  useEffect(() => {
+    let alive = true;
+    const asked = Date.now();
+    api.hub.recordState().then((r) => {
+      const cur = recNow.current;
+      if (!alive) return;
+      if (!r) {
+        if (cur && cur.since < asked) {
+          if (stopAt.current) clearTimeout(stopAt.current);
+          stopAt.current = null;
+          setRec(null);
+        }
+        return;
+      }
+      if (cur || r.arrangement !== id || !r.track) return;
+      const since = Date.parse(r.startedAt) || Date.now();
+      const punch = r.clip ? { clip: r.clip, title: o.clips.find((c) => c.id === r.clip)?.title ?? r.clip } : undefined;
+      setArmed(r.track);
+      setRec({ track: r.track, start: r.at ?? 0, since, ...(punch ? { punch } : {}) });
+      if (r.seconds !== undefined) stopAt.current = setTimeout(() => keys.current.stopRecording(), Math.max(0, r.seconds * 1000 - (Date.now() - since)));
+    }, () => undefined);
+    return () => {
+      alive = false;
+    };
+  }, [id, hub.data.version]);
+
   useEffect(() => {
     // Players only: the editor's player and the remote clients. The picker never offers an actor.
     api.hub.performers(id).then((p) => setPerformers(p.performers.filter((c) => offersPerformer(c.performer))), () => setPerformers([]));
@@ -270,7 +301,7 @@ export function ArrangementScreen({ id, runId }: { id: string; runId: string | n
       seconds = (pr.to - pr.from) / clip.rate;
     }
     try {
-      await api.hub.recordStart(body);
+      await api.hub.recordStart({ ...body, arrangement: a.id, track: armedTrack.id, at: start, ...(seconds !== null ? { seconds } : {}) });
     } catch (e) {
       return notify((e as Error).message, "bad");
     }

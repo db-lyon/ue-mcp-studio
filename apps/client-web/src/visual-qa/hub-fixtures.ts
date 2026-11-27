@@ -127,6 +127,7 @@ function hubGet(p: string): unknown {
   if (p === "/v1/hub") return OVERVIEW;
   if (p === "/v1/hub/lease") return { lease: null };
   if (p === "/v1/hub/play") return { play: null };
+  if (p === "/v1/hub/record") return { recording: null };
   if (p === "/v1/hub/arrangements/arena-gate") return VIEW;
   if (p.startsWith("/v1/hub/performers")) return { level: "/Game/Maps/L_Arena", performers: [{ performer: { kind: "player", client: 0 }, label: "Player 1", capabilities: ["input", "move", "action", "value"] }, { performer: { kind: "player", client: 1 }, label: "Client 1", capabilities: ["input", "move", "action", "value"] }] };
   const clip = /^\/v1\/hub\/clips\/([^/]+)$/.exec(p);
