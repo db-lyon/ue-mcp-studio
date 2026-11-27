@@ -26,7 +26,7 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { execFileSync, spawnSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
-import { signBundle } from "ue-mcp/daemon";
+import { DAEMON_API_VERSION, signBundle } from "ue-mcp/daemon";
 import { renderNotices } from "./notices.mjs";
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
@@ -102,7 +102,7 @@ if (!fs.existsSync(windowExe)) throw new Error("no apps/window/dist/studio-windo
 fs.mkdirSync(path.join(ext, "bin"), { recursive: true });
 fs.copyFileSync(windowExe, path.join(ext, "bin", "studio-window.exe"));
 fs.writeFileSync(path.join(ext, "THIRD_PARTY_NOTICES.txt"), renderNotices().text);
-const manifest = signBundle(path.join(ext, "ui"), { name: "studio", version, api: { min: 1, max: 1 } }, fs.readFileSync(RELEASE_KEY, "utf-8"));
+const manifest = signBundle(path.join(ext, "ui"), { name: "studio", version, api: { min: DAEMON_API_VERSION, max: DAEMON_API_VERSION } }, fs.readFileSync(RELEASE_KEY, "utf-8"));
 
 // 3. The UE-MCP app, built with the window, under one name so releases/latest/download/<name> always resolves.
 const SETUP = "UE-MCP-Setup.exe";
