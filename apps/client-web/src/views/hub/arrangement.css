@@ -43,7 +43,7 @@
 .hub-set-cursor.run { border-left-color: var(--ok); }
 /* On a narrow page the transport takes the lines it needs under the title. */
 .hub-root.narrow .hub-set .hub-head.compact { flex-wrap: wrap; }
-.hub-root.narrow .hub-set .hub-head.compact .hub-head-actions { flex-wrap: wrap; row-gap: 4px; margin-left: 0; }
+.hub-root.narrow .hub-set .hub-head.compact .hub-head-actions { flex: 1 1 100%; flex-wrap: wrap; row-gap: 4px; margin-left: 0; }
 .hub-root.narrow .hub-set-transport-group.run { margin-left: 0; }
 @media (prefers-reduced-motion: reduce) { .hub-set-rec-dot { animation: none; } }
 /* The switcher at the head of the transport: the arrangement shown, and the others to open in its place. */

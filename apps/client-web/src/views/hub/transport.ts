@@ -15,8 +15,11 @@ export function useAudition(id: string): { play: AuditionState | null; live: boo
   const { data } = useHub();
   const [play, setPlay] = useState<AuditionState | null>(null);
   const alive = useRef(true);
-  useEffect(() => () => {
-    alive.current = false;
+  useEffect(() => {
+    alive.current = true;
+    return () => {
+      alive.current = false;
+    };
   }, []);
   const read = () => {
     api.hub.playState().then((p) => alive.current && setPlay(p), () => undefined);

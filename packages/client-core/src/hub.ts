@@ -532,9 +532,9 @@ export type RunnerChoice = RunnerKind | "auto";
 export const RUNNER_LABEL: Record<RunnerKind, string> = { headless: "Headless", editor: "Open editor" };
 
 export const RUNNER_CHOICES: ReadonlyArray<{ value: RunnerChoice; label: string; help: string }> = [
-  { value: "auto", label: "Automatic", help: "Headless when a hidden editor fits in memory and the test has no manual checks, otherwise the open editor" },
+  { value: "auto", label: "Automatic", help: "Headless when a hidden editor fits in memory and the test has no manual checks, otherwise the open editor." },
   { value: "headless", label: "Headless", help: "A hidden editor the hub starts and closes, so the open editor stays free. Manual checks cannot run there." },
-  { value: "editor", label: "Open editor", help: "Play In Editor in the editor you have open, where a person can judge manual checks" },
+  { value: "editor", label: "Open editor", help: "Play In Editor in the editor you have open, where a person can judge manual checks." },
 ];
 
 /** The queue request for a choice: auto sends no runner. */
@@ -614,9 +614,9 @@ export function auditionRequest(id: string, playhead: number, loop: LoopRange | 
 export type RecordMode = "playhead" | "range" | "punch";
 
 export const RECORD_MODES: ReadonlyArray<{ value: RecordMode; label: string; help: string }> = [
-  { value: "playhead", label: "From playhead", help: "Records a new take until you stop it, placed on the armed track at the playhead" },
-  { value: "range", label: "Over loop range", help: "Records a new take for the length of the loop range, placed on the armed track at its start" },
-  { value: "punch", label: "Punch in", help: "Records over the loop range inside the clip under it on the armed track, keeping the rest of the clip" },
+  { value: "playhead", label: "From playhead", help: "Records a new take until you stop it, placed on the armed track at the playhead." },
+  { value: "range", label: "Over loop range", help: "Records a new take for the length of the loop range, placed on the armed track at its start." },
+  { value: "punch", label: "Punch in", help: "Records over the loop range inside the clip under it on the armed track, keeping the rest of the clip." },
 ];
 
 /** The instance on a track that covers a frame. */
@@ -784,7 +784,8 @@ export const HUB_COPY = {
   arm: "Arm for recording",
   armRemote: "Only the editor's own player records here. Record a remote client from its own editor.",
   armFirst: "Arm a player track to record",
-  recording: (track: string) => `Recording ${track}: play in the editor now`,
+  recording: (track: string) => `Recording ${track}`,
+  recordingHelp: "Play in the editor now. Stop saves the take.",
   takeSaved: (clip: string, track: string) => `${clip} is on ${track}`,
   takeKept: (clip: string) => `${clip} is saved, but it overlaps a clip on the armed track, so it is only in the Clips drawer`,
   punched: (clip: string) => `Punched in on ${clip}`,

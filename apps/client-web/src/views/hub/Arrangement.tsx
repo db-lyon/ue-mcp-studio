@@ -719,7 +719,7 @@ function RunLine({ run }: { run: RunRecord }) {
 /** What the transport is doing: a test run, an audition (with its pass when looping), or a recording. */
 function TransportMode({ mode, track, pass }: { mode: "run" | "audition" | "record"; track: string; pass?: number }) {
   const text = mode === "record" ? HUB_COPY.recording(track) : mode === "audition" ? (pass && pass > 1 ? `${HUB_COPY.auditioning}, pass ${pass}` : HUB_COPY.auditioning) : HUB_COPY.testRun;
-  return <span className={`hub-set-mode is-${mode}`} role="status">{mode === "record" && <span className="hub-set-rec-dot" aria-hidden="true" />}{text}</span>;
+  return <span className={`hub-set-mode is-${mode}`} role="status" title={mode === "record" ? HUB_COPY.recordingHelp : mode === "audition" ? HUB_COPY.auditionHelp : HUB_COPY.runHelp}>{mode === "record" && <span className="hub-set-rec-dot" aria-hidden="true" />}{text}</span>;
 }
 
 /** A manual check waiting for a verdict: what to look at, Pass, and Fail with an optional note. */
