@@ -49,6 +49,6 @@
     "@types/pngjs": "^6.0.5",
     "@types/ws": "^8.5.13",
     "ajv": "^8.17.1",
-    "ue-mcp": "1.4.16-beta.8"
+    "ue-mcp": "file:../../../ue-mcp-hub-core.tgz"
   }
 }
