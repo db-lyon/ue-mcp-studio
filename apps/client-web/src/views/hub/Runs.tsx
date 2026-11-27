@@ -35,8 +35,10 @@ export function RunsScreen() {
                 <li key={i.id} className="hub-goal-line">
                   <RouteLink className="hub-row hub-mini-row" to={{ screen: "arrangement", id: ref?.arrangement ?? i.test, ...(i.runId ? { run: i.runId } : {}) }}>
                     <StatusMark look={i.state === "running" ? look : { glyph: "queued", tone: "idle", label: "Queued" }} label={i.state === "running" ? look.label : "Queued"} />
-                    <span className="hub-row-title">{i.title}</span>
-                    <span className="hub-row-meta">{i.suite && <span>Suite {i.suite}</span>}<span>{runnerText(i)}</span></span>
+                    <span className="hub-row-main">
+                      <span className="hub-row-title">{i.title}</span>
+                      <span className="hub-row-meta">{i.suite && <span>Suite {i.suite}</span>}<span>{runnerText(i)}</span></span>
+                    </span>
                   </RouteLink>
                   <span className="hub-row-actions">
                     {i.state === "running" && i.runId

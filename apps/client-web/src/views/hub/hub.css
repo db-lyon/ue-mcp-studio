@@ -108,7 +108,7 @@ a.hub-row:hover, div.hub-row:hover { background: var(--panel-2); }
 .hub-placeholder-row { display: block; height: 14px; margin: 12px 0; border-radius: 4px; background: var(--panel-2); animation: hub-pulse 1.4s ease-in-out infinite; }
 
 /* An on and off switch. */
-.hub-root button.switch { position: relative; width: 34px; height: 20px; flex-shrink: 0; border-radius: 999px; padding: 0; background: var(--panel-3); border: 1px solid var(--line-strong); }
+.hub-root button.switch { position: relative; width: 34px; height: 20px; min-height: 0; min-width: 0; flex-shrink: 0; border-radius: 999px; padding: 0; background: var(--panel-3); border: 1px solid var(--line-strong); }
 .hub-root button.switch::after { content: ""; position: absolute; top: 2px; left: 2px; width: 14px; height: 14px; border-radius: 50%; background: var(--muted); transition: left 0.15s; }
 .hub-root button.switch.on { background: var(--accent); border-color: var(--accent); }
 .hub-root button.switch.on::after { left: 16px; background: var(--on-accent); }
@@ -118,8 +118,10 @@ a.hub-row:hover, div.hub-row:hover { background: var(--panel-2); }
 .hub-schedule-row .hub-row-meta svg { vertical-align: -2px; }
 .hub-schedule-form { gap: 12px; }
 .hub-schedule-fields { display: flex; flex-wrap: wrap; gap: 12px; }
-.hub-schedule-field { display: flex; flex-direction: column; gap: 4px; flex: 1 1 220px; min-width: 0; margin: 0; padding: 0; border: 0; }
-.hub-schedule-field.narrow { flex: 0 0 120px; }
+.hub-schedule-field { display: flex; flex-direction: column; align-items: stretch; gap: 4px; min-width: 0; margin: 0; padding: 0; border: 0; text-align: left; }
+.hub-schedule-fields > .hub-schedule-field { flex: 1 1 220px; }
+.hub-schedule-fields > .hub-schedule-field.narrow { flex: 0 0 140px; }
+.hub-schedule-field select, .hub-schedule-field input:not([type="radio"]) { width: 100%; max-width: 420px; box-sizing: border-box; }
 .hub-schedule-field legend { padding: 0; margin-bottom: 4px; }
 .hub-days { display: inline-flex; flex-wrap: wrap; gap: 3px; }
 .hub-root .hub-days button { min-width: 42px; justify-content: center; }
