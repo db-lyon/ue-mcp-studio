@@ -39,9 +39,9 @@ import {
   type NotifyTarget,
   type ProjectNotifyPrefs,
   type ProjectNotifyUpdate,
-  type QaRun,
   type TranscriptEntry,
 } from "@ue-mcp-studio/shared";
+import type { RunRecord } from "ue-mcp/daemon";
 
 /** What the notifier reads of a session. */
 export interface NotifySession {
@@ -62,6 +62,8 @@ export interface NotifierOptions {
   now?: () => number;
   /** One line per decision, for the daemon's log. */
   log?: (line: string) => void;
+  /** A Playtest Hub run, read from the daemon when hub.changed names it; absent, hub runs make no notification. */
+  hubRun?: (runId: string) => Promise<RunRecord | null>;
 }
 
 /** A device that reported itself active more than this long ago is away. */
@@ -175,11 +177,10 @@ export class Notifier {
       case "studio.dialog.changed":
         this.dialogs(d as unknown as DialogsState);
         return;
-      case "studio.qa.attention":
-        if (sessionId) this.emit("playtest.needs-you", sessionId, subject(this.o.session(sessionId)?.title, "A clip"), "A playtest loop needs you", { sessionId, runId: typeof d.runId === "string" ? d.runId : undefined });
-        return;
-      case "studio.qa.changed":
-        if (d.run) this.run(d.run as unknown as QaRun);
+      case "hub.changed":
+        if (typeof d.runId === "string" && this.o.hubRun) {
+          void this.o.hubRun(d.runId).then((r) => r && this.run(r), () => {});
+        }
         return;
       case "studio.tool.finished":
         if (sessionId && typeof d.toolUseId === "string") this.toolFinished(sessionId, d.toolUseId, String(d.outcome ?? ""));
@@ -213,18 +214,17 @@ export class Notifier {
     if (this.dialogsSeen.size > 500) this.dialogsSeen.clear();
   }
 
-  private run(run: QaRun): void {
+  /** A hub run that changed: a manual check waiting for a verdict, or a result. */
+  private run(run: RunRecord): void {
     const was = this.runs.get(run.runId);
     this.runs.set(run.runId, run.state);
     if (was === run.state) return;
-    const sid = run.sessionId ?? undefined;
-    const target: NotifyTarget = { ...(sid ? { sessionId: sid } : {}), runId: run.runId };
+    const target: NotifyTarget = { runId: run.runId };
     if (run.state === "awaiting_verdict") {
-      const step = run.steps.find((s) => s.status === "awaiting_verdict");
-      this.emit("playtest.needs-you", sid, subject(run.scriptName, "A clip"), step ? `Step ${step.index + 1} needs your verdict` : "Needs your verdict", target);
-    } else if (run.state === "finished" && was && was !== "draft") {
-      const failed = run.summary?.failed ?? run.steps.filter((s) => s.status === "failed").length;
-      this.emit("playtest.finished", sid, subject(run.scriptName, "A clip"), failed ? `Failed, ${failed} step${failed === 1 ? "" : "s"}` : "Passed", target);
+      this.emit("playtest.needs-you", undefined, subject(run.title, "A playtest"), "A manual check needs your verdict", target);
+    } else if ((run.state === "passed" || run.state === "failed") && was) {
+      const failed = run.checks.filter((c) => c.status === "failed").length;
+      this.emit("playtest.finished", undefined, subject(run.title, "A playtest"), failed ? `Failed, ${failed} check${failed === 1 ? "" : "s"}` : "Passed", target);
     }
   }
 

@@ -5,7 +5,18 @@
  * those after the first flow.run_started of that flow, by its runId.
  */
 import type { FlowStepProgress } from "@ue-mcp-studio/shared";
-import type { DaemonEndpoint, FlowEventLike } from "./playtest-flow.js";
+
+/** Where the daemon's HTTP API answers, and the token it takes. */
+export interface DaemonEndpoint {
+  port: number;
+  token: string;
+}
+
+/** A flow.* event as the daemon publishes it. */
+export interface FlowEventLike {
+  type: string;
+  data?: Record<string, unknown>;
+}
 
 /** Which daemon extension a run asks before each step, and the token that names the run to it. */
 export interface FlowStepApprovalSpec {

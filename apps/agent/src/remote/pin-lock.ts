@@ -81,7 +81,7 @@ const TURN_ROUTES: RegExp[] = [
   /^\/quick(\/[^/]+\/continue)?$/,
 ];
 
-/** Turn routes whose body text is a message: a /flow or /playtest there runs a flow, which is always sensitive. */
+/** Turn routes whose body text is a message: a /flow there runs a flow, which is always sensitive. */
 const TEXT_ROUTES: RegExp[] = [
   /^\/sessions\/[^/]+\/messages$/,
   /^\/sessions\/[^/]+\/agents\/[^/]+\/messages$/,
@@ -91,9 +91,9 @@ const TEXT_ROUTES: RegExp[] = [
 ];
 
 /** Slash commands that run a flow rather than a turn. */
-const FLOW_COMMANDS = new Set(["flow", "playtest"]);
+const FLOW_COMMANDS = new Set(["flow"]);
 
-/** Whether a request body's `text` is a /flow or /playtest command. Unreadable bodies are not. */
+/** Whether a request body's `text` is a /flow command. Unreadable bodies are not. */
 function runsFlowCommand(body: Uint8Array | string | undefined): boolean {
   if (body === undefined) return false;
   let text: unknown;
@@ -107,25 +107,17 @@ function runsFlowCommand(body: Uint8Array | string | undefined): boolean {
   return !!c && FLOW_COMMANDS.has(c.name);
 }
 
-/** Studio routes that are always sensitive: answering approvals and editor dialogs, undoing or reverting changes, running playtests, settings, sign-ins, updates and billing. */
+/** Studio routes that are always sensitive: answering approvals and editor dialogs, undoing or reverting changes, settings, sign-ins, updates and billing. */
 const ALWAYS_ROUTES: RegExp[] = [
   /^\/sessions\/[^/]+\/approvals\/[^/]+$/,
   /^\/dialogs\/[^/]+$/,
   /^\/forms\/[^/]+$/,
   /^\/sessions\/[^/]+\/reviews\/[^/]+\/(keep|revert|undo)$/,
   /^\/sessions\/[^/]+\/timeline\/(restore|undo)$/,
-  /^\/sessions\/[^/]+\/playtest$/,
   // Runs the next queued message, or one now, which may be a /flow queued on the computer.
   /^\/sessions\/[^/]+\/queue\/(next|[^/]+\/now)$/,
   // A flow's steps can run Python, console commands or write files.
   /^\/sessions\/[^/]+\/flow$/,
-  /^\/qa\/runs\/[^/]+\/(run|loop\/revert)$/,
-  /^\/qa\/playtests\/script$/,
-  /^\/qa\/runs\/[^/]+\/script$/,
-  // The Playtest Hub's ways to run playtests, as the card's Run is: a plan, one check, and the /playtest flow for a goal.
-  /^\/hub\/plans$/,
-  /^\/hub\/checks\/[^/]+\/run$/,
-  /^\/hub\/goals\/[^/]+\/write-playtests$/,
   /^\/settings$/,
   /^\/agent-settings$/,
   /^\/config$/,
@@ -141,12 +133,10 @@ const ALWAYS_ROUTES: RegExp[] = [
   /^\/busy\/stop$/,
 ];
 
-/** The daemon's Playtest Hub routes that run playtests: a plan, one playtest, the /playtest flow for a goal, a fix, and a schedule that runs them later. */
+/** The daemon's Playtest Hub routes that play in the editor: queueing a test or a suite, recording, and a schedule that runs them later. */
 const HUB_RUN_ROUTES: RegExp[] = [
-  /^\/v1\/hub\/plans$/,
-  /^\/v1\/hub\/checks\/[^/]+\/run$/,
-  /^\/v1\/hub\/goals\/[^/]+\/write-playtests$/,
-  /^\/v1\/hub\/fix$/,
+  /^\/v1\/hub\/queue$/,
+  /^\/v1\/hub\/record\/start$/,
   /^\/v1\/hub\/schedules(\/[^/]+)?$/,
 ];
 
@@ -155,7 +145,7 @@ const HUB_RUN_ROUTES: RegExp[] = [
  * remotePath) needs the PIN under the sensitive-actions switch. Reads never do.
  * `risky`: shell commands or file changes run without asking, so any turn the
  * request starts could run them. `body`: the request's JSON, so a message that
- * is a /flow or /playtest command counts as running that flow.
+ * is a /flow command counts as running that flow.
  */
 export function sensitiveRequest(method: string, pathname: string, risky: boolean, body?: Uint8Array | string): boolean {
   const m = method.toUpperCase();
@@ -164,7 +154,7 @@ export function sensitiveRequest(method: string, pathname: string, risky: boolea
   // Approving a request lets a session stop, rebuild or patch the editor, the same as the editor routes.
   if (/^\/v1\/disruptions\/[^/]+\/approve$/.test(pathname)) return true;
   if (pathname === "/v1/flows" || pathname.startsWith("/v1/flows/")) return true;
-  // The Playtest Hub is ue-mcp's: its ways to run playtests, now or on a schedule, and to fix them with an agent.
+  // The Playtest Hub is ue-mcp's: its ways to play in the editor, now or on a schedule.
   if (HUB_RUN_ROUTES.some((r) => r.test(pathname)) && !(m === "DELETE" && pathname.startsWith("/v1/hub/schedules/"))) return true;
   if (!pathname.startsWith(`${STUDIO}/`)) return false;
   const rest = pathname.slice(STUDIO.length);

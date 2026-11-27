@@ -117,11 +117,9 @@ export function quickThread(d: SessionDetail, streaming = ""): QuickThread {
   const steps = main.flatMap((e) => (e.kind === "tool" ? [{ label: stepLabel(e.call), state: stepState(e.call.outcome) }] : []));
   const said = main.filter((e): e is Extract<typeof e, { kind: "assistant" }> => e.kind === "assistant");
   const asking = main.some((e) => e.kind === "dialog" && !e.dialog.outcome && e.dialog.mode === "interactive");
-  const verdicts = main.reduce((n, e) => n + (e.kind === "qa" ? e.run.awaiting.length : 0), 0);
   const needsYou = d.approvals.length
     ? d.approvals.length === 1 ? "An action is waiting for your approval." : `${d.approvals.length} actions are waiting for your approval.`
     : asking ? "An editor dialog is waiting for you."
-    : verdicts ? (verdicts === 1 ? "A clip step needs you." : `${verdicts} clip steps need you.`)
     : d.status === "waiting" && d.waitingCause ? d.waitingCause : null;
   const reply = streaming || (said.length ? said[said.length - 1].text : "");
   return {

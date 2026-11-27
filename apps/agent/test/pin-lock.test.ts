@@ -54,26 +54,23 @@ describe("which requests the PIN guards", () => {
       ["POST", "/v1/ext/studio/updates/studio"],
       ["POST", "/v1/ext/studio/sessions/s1/reviews/r1/revert"],
       ["POST", "/v1/ext/studio/sessions/s1/timeline/restore"],
-      ["POST", "/v1/ext/studio/qa/runs/r1/run"],
       ["DELETE", "/v1/ext/studio/sessions/s1"],
     ]) expect(sensitiveRequest(m, p, false), `${m} ${p}`).toBe(true);
   });
 
-  it("the daemon's Playtest Hub: running playtests now, on a schedule or with an agent; reordering, pausing and deleting a schedule never", () => {
+  it("the daemon's Playtest Hub: queueing a run, recording, or a schedule that runs later; pausing, removing and editing files never", () => {
     for (const [m, p] of [
-      ["POST", "/v1/hub/plans"],
-      ["POST", `/v1/hub/checks/${encodeURIComponent("script:/Game/T/Door")}/run`],
-      ["POST", "/v1/hub/goals/doors/write-playtests"],
-      ["POST", "/v1/hub/fix"],
+      ["POST", "/v1/hub/queue"],
+      ["POST", "/v1/hub/record/start"],
       ["POST", "/v1/hub/schedules"],
       ["PUT", "/v1/hub/schedules/schedule-1"],
     ]) expect(sensitiveRequest(m, p, false), `${m} ${p}`).toBe(true);
     for (const [m, p] of [
-      ["POST", "/v1/hub/plans/plan-1/move"],
-      ["POST", "/v1/hub/plans/plan-1/cancel"],
+      ["DELETE", "/v1/hub/queue/q1"],
       ["PUT", "/v1/hub/queue/paused"],
       ["DELETE", "/v1/hub/schedules/schedule-1"],
-      ["POST", "/v1/hub/goals"],
+      ["PUT", "/v1/hub/arrangements/arena"],
+      ["POST", "/v1/hub/runs/r1/verdict"],
       ["GET", "/v1/hub"],
     ]) expect(sensitiveRequest(m, p, false), `${m} ${p}`).toBe(false);
   });
@@ -107,16 +104,13 @@ describe("which requests the PIN guards", () => {
       ["Start, stop, restart or rebuild the editor", "POST", "/v1/editor/start"],
       ["Start, stop, restart or rebuild the editor", "POST", "/v1/editor/stop"],
       ["or stop turns waiting on it", "POST", "/v1/ext/studio/busy/stop"],
-      ["Run clips or flows", "POST", "/v1/ext/studio/sessions/s1/playtest"],
-      ["Run clips or flows", "POST", "/v1/ext/studio/sessions/s1/flow"],
+      ["Run playtests or flows", "POST", "/v1/hub/queue"],
+      ["Run playtests or flows", "POST", "/v1/ext/studio/sessions/s1/flow"],
       ["Send the next queued message, or one now", "POST", "/v1/ext/studio/sessions/s1/queue/next"],
       ["Send the next queued message, or one now", "POST", "/v1/ext/studio/sessions/s1/queue/q1/now"],
-      ["or change clip scripts", "PUT", "/v1/ext/studio/qa/playtests/script"],
-      ["or change clip scripts", "DELETE", "/v1/ext/studio/qa/runs/r1/script"],
       ["Keep, revert or undo changes", "POST", "/v1/ext/studio/sessions/s1/reviews/r1/keep"],
       ["Keep, revert or undo changes", "POST", "/v1/ext/studio/sessions/s1/reviews/r1/undo"],
       ["Keep, revert or undo changes", "POST", "/v1/ext/studio/sessions/s1/timeline/undo"],
-      ["Keep, revert or undo changes", "POST", "/v1/ext/studio/qa/runs/r1/loop/revert"],
       ["or keep the current Studio version", "POST", "/v1/ext/studio/version-notice/keep"],
       ["Start a checkout", "POST", "/v1/ext/studio/billing/checkout"],
     ];
@@ -127,10 +121,10 @@ describe("which requests the PIN guards", () => {
     }
   });
 
-  it("a message that is /flow or /playtest runs a flow: always guarded, however it is sent", () => {
+  it("a message that is /flow runs a flow: always guarded, however it is sent", () => {
     const body = (text: string) => new TextEncoder().encode(JSON.stringify({ text }));
     for (const p of ["/v1/ext/studio/sessions/s1/messages", "/v1/ext/studio/sessions/s1/queue", "/v1/ext/studio/sessions/s1/queue/q1", "/v1/ext/studio/sessions/s1/transcript/3/edit", "/v1/ext/studio/quick"]) {
-      for (const text of ["/flow beacon", "  /flow rebuild force=true", "/playtest BP_Door", "/flow"]) {
+      for (const text of ["/flow beacon", "  /flow rebuild force=true", "/flow"]) {
         expect(sensitiveRequest("POST", p, false, body(text)), `${p} ${text}`).toBe(true);
         expect(sensitiveRequest("POST", p, false, JSON.stringify({ text })), `${p} ${text} as a string`).toBe(true);
       }
@@ -515,7 +509,6 @@ describe("the lock in the connector, for sealed requests", () => {
       ["/v1/ext/studio/sessions/s1/flow", { name: "beacon" }],
       ["/v1/ext/studio/sessions/s1/messages", { text: "/flow beacon" }],
       ["/v1/ext/studio/sessions/s1/queue", { text: "/flow beacon" }],
-      ["/v1/ext/studio/sessions/s1/messages", { text: "/playtest BP_Door" }],
       ["/v1/ext/studio/sessions/s1/queue/next", {}],
       ["/v1/ext/studio/sessions/s1/queue/q1/now", {}],
     ] as const) expect(await browser.send("POST", p, body), p).toEqual({ status: 423, json: { error: "Enter your PIN to do this.", code: "pin-required" } });

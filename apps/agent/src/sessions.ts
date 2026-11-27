@@ -120,18 +120,23 @@ export interface StoredSession {
   durable?: DurableState;
 }
 
-/** Whether a call saved a playtest: pie(script_create), or a run of the playtest flow. */
-function playtestCall(t: TranscriptEntry): boolean {
-  if (t.kind === "playtest") return true;
-  if (t.kind !== "tool" || t.call.name !== "ue_mcp") return false;
-  const i = (t.call.input ?? {}) as { action?: unknown; category?: unknown; method?: unknown; args?: { flowName?: unknown } };
-  if (i.action !== "call") return false;
-  return (i.category === "pie" && i.method === "script_create") || (i.category === "flow" && i.method === "run" && i.args?.flowName === "playtest");
+/**
+ * A transcript entry of a feature Studio no longer has (a step-list playtest
+ * card or the /playtest flow) becomes a note when a session loads, so every
+ * index into the transcript still points at the same line.
+ */
+const RETIRED_KINDS: ReadonlySet<string> = new Set(["qa", "playtest", "playtest-failed"]);
+function retired(t: TranscriptEntry): TranscriptEntry {
+  const e = t as unknown as { kind: string; at?: unknown; run?: { seenAt?: unknown } };
+  if (!RETIRED_KINDS.has(e.kind)) return t;
+  const at = typeof e.at === "string" ? e.at : typeof e.run?.seenAt === "string" ? e.run.seenAt : new Date(0).toISOString();
+  return { kind: "note", text: "A playtest card from an earlier Studio, which this one no longer shows.", at };
 }
 
-/** A turn's facts, with whether any call in it, a subagent's included, saved a playtest. */
-export function turnFacts(transcript: TranscriptEntry[], turn: TurnFacts): TurnFacts {
-  return { ...turn, playtest: turn.playtest || transcript.slice(turn.start).some(playtestCall) };
+/** A turn's facts as the session keeps them; a turn saved by an older Studio may carry fields no longer read. */
+export function turnFacts(_transcript: TranscriptEntry[], turn: TurnFacts): TurnFacts {
+  const { start, mutations, targets, agents } = turn;
+  return { start, mutations, targets, ...(agents !== undefined ? { agents } : {}) };
 }
 
 function agentCounts(s: StoredSession): { total: number; running: number } {
@@ -170,7 +175,7 @@ export class SessionStore {
         const s = JSON.parse(fs.readFileSync(path.join(this.dir, f), "utf-8")) as StoredSession;
         // A blank session written by an earlier version: nothing to keep.
         if (SessionStore.isBlank(s)) fs.rmSync(path.join(this.dir, f), { force: true });
-        else this.cache.set(s.id, s);
+        else this.cache.set(s.id, { ...s, transcript: (s.transcript ?? []).map(retired) });
       } catch {
         // A half-written file from a crash mid-write: the rename never happened, so the previous version is the .json.
       }

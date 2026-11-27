@@ -7,8 +7,8 @@
   "ueMcpExtension": {
     "name": "studio",
     "api": {
-      "min": 1,
-      "max": 2
+      "min": 4,
+      "max": 4
     },
     "ueMcp": "1.4.16-beta.8",
     "permissions": [
