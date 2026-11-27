@@ -69,6 +69,9 @@
 .hub-set-verdict strong { flex: none; white-space: nowrap; }
 .hub-set-verdict-ask { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--muted); }
 .hub-set-verdict input { flex: 0 1 200px; min-width: 80px; height: 26px; }
+/* On a narrow page the note takes its own line, so Pass and Fail stay in view. */
+.hub-root.narrow .hub-set-verdict { flex-wrap: wrap; row-gap: 6px; }
+.hub-root.narrow .hub-set-verdict input { flex: 1 1 100%; order: 3; }
 
 /* The timelines: one scroller, the ruler sticky at the top and the header column sticky at the left. */
 .hub-set-surface { flex: 1; min-height: 0; display: flex; border: 1px solid var(--line); border-radius: var(--radius); background: var(--panel); outline: none; overflow: hidden; }
@@ -247,8 +250,8 @@
 /* The regions lane and the Checks track sit above and below the tracks; their headers do not drag. */
 .hub-set-head.fixed { cursor: default; border-left-color: var(--line-strong); background: var(--panel-2); }
 .hub-set-head.fixed .hub-set-title-text { font: 600 11px/18px var(--sans); text-transform: uppercase; letter-spacing: 0.04em; color: var(--muted); }
-.hub-set-row.regions { height: 34px; border-bottom-color: var(--line-strong); }
-.hub-set-row.checks { height: 50px; border-top: 1px solid var(--line-strong); position: sticky; bottom: 0; z-index: 4; background: var(--panel); }
+.hub-set-row.regions { height: 44px; border-bottom-color: var(--line-strong); }
+.hub-set-row.checks { min-height: 46px; border-top: 1px solid var(--line-strong); position: sticky; bottom: 0; z-index: 4; background: var(--panel); }
 .hub-set-row.checks .hub-set-lane { background-color: var(--panel-2); }
 .hub-set-add-check { flex: 1 1 auto; width: auto; max-width: none; }
 .hub-set-performer-select { flex: 1 1 auto; width: auto; max-width: none; }
@@ -270,6 +273,10 @@
 .hub-set .hub-set-check.st-passed { border-color: var(--ok); }
 .hub-set .hub-set-check.st-failed { border-color: var(--bad); }
 .hub-set .hub-set-check.st-awaiting_verdict { border-color: var(--warn); box-shadow: 0 0 0 1px var(--warn); }
+.hub-set-check .hub-set-block-body { min-height: 0; }
+/* A drawer row: the clip's name, its length, and Edit at the end. */
+.hub-set-clip-row .hub-set-clip { flex: 1; min-width: 0; display: flex; align-items: center; gap: 8px; height: 28px; padding: 0 6px; cursor: grab; user-select: none; }
+.hub-set-clip-row .hub-set-clip-act { display: inline-flex; align-items: center; justify-content: center; }
 .hub-set-check-flag { display: inline-flex; align-items: center; gap: 4px; white-space: nowrap; }
 .hub-set-inspector .hub-set-name.wide { flex: 1 1 260px; }
 .hub-set-inspector .hub-set-name.narrow { flex: 0 1 80px; min-width: 50px; }

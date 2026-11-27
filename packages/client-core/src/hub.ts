@@ -440,6 +440,23 @@ export function instanceFits(track: Pick<Track, "instances">, clips: Record<stri
   });
 }
 
+/**
+ * Spans laid out on as few rows as fit, each on the first row it does not
+ * overlap: the Checks track stacks checks that overlap in time this way, so
+ * every one stays visible. Spans in start order keep their rows stable.
+ */
+export function stackRows(spans: ReadonlyArray<{ id: string; start: number; end: number }>): { row: Record<string, number>; rows: number } {
+  const ends: number[] = [];
+  const row: Record<string, number> = {};
+  for (const s of [...spans].sort((a, b) => a.start - b.start || a.id.localeCompare(b.id))) {
+    let r = ends.findIndex((e) => e <= s.start);
+    if (r < 0) r = ends.push(0) - 1;
+    ends[r] = s.end;
+    row[s.id] = r;
+  }
+  return { row, rows: Math.max(1, ends.length) };
+}
+
 /** The findings that name one track or instance, by the path the daemon gave them. */
 export function findingsAt(findings: readonly HubFinding[], a: Arrangement, where: { track?: string; instance?: string; check?: string; region?: string }): HubFinding[] {
   return findings.filter((f) => {

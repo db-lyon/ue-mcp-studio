@@ -58,6 +58,7 @@ import {
   setTrack,
   shortAgo,
   snapTo,
+  stackRows,
   expectTargetOf,
   trackWarnings,
   updateCheck,
@@ -72,6 +73,8 @@ import { HubIcon, Placeholder, RouteLink, StatusMark, StatusPill } from "./parts
 
 const HEAD = 150;
 const ROW = 46;
+/** One row of the Checks track. */
+const CHECK_ROW = 24;
 
 type Selection = { kind: "instance"; id: string } | { kind: "check"; id: string } | { kind: "region"; id: string } | { kind: "track"; id: string } | null;
 
@@ -188,6 +191,8 @@ export function ArrangementScreen({ id, runId }: { id: string; runId: string | n
   };
 
   const spare = Math.max(0, MIN_ROWS - a.tracks.length);
+  // Checks that overlap in time stack on rows of their own, so none hides another.
+  const checkRows = stackRows(a.checks.map((c) => ({ id: c.id, start: c.at, end: c.at + Math.max(c.length, toFrame(18)) })));
   const selected = sel;
   const remove = () => {
     if (!selected) return;
@@ -356,7 +361,7 @@ export function ArrangementScreen({ id, runId }: { id: string; runId: string | n
               ))}
             </div>
 
-            <div className="hub-set-row checks">
+            <div className="hub-set-row checks" style={{ height: checkRows.rows * CHECK_ROW + 6 }}>
               <div className="hub-set-head fixed">
                 <div className="hub-set-head-top"><span className="hub-set-title-text">{HUB_COPY.checks}</span></div>
                 <div className="hub-set-head-ctl">
@@ -381,6 +386,7 @@ export function ArrangementScreen({ id, runId }: { id: string; runId: string | n
                       key={c.id}
                       className={`hub-set-check mode-${c.mode} ${r ? `st-${r.status}` : ""} ${selected?.kind === "check" && selected.id === c.id ? "on" : ""}`}
                       left={px(c.at)} width={Math.max(px(c.length), 18)}
+                      top={3 + (checkRows.row[c.id] ?? 0) * CHECK_ROW} height={CHECK_ROW - 2}
                       label={c.title}
                       mark={CHECK_MODE_MARK[c.mode]}
                       title={`${CHECK_MODE_LABEL[c.mode]}: ${checkSummary(c)}${r ? `\n${CHECK_STATUS_LOOK[r.status].label}${r.message ? `: ${r.message}` : ""}` : ""}`}
@@ -445,9 +451,12 @@ const CLIP_MIME = "application/x-ue-mcp-clip";
  * its transform itself each frame and commits once, on release, so nothing
  * re-renders while it moves. Its edges resize when `resizable`.
  */
-export function Block({ className, left, width, label, mark, title, rowHeight, resizable, onSelect, onOpen, onCommit }: {
+export function Block({ className, left, width, top, height, label, mark, title, rowHeight, resizable, onSelect, onOpen, onCommit }: {
   className: string;
   left: number;
+  /** A stacked block's place in its lane; without them the block fills the lane's height. */
+  top?: number;
+  height?: number;
   width: number;
   label: string;
   mark?: string;
@@ -502,7 +511,7 @@ export function Block({ className, left, width, label, mark, title, rowHeight, r
     <div
       ref={el}
       className={`hub-set-block ${width < 40 ? "thin" : ""} ${className}`}
-      style={{ left, width }}
+      style={{ left, width, ...(top !== undefined && height !== undefined ? { top, height, bottom: "auto" } : {}) }}
       title={title ?? label}
       tabIndex={0}
       role="button"
