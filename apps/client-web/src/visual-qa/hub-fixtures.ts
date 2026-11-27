@@ -17,22 +17,16 @@ const CLIPS: Record<string, Clip> = {
       { action: "/Game/Input/IA_Sprint.IA_Sprint", type: "bool", notes: [{ id: "n1", start: 20, length: 200 }], keys: [] },
       { action: "/Game/Input/IA_Jump.IA_Jump", type: "bool", notes: [{ id: "n1", start: 150, length: 12 }, { id: "n2", start: 260, length: 12 }], keys: [] },
       { action: "/Game/Input/IA_Look.IA_Look", type: "axis2d", notes: [], keys: [{ id: "k1", t: 40, v: [0, 0] }, { id: "k2", t: 120, v: [0.4, 0] }, { id: "k3", t: 200, v: [0, 0] }] },
-    ],
-    lanes: [],
-  },
+    ],  },
   "open-gate": {
     id: "open-gate", title: "Open the gate", performer: "player", rate: 60, length: 180,
-    input: [{ action: "/Game/Input/IA_Interact.IA_Interact", type: "bool", notes: [{ id: "n1", start: 30, length: 10 }], keys: [] }],
-    lanes: [],
-  },
+    input: [{ action: "/Game/Input/IA_Interact.IA_Interact", type: "bool", notes: [{ id: "n1", start: 30, length: 10 }], keys: [] }],  },
   "flank-left": {
     id: "flank-left", title: "Flank left", performer: "player", rate: 60, length: 420,
     input: [
       { action: "/Game/Input/IA_Move.IA_Move", type: "axis2d", notes: [{ id: "n1", start: 0, length: 180, value: [-1, 0.5] }, { id: "n2", start: 200, length: 200, value: [0, 1] }], keys: [] },
       { action: "/Game/Input/IA_Crouch.IA_Crouch", type: "bool", notes: [{ id: "n1", start: 60, length: 120 }], keys: [] },
-    ],
-    lanes: [],
-  },
+    ],  },
 };
 
 const ARENA: Arrangement = {
@@ -92,7 +86,7 @@ const SUITES: SuiteState[] = [
 ];
 
 const OVERVIEW: HubOverview = {
-  clips: Object.values(CLIPS).map((c) => ({ id: c.id, title: c.title, performer: c.performer, rate: c.rate, length: c.length, lanes: c.input.length + c.lanes.length, usedBy: ["arena-gate"] })),
+  clips: Object.values(CLIPS).map((c) => ({ id: c.id, title: c.title, performer: c.performer, rate: c.rate, length: c.length, lanes: c.input.length, usedBy: ["arena-gate"] })),
   arrangements: [
     { id: "arena-gate", title: "Arena gate", level: "/Game/Maps/L_Arena", tracks: 2, checks: 4, regions: ARENA.regions.map((r) => ({ id: r.id, name: r.name })), length: 540, findings: [] },
     { id: "bridge-crossing", title: "Bridge crossing", level: "/Game/Maps/L_Bridge", tracks: 1, checks: 2, regions: [], length: 900, findings: [] },
