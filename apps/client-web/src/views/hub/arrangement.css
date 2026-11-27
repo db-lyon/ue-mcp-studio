@@ -21,6 +21,31 @@
 .hub-set-transport { display: flex; align-items: center; gap: 4px; margin-left: 6px; }
 .hub-root button.hub-set-transport-btn { height: 26px; min-height: 0; padding: 0 10px; font: 600 12px/1 var(--sans); letter-spacing: 0; }
 .hub-root button.hub-set-transport-btn.on { background: var(--accent-wash); border-color: var(--accent); color: var(--accent); }
+.hub-root button.hub-set-transport-btn.icon { width: 28px; padding: 0; justify-content: center; }
+.hub-root button.hub-set-transport-btn.rec { color: var(--bad); }
+.hub-root button.hub-set-transport-btn.rec.on { background: var(--bad); border-color: var(--bad); color: var(--panel); }
+.hub-set-transport-group { display: inline-flex; align-items: center; gap: 2px; flex: none; }
+.hub-set-transport-group.run { margin-left: 6px; }
+.hub-set-transport-group .hub-set-io { height: 26px; margin-left: 2px; font-size: 12px; }
+.hub-set-mode { display: inline-flex; align-items: center; gap: 6px; flex: none; height: 24px; padding: 0 9px; border: 1px solid var(--line-strong); border-radius: 999px; font: 600 12px/1 var(--sans); white-space: nowrap; }
+.hub-set-mode.is-audition { border-color: var(--accent); color: var(--accent); }
+.hub-set-mode.is-run { border-color: var(--ok); color: var(--ok); }
+.hub-set-mode.is-record { border-color: var(--bad); color: var(--bad); }
+.hub-set-rec-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--bad); animation: hub-pulse 1s ease-in-out infinite; }
+.hub-set-clock.is-record { border-color: var(--bad); color: var(--bad); }
+.hub-set-clock.is-audition { border-color: var(--accent); }
+.hub-set-clock.is-run { border-color: var(--ok); }
+.hub-root button.hub-set-toggle.arm { color: var(--bad); }
+.hub-root button.hub-set-toggle.arm.on { background: var(--bad); border-color: var(--bad); color: var(--panel); }
+.hub-root button.hub-set-toggle:disabled { opacity: 0.4; cursor: not-allowed; }
+.hub-set-recshade { position: absolute; top: 0; bottom: 0; background: var(--bad); opacity: 0.14; border-left: 2px solid var(--bad); }
+.hub-set-cursor.audition { border-left-color: var(--accent); }
+.hub-set-cursor.run { border-left-color: var(--ok); }
+/* On a narrow page the transport takes the lines it needs under the title. */
+.hub-root.narrow .hub-set .hub-head.compact { flex-wrap: wrap; }
+.hub-root.narrow .hub-set .hub-head.compact .hub-head-actions { flex-wrap: wrap; row-gap: 4px; margin-left: 0; }
+.hub-root.narrow .hub-set-transport-group.run { margin-left: 0; }
+@media (prefers-reduced-motion: reduce) { .hub-set-rec-dot { animation: none; } }
 /* The switcher at the head of the transport: the arrangement shown, and the others to open in its place. */
 .hub-root button.hub-set-switch { display: inline-flex; align-items: center; gap: 6px; max-width: 200px; margin-right: 4px; }
 .hub-set-switch-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }

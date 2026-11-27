@@ -59,6 +59,8 @@ const ICON_PATHS = {
   fit: "M2.5 4v8M13.5 4v8M5 8h6M6.5 6 4.5 8l2 2M9.5 6l2 2-2 2",
   pause: "M5 3.5v9M11 3.5v9",
   edit: "M10.5 2.5l3 3L6 13H3v-3z",
+  loop: "M3 7.5V6.5A2 2 0 0 1 5 4.5h8M11 2.5l2 2-2 2M13 8.5v1a2 2 0 0 1-2 2H3M5 13.5l-2-2 2-2",
+  clock: "M8 14A6 6 0 1 0 8 2a6 6 0 0 0 0 12zM8 4.5V8l2.5 1.5",
 } as const;
 export type HubIconName = keyof typeof ICON_PATHS;
 

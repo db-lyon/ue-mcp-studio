@@ -9,15 +9,34 @@
  * daemon refuses puts the last saved arrangement back and says why. A drag
  * moves the element itself each frame and commits once, on release.
  *
+ * The transport keeps composing and testing apart. Play (and Space) auditions
+ * on the open editor from the playhead, looping over the loop range when Loop
+ * is on, and keeps no run. Record captures the armed player track from the
+ * playhead, over the loop range, or punched into the clip under it. Run
+ * queues a real test, headless or on the open editor, and its result is kept.
+ * The mode pill and the clock's colour say which of the three is happening.
+ *
  * Run feedback: the latest run of this arrangement (or the one the address
  * names) colours each check by its result, draws the playhead while it runs,
- * and holds a bar for every manual check that waits for a verdict.
+ * and holds a bar for every manual check that waits for a verdict. While an
+ * audition plays, its checks colour the track instead.
  */
 import { useEffect, useMemo, useRef, useState, type PointerEvent as ReactPointerEvent, type ReactNode } from "react";
-import type { Arrangement, ArrangementView, Check, CheckMode, PerformerCandidate, Performer, RunRecord, Track } from "ue-mcp/daemon";
+import type { Arrangement, ArrangementView, Check, CheckMode, CheckResult, Clip, PerformerCandidate, Performer, RunRecord, Track } from "ue-mcp/daemon";
 import { CHECK_MODES, performerKey, performerLabel, runEnded } from "ue-mcp/hub";
 import {
   ARRANGE_DEFAULT_ZOOM,
+  RECORD_MODES,
+  RUNNER_CHOICES,
+  auditionRequest,
+  instanceAt,
+  loopRangeOf,
+  nextTitle,
+  punchRange,
+  runnerRequest,
+  type LoopRange,
+  type RecordMode,
+  type RunnerChoice,
   CHECK_MODE_HELP,
   CHECK_MODE_LABEL,
   CHECK_MODE_MARK,
@@ -69,6 +88,7 @@ import {
 } from "@ue-mcp-studio/client-core";
 import { api } from "../../api";
 import { useHub } from "./state";
+import { useAudition, useSpaceBar } from "./transport";
 import { HubIcon, Placeholder, RouteLink, StatusMark, StatusPill } from "./parts";
 
 const HEAD = 150;
@@ -77,6 +97,9 @@ const ROW = 46;
 const CHECK_ROW = 24;
 
 type Selection = { kind: "instance"; id: string } | { kind: "check"; id: string } | { kind: "region"; id: string } | { kind: "track"; id: string } | null;
+
+/** A take being recorded: the track it lands on, the frame it starts at, when it began, and the clip a punch-in writes into. */
+type Recording = { track: string; start: number; since: number; punch?: { clip: string; title: string } };
 
 /** The arrangement on show and its save loop: edits apply at once, saves go one at a time, a refusal restores the last saved. */
 function useArrangement(id: string) {
@@ -150,6 +173,26 @@ export function ArrangementScreen({ id, runId }: { id: string; runId: string | n
   const [drawer, setDrawer] = useState(true);
   const [performers, setPerformers] = useState<PerformerCandidate[]>([]);
   const scroll = useRef<HTMLDivElement>(null);
+  // The transport: the playhead, the loop (a region, or the whole arrangement), the armed track and the take being recorded.
+  const [playhead, setPlayhead] = useState(0);
+  const [loopOn, setLoopOn] = useState<{ region?: string } | null>(null);
+  const [armed, setArmed] = useState<string | null>(null);
+  const [recMode, setRecMode] = useState<RecordMode>("playhead");
+  const [runner, setRunner] = useState<RunnerChoice>("auto");
+  const [rec, setRec] = useState<Recording | null>(null);
+  const [, tick] = useState(0);
+  const audition = useAudition(id);
+  const stopAt = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const keys = useRef<{ togglePlay: () => void; stopRecording: () => void }>({ togglePlay: () => undefined, stopRecording: () => undefined });
+  useSpaceBar(() => keys.current.togglePlay());
+  useEffect(() => {
+    if (!rec) return;
+    const t = setInterval(() => tick((n) => n + 1), 100);
+    return () => clearInterval(t);
+  }, [rec]);
+  useEffect(() => () => {
+    if (stopAt.current) clearTimeout(stopAt.current);
+  }, []);
 
   useEffect(() => {
     // Players only: the editor's player and the remote clients. The picker never offers an actor.
@@ -164,8 +207,9 @@ export function ArrangementScreen({ id, runId }: { id: string; runId: string | n
   }, [o.clips, view?.clips]);
 
   const latest = arrangementRun(o.recent, id, runId);
-  const results = checkResults(latest);
   const live = latest && !runEnded(latest.state) ? latest : null;
+  // While an audition plays, its checks colour the Checks track; otherwise the run on show does.
+  const results: Record<string, CheckResult> = audition.live && audition.play ? checkResults(audition.play) : checkResults(latest);
 
   if (error && !draft) return <div className="hub-screen"><div className="banner bad" role="alert">{error}</div></div>;
   if (!draft || !view) return <div className="hub-screen"><Placeholder rows={6} /></div>;
@@ -180,6 +224,88 @@ export function ArrangementScreen({ id, runId }: { id: string; runId: string | n
   const waiting = awaitingVerdicts(live, a.checks);
   const blocking = view.findings.filter((f) => f.blocks);
   const fit = () => setZoom(zoomToFit(0, Math.max(end, rate * 5), rate, (scroll.current?.clientWidth ?? 800) - HEAD - 24));
+
+  // The loop range follows its region as the region is moved or resized.
+  const selRegion = sel?.kind === "region" ? sel.id : null;
+  const loopRegion = loopOn?.region ? a.regions.find((r) => r.id === loopOn.region) : undefined;
+  const loop: LoopRange | null = !loopOn ? null : loopRegion ? { start: loopRegion.start, end: loopRegion.end, region: loopRegion.id } : { start: 0, end: Math.max(end, rate) };
+  const range = loop ?? loopRangeOf(a, end, playhead, selRegion);
+  const armedTrack = a.tracks.find((t) => t.id === armed) ?? null;
+  const play = audition.live ? audition.play : null;
+  const mode: "run" | "audition" | "record" | null = rec ? "record" : live ? "run" : play ? "audition" : null;
+  const recFrame = rec ? rec.start + ((Date.now() - rec.since) / 1000) * rate : null;
+  const position = live?.frame ?? play?.frame ?? recFrame ?? playhead;
+
+  const togglePlay = () => {
+    if (rec || live) return;
+    if (play) {
+      api.hub.stopPlay().then(audition.set, (e: Error) => notify(e.message, "bad"));
+      return;
+    }
+    api.hub.play(auditionRequest(a.id, playhead, loop)).then(audition.set, (e: Error) => notify(e.message, "bad"));
+  };
+  const toggleLoop = () => setLoopOn(loopOn ? null : (() => {
+    const r = loopRangeOf(a, end, playhead, selRegion);
+    return r.region ? { region: r.region } : {};
+  })());
+
+  const startRecording = async () => {
+    if (!armedTrack) return notify(HUB_COPY.armFirst, "bad");
+    let body: Parameters<typeof api.hub.recordStart>[0] = { performer: armedTrack.performer, rate };
+    let start = playhead;
+    let seconds: number | null = null;
+    let punch: Recording["punch"];
+    if (recMode !== "playhead") {
+      start = range.start;
+      seconds = (range.end - range.start) / rate;
+    }
+    if (recMode === "punch") {
+      const inst = instanceAt(armedTrack, range.start, spans, rate);
+      const clip = inst ? spans[inst.clip] : undefined;
+      const pr = inst && clip ? punchRange(inst, clip, rate, range.start, range.end) : null;
+      if (!inst || !clip || !pr) return notify(HUB_COPY.punchMiss, "bad");
+      body = { performer: armedTrack.performer, clip: inst.clip, from: pr.from, to: pr.to };
+      punch = { clip: inst.clip, title: clip.title };
+      start = inst.at + (pr.from * rate) / clip.rate;
+      seconds = (pr.to - pr.from) / clip.rate;
+    }
+    try {
+      await api.hub.recordStart(body);
+    } catch (e) {
+      return notify((e as Error).message, "bad");
+    }
+    setPlayhead(start);
+    setRec({ track: armedTrack.id, start, since: Date.now(), ...(punch ? { punch } : {}) });
+    if (seconds !== null) stopAt.current = setTimeout(() => keys.current.stopRecording(), seconds * 1000);
+  };
+  const stopRecording = async () => {
+    const r = rec;
+    if (!r) return;
+    setRec(null);
+    if (stopAt.current) clearTimeout(stopAt.current);
+    stopAt.current = null;
+    try {
+      if (r.punch) {
+        await api.hub.recordStop({});
+        notify(HUB_COPY.punched(r.punch.title));
+        return;
+      }
+      const clip: Clip = await api.hub.recordStop({ title: nextTitle("Take", o.clips.map((c) => c.title)) });
+      const track = a.tracks.find((t) => t.id === r.track);
+      const withTake = { ...spans, [clip.id]: clip };
+      if (track && instanceFits(track, withTake, rate, clip.id, r.start)) {
+        const placed = addInstance(a, track.id, clip.id, r.start);
+        edit(() => placed.arrangement);
+        setSel({ kind: "instance", id: placed.id });
+        notify(HUB_COPY.takeSaved(clip.title, track.title));
+      } else notify(HUB_COPY.takeKept(clip.title));
+    } catch (e) {
+      notify((e as Error).message, "bad");
+    } finally {
+      hub.data.reload();
+    }
+  };
+  keys.current = { togglePlay, stopRecording: () => void stopRecording() };
 
   const performerOptions = (t: Track) => {
     const list = performers.some((p) => performerKey(p.performer) === performerKey(t.performer)) ? performers : [{ performer: t.performer, label: performerLabel(t.performer), capabilities: [] }, ...performers];
@@ -221,12 +347,26 @@ export function ArrangementScreen({ id, runId }: { id: string; runId: string | n
           <input className="hub-set-name hub-set-title-input" aria-label="Arrangement title" defaultValue={a.title} key={`${a.id}:${a.title}`} onBlur={(e) => e.target.value.trim() && e.target.value !== a.title && edit((x) => ({ ...x, title: e.target.value.trim() }))} />
         </div>
         <div className="hub-head-actions hub-set-transport">
-          {live ? (
-            <button className="small-button hub-set-transport-btn on" onClick={() => api.hub.stopRun(live.runId).catch((e: Error) => notify(e.message, "bad"))}><HubIcon name="stop" />{HUB_COPY.stop}</button>
-          ) : (
-            <button className="small-button primary hub-set-transport-btn" disabled={!a.checks.length} title={a.checks.length ? undefined : "Add a check to run it"} onClick={() => void run({ test: a.id }, a.title)}><HubIcon name="play" />{HUB_COPY.play}</button>
-          )}
-          <span className="hub-set-clock" aria-label="Position">{arrangeClock(live?.frame ?? 0, rate, true)}</span>
+          <span className="hub-set-transport-group" role="group" aria-label="Transport">
+            <button className={`small-button hub-set-transport-btn icon ${play ? "on" : ""}`} aria-label={play ? HUB_COPY.stop : HUB_COPY.audition} title={`${HUB_COPY.auditionHelp} (Space)`} disabled={!!rec || !!live} onClick={togglePlay}><HubIcon name={play ? "stop" : "play"} /></button>
+            <button className={`small-button hub-set-transport-btn icon ${loop ? "on" : ""}`} aria-label={HUB_COPY.loop} aria-pressed={!!loop} title={HUB_COPY.loopHelp} onClick={toggleLoop}><HubIcon name="loop" /></button>
+            <button className={`small-button hub-set-transport-btn icon rec ${rec ? "on" : ""}`} aria-label={rec ? HUB_COPY.stopRecording : HUB_COPY.record} aria-pressed={!!rec} title={armedTrack ? RECORD_MODES.find((m) => m.value === recMode)!.help : HUB_COPY.armFirst} disabled={(!armedTrack && !rec) || !!live || !!play} onClick={() => void (rec ? stopRecording() : startRecording())}><HubIcon name={rec ? "stop" : "record"} /></button>
+            <select className="hub-set-io wide hub-set-rec-mode" aria-label="Record mode" title={RECORD_MODES.find((m) => m.value === recMode)!.help} value={recMode} disabled={!!rec} onChange={(e) => setRecMode(e.target.value as RecordMode)}>
+              {RECORD_MODES.map((m) => <option key={m.value} value={m.value}>{m.label}</option>)}
+            </select>
+          </span>
+          <span className={`hub-set-clock ${mode ? `is-${mode}` : ""}`} aria-label="Position">{arrangeClock(position, rate, true)}</span>
+          {mode && <TransportMode mode={mode} track={rec ? a.tracks.find((t) => t.id === rec.track)?.title ?? "" : ""} pass={play?.loop ? play.pass : undefined} />}
+          <span className="hub-set-transport-group run" role="group" aria-label={HUB_COPY.play}>
+            {live ? (
+              <button className="small-button hub-set-transport-btn on" onClick={() => api.hub.stopRun(live.runId).catch((e: Error) => notify(e.message, "bad"))}><HubIcon name="stop" />{HUB_COPY.stop}</button>
+            ) : (
+              <button className="small-button primary hub-set-transport-btn" disabled={!a.checks.length || !!rec} title={a.checks.length ? HUB_COPY.runHelp : "Add a check to run it"} onClick={() => void run({ test: a.id, ...runnerRequest(runner) }, a.title)}>{HUB_COPY.play}</button>
+            )}
+            <select className="hub-set-io wide hub-set-runner" aria-label={HUB_COPY.where} title={RUNNER_CHOICES.find((c) => c.value === runner)!.help} value={runner} onChange={(e) => setRunner(e.target.value as RunnerChoice)}>
+              {RUNNER_CHOICES.map((c) => <option key={c.value} value={c.value}>{c.label}</option>)}
+            </select>
+          </span>
           <span className="muted small hub-set-level" title={a.level ?? HUB_COPY.openLevel}>{a.level ? a.level.split("/").pop() : HUB_COPY.openLevel}</span>
           {blocking.length > 0 && <Findings findings={blocking.map((f) => f.message)} />}
           <span className="hub-set-zoom">
@@ -256,9 +396,16 @@ export function ArrangementScreen({ id, runId }: { id: string; runId: string | n
                 <button className="ghost hub-set-add-track" onClick={newTrack}><HubIcon name="plus" size={12} />{HUB_COPY.addTrack}</button>
               </div>
               <div className="hub-set-ruler" style={{ width }}>
-                <div className="hub-set-scale">
+                <div className="hub-set-loopzone" title={HUB_COPY.loopHelp} onClick={toggleLoop}>
+                  {loop && <span className="hub-set-brace on" style={{ left: px(loop.start), width: Math.max(4, px(loop.end - loop.start)) }} />}
+                </div>
+                <div className="hub-set-scale" title="Click to move the playhead" onPointerDown={(e) => {
+                  if (e.button !== 0 || rec) return;
+                  setPlayhead(snapTo(toFrame(e.clientX - e.currentTarget.getBoundingClientRect().left), step));
+                }}>
                   {rulerTicks(frames, rate, zoom).map((s) => <span key={s} className="hub-set-tick" style={{ left: s * zoom }}>{arrangeClock(s * rate, rate)}</span>)}
                 </div>
+                <span className="hub-set-marker" style={{ left: px(playhead) }} />
               </div>
             </div>
 
@@ -308,6 +455,7 @@ export function ArrangementScreen({ id, runId }: { id: string; runId: string | n
                       <div className="hub-set-head-ctl" onClick={(e) => e.stopPropagation()}>
                         <button className={`hub-set-toggle mute ${t.mute ? "on" : ""}`} aria-pressed={t.mute} title="Mute" onClick={() => edit((x) => setTrack(x, t.id, { mute: !t.mute }))}>M</button>
                         <button className={`hub-set-toggle solo ${t.solo ? "on" : ""}`} aria-pressed={t.solo} title="Solo" onClick={() => edit((x) => setTrack(x, t.id, { solo: !t.solo }))}>S</button>
+                        <button className={`hub-set-toggle arm ${armed === t.id ? "on" : ""}`} aria-pressed={armed === t.id} aria-label={`${HUB_COPY.arm}: ${t.title}`} title={t.performer.kind === "player" && t.performer.client !== 0 ? HUB_COPY.armRemote : HUB_COPY.arm} disabled={!!rec || (t.performer.kind === "player" && t.performer.client !== 0)} onClick={() => setArmed(armed === t.id ? null : t.id)}>R</button>
                         <select className="hub-set-io hub-set-performer-select" aria-label={`${t.title} performer`} title={performerLabel(t.performer)} value={performerKey(t.performer)} onChange={(e) => {
                           const p = performerOptions(t).find((c) => performerKey(c.performer) === e.target.value);
                           if (p) edit((x) => setTrack(x, t.id, { performer: p.performer }));
@@ -404,7 +552,12 @@ export function ArrangementScreen({ id, runId }: { id: string; runId: string | n
               </div>
             </div>
 
-            {live?.frame !== undefined && <div className="hub-set-overlay" style={{ left: HEAD, width }}><div className="hub-set-cursor" style={{ left: px(live.frame) }} /></div>}
+            <div className="hub-set-overlay" style={{ left: HEAD, width }}>
+              {loop && <div className="hub-set-loopshade" style={{ left: px(loop.start), width: px(loop.end - loop.start) }} />}
+              {rec && <div className="hub-set-recshade" style={{ left: px(rec.start), width: Math.max(2, px((recFrame ?? rec.start) - rec.start)) }} />}
+              <div className="hub-set-playhead" style={{ left: px(playhead) }} />
+              {mode && mode !== "record" && position !== playhead && <div className={`hub-set-cursor ${mode}`} style={{ left: px(position) }} />}
+            </div>
           </div>
         </div>
       </div>
@@ -413,7 +566,7 @@ export function ArrangementScreen({ id, runId }: { id: string; runId: string | n
         <div className="hub-set-foot-bar">
           <button className={`ghost hub-set-drawer-toggle ${drawer ? "on" : ""}`} aria-expanded={drawer} onClick={() => setDrawer((d) => !d)}>{HUB_COPY.clips}</button>
           <span className="hub-set-foot-div" />
-          <Inspector a={a} sel={selected} results={results} run={latest} spans={spans} edit={edit} onRemove={remove} onMoveTrack={(tid, by) => edit((x) => moveTrack(x, tid, x.tracks.findIndex((t) => t.id === tid) + by))} />
+          <Inspector a={a} runner={runner} sel={selected} results={results} run={latest} spans={spans} edit={edit} onRemove={remove} onMoveTrack={(tid, by) => edit((x) => moveTrack(x, tid, x.tracks.findIndex((t) => t.id === tid) + by))} />
         </div>
         {drawer && <ClipDrawer narrow={narrow} />}
       </footer>
@@ -563,6 +716,12 @@ function RunLine({ run }: { run: RunRecord }) {
   );
 }
 
+/** What the transport is doing: a test run, an audition (with its pass when looping), or a recording. */
+function TransportMode({ mode, track, pass }: { mode: "run" | "audition" | "record"; track: string; pass?: number }) {
+  const text = mode === "record" ? HUB_COPY.recording(track) : mode === "audition" ? (pass && pass > 1 ? `${HUB_COPY.auditioning}, pass ${pass}` : HUB_COPY.auditioning) : HUB_COPY.testRun;
+  return <span className={`hub-set-mode is-${mode}`} role="status">{mode === "record" && <span className="hub-set-rec-dot" aria-hidden="true" />}{text}</span>;
+}
+
 /** A manual check waiting for a verdict: what to look at, Pass, and Fail with an optional note. */
 function VerdictLine({ run, check }: { run: RunRecord; check: Check }) {
   const { notify } = useHub();
@@ -585,8 +744,9 @@ function VerdictLine({ run, check }: { run: RunRecord; check: Check }) {
 }
 
 /** The footer's inspector: the selection's own fields on one line. */
-function Inspector({ a, sel, results, run, spans, edit, onRemove, onMoveTrack }: {
+function Inspector({ a, sel, results, run, spans, edit, onRemove, onMoveTrack, runner }: {
   a: Arrangement;
+  runner: RunnerChoice;
   sel: Selection;
   results: ReturnType<typeof checkResults>;
   run: RunRecord | null;
@@ -630,7 +790,7 @@ function Inspector({ a, sel, results, run, spans, edit, onRemove, onMoveTrack }:
       <span className="hub-set-inspector">
         <input className="hub-set-name" aria-label="Region name" defaultValue={r.name} key={`${r.id}:${r.name}`} onBlur={(e) => e.target.value.trim() && e.target.value !== r.name && edit((x) => updateRegion(x, r.id, { name: e.target.value.trim() }))} />
         <span className="muted small mono">{arrangeClock(r.start, a.rate, true)} to {arrangeClock(r.end, a.rate, true)}</span>
-        <button className="small-button" onClick={() => void hub.run({ test: `${a.id}:${r.id}` }, r.name)}><HubIcon name="play" size={12} />Run region</button>
+        <button className="small-button" title={HUB_COPY.runHelp} onClick={() => void hub.run({ test: `${a.id}:${r.id}`, ...runnerRequest(runner) }, r.name)}>Run region</button>
         {del}
       </span>
     );

@@ -8,7 +8,7 @@
  */
 import { useEffect, useState, type ReactNode } from "react";
 import type { QueueRequest } from "ue-mcp/daemon";
-import { HUB_COPY, hubHash, hubPath, hubSection, parseHubPath, queuedText, type HubRoute, type HubSection } from "@ue-mcp-studio/client-core";
+import { HUB_COPY, hubHash, hubPath, hubSection, parseHubPath, queuedText, runnerText, type HubRoute, type HubSection } from "@ue-mcp-studio/client-core";
 import { api } from "../../api";
 import { pushLocation, readLocation } from "../../location";
 import { HubContext, type HubContextValue, type HubData } from "./state";
@@ -68,7 +68,8 @@ export function HubView({ data, narrow }: { data: HubData; narrow: boolean }) {
     try {
       const a = await api.hub.enqueue(req);
       const f = queuedText(a, what);
-      notify(f.text, f.tone);
+      // One test: say where it plays and why, so a headless run is not mistaken for a stalled one.
+      notify(a.queued.length === 1 ? `${f.text}. ${runnerText(a.queued[0]!)}` : f.text, f.tone);
       data.reload();
     } catch (e) {
       notify((e as Error).message, "bad");
