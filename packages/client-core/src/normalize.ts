@@ -20,8 +20,6 @@ import {
   dialogPolicyOf,
   isVendorId,
   usageOf,
-  QA_VERDICT_WAIT_MINUTES,
-  qaVerdictWaitValid,
   type AgentSettings,
   type ClientContextStrategy,
   type ContextStrategy,
@@ -108,7 +106,7 @@ export function catalogOf(raw: unknown): ModelCatalog {
 const FEEDBACK_MODES: readonly FeedbackMode[] = ["interactive", "auto-approve", "defer"];
 const DIALOG_MODES: readonly DialogMode[] = ["interactive", "auto", "defer"];
 
-/** GET /agent-settings: an agent before playtest runs, or a daemon before dialog modes. */
+/** GET /agent-settings, or a daemon before dialog modes. */
 export function agentSettingsOf(raw: unknown): AgentSettings {
   const a = obj(raw);
   const feedback = obj(a.feedbackMode);
@@ -117,9 +115,6 @@ export function agentSettingsOf(raw: unknown): AgentSettings {
     feedbackTool: a.feedbackTool !== false,
     feedbackMode: { mode: oneOf(feedback.mode, FEEDBACK_MODES, "interactive"), project: feedback.project === true },
     dialogMode: { mode: DIALOG_MODES.includes(dialog.mode as DialogMode) ? (dialog.mode as DialogMode) : null, project: dialog.project === true },
-    playtestRuns: a.playtestRuns === "automatic" ? "automatic" : "manual",
-    agentFixes: a.agentFixes === true,
-    verdictWaitMinutes: qaVerdictWaitValid(a.verdictWaitMinutes) ? a.verdictWaitMinutes : QA_VERDICT_WAIT_MINUTES,
     ...(a.restarting === true ? { restarting: true } : {}),
   };
 }

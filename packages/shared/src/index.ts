@@ -6,9 +6,7 @@
 /** Name the agent registers its routes under: /v1/ext/studio/... */
 export const EXTENSION_NAME = "studio";
 
-import type { QaRun } from "ue-mcp/hub";
 import type { TimelineMark, TurnReview } from "./review.js";
-import type { PlaytestRequest, PlaytestStage } from "./commands.js";
 import type { FlowRunState, FlowStepProgress } from "./flows.js";
 import type { Approvals } from "./composer.js";
 import type { CardEntry } from "@ue-mcp-studio/extension-api";
@@ -375,7 +373,7 @@ export type MessageDelivery = "waiting" | "read" | "main";
 
 export type TranscriptEntry = (
   /**
-   * source: a /playtest made from an agent message, by that message's transcript index. With a parent: a message the user sent that subagent from its thread.
+   * With a parent: a message the user sent that subagent from its thread.
    * delivery, on such a message, where the daemon can tell: waiting for the subagent's next step, read by it, or sent to the main agent
    * because the subagent ended before it read it. Absent: from a Studio that did not track it, or a subagent that cannot confirm it read one.
    */
@@ -389,14 +387,6 @@ export type TranscriptEntry = (
   | { kind: "tool"; call: ToolCallRecord }
   | { kind: "note"; text: string; at: string }
   | { kind: "dialog"; dialog: EditorDialog }
-  /** A PIE test script run, drawn as its checklist. Always on the main thread, whoever started it. */
-  | { kind: "qa"; run: QaRun }
-  /**
-   * A /playtest, run as ue-mcp's playtest flow: its stage while it runs, then
-   * created (the Draft card follows) or failed, with the flow's errors and the
-   * request Retry sends again. `attempt` counts the flow's drafts.
-   */
-  | { kind: "playtest"; state: PlaytestStage | "failed"; request: PlaytestRequest; attempt: number; errors?: string[]; at: string }
   /** What a turn changed in the project, with Keep or Revert per item: per-turn review. Main thread only. */
   | { kind: "review"; review: TurnReview }
   /**
@@ -404,8 +394,6 @@ export type TranscriptEntry = (
    * events report it, and the run's summary and errors once it has ended.
    */
   | { kind: "flow"; name: string; params: Record<string, unknown>; state: FlowRunState; steps: FlowStepProgress[]; summary?: string; errors?: string[]; duration?: number; at: string }
-  /** A failed /playtest from an older Studio, which ran it as a forced turn. */
-  | { kind: "playtest-failed"; reason: string; request: PlaytestRequest; at: string }
   /** A card an extension posted: kept in the transcript only, drawn by its chat.card contribution, never sent to a model. */
   | CardEntry
   /** The conversation was compacted here: what the agent sees from now on is the summary. A subagent's carries its parent. */
@@ -471,8 +459,6 @@ export interface SessionDetail extends SessionSummary {
   working?: WorkingFacts;
   /** The main conversation is being compacted now. */
   compacting?: boolean;
-  /** The playtests that are live or need the user, wherever their card is in the transcript. */
-  liveRuns?: QaRun[];
   touched: TouchedItem[];
   draft: string;
   /** The subagent threads the user has opened. */
@@ -546,14 +532,12 @@ export interface SessionOps {
  * index of the message that began it. `mutations` counts the calls that
  * changed something, as the tool layer classifies them (an editor call whose
  * answer reports a change, a command, a file write or edit); `targets` are the
- * assets and actors those calls named. `playtest`: the turn saved a playtest
- * with pie(script_create) or ran the playtest flow.
+ * assets and actors those calls named.
  */
 export interface TurnFacts {
   start: number;
   mutations: number;
   targets: TouchedItem[];
-  playtest: boolean;
   /** Subagents the turn has started. */
   agents?: number;
 }
@@ -957,26 +941,8 @@ export interface AgentSettings {
   feedbackMode: { mode: FeedbackMode; project: boolean };
   /** mode null: left to each client. */
   dialogMode: { mode: DialogMode | null; project: boolean };
-  /** Playtest runs: who starts a playtest's run. */
-  playtestRuns: PlaytestRunsMode;
-  /**
-   * Fix failing playtests with an agent, a setting per project and off by
-   * default: off, Studio gives the Playtest Hub no fixer, so no fix loop starts.
-   */
-  agentFixes: boolean;
-  /** Wait for a verdict: minutes a run holds at a manual step before it stops (QA_VERDICT_WAIT_CHOICES). */
-  verdictWaitMinutes: number;
   restarting?: boolean;
 }
-
-/** Playtest runs, a setting per project: manual (the default) or automatic. */
-export type PlaytestRunsMode = "manual" | "automatic";
-export const PLAYTEST_RUNS: ReadonlyArray<{ mode: PlaytestRunsMode; label: string; help: string }> = [
-  { mode: "manual", label: "Manual", help: "The agent cannot start a clip. You start it from its card, with /action, or by assigning a subagent." },
-  { mode: "automatic", label: "Automatic", help: "The agent can start clips itself." },
-];
-/** What the agent hears when Manual refuses its run. */
-export const PLAYTEST_RUNS_REFUSAL = "Clip runs is set to Manual in Settings > Approvals & review. Click Start clip on the card to start it.";
 
 /** An actor or asset the editor's "Chat about this" hands to a quick ask. */
 export interface QuickContextItem {
@@ -1046,8 +1012,6 @@ export interface StudioPluginUpdate {
   /** The installed plugin is older than this Studio needs, or built for another engine than the project's. */
   required?: boolean;
 }
-export * from "./playtests.js";
-export * from "./hub-contract.js";
 export * from "./agents.js";
 export * from "./review.js";
 export * from "./diff-tree.js";
@@ -1068,5 +1032,3 @@ export * from "./video.js";
 export * from "./viewport.js";
 export * from "./feedback.js";
 export * from "./ask-user.js";
-export * from "./clips.js";
-export * from "./hub-arrangement.js";

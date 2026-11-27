@@ -4,12 +4,10 @@
  * only from tool-call facts (the session's turn facts and transcript), never
  * from reading the agent's prose.
  */
-import type { PlaytestRequest, SessionDetail } from "@ue-mcp-studio/shared";
+import type { SessionDetail } from "@ue-mcp-studio/shared";
 
-/** What a pill can do when it is clicked. */
-export interface PillActions {
-  playtest(request: PlaytestRequest): void;
-}
+/** What a pill can do when it is clicked: the chat view passes the actions its providers need. */
+export type PillActions = Record<string, (...args: never[]) => void>;
 
 export interface Pill {
   /** Stable for what it was made from, so a dismissed pill stays dismissed until that changes. */
@@ -21,26 +19,7 @@ export interface Pill {
 
 export type PillProvider = (session: SessionDetail) => Pill | null;
 
-const finished = (s: SessionDetail): boolean => s.status !== "running" && s.status !== "waiting";
-
-/**
- * Make playtest: the last finished turn made at least one call that changed
- * something, and did not itself save a playtest with pie(script_create) or
- * the playtest flow. It runs the playtest flow on what that turn changed.
- */
-export const makePlaytestPill: PillProvider = (s) => {
-  const turn = s.turn;
-  if (!turn || !finished(s) || turn.mutations < 1 || turn.playtest) return null;
-  return {
-    id: `make-playtest:${turn.start}`,
-    label: "Make clip",
-    title: "Draft a clip of what the last turn changed, as a clip card",
-    run: (a) => a.playtest({ text: "", turn: turn.start }),
-  };
-};
-
-/** Every provider, in the order their pills show. */
-// Make playtest is hidden until its relevance check (#115) is built; with no provider the row renders nothing.
+/** Every provider, in the order their pills show. None ships today, so the row renders nothing. */
 export const PILL_PROVIDERS: readonly PillProvider[] = [];
 
 /** The pills for a session, without the ones dismissed. */

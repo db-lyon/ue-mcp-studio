@@ -17,7 +17,6 @@ export interface SlashCommand {
 }
 
 export const SLASH_COMMANDS: readonly SlashCommand[] = [
-  { name: "playtest", args: "what to test (optional)", summary: "Draft a clip of what the conversation is about, as a clip card" },
   { name: "flow", args: "flow name, then key=value (optional)", summary: "Run one of the project's flows, with a form for its inputs" },
   { name: "action", args: "category.method, then key=value (optional)", summary: "Run one ue-mcp action directly, with a form for its parameters" },
   { name: "compact", args: "what the summary must keep (optional)", summary: "Summarize the conversation to free context; the transcript stays as it is" },
@@ -36,8 +35,8 @@ export function isLocalCommand(text: string, command: SlashCommand): boolean {
   return !!m && (m[1] === command.name || (command.aliases ?? []).includes(m[1]));
 }
 
-/** Commands whose text is free, so they may be typed anywhere in a message: "okay, time to /playtest". */
-const ANYWHERE = new Set(["playtest", "compact"]);
+/** Commands whose text is free, so they may be typed anywhere in a message: "okay, time to /compact". */
+const ANYWHERE = new Set(["compact"]);
 
 /** Whether a command runs from the middle of a message, not only from its start. */
 export const slashRunsAnywhere = (name: string): boolean => ANYWHERE.has(name);
@@ -80,24 +79,4 @@ export function slashPrefix(draft: string): string {
 export function matchCommands(query: string, commands: readonly SlashCommand[] = SLASH_COMMANDS): SlashCommand[] {
   const q = query.toLowerCase();
   return commands.filter((c) => c.name.startsWith(q) || (c.aliases ?? []).some((a) => a.startsWith(q)));
-}
-
-/** Where a /playtest's flow is: gathering context, drafting, checking the draft, created. */
-export type PlaytestStage = "gathering" | "drafting" | "checking" | "created";
-
-/**
- * POST /v1/ext/studio/sessions/:id/playtest, and what a /playtest message
- * sends: ue-mcp's playtest flow, which saves a playtest with pie(script_create).
- * `text` is what the user wants tested; `source` the transcript index of the
- * agent message it is made from ("Make playtest" on that message).
- */
-export interface PlaytestRequest {
-  text: string;
-  source?: number;
-  /**
-   * The Make playtest pill: the turn it is made from, by the transcript index
-   * that began it. The turn's changed assets and actors are the target, and
-   * the turn is the context.
-   */
-  turn?: number;
 }

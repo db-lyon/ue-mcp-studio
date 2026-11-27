@@ -1,81 +1,47 @@
 /**
- * The Playtest Hub's client logic, shared by the web client and (later) the
- * phone: the API over HUB_ROUTES, the hub's own routes inside #/playtests,
- * the status ladder's look, sorting, filters, view models, form validation,
- * the keyboard map, the command palette's search and every string the hub
- * shows. No React, no DOM: each client draws these its own way.
+ * The Playtest Hub as both clients draw it: the daemon's /v1/hub routes, the
+ * hub's screens and their addresses under #/playtests, the looks of health
+ * and run states, the timeline math of the Arrangement and the clip piano
+ * roll, the edits a person makes to an arrangement or a clip, and the copy.
+ *
+ * Every hub type comes from `ue-mcp/daemon` and every hub function from
+ * `ue-mcp/hub`, which exports the same declarations without Node imports.
+ * Studio declares none of its own (tests/no-hub-copies.test.ts).
  */
-import {
-  CHECK_HEALTH_ORDER,
-  DEFAULT_ACCEPTANCE,
-  type AcceptanceRule,
-  FAILING_ITEM_STATES,
-  GOAL_DUE,
-  GOAL_PRIORITIES,
-  GOAL_STATUS_ORDER,
-  HUB_EXPORT_FORMAT,
-  HUB_CHANGED,
-  TRACKER_LINKS_MAX,
-  TRACKER_LINK_RELS,
-  checkId as checkIdOf,
-  goalChecksDeep,
-  leafName,
-  loopIfRequired,
-  linkHost,
-  ranDirty,
-  trackerLinkOf,
-  triggerOf,
-  type CheckChange,
-  type CheckDetail,
-  type CheckMeta,
-  type CheckMetaUpdate,
-  type FixRequest,
-  type GoalCheckUpdate,
-  type HealthRule,
-  type RunProvenance,
-  type RunTrigger,
-  type RunVcs,
-  type TrackerLink,
-  type CheckHealth,
-  type CheckRef,
-  type CheckState,
-  type Goal,
-  type GoalDraft,
-  type GoalImport,
-  type GoalPriority,
-  type GoalState,
-  type GoalStatus,
-  type GoalUpdate,
-  type HubExport,
-  type HubImportReport,
-  type HubOverview,
-  type AttentionItem,
-  type AttentionKind,
-  type PlanItemState,
-  type PlanPlacement,
-  type PlanRequest,
-  type PlanRun,
-  type PlanScope,
-  type PlanState,
-  type QaVerdict,
-  type QaRun,
-  type QueueState,
-  type RunDetail,
-  type RunOutcome,
-  type RunRecord,
-  type RunSource,
-  type RunStepSpan,
-  type Schedule,
-  type ScheduleDraft,
-  planOptionsFor,
-  type SignOff,
-  type SignOffLapse,
-  type SignOffState,
-  type ViewportEditorState,
-  type ViewportStatus,
-} from "@ue-mcp-studio/shared";
+import type {
+  Arrangement,
+  ArrangementDraft,
+  ArrangementView,
+  Check,
+  CheckMode,
+  CheckResult,
+  CheckStatus,
+  Clip,
+  ClipDraft,
+  ClipInstance,
+  EditorLease,
+  HubFinding,
+  HubOverview,
+  InputLane,
+  Performer,
+  PerformersView,
+  QueueItem,
+  QueueRequest,
+  QueueState,
+  Region,
+  RunRecord,
+  RunState,
+  Suite,
+  SuiteDraft,
+  SuiteHealth,
+  SuiteItem,
+  SuiteState,
+  TestDetail,
+  TestHealth,
+  Track,
+} from "ue-mcp/daemon";
+import { DEFAULT_RATE, HUB_CHANGED, HUB_LEASE, instanceLength, runEnded } from "ue-mcp/hub";
 import { requestJson, type Transport } from "./transport.js";
-import type { ViewerPhase } from "./viewport.js";
 
 // ---------- API ----------
 
@@ -84,68 +50,55 @@ export type HubRequest = <T>(method: string, path: string, body?: unknown) => Pr
 
 /** The hub is ue-mcp's: its routes are the daemon's own, not an extension's. */
 export const HUB_BASE = "/v1/hub";
-const QA_BASE = "/v1/ext/studio/qa";
 const enc = encodeURIComponent;
 
-const pageQuery = (q: Record<string, string | number | undefined | null>): string => {
-  const parts = Object.entries(q).filter(([, v]) => v !== undefined && v !== null && v !== "").map(([k, v]) => `${k}=${enc(String(v))}`);
-  return parts.length ? `?${parts.join("&")}` : "";
-};
+/** What POST /v1/hub/queue answers. */
+export interface QueueAnswer {
+  batch: string;
+  queued: QueueItem[];
+  skipped: Array<{ test: string; reason: string }>;
+  queue: QueueState;
+}
 
-/**
- * The hub's routes (HUB_ROUTES in shared), typed. Verdicts and the fix loop
- * go through the existing /qa/runs/:id routes, as HUB_ROUTES says.
- */
+/** The daemon's hub routes (docs/hub.md in ue-mcp), typed. */
 export function hubApi(request: HubRequest) {
-  const goal = (id: string) => `${HUB_BASE}/goals/${enc(id)}`;
+  const B = HUB_BASE;
+  const clip = (id: string) => `${B}/clips/${enc(id)}`;
+  const arr = (id: string) => `${B}/arrangements/${enc(id)}`;
+  const suite = (id: string) => `${B}/suites/${enc(id)}`;
+  const run = (id: string) => `${B}/runs/${enc(id)}`;
   return {
-    overview: () => request<HubOverview>("GET", HUB_BASE),
-    goal: (id: string) => request<GoalState>("GET", goal(id)),
-    createGoal: (draft: GoalDraft) => request<{ goal: Goal }>("POST", `${HUB_BASE}/goals`, draft),
-    updateGoal: (id: string, u: GoalUpdate) => request<{ goal: Goal }>("PUT", goal(id), u),
-    deleteGoal: (id: string) => request<void>("DELETE", goal(id)),
-    addChecks: (id: string, checks: CheckRef[]) => request<{ goal: Goal }>("POST", `${goal(id)}/checks`, { checks }),
-    removeCheck: (id: string, checkId: string) => request<{ goal: Goal }>("DELETE", `${goal(id)}/checks/${enc(checkId)}`),
-    /** What one goal says of a check: whether it is required. */
-    updateGoalCheck: (id: string, checkId: string, u: GoalCheckUpdate) => request<{ goal: Goal }>("PUT", `${goal(id)}/checks/${enc(checkId)}`, u),
-    orderChecks: (id: string, order: string[]) => request<{ goal: Goal }>("PUT", `${goal(id)}/checks/order`, { order }),
-    /** Make a goal require another, or change whether it is required. */
-    addRequire: (id: string, goalId: string, required?: boolean) => request<{ goal: Goal }>("POST", `${goal(id)}/requires`, required === undefined ? { goal: goalId } : { goal: goalId, required }),
-    removeRequire: (id: string, goalId: string) => request<{ goal: Goal }>("DELETE", `${goal(id)}/requires/${enc(goalId)}`),
-    orderRequires: (id: string, order: string[]) => request<{ goal: Goal }>("PUT", `${goal(id)}/requires`, { order }),
-    signOff: (id: string, note?: string) => request<{ signOff: SignOff }>("POST", `${goal(id)}/sign-off`, note ? { note } : {}),
-    clearSignOff: (id: string) => request<void>("DELETE", `${goal(id)}/sign-off`),
-    writePlaytests: (id: string, text?: string) => request<{ sessionId: string }>("POST", `${goal(id)}/write-playtests`, text ? { text } : {}),
-    check: (checkId: string, page: { limit?: number; before?: string } = {}) =>
-      request<CheckDetail>("GET", `${HUB_BASE}/checks/${enc(checkId)}${pageQuery(page)}`),
-    /** What a check says about itself (title, links), its one record. */
-    updateCheck: (checkId: string, u: CheckMetaUpdate) => request<{ meta: CheckMeta }>("PUT", `${HUB_BASE}/checks/${enc(checkId)}`, u),
-    rules: (r: Partial<HealthRule>) => request<{ rules: HealthRule }>("PUT", `${HUB_BASE}/rules`, r),
-    /** The whole goal store as one file, to move it to another computer. */
-    exportStore: () => request<HubExport>("GET", `${HUB_BASE}/store`),
-    /** A goals file merged in by id (HubImportReport). */
-    importStore: (file: unknown) => request<HubImportReport>("POST", `${HUB_BASE}/store`, file),
-    runs: (q: { check?: string; limit?: number; before?: string } = {}) => request<{ runs: RunRecord[]; more: boolean }>("GET", `${HUB_BASE}/runs${pageQuery(q)}`),
-    run: (runId: string) => request<RunDetail>("GET", `${HUB_BASE}/runs/${enc(runId)}`),
-    addRunLink: (runId: string, link: TrackerLink) => request<{ record: RunRecord }>("POST", `${HUB_BASE}/runs/${enc(runId)}/links`, { link }),
-    removeRunLink: (runId: string, url: string) => request<{ record: RunRecord }>("DELETE", `${HUB_BASE}/runs/${enc(runId)}/links${pageQuery({ url })}`),
-    queue: () => request<QueueState>("GET", `${HUB_BASE}/queue`),
-    /** A person's Run: it resumes a paused queue; `placement` says where it went (absent from an older daemon). */
-    plan: (req: PlanRequest) => request<{ plan: PlanRun; placement?: PlanPlacement }>("POST", `${HUB_BASE}/plans`, req),
-    cancelPlan: (id: string) => request<{ plan: PlanRun }>("POST", `${HUB_BASE}/plans/${enc(id)}/cancel`, {}),
-    /** Move a queued plan to `to`, 0 for next. */
-    movePlan: (id: string, to: number) => request<QueueState>("POST", `${HUB_BASE}/plans/${enc(id)}/move`, { to }),
-    pause: (paused: boolean) => request<QueueState>("PUT", `${HUB_BASE}/queue/paused`, { paused }),
-    createSchedule: (s: ScheduleDraft) => request<{ schedule: Schedule }>("POST", `${HUB_BASE}/schedules`, s),
-    updateSchedule: (id: string, s: Partial<ScheduleDraft>) => request<{ schedule: Schedule }>("PUT", `${HUB_BASE}/schedules/${enc(id)}`, s),
-    deleteSchedule: (id: string) => request<void>("DELETE", `${HUB_BASE}/schedules/${enc(id)}`),
-    /** Fix with an agent: a fix plan, each check in a chat session of its own. */
-    fix: (req: FixRequest = {}) => request<{ queued: number; plan: PlanRun | null }>("POST", `${HUB_BASE}/fix`, req),
-    runCheck: (checkId: string, replay?: boolean) => request<{ plan: PlanRun; placement?: PlanPlacement }>("POST", `${HUB_BASE}/checks/${enc(checkId)}/run`, replay ? { replay } : {}),
-    /** A manual step's verdict: the existing playtest route, so the card in chat settles too. */
-    verdict: (runId: string, step: number, verdict: QaVerdict, note?: string) =>
-      request<{ run: QaRun }>("POST", `${QA_BASE}/runs/${enc(runId)}/verdict`, note ? { step, verdict, note } : { step, verdict }),
-    resultsUrl: (runId: string) => `${QA_BASE}/runs/${enc(runId)}/results`,
+    overview: () => request<HubOverview>("GET", B),
+    clip: (id: string) => request<{ clip: Clip }>("GET", clip(id)).then((r) => r.clip),
+    createClip: (d: ClipDraft) => request<{ clip: Clip }>("POST", `${B}/clips`, d).then((r) => r.clip),
+    putClip: (c: Clip) => request<{ clip: Clip }>("PUT", clip(c.id), c).then((r) => r.clip),
+    deleteClip: (id: string) => request<void>("DELETE", clip(id)),
+    recordStart: (body: { performer: Performer; clip?: string; from?: number; to?: number; rate?: number }) => request<{ recording: true }>("POST", `${B}/record/start`, body),
+    recordStop: (body: { id?: string; title?: string } = {}) => request<{ clip: Clip }>("POST", `${B}/record/stop`, body).then((r) => r.clip),
+    arrangement: (id: string) => request<ArrangementView>("GET", arr(id)),
+    createArrangement: (d: ArrangementDraft) => request<ArrangementView>("POST", `${B}/arrangements`, d),
+    putArrangement: (a: Arrangement) => request<ArrangementView>("PUT", arr(a.id), a),
+    deleteArrangement: (id: string) => request<void>("DELETE", arr(id)),
+    performers: (arrangement?: string) => request<PerformersView>("GET", `${B}/performers${arrangement ? `?arrangement=${enc(arrangement)}` : ""}`),
+    test: (id: string, limit?: number) => request<TestDetail>("GET", `${B}/tests/${enc(id)}${limit ? `?limit=${limit}` : ""}`),
+    suite: (id: string) => request<SuiteState>("GET", suite(id)),
+    createSuite: (d: SuiteDraft) => request<SuiteState>("POST", `${B}/suites`, d),
+    putSuite: (s: Suite) => request<SuiteState>("PUT", suite(s.id), s),
+    deleteSuite: (id: string) => request<void>("DELETE", suite(id)),
+    quarantine: (id: string, test: string, on: boolean) => request<SuiteState>("POST", `${suite(id)}/quarantine`, { test, on }),
+    markFlaky: (id: string, test: string, on: boolean) => request<SuiteState>("POST", `${suite(id)}/flaky`, { test, on }),
+    runs: (q: { test?: string; suite?: string; limit?: number } = {}) => {
+      const qs = Object.entries(q).filter(([, v]) => v !== undefined && v !== "").map(([k, v]) => `${k}=${enc(String(v))}`).join("&");
+      return request<{ runs: RunRecord[]; more: boolean }>("GET", `${B}/runs${qs ? `?${qs}` : ""}`);
+    },
+    run: (runId: string) => request<RunRecord>("GET", run(runId)),
+    verdict: (runId: string, check: string, verdict: "pass" | "fail", note?: string) => request<RunRecord>("POST", `${run(runId)}/verdict`, { check, verdict, ...(note ? { note } : {}) }),
+    stopRun: (runId: string) => request<RunRecord>("POST", `${run(runId)}/stop`, {}),
+    enqueue: (req: QueueRequest) => request<QueueAnswer>("POST", `${B}/queue`, req),
+    dequeue: (id: string) => request<QueueState>("DELETE", `${B}/queue/${enc(id)}`),
+    pause: (paused: boolean) => request<QueueState>("PUT", `${B}/queue/paused`, { paused }),
+    lease: () => request<{ lease: EditorLease | null }>("GET", `${B}/lease`),
+    release: () => request<QueueState>("POST", `${B}/release`, {}),
   };
 }
 export type HubApi = ReturnType<typeof hubApi>;
@@ -154,1499 +107,597 @@ export type HubApi = ReturnType<typeof hubApi>;
 export const hubApiOver = (transport: Transport): HubApi =>
   hubApi(<T>(method: string, path: string, body?: unknown) => requestJson<T>(transport, method, path, body === undefined ? undefined : { json: body }));
 
-// ---------- Routes inside #/playtests ----------
-
-export type HubScreen = "overview" | "milestones" | "goals" | "goal" | "library" | "check" | "run" | "draft" | "queue" | "clips" | "clip" | "arrangement" | "arrangements";
-export type HubRoute =
-  | { screen: "overview" }
-  /** The queue: what runs now, what waits, schedules and what finished. */
-  | { screen: "queue" }
-  /** Every milestone. */
-  | { screen: "milestones" }
-  /** Every goal. */
-  | { screen: "goals" }
-  | { screen: "goal"; goalId: string }
-  | { screen: "library" }
-  | { screen: "check"; checkId: string }
-  | { screen: "run"; runId: string }
-  /** The playtest editor: a saved playtest's (checkId), or a new one, added to a goal when goalId names one. */
-  | { screen: "draft"; checkId?: string; goalId?: string }
-  /** Timeline playtests: every playtest clip. */
-  | { screen: "clips" }
-  /** One clip on its timeline, by asset path. */
-  | { screen: "clip"; path: string }
-  /** An Arrangement: every track's timeline under one ruler. Without an id, the project's first arrangement. */
-  | { screen: "arrangement"; arrangementId?: string }
-  /** The project's arrangements, to open, create, rename, duplicate, delete and give a level. */
-  | { screen: "arrangements" };
-
-const decode = (s: string): string | null => {
-  try {
-    const d = decodeURIComponent(s);
-    return d ? d : null;
-  } catch {
-    return null;
-  }
-};
-
-/**
- * The hub's screen from what follows #/playtests/ (still encoded):
- * goals, goals/<id>, checks (the Playtests screen; its address predates the
- * name, so old links work), checks/<checkId>, runs/<runId>, and the editor at
- * checks/new, checks/<checkId>/edit and goals/<id>/new, and queue. Anything
- * else is the overview.
- */
-export function parseHubPath(sub: string | null | undefined): HubRoute {
-  const parts = (sub ?? "").split("/").filter(Boolean);
-  const [head, id, then] = parts;
-  const value = id ? decode(id) : null;
-  switch (head) {
-    case "checks":
-      if (id === "new") return { screen: "draft" };
-      if (value && then === "edit") return { screen: "draft", checkId: value };
-      return value ? { screen: "check", checkId: value } : { screen: "library" };
-    case "milestones": return { screen: "milestones" };
-    case "queue": return { screen: "queue" };
-    case "goals":
-      if (value && then === "new") return { screen: "draft", goalId: value };
-      return value ? { screen: "goal", goalId: value } : { screen: "goals" };
-    case "runs": return value ? { screen: "run", runId: value } : { screen: "overview" };
-    case "clips": return value && value.startsWith("/") ? { screen: "clip", path: value } : { screen: "clips" };
-    case "arrangement": return value ? { screen: "arrangement", arrangementId: value } : { screen: "arrangement" };
-    case "arrangements": return { screen: "arrangements" };
-    default: return { screen: "overview" };
-  }
+/** The 400 body of a write the daemon refused: each finding with its path. */
+export function refusalFindings(body: unknown): HubFinding[] {
+  const f = (body as { findings?: unknown } | null)?.findings;
+  return Array.isArray(f) ? f.filter((x): x is HubFinding => !!x && typeof x === "object" && typeof (x as HubFinding).message === "string") : [];
 }
 
-/** What follows #/playtests/ for a screen; empty for the overview. */
+/** Events after which the overview is read again. */
+export const hubReloadsOn = (type: string): boolean => type === HUB_CHANGED || type === HUB_LEASE;
+/** A burst of hub.changed (a run's checks settling) folds into one read per this many milliseconds. */
+export const HUB_RELOAD_MS = 400;
+
+// ---------- Screens under #/playtests ----------
+
+export type HubRoute =
+  | { screen: "arrangements" }
+  | { screen: "arrangement"; id: string; run?: string }
+  | { screen: "clip"; id: string; from?: string }
+  | { screen: "suites"; id?: string }
+  | { screen: "runs" };
+
+export type HubSection = "arrangements" | "suites" | "runs";
+
+/** The route of a path under #/playtests: "", "arrangements/<id>", "arrangements/<id>/runs/<run>", "clips/<id>", "suites", "suites/<id>", "runs". */
+export function parseHubPath(sub: string | null | undefined): HubRoute {
+  const parts = (sub ?? "").split("?")[0]!.split("/").filter(Boolean).map((p) => {
+    try {
+      return decodeURIComponent(p);
+    } catch {
+      return p;
+    }
+  });
+  const [head, id, sub2, id2] = parts;
+  if (head === "arrangements" && id) return sub2 === "runs" && id2 ? { screen: "arrangement", id, run: id2 } : { screen: "arrangement", id };
+  if (head === "clips" && id) return sub2 === "in" && id2 ? { screen: "clip", id, from: id2 } : { screen: "clip", id };
+  if (head === "suites") return id ? { screen: "suites", id } : { screen: "suites" };
+  if (head === "runs") return { screen: "runs" };
+  return { screen: "arrangements" };
+}
+
 export function hubPath(r: HubRoute): string {
   switch (r.screen) {
-    case "overview": return "";
-    case "library": return "checks";
-    case "milestones": return "milestones";
-    case "queue": return "queue";
-    case "goals": return "goals";
-    case "goal": return `goals/${enc(r.goalId)}`;
-    case "check": return `checks/${enc(r.checkId)}`;
-    case "run": return `runs/${enc(r.runId)}`;
-    case "draft": return r.checkId ? `checks/${enc(r.checkId)}/edit` : r.goalId ? `goals/${enc(r.goalId)}/new` : "checks/new";
-    case "clips": return "clips";
-    case "clip": return `clips/${enc(r.path)}`;
-    case "arrangement": return r.arrangementId ? `arrangement/${enc(r.arrangementId)}` : "arrangement";
-    case "arrangements": return "arrangements";
+    case "arrangements": return "";
+    case "arrangement": return `arrangements/${enc(r.id)}${r.run ? `/runs/${enc(r.run)}` : ""}`;
+    case "clip": return `clips/${enc(r.id)}${r.from ? `/in/${enc(r.from)}` : ""}`;
+    case "suites": return r.id ? `suites/${enc(r.id)}` : "suites";
+    case "runs": return "runs";
   }
 }
 
-/** The full hash of a hub screen, the link every hub object carries. */
 export const hubHash = (r: HubRoute): string => {
   const p = hubPath(r);
   return p ? `#/playtests/${p}` : "#/playtests";
 };
 
-/** Which rail entry a screen sits under. */
-export function hubSection(r: HubRoute): "overview" | "milestones" | "goals" | "library" | "queue" {
-  if (r.screen === "queue") return "queue";
-  if (r.screen === "milestones") return "milestones";
-  if (r.screen === "goals") return "goals";
-  if (r.screen === "library" || r.screen === "check" || r.screen === "clips" || r.screen === "clip") return "library";
-  if (r.screen === "draft") return r.goalId ? "overview" : "library";
-  return "overview";
+/** The rail entry a screen sits under. */
+export function hubSection(r: HubRoute): HubSection {
+  return r.screen === "suites" ? "suites" : r.screen === "runs" ? "runs" : "arrangements";
 }
 
-// ---------- The status ladder ----------
+/** A link's target as a hub screen, for an address such as #/playtests/suites/smoke; null for anything else. */
+export function hubAddressRoute(url: string): HubRoute | null {
+  const m = /^#\/playtests(?:\/(.*))?$/.exec(url.trim());
+  return m ? parseHubPath(m[1] ?? "") : null;
+}
 
-/** A mark's shape. Every status has its own, so none is told apart by colour alone. */
+// ---------- Looks ----------
+
 export type StatusGlyph = "needs" | "fail" | "missing" | "running" | "flaky" | "stale" | "never" | "check" | "risk" | "skip" | "stop" | "queued";
-/** The colour token a status takes: attention and warn are the amber, bad the red, ok the green, run the accent, idle the grey. */
 export type StatusTone = "attention" | "bad" | "warn" | "run" | "ok" | "idle";
 export interface StatusLook {
-  label: string;
   glyph: StatusGlyph;
   tone: StatusTone;
-}
-
-export const CHECK_HEALTH_LOOK: Record<CheckHealth, StatusLook> = {
-  failing: { label: "Failing", glyph: "fail", tone: "bad" },
-  missing: { label: "Not on this checkout", glyph: "missing", tone: "idle" },
-  running: { label: "Running", glyph: "running", tone: "run" },
-  flaky: { label: "Flaky", glyph: "flaky", tone: "warn" },
-  stale: { label: "Stale", glyph: "stale", tone: "warn" },
-  never_run: { label: "Never run", glyph: "never", tone: "idle" },
-  passing: { label: "Passing", glyph: "check", tone: "ok" },
-};
-
-export const GOAL_STATUS_LOOK: Record<GoalStatus, StatusLook> = {
-  failing: { label: "Failing", glyph: "fail", tone: "bad" },
-  ready_to_sign_off: { label: "Ready to sign off", glyph: "needs", tone: "attention" },
-  at_risk: { label: "At risk", glyph: "risk", tone: "warn" },
-  running: { label: "Running", glyph: "running", tone: "run" },
-  in_progress: { label: "In progress", glyph: "queued", tone: "idle" },
-  not_started: { label: "Not started", glyph: "never", tone: "idle" },
-  met: { label: "Met", glyph: "check", tone: "ok" },
-};
-
-/** "Needs you" is a run holding for a live verdict, on the Run screen and in the app bar; an error reads as Failed. */
-export const RUN_OUTCOME_LOOK: Record<RunOutcome, StatusLook> = {
-  needs_you: { label: "Needs you", glyph: "needs", tone: "attention" },
-  failed: { label: "Failed", glyph: "fail", tone: "bad" },
-  error: { label: "Failed", glyph: "fail", tone: "bad" },
-  running: { label: "Running", glyph: "running", tone: "run" },
-  incomplete: { label: "Incomplete", glyph: "risk", tone: "warn" },
-  unjudged: { label: "Not judged", glyph: "skip", tone: "idle" },
-  stopped: { label: "Stopped", glyph: "stop", tone: "idle" },
-  passed: { label: "Passed", glyph: "check", tone: "ok" },
-};
-
-/** An error reads as Failed and a cancelled item as Stopped, as runs do. */
-export const PLAN_ITEM_LOOK: Record<PlanItemState, StatusLook> = {
-  needs_you: { label: "Needs you", glyph: "needs", tone: "attention" },
-  failed: { label: "Failed", glyph: "fail", tone: "bad" },
-  error: { label: "Failed", glyph: "fail", tone: "bad" },
-  unjudged: { label: "Not judged", glyph: "skip", tone: "idle" },
-  running: { label: "Running", glyph: "running", tone: "run" },
-  queued: { label: "Queued", glyph: "queued", tone: "idle" },
-  skipped: { label: "Skipped", glyph: "skip", tone: "idle" },
-  crashed: { label: "Crashed", glyph: "fail", tone: "bad" },
-  cancelled: { label: "Stopped", glyph: "stop", tone: "idle" },
-  passed: { label: "Passed", glyph: "check", tone: "ok" },
-};
-
-export const PLAN_STATE_LABEL: Record<PlanState, string> = {
-  queued: "Queued", running: "Running", paused: "Paused", done: "Done", cancelled: "Stopped", failed: "Failed",
-};
-
-/** A step's status in the hub's ladder, for the run timeline. */
-export const STEP_LOOK: Record<RunStepSpan["status"], StatusLook> = {
-  awaiting_verdict: { label: "Needs you", glyph: "needs", tone: "attention" },
-  failed: { label: "Failed", glyph: "fail", tone: "bad" },
-  running: { label: "Running", glyph: "running", tone: "run" },
-  pending: { label: "Not run", glyph: "queued", tone: "idle" },
-  skipped: { label: "Skipped", glyph: "skip", tone: "idle" },
-  passed: { label: "Passed", glyph: "check", tone: "ok" },
-};
-
-const rank = <T>(order: readonly T[]) => (v: T): number => {
-  const i = order.indexOf(v);
-  return i < 0 ? order.length : i;
-};
-export const healthRank = rank(CHECK_HEALTH_ORDER);
-export const goalStatusRank = rank(GOAL_STATUS_ORDER);
-
-// ---------- Labels ----------
-
-export const PRIORITY_LABEL: Record<GoalPriority, string> = { p0: "P0 Urgent", p1: "P1 High", p2: "P2 Normal", p3: "P3 Low" };
-export const PRIORITY_SHORT: Record<GoalPriority, string> = { p0: "P0", p1: "P1", p2: "P2", p3: "P3" };
-
-export const ATTENTION_KIND_LABEL: Record<AttentionKind, string> = {
-  loop_blocked: "Fix stopped",
-  sign_off: "Ready to sign off",
-  regression: "Regression",
-  plan_failed: "Run failed",
-};
-
-export const RUN_SOURCE_LABEL: Record<RunSource, string> = {
-  person: "Started by a person",
-  agent: "Started by an agent",
-  plan: "Started from the hub",
-  outside: "Started outside Studio",
-};
-
-/** The runs that never count toward health, by why they ran. */
-export const RUN_TRIGGER_LABEL: Record<Exclude<RunTrigger, "run">, string> = {
-  replay: "Replay",
-  loop: "Fix loop attempt",
-};
-
-export const CHECK_CHANGE_LOOK: Record<CheckChange["kind"], StatusLook> = {
-  fixed: { label: "Fixed", glyph: "check", tone: "ok" },
-  regressed: { label: "Regressed", glyph: "fail", tone: "bad" },
-};
-
-// ---------- Provenance ----------
-
-/** A revision as its source control names it: a short commit, or "changelist 1234" and the like. */
-export function revisionText(vcs: RunVcs | null, revision: string | null): string | null {
-  if (!revision) return null;
-  switch (vcs) {
-    case "git": return revision.slice(0, 7);
-    case "perforce": return `changelist ${revision}`;
-    case "svn": return `revision ${revision}`;
-    case "plastic": return `changeset ${revision}`;
-    default: return revision;
-  }
-}
-
-const changedFiles = (n: number): string => `${n} changed ${n === 1 ? "file" : "files"}`;
-
-/** What tells a run apart in a list: why it does not count, and what it tested when that is not the plain case. */
-export interface RunMark {
   label: string;
-  title: string;
 }
 
-/** A run's marks: a replay or a fix loop attempt, uncommitted changes, or an unknown revision. */
-export function runMarks(r: Pick<RunRecord, "trigger" | "replayOf" | "provenance">): RunMark[] {
-  const marks: RunMark[] = [];
-  const trigger = triggerOf(r);
-  if (trigger !== "run") marks.push({ label: RUN_TRIGGER_LABEL[trigger], title: "Not counted toward health or pass rate" });
-  if (!r.provenance) marks.push({ label: "Revision unknown", title: "Studio did not see this run start, so what it tested is unknown. It never counts toward acceptance." });
-  else if (ranDirty(r)) marks.push({ label: "Uncommitted changes", title: `Ran with ${changedFiles(r.provenance.dirty!)}, so it does not count toward acceptance` });
-  return marks;
-}
-
-/** What a run tested, as short parts: "At a1b2c3d", "2 changed files", "Script 3f2a9c1", "UE 5.5", "2 players, listen server". */
-export function provenanceParts(p: RunProvenance | undefined): string[] {
-  if (!p) return ["Revision unknown"];
-  const parts: string[] = [];
-  const rev = revisionText(p.vcs, p.revision);
-  if (p.vcs === "none") parts.push("No source control");
-  else parts.push(rev ? `At ${rev}` : "Revision unknown");
-  if (p.dirty) parts.push(changedFiles(p.dirty));
-  if (p.scriptHash) parts.push(`Script ${p.scriptHash.split(":").pop()!.slice(0, 7)}`);
-  if (p.engine) parts.push(`UE ${p.engine}`);
-  if (p.players) {
-    const mode = p.players.netMode === "listen" ? ", listen server" : p.players.netMode === "client" ? ", dedicated server" : "";
-    parts.push(`${p.players.count} ${p.players.count === 1 ? "player" : "players"}${mode}`);
-  }
-  return parts;
-}
-
-/** Every string the hub shows that is not a status or a kind, in one place for both clients. */
-export const HUB_COPY = {
-  title: "Playtest Hub",
-  overview: "Overview",
-  attention: "Needs attention",
-  goals: "Tracks",
-  milestones: "Scenes",
-  playtests: "Clips",
-  /** What a check is called wherever a person reads it. */
-  playtest: "Clip",
-  /** The screen of every clip the project has (its route is still "library"). */
-  library: "Clips",
-  recent: "Recent",
-  searchGoals: "Search tracks",
-  searchMilestones: "Search scenes",
-  noMilestonesMatch: "No scenes match.",
-  noMilestonesYet: "A scene is a set of tracks that must all be met, such as a release.",
-  newMilestone: "New scene",
-  milestone: "Scene",
-  allMilestones: "All scenes",
-  milestoneFilter: "Scene",
-  noGoalsMatch: "No tracks match.",
-  nowRunning: "Now running",
-  finished: "Finished",
-  queue: "Queue",
-  queueEmpty: "Nothing queued.",
-  openQueue: "Open queue",
-  runNext: "Run next",
-  schedules: "Schedules",
-  newSchedule: "New schedule",
-  noSchedules: "A schedule runs clips on the days and at the time you pick, when the editor is free and nobody is at the computer.",
-  /** Shown where schedules would be, by a daemon that has none. */
-  schedulesUnavailable: "Update ue-mcp to use schedules.",
-  attended: "Someone is there to judge manual steps",
-  attendedHelp: "Without someone there, clips with manual steps are skipped.",
-  stopOnFailure: "Stop at the first failure",
-  /** A schedule that came due and has not started yet. */
-  scheduleWaiting: (why: string) => `Due, waiting: ${why}`,
-  scheduleSkipped: (why: string) => `Skipped: ${why}`,
-  newGoal: "New track",
-  editGoal: "Edit track",
-  groupIntoGoal: "Group into a track",
-  runGoal: "Run track",
-  runFailing: "Run failing",
-  runAll: "Run all",
-  runSelected: "Run selected",
-  addToGoal: "Add to track",
-  addPlaytests: "Add clips",
-  delete: "Delete",
-  /** The delete dialog's question: one clip, or the count. */
-  deleteTitle: (n: number) => (n === 1 ? "Delete this clip?" : `Delete ${n} clips?`),
-  deleteLead: (n: number) => `This deletes ${n === 1 ? "its asset" : "their assets"} from the project. Tracks that list ${n === 1 ? "it" : "them"} keep ${n === 1 ? "it" : "them"} and show ${n === 1 ? "it" : "them"} as not on this checkout.`,
-  deleting: (done: number, total: number) => `Deleting ${done + 1} of ${total}`,
-  deleted: (n: number) => (n === 1 ? "Deleted the clip" : `Deleted ${n} clips`),
-  deleteFailedTitle: (failed: number, total: number) => `${failed} of ${total} could not be deleted`,
-  /** Deleting a track or scene (goal kinds): the button, the question, what stays, and the tracks that lose it. */
-  deleteGoal: (kind: "goal" | "milestone") => (kind === "milestone" ? "Delete scene" : "Delete track"),
-  deleteGoalTitle: (kind: "goal" | "milestone", title: string) => `Delete the ${kind === "milestone" ? "scene" : "track"} "${title}"?`,
-  deleteGoalKeeps: (kind: "goal" | "milestone") =>
-    kind === "milestone" ? "The tracks it requires stay. Its clips stay and keep their past runs." : "Its clips stay and keep their past runs.",
-  deleteGoalUnlinks: "These will no longer require it:",
-  goalDeleted: (title: string) => `Deleted ${title}`,
-  fixFailing: "Fix failing with an agent",
-  fix: "Fix with an agent",
-  /** After a fix is asked for: what was queued, and where the work happens. */
-  fixesQueued: (n: number) => (n ? `Queued ${n === 1 ? "a fix" : `${n} fixes`}. Each runs in its own chat session.` : "Nothing is failing."),
-  /** A fix item's line: the chat session its agent works in. */
-  fixChat: "Open chat",
-  writePlaytests: "Write clips for this track",
-  signOff: "Sign off",
-  clearSignOff: "Clear sign-off",
-  otherGoals: "Other tracks",
-  partOf: "Part of",
-  requiredGoals: "Required tracks",
-  addGoal: "Add track",
-  newGoalHere: "New track here",
-  optional: "optional",
-  notInMilestone: "Not part of any scene",
-  notInGoal: "Not part of any track",
-  noRequiredGoals: "A track can require other tracks. It is met only when they are.",
-  noGoalsInMilestone: "No tracks in this scene yet.",
-  noPlaytestsInGoal: "A track is met when its required clips pass. Add clips the project has, or ask an agent to write them.",
-  unusedChecks: (n: number) => `${n} ${n === 1 ? "clip is" : "clips are"} not part of any track`,
-  attentionEmpty: "Nothing needs attention.",
-  /** The overview without tracks: tracks are an opt-in layer over the clips. */
-  goalsLead: "Select clips and group them into a track for something the game must do. A track's status follows its clips' runs.",
-  noChecksTitle: "No clips yet",
-  noChecksLead: "Ask for one in Chat with /playtest.",
-  libraryEmpty: "No clips match.",
-  justBroke: "Just broke",
-  queueIdle: "Nothing is running.",
-  pause: "Pause",
-  resume: "Resume",
-  paused: "Paused: runs wait until you resume.",
-  pausedByRelease: "Paused because you released the editor. Resume when Studio may use it again.",
-  pausedByReconnect: "Paused because the editor reconnected. Resume when Studio may use it again.",
-  waiting: (why: string) => `Waiting: ${why}`,
-  editorDown: "The editor is not connected. Resume once it is back.",
-  filterPlaceholder: "Filter by name, map or track",
-  palettePlaceholder: "Jump to a track, clip or run, or type a command",
-  paletteEmpty: "No matches.",
-  failNoteLabel: "What went wrong?",
-  shortcuts: "Keyboard shortcuts",
-  /** Beside the "Not on this checkout" status: why that is no failure. */
-  notOnCheckout: "Tracks keep it listed, since another branch may have it.",
-  /** A track names a script by the path it had before it moved. */
-  movedFrom: (path: string) => `Moved from ${path}`,
-  unsupported: "Can't run here",
-  unsupportedLead: "These were imported with the track. Studio can't run them, so they don't count toward it.",
-  owner: "Owner",
-  priority: "Priority",
-  due: "Due",
-  runFailingNone: "Nothing is failing.",
-  plans: "Runs",
-} as const;
-
-/** How far a batch of runs is, "3 of 6 done". People never read the word plan. */
-export const runsDone = (done: number, total: number): string => `${done} of ${total} done`;
-
-/** Why the queue is paused, in the words of whoever paused it. */
-export const queuePausedText = (q: Pick<QueueState, "pausedBy">): string =>
-  q.pausedBy === "release" ? HUB_COPY.pausedByRelease : q.pausedBy === "reconnect" ? HUB_COPY.pausedByReconnect : HUB_COPY.paused;
-
-/** What a person is told after Run, and what they can do next: move it to the front, or open the queue. */
-export interface RunFeedback {
-  text: string;
-  tone: "ok" | "bad";
-  runNext?: boolean;
-  openQueue?: boolean;
-}
-
-const sentence = (s: string): string => (s ? s[0].toUpperCase() + s.slice(1) : s);
-/** A reason as a sentence of its own, ended once. */
-const ended = (s: string): string => `${sentence(s.trim().replace(/[.!?:;,]+$/, ""))}.`;
-
-/**
- * The line after a person's Run, from where the daemon put the plan. Without
- * a placement (a daemon that predates it) it says only that it was queued.
- * The count is left out when the title already says clips.
- */
-export function runFeedback(title: string, placement: PlanPlacement | undefined, count?: number): RunFeedback {
-  const what = count === undefined || /\bclips?\b/i.test(title) ? title : `${title} (${count} ${count === 1 ? "clip" : "clips"})`;
-  if (!placement) return { text: `Queued ${what}`, tone: "ok", openQueue: true };
-  switch (placement.state) {
-    case "started":
-      return { text: `Running ${what}`, tone: "ok" };
-    case "waiting":
-      return placement.reason
-        ? { text: `${sentence(title)} is next. ${ended(placement.reason)}`, tone: "bad", openQueue: true }
-        : { text: `${sentence(title)} starts next`, tone: "ok", openQueue: true };
-    case "queued":
-      return placement.reason
-        ? { text: `Queued ${what}. ${ended(placement.reason)}`, tone: "bad", openQueue: true }
-        : { text: `Queued ${what}, ${placement.ahead} ${placement.ahead === 1 ? "run" : "runs"} ahead`, tone: "ok", runNext: placement.position > 1, openQueue: true };
-  }
-}
-
-// ---------- Sign-off ----------
-
-const LAPSE_TEXT: Record<SignOffLapse, string> = {
-  failed: "A required clip failed after it.",
-  requirements: "The track's requirements changed after it.",
-  revision: "The project moved to another revision, and a required clip's script or map changed or has not run there yet.",
+export const TEST_HEALTH_LOOK: Record<TestHealth, StatusLook> = {
+  running: { glyph: "running", tone: "run", label: "Running" },
+  failing: { glyph: "fail", tone: "bad", label: "Failing" },
+  missing: { glyph: "missing", tone: "bad", label: "Missing" },
+  flaky: { glyph: "flaky", tone: "warn", label: "Flaky" },
+  never_run: { glyph: "never", tone: "idle", label: "Never run" },
+  passing: { glyph: "check", tone: "ok", label: "Passing" },
 };
 
-/** A sign-off in words: who gave it and from where, or, once it lapsed, why it no longer counts. */
-export function signOffText(s: SignOffState): { title: string; detail?: string } {
-  if (s.lapsed) return { title: "Signed off on an earlier revision", detail: LAPSE_TEXT[s.lapsed] };
-  return { title: `Signed off by ${s.record.by}${s.record.via ? ` from ${s.record.via}` : ""}` };
+export const SUITE_HEALTH_LOOK: Record<SuiteHealth, StatusLook> = {
+  running: TEST_HEALTH_LOOK.running,
+  failing: TEST_HEALTH_LOOK.failing,
+  flaky: TEST_HEALTH_LOOK.flaky,
+  never_run: TEST_HEALTH_LOOK.never_run,
+  passing: TEST_HEALTH_LOOK.passing,
+  empty: { glyph: "skip", tone: "idle", label: "No tests" },
+};
+
+export const RUN_STATE_LOOK: Record<RunState, StatusLook> = {
+  starting: { glyph: "queued", tone: "run", label: "Starting" },
+  running: { glyph: "running", tone: "run", label: "Running" },
+  awaiting_verdict: { glyph: "needs", tone: "attention", label: "Waiting for a verdict" },
+  passed: { glyph: "check", tone: "ok", label: "Passed" },
+  failed: { glyph: "fail", tone: "bad", label: "Failed" },
+  error: { glyph: "risk", tone: "bad", label: "Error" },
+  stopped: { glyph: "stop", tone: "idle", label: "Stopped" },
+};
+
+export const CHECK_STATUS_LOOK: Record<CheckStatus, StatusLook> = {
+  pending: { glyph: "queued", tone: "idle", label: "Pending" },
+  running: { glyph: "running", tone: "run", label: "Judging" },
+  passed: { glyph: "check", tone: "ok", label: "Passed" },
+  failed: { glyph: "fail", tone: "bad", label: "Failed" },
+  awaiting_verdict: { glyph: "needs", tone: "attention", label: "Waiting for a verdict" },
+  skipped: { glyph: "skip", tone: "idle", label: "Skipped" },
+};
+
+export const passRateText = (rate: number | null | undefined): string => (rate === null || rate === undefined ? "No runs" : `${Math.round(rate * 100)}%`);
+
+/** How long ago, short: "now", "4m", "3h", "2d". */
+export function shortAgo(iso: string | null | undefined, now = Date.now()): string {
+  if (!iso) return "";
+  const s = Math.max(0, Math.round((now - Date.parse(iso)) / 1000));
+  if (!Number.isFinite(s)) return "";
+  if (s < 45) return "now";
+  if (s < 3600) return `${Math.round(s / 60)}m`;
+  if (s < 86400) return `${Math.round(s / 3600)}h`;
+  return `${Math.round(s / 86400)}d`;
+}
+
+// ---------- Checks ----------
+
+export const CHECK_MODE_LABEL: Record<CheckMode, string> = {
+  by_end: "By the end",
+  throughout: "Throughout",
+  hold: "Hold until true",
+  manual: "Manual verdict",
+};
+
+export const CHECK_MODE_HELP: Record<CheckMode, string> = {
+  by_end: "Passes once the condition holds on any frame before the check ends.",
+  throughout: "Passes when the condition holds on every frame of the check.",
+  hold: "Playback waits at the start until the condition holds, and fails after the check's length.",
+  manual: "Play In Editor pauses until a person or an agent gives a pass or fail verdict.",
+};
+
+/** The short mark drawn on a check note. */
+export const CHECK_MODE_MARK: Record<CheckMode, string> = { by_end: "END", throughout: "ALL", hold: "WAIT", manual: "YOU" };
+
+/** What a check reads, in a line: "health >= 50", or the instruction of a manual one. */
+export function checkSummary(c: Pick<Check, "mode" | "expect" | "instruction">): string {
+  if (c.mode === "manual") return c.instruction ?? "";
+  if (!c.expect) return "";
+  const t = c.expect.target === undefined ? "" : ` ${typeof c.expect.target === "string" ? c.expect.target : JSON.stringify(c.expect.target)}`;
+  return `${c.expect.subject ? `${c.expect.subject}: ` : ""}${c.expect.value} ${c.expect.op}${t}`;
+}
+
+/** The ops a check's expect takes, as the plugin judges them. */
+export const EXPECT_OPS = ["==", "!=", ">", ">=", "<", "<=", "contains", "exists"] as const;
+
+/** A target typed as text: a number or true/false when it reads as one, else the text. */
+export function targetOf(text: string): unknown {
+  const t = text.trim();
+  if (t === "") return undefined;
+  if (t === "true" || t === "false") return t === "true";
+  const n = Number(t);
+  return Number.isFinite(n) ? n : t;
 }
 
 // ---------- Time ----------
 
-/** A short age: "now", "5m", "3h", "2d", "5w", or the date. */
-export function shortAgo(iso: string | null | undefined, now = Date.now()): string {
-  const t = iso ? Date.parse(iso) : NaN;
-  if (!Number.isFinite(t)) return "";
-  const m = Math.floor((now - t) / 60_000);
-  if (m < 1) return "now";
-  if (m < 60) return `${m}m`;
-  const h = Math.floor(m / 60);
-  if (h < 24) return `${h}h`;
-  const d = Math.floor(h / 24);
-  if (d < 14) return `${d}d`;
-  if (d < 60) return `${Math.floor(d / 7)}w`;
-  return new Date(t).toLocaleDateString();
+/** Pixels per second of game time: the default, and the range zooming stays in. */
+export const ARRANGE_DEFAULT_ZOOM = 80;
+export const ARRANGE_ZOOM_MIN = 4;
+export const ARRANGE_ZOOM_MAX = 1280;
+export const clampZoom = (z: number): number => Math.min(ARRANGE_ZOOM_MAX, Math.max(ARRANGE_ZOOM_MIN, Number.isFinite(z) ? z : ARRANGE_DEFAULT_ZOOM));
+export const zoomStep = (z: number, dir: 1 | -1): number => clampZoom(dir > 0 ? z * 1.5 : z / 1.5);
+/** The zoom that shows frames `from` to `to` across `width` pixels. */
+export const zoomToFit = (from: number, to: number, rate: number, width: number): number => clampZoom(Math.max(1, width) / Math.max(0.5, (to - from) / (rate || DEFAULT_RATE)));
+
+/** Frames as a clock: "0:05", or with hundredths "0:01.25". */
+export function arrangeClock(f: number, rate: number, hundredths = false): string {
+  const total = Math.max(0, f) / (rate || DEFAULT_RATE);
+  const m = Math.floor(total / 60);
+  const s = total - m * 60;
+  if (!hundredths) return `${m}:${String(Math.floor(s + 1e-6)).padStart(2, "0")}`;
+  const cs = Math.round(s * 100);
+  return `${m + Math.floor(cs / 6000)}:${((cs % 6000) / 100).toFixed(2).padStart(5, "0")}`;
 }
 
-/** A run's length: "850ms", "42s", "3m 05s". */
-export function runLength(ms: number | null | undefined): string {
-  if (ms === null || ms === undefined || !Number.isFinite(ms) || ms < 0) return "";
-  if (ms < 1000) return `${Math.round(ms)}ms`;
-  const s = Math.round(ms / 1000);
-  if (s < 60) return `${s}s`;
-  return `${Math.floor(s / 60)}m ${String(s % 60).padStart(2, "0")}s`;
-}
-
-/** A due date against today: "Due today", "Due in 3 days", "3 days overdue", or the date itself past two weeks. */
-export function dueText(due: string | null | undefined, now = Date.now()): { text: string; overdue: boolean } | null {
-  if (!due || !GOAL_DUE.test(due)) return null;
-  const today = new Date(now);
-  const start = Date.UTC(today.getFullYear(), today.getMonth(), today.getDate());
-  const [y, mo, d] = due.split("-").map(Number);
-  const days = Math.round((Date.UTC(y, mo - 1, d) - start) / 86_400_000);
-  if (days === 0) return { text: "Due today", overdue: false };
-  if (days < 0) return { text: `${-days} ${days === -1 ? "day" : "days"} overdue`, overdue: true };
-  if (days === 1) return { text: "Due tomorrow", overdue: false };
-  if (days <= 14) return { text: `Due in ${days} days`, overdue: false };
-  return { text: `Due ${due}`, overdue: false };
-}
-
-// ---------- Sorting and grouping ----------
-
-const byText = (a: string, b: string): number => a.localeCompare(b, undefined, { sensitivity: "base", numeric: true });
-const dueKey = (g: Goal): string => g.due ?? "9999-99-99";
-const prioKey = (g: Goal): number => (g.priority ? GOAL_PRIORITIES.indexOf(g.priority) : 2);
-
-/** Goals worst first, then by priority, then due date, then title. */
-export function sortGoals(goals: readonly GoalState[]): GoalState[] {
-  return [...goals].sort((a, b) =>
-    goalStatusRank(a.status) - goalStatusRank(b.status)
-    || prioKey(a.goal) - prioKey(b.goal)
-    || byText(dueKey(a.goal), dueKey(b.goal))
-    || byText(a.goal.title, b.goal.title));
-}
-
-/** Checks worst first, then the most recently run, then by name. */
-export function sortChecks(checks: readonly CheckState[]): CheckState[] {
-  return [...checks].sort((a, b) =>
-    healthRank(a.health) - healthRank(b.health)
-    || byText(b.last?.startedAt ?? "", a.last?.startedAt ?? "")
-    || byText(a.name, b.name));
-}
-
-export interface MilestoneGroup {
-  /** null: goals nothing requires (Other goals). */
-  milestone: GoalState | null;
-  goals: GoalState[];
-}
-
-/**
- * Goals under their milestones, for the overview: milestones worst first
- * (then by priority and due date), each with the goals it requires in its
- * own order. A goal two
- * milestones require is in both groups, as the same GoalState. Goals that
- * nothing requires come last; a goal required only by other goals shows on
- * their screens. Archived goals are left out.
- */
-export function milestoneGroups(all: readonly GoalState[]): MilestoneGroup[] {
-  const live = all.filter((g) => !g.goal.archived);
-  const byId = new Map(live.map((g) => [g.goal.id, g]));
-  const milestones = live.filter((g) => g.goal.kind === "milestone");
-  const groups: MilestoneGroup[] = sortGoals(milestones).map((m) => ({ milestone: m, goals: requiredGoals(m, byId) }));
-  const loose = live.filter((g) => g.goal.kind !== "milestone" && g.parents.length === 0);
-  if (loose.length) groups.push({ milestone: null, goals: sortGoals(loose) });
-  return groups;
-}
-
-/** The Goals screen's milestone filter value for goals that no milestone requires. */
-export const NO_MILESTONE = "none";
-
-/** Every milestone (not archived), worst first. */
-export function milestoneList(all: readonly GoalState[]): GoalState[] {
-  return sortGoals(all.filter((g) => !g.goal.archived && g.goal.kind === "milestone"));
-}
-
-/** The ids of the milestones a goal is under, directly or through other goals. */
-export function milestoneIdsOf(g: GoalState, all: readonly GoalState[]): Set<string> {
-  const byId = new Map(all.map((x) => [x.goal.id, x]));
-  const out = new Set<string>();
-  const seen = new Set<string>([g.goal.id]);
-  const walk = (x: GoalState) => {
-    for (const id of x.parents ?? []) {
-      if (seen.has(id)) continue;
-      seen.add(id);
-      const p = byId.get(id);
-      if (!p) continue;
-      if (p.goal.kind === "milestone") out.add(id);
-      walk(p);
-    }
-  };
-  walk(g);
+/** Frames per grid step: a quarter second, or a whole second with `coarse` (Shift). */
+export const arrangeStep = (rate: number, coarse = false): number => (coarse ? rate : Math.max(1, Math.round(rate / 4)));
+export const snapTo = (f: number, step: number): number => Math.max(0, step > 0 ? Math.round(f / step) * step : Math.round(f));
+export const arrangeSeconds = (f: number, rate: number): string => `${(f / rate).toFixed(2).replace(/\.?0+$/, "") || "0"} s`;
+/** How long the ruler runs: ten seconds past the end, and never under thirty. */
+export const rulerFrames = (end: number, rate: number): number => Math.max(end + rate * 10, rate * 30);
+export const rulerEvery = (zoom: number): number => [0.25, 0.5, 1, 2, 5, 10, 30, 60, 120, 300, 600].find((s) => s * zoom >= 60) ?? 600;
+export function rulerTicks(frames: number, rate: number, zoom: number): number[] {
+  const every = rulerEvery(zoom);
+  const out: number[] = [];
+  for (let s = 0; s * rate <= frames; s += every) out.push(s);
   return out;
 }
-
-const matches = (g: GoalState, f: { status: GoalStatus | null; text: string }): boolean => {
-  const q = f.text.trim().toLowerCase();
-  return (!f.status || g.status === f.status) && (!q || g.goal.title.toLowerCase().includes(q));
-};
-
-/**
- * The Goals screen's list: every goal once (milestones are their own screen),
- * worst first, filtered by status, title and milestone: null for all, a
- * milestone's id, or NO_MILESTONE for goals no milestone requires.
- */
-export function filterGoals(all: readonly GoalState[], f: { status: GoalStatus | null; text: string; milestone: string | null }): GoalState[] {
-  return sortGoals(all.filter((g) => {
-    if (g.goal.archived || g.goal.kind === "milestone" || !matches(g, f)) return false;
-    if (f.milestone === null) return true;
-    const ids = milestoneIdsOf(g, all);
-    return f.milestone === NO_MILESTONE ? ids.size === 0 : ids.has(f.milestone);
-  }));
+export function rulerMinor(zoom: number): number {
+  const every = rulerEvery(zoom);
+  const parts = [5, 10, 30, 300].includes(every) ? 5 : every === 60 || every === 600 ? 6 : 4;
+  return (every / parts) * zoom >= 8 ? every / parts : every;
 }
 
-/** The Milestones screen's list: milestones worst first, filtered by status and title. */
-export function filterMilestones(all: readonly GoalState[], f: { status: GoalStatus | null; text: string }): GoalState[] {
-  return milestoneList(all).filter((g) => matches(g, f));
+/** The fewest rows the Arrangement draws, spare ones under the tracks. */
+export const MIN_ROWS = 6;
+
+// ---------- Arrangement edits ----------
+
+/** An id not in `taken`: prefix and the first free number. */
+export function nextPartId(prefix: string, taken: Iterable<string>): string {
+  const t = new Set(taken);
+  for (let i = 1; ; i++) if (!t.has(`${prefix}${i}`)) return `${prefix}${i}`;
 }
 
-/** How many milestones are in each status. */
-export function milestoneCounts(all: readonly GoalState[]): Record<GoalStatus, number> {
-  const out = Object.fromEntries(GOAL_STATUS_ORDER.map((s) => [s, 0])) as Record<GoalStatus, number>;
-  for (const g of milestoneList(all)) out[g.status]++;
-  return out;
+const allInstances = (a: Arrangement): ClipInstance[] => a.tracks.flatMap((t) => t.instances);
+const r3 = (n: number) => Math.round(n * 1000) / 1000;
+const byAt = (x: ClipInstance, y: ClipInstance) => x.at - y.at || x.id.localeCompare(y.id);
+
+export function addTrack(a: Arrangement, performer: Performer, title: string): Arrangement {
+  const id = nextPartId("t", a.tracks.map((t) => t.id));
+  return { ...a, tracks: [...a.tracks, { id, title, performer, mute: false, solo: false, instances: [] }] };
 }
 
-/** A milestone's required goals, met and in all: the count its progress line and bar show. */
-export function milestoneProgress(g: Pick<GoalState, "requires">): { met: number; total: number } {
-  const req = g.requires.filter((r) => r.required && r.status !== null);
-  return { met: req.filter((r) => r.status === "met").length, total: req.length };
+export const setTrack = (a: Arrangement, id: string, patch: Partial<Omit<Track, "id" | "instances">>): Arrangement => ({ ...a, tracks: a.tracks.map((t) => (t.id === id ? { ...t, ...patch } : t)) });
+export const removeTrack = (a: Arrangement, id: string): Arrangement => ({ ...a, tracks: a.tracks.filter((t) => t.id !== id) });
+export function moveTrack(a: Arrangement, id: string, to: number): Arrangement {
+  const from = a.tracks.findIndex((t) => t.id === id);
+  if (from < 0) return a;
+  const tracks = [...a.tracks];
+  const [t] = tracks.splice(from, 1);
+  tracks.splice(Math.max(0, Math.min(tracks.length, to)), 0, t!);
+  return { ...a, tracks };
 }
 
-/** A milestone's progress in words: "7 of 9 goals met". */
-export function milestoneProgressText(g: Pick<GoalState, "requires">): string {
-  const p = milestoneProgress(g);
-  return p.total === 0 ? "No tracks yet" : `${p.met} of ${p.total} ${p.total === 1 ? "track" : "tracks"} met`;
+export function addInstance(a: Arrangement, trackId: string, clip: string, at: number): { arrangement: Arrangement; id: string } {
+  const id = nextPartId("i", allInstances(a).map((i) => i.id));
+  return { id, arrangement: { ...a, tracks: a.tracks.map((t) => (t.id === trackId ? { ...t, instances: [...t.instances, { id, clip, at: r3(Math.max(0, at)) }].sort(byAt) } : t)) } };
 }
 
-// ---------- Recent ----------
-
-/** A goal or playtest the person opened. */
-export interface HubRecent {
-  kind: "goal" | "check";
-  id: string;
-}
-export const HUB_RECENT_KEY = "ue-mcp-studio.hub.recent";
-export const HUB_RECENT_MAX = 5;
-
-/** The list after opening `item`: it moves to the front, the list keeps the newest five. */
-export function rememberRecent(list: readonly HubRecent[], item: HubRecent): HubRecent[] {
-  return [item, ...list.filter((r) => !(r.kind === item.kind && r.id === item.id))].slice(0, HUB_RECENT_MAX);
-}
-
-/** The stored list, read back; anything malformed is an empty list. */
-export function parseRecent(raw: string | null | undefined): HubRecent[] {
-  try {
-    const v: unknown = JSON.parse(raw ?? "[]");
-    if (!Array.isArray(v)) return [];
-    return v
-      .filter((r): r is HubRecent => !!r && (r.kind === "goal" || r.kind === "check") && typeof r.id === "string" && r.id !== "")
-      .slice(0, HUB_RECENT_MAX);
-  } catch {
-    return [];
-  }
-}
-
-/** The goals a goal requires, in its order, as states; goals not in the list are left out. */
-function requiredGoals(g: GoalState, byId: ReadonlyMap<string, GoalState>): GoalState[] {
-  return (g.requires ?? []).map((r) => byId.get(r.goal)).filter((x): x is GoalState => !!x);
-}
-
-/** A goal's required goals for its screen: each with whether it is required, in the goal's order. Unknown goals are left out. */
-export function requiredRows(g: GoalState, all: readonly GoalState[]): Array<{ state: GoalState; required: boolean }> {
-  const byId = new Map(all.map((x) => [x.goal.id, x]));
-  return (g.requires ?? []).flatMap((r) => {
-    const state = byId.get(r.goal);
-    return state && !state.goal.archived ? [{ state, required: r.required }] : [];
-  });
-}
-
-/** The goals that require this one, as states: milestones first, then goals, each by title. */
-export function parentGoals(g: GoalState, all: readonly GoalState[]): GoalState[] {
-  const ps = all.filter((x) => (g.parents ?? []).includes(x.goal.id));
-  return ps.sort((a, b) => (a.goal.kind === b.goal.kind ? byText(a.goal.title, b.goal.title) : a.goal.kind === "milestone" ? -1 : 1));
-}
-
-/**
- * ue-mcp's feature for deleting a goal safely: goals that required it stop
- * requiring it, its playtests stay, and a plan made for it that is queued or
- * running refuses the delete with 409. Delete is offered only where the
- * daemon's health lists it.
- */
-export const GOAL_DELETE_FEATURE = "hub.goalDelete";
-
-/** Whether the daemon's health (GET /v1/health) offers deleting goals. */
-export const canDeleteGoals = (health: unknown): boolean => {
-  const features = (health as { features?: unknown } | null)?.features;
-  return Array.isArray(features) && features.includes(GOAL_DELETE_FEATURE);
-};
-
-/** Every check id running this goal runs: its required goals' at any depth, then its own. */
-export function goalCheckIds(goalId: string, all: readonly GoalState[]): string[] {
-  return goalChecksDeep(all.map((g) => g.goal), goalId).map(checkIdOf);
-}
-
-/**
- * A goal's run button. A goal's run covers its required goals' playtests
- * too (goalCheckIds), so on a milestone, which is mostly required goals, it
- * says so with the count: "Run all (12)". A goal keeps "Run goal".
- */
-export function runGoalLabel(goal: Pick<Goal, "kind">, playtests: number): string {
-  return goal.kind === "milestone" ? `${HUB_COPY.runAll} (${playtests})` : HUB_COPY.runGoal;
-}
-
-/** The goals this goal can be made to require: live, not itself, not required already, and none that would make a loop. */
-export function requireCandidates(goalId: string, all: readonly GoalState[]): GoalState[] {
-  const goals = all.map((g) => g.goal);
-  const self = all.find((g) => g.goal.id === goalId);
-  const have = new Set((self?.goal.requires ?? []).map((r) => r.goal));
-  return sortGoals(all.filter((g) => !g.goal.archived && g.goal.id !== goalId && !have.has(g.goal.id) && !loopIfRequired(goals, goalId, g.goal.id)));
-}
-
-/** The goals a goal can be part of: live, not itself, and none it already requires at any depth (that would make a loop). Milestones first. */
-export function parentCandidates(goalId: string | null, all: readonly GoalState[]): GoalState[] {
-  const goals = all.map((g) => g.goal);
-  const ok = all.filter((g) => !g.goal.archived && g.goal.id !== goalId && (!goalId || !loopIfRequired(goals, g.goal.id, goalId)));
-  return ok.sort((a, b) => (a.goal.kind === b.goal.kind ? byText(a.goal.title, b.goal.title) : a.goal.kind === "milestone" ? -1 : 1));
-}
-
-/** Ids with one moved by `by` places (up is -1), kept inside the list; the same list when it cannot move. */
-export function moveId(ids: readonly string[], id: string, by: number): string[] {
-  const from = ids.indexOf(id);
-  const to = Math.max(0, Math.min(ids.length - 1, from + by));
-  if (from < 0 || to === from) return [...ids];
-  const next = ids.slice();
-  next.splice(from, 1);
-  next.splice(to, 0, id);
-  return next;
-}
-
-/** How many goals (not milestones) are in each status. */
-export function goalCounts(all: readonly GoalState[]): Record<GoalStatus, number> {
-  const out = Object.fromEntries(GOAL_STATUS_ORDER.map((s) => [s, 0])) as Record<GoalStatus, number>;
-  for (const g of all) if (!g.goal.archived && g.goal.kind !== "milestone") out[g.status]++;
-  return out;
-}
-
-/** The overview's one-line summary: "8 goals: 2 failing, 1 ready to sign off, 5 met". */
-export function goalSummary(all: readonly GoalState[]): string {
-  const counts = goalCounts(all);
-  const total = GOAL_STATUS_ORDER.reduce((n, s) => n + counts[s], 0);
-  if (total === 0) return "No tracks";
-  const parts = GOAL_STATUS_ORDER.filter((s) => counts[s] > 0).map((s) => `${counts[s]} ${GOAL_STATUS_LOOK[s].label.toLowerCase()}`);
-  return `${total} ${total === 1 ? "track" : "tracks"}: ${parts.join(", ")}`;
-}
-
-/**
- * Checks that just broke: the newest result failed where the one before it
- * passed on something else (CheckState.change). Newest break first.
- */
-export function regressions(checks: readonly CheckState[]): CheckState[] {
-  return checks
-    .filter((c) => c.change?.kind === "regressed")
-    .sort((a, b) => byText(b.change!.at, a.change!.at));
-}
-
-/** How often a check's result flipped between passed and failed across its recent runs. */
-export function flips(recent: readonly RunOutcome[]): number {
-  const pf = recent.filter((o) => o === "passed" || o === "failed");
-  let n = 0;
-  for (let i = 1; i < pf.length; i++) if (pf[i] !== pf[i - 1]) n++;
-  return n;
-}
-
-/** Pass rate as text: "85%" or "No runs". */
-export const passRateText = (rate: number | null): string => (rate === null ? "No runs" : `${Math.round(rate * 100)}%`);
-
-/** The goal's progress as words, counting its required checks and required goals: "3 of 5 requirements met". */
-export function progressText(p: { met: number; total: number }): string {
-  if (p.total === 0) return "Nothing required yet";
-  return `${p.met} of ${p.total} ${p.total === 1 ? "requirement" : "requirements"} met`;
-}
-
-/** A goal's acceptance rule in a sentence. */
-export function acceptanceText(goal: Pick<Goal, "acceptance">): string {
-  return goal.acceptance.signOff ? "All its clips pass and someone signs it off." : "All its clips pass.";
-}
-
-// ---------- Moving goals between computers ----------
-
-export const HUB_STORE_COPY = {
-  menu: "Tracks",
-  export: "Export tracks",
-  import: "Import tracks",
-  /** What the export's file is called: the day it was made. */
-  fileName: (iso: string) => `tracks-${iso.slice(0, 10)}.json`,
-  exported: "Saved the tracks file.",
-  notAFile: "That file isn't a tracks file exported from Studio.",
-  /** Where tracks are kept, said once near the export, so nobody looks for them in the repo. */
-  where: "Studio keeps tracks on this computer, not in the project. Export them to move them to another computer.",
-} as const;
-
-/** What an import did, in a sentence: "Added 4. 2 were already here. 1 differs here and was kept as it is: Jump." */
-export function importReportText(r: HubImportReport): string {
-  const parts = [r.added ? `Added ${r.added}.` : "Added nothing."];
-  if (r.unchanged) parts.push(`${r.unchanged} ${r.unchanged === 1 ? "was" : "were"} already here.`);
-  if (r.conflicts.length) parts.push(`${r.conflicts.length} ${r.conflicts.length === 1 ? "differs here and was" : "differ here and were"} kept as ${r.conflicts.length === 1 ? "it is" : "they are"}: ${r.conflicts.map((c) => c.title).join(", ")}.`);
-  return parts.join(" ");
-}
-
-/** Whether a parsed file looks like an export, before it is sent; the agent checks every record. */
-export const isGoalsFile = (v: unknown): v is HubExport => !!v && typeof v === "object" && (v as { format?: unknown }).format === HUB_EXPORT_FORMAT;
-
-/** The one-time import of QA/Goals in a sentence, or null when it never happened. */
-export function importedText(i: GoalImport | null): string | null {
-  if (!i) return null;
-  const n = i.goals.length;
-  return `${n} ${n === 1 ? "track was" : "tracks were"} brought in from ${i.from} on ${i.at.slice(0, 10)}. Studio no longer reads that folder, and it was left as it was.`;
-}
-
-// ---------- Sparklines and charts ----------
-
-export interface SparkBar {
-  outcome: RunOutcome;
-  /** Up for a pass, down for a failure, a tick on the line for anything else: shape, not only colour. */
-  dir: "up" | "down" | "mid";
-  tone: StatusTone;
-}
-
-/** A win/loss sparkline of recent outcomes (newest first in), oldest first out. */
-export function sparkBars(recent: readonly RunOutcome[], max = 20): SparkBar[] {
-  return recent.slice(0, max).reverse().map((o) => ({
-    outcome: o,
-    dir: o === "passed" ? "up" : o === "failed" || o === "error" ? "down" : "mid",
-    tone: RUN_OUTCOME_LOOK[o].tone,
-  }));
-}
-
-/** Spoken form of a sparkline. */
-export function sparkLabel(recent: readonly RunOutcome[]): string {
-  const done = recent.filter((o) => o === "passed" || o === "failed");
-  if (recent.length === 0) return "No runs yet";
-  const passed = done.filter((o) => o === "passed").length;
-  return `Last ${recent.length} ${recent.length === 1 ? "run" : "runs"}: ${passed} passed, ${done.length - passed} failed`;
-}
-
-/** An SVG path for a series of [ms, value] points scaled into w by h, and its range for the axis labels. */
-export function seriesPath(points: ReadonlyArray<readonly [number, number]>, w: number, h: number, span?: { from: number; to: number }): { d: string; min: number; max: number } | null {
-  const pts = points.filter(([x, y]) => Number.isFinite(x) && Number.isFinite(y));
-  if (pts.length === 0) return null;
-  const x0 = span?.from ?? pts[0][0];
-  const x1 = span?.to ?? pts[pts.length - 1][0];
-  let min = Infinity;
-  let max = -Infinity;
-  for (const [, y] of pts) {
-    if (y < min) min = y;
-    if (y > max) max = y;
-  }
-  const dy = max - min || 1;
-  const dx = x1 - x0 || 1;
-  const pad = 2;
-  const sx = (x: number) => ((x - x0) / dx) * w;
-  const sy = (y: number) => pad + (1 - (y - min) / dy) * (h - pad * 2);
-  const d = pts.map(([x, y], i) => `${i ? "L" : "M"}${sx(x).toFixed(1)} ${sy(y).toFixed(1)}`).join(" ");
-  return { d, min, max };
-}
-
-export interface TimelineBar {
-  span: RunStepSpan;
-  /** Percent of the run's length. */
-  left: number;
-  width: number;
-}
-
-/**
- * The run timeline: each step's bar on the run's clock, as percent of its
- * length. A step with no timing sits after the last timed one, with a sliver
- * of width, so it still shows and can be picked.
- */
-export function runTimeline(steps: readonly RunStepSpan[]): { bars: TimelineBar[]; totalMs: number } {
-  const ends = steps.map((s) => s.endMs ?? s.startMs ?? 0);
-  const totalMs = Math.max(1, ...ends);
-  let cursor = 0;
-  const bars = steps.map((s) => {
-    if (s.startMs === null) {
-      const left = Math.min(99, (cursor / totalMs) * 100);
-      return { span: s, left, width: 1 };
-    }
-    const end = s.endMs ?? s.startMs;
-    cursor = Math.max(cursor, end);
-    const left = (s.startMs / totalMs) * 100;
-    return { span: s, left, width: Math.max(0.8, ((end - s.startMs) / totalMs) * 100) };
-  });
-  return { bars, totalMs };
-}
-
-// ---------- Library filters ----------
-
-export type HealthFilter = "all" | "failing" | "at_risk" | "never_run" | "passing" | "missing" | "unlinked";
-export const HEALTH_FILTERS: ReadonlyArray<{ id: HealthFilter; label: string }> = [
-  { id: "all", label: "All" },
-  { id: "failing", label: "Failing" },
-  { id: "at_risk", label: "Flaky or stale" },
-  { id: "never_run", label: "Never run" },
-  { id: "passing", label: "Passing" },
-  { id: "missing", label: "Not on this checkout" },
-  { id: "unlinked", label: "Not part of any track" },
-];
-
-export function matchesHealth(c: CheckState, f: HealthFilter): boolean {
-  switch (f) {
-    case "all": return true;
-    case "missing": return c.health === "missing";
-    case "failing": return c.health === "failing";
-    case "at_risk": return c.health === "flaky" || c.health === "stale";
-    case "never_run": return c.health === "never_run";
-    case "passing": return c.health === "passing";
-    case "unlinked": return c.goalIds.length === 0;
-  }
-}
-
-export interface CheckQuery {
-  health?: HealthFilter;
-  /** A goal id, "none" for checks in no goal, or empty for any. */
-  goalId?: string;
-  text?: string;
-}
-
-/** The library's rows for a query, worst first. `goals` names goals for the text match. */
-export function filterChecks(checks: readonly CheckState[], q: CheckQuery, goals: readonly GoalState[] = []): CheckState[] {
-  const words = (q.text ?? "").toLowerCase().split(/\s+/).filter(Boolean);
-  const title = new Map(goals.map((g) => [g.goal.id, g.goal.title.toLowerCase()]));
-  return sortChecks(checks.filter((c) => {
-    if (q.health && !matchesHealth(c, q.health)) return false;
-    if (q.goalId === "none" ? c.goalIds.length > 0 : q.goalId && !c.goalIds.includes(q.goalId)) return false;
-    if (words.length) {
-      const hay = [c.name, c.check.target, c.map ?? "", ...c.goalIds.map((id) => title.get(id) ?? id)].join(" ").toLowerCase();
-      if (!words.every((w) => hay.includes(w))) return false;
-    }
-    return true;
-  }));
-}
-
-export const healthCounts = (checks: readonly CheckState[]): Record<HealthFilter, number> =>
-  Object.fromEntries(HEALTH_FILTERS.map((f) => [f.id, checks.filter((c) => matchesHealth(c, f.id)).length])) as Record<HealthFilter, number>;
-
-// ---------- Plans and the queue ----------
-
-export interface PlanProgress {
-  done: number;
-  total: number;
-  failed: number;
-  waiting: number;
-  current: PlanRun["items"][number] | null;
-}
-
-const SETTLED: readonly PlanItemState[] = ["passed", "failed", "unjudged", "skipped", "error", "crashed", "cancelled"];
-
-export function planProgress(p: Pick<PlanRun, "items">): PlanProgress {
+/** An instance moved to `at`, on `toTrack` when given. */
+export function moveInstance(a: Arrangement, id: string, at: number, toTrack?: string): Arrangement {
+  const inst = allInstances(a).find((i) => i.id === id);
+  if (!inst) return a;
+  const moved = { ...inst, at: r3(Math.max(0, at)) };
+  const from = a.tracks.find((t) => t.instances.some((i) => i.id === id))!.id;
+  const dest = toTrack ?? from;
   return {
-    done: p.items.filter((i) => SETTLED.includes(i.state)).length,
-    total: p.items.length,
-    failed: p.items.filter((i) => FAILING_ITEM_STATES.includes(i.state)).length,
-    waiting: p.items.filter((i) => i.state === "needs_you").length,
-    current: p.items.find((i) => i.state === "running" || i.state === "needs_you") ?? null,
+    ...a,
+    tracks: a.tracks.map((t) => {
+      const kept = t.instances.filter((i) => i.id !== id);
+      return { ...t, instances: t.id === dest ? [...kept, moved].sort(byAt) : kept };
+    }),
   };
 }
 
-/** What a plan covers, in words. */
-export function scopeText(scope: PlanScope, goals: readonly GoalState[] = []): string {
-  const goalTitle = (id?: string) => (id ? goals.find((g) => g.goal.id === id)?.goal.title ?? id : null);
-  switch (scope.kind) {
-    case "goal": return `${goals.find((g) => g.goal.id === scope.goalId)?.goal.kind === "milestone" ? "Scene" : "Track"}: ${goalTitle(scope.goalId)}`;
-    case "checks": return `${scope.checks.length} ${scope.checks.length === 1 ? "clip" : "clips"}`;
-    case "failing": return scope.goalId ? `Failing in ${goalTitle(scope.goalId)}` : "Every failing clip";
-    case "stale": return scope.goalId ? `Stale in ${goalTitle(scope.goalId)}` : "Every stale clip";
-    case "all": return "Every clip";
-    case "track": return `Track: ${goalTitle(scope.goalId)}`;
-    case "scene": return `Scene: ${goalTitle(scope.goalId)}`;
-    case "slot": return `Slot: ${goalTitle(scope.sceneId)} / ${goalTitle(scope.trackId)}`;
-    case "arrangement": return "Arrangement";
-  }
+export const removeInstance = (a: Arrangement, id: string): Arrangement => ({ ...a, tracks: a.tracks.map((t) => ({ ...t, instances: t.instances.filter((i) => i.id !== id) })) });
+
+/** A new check on the Checks track: a manual one asks what to look at, the rest start from a placeholder expect. */
+export function addCheck(a: Arrangement, at: number, mode: CheckMode, length: number): { arrangement: Arrangement; id: string } {
+  const id = nextPartId("c", a.checks.map((c) => c.id));
+  const base: Check = { id, title: `Check ${id.slice(1)}`, at: r3(Math.max(0, at)), length: r3(Math.max(0, length)), mode };
+  const check: Check = mode === "manual" ? { ...base, instruction: "Look at the result and pass or fail it." } : { ...base, expect: { value: "pawn.alive", op: "==", target: true } };
+  return { id, arrangement: { ...a, checks: [...a.checks, check].sort((x, y) => x.at - y.at || x.id.localeCompare(y.id)) } };
 }
 
-/** The queue with a plan moved, as the server will order it, for an optimistic reorder. */
-export function moveQueued(q: QueueState, id: string, to: number): QueueState {
-  const from = q.queued.findIndex((p) => p.id === id);
-  if (from < 0) return q;
-  const next = q.queued.slice();
-  const [p] = next.splice(from, 1);
-  next.splice(Math.max(0, Math.min(next.length, to)), 0, p);
-  return { ...q, queued: next };
+export function updateCheck(a: Arrangement, id: string, patch: Partial<Omit<Check, "id">>): Arrangement {
+  return {
+    ...a,
+    checks: a.checks
+      .map((c) => {
+        if (c.id !== id) return c;
+        const next: Check = { ...c, ...patch };
+        // A check's mode decides which fields it keeps.
+        if (next.mode === "manual") {
+          delete next.expect;
+          delete next.timeout;
+          next.instruction = next.instruction || "Look at the result and pass or fail it.";
+        } else {
+          delete next.instruction;
+          delete next.personOnly;
+          next.expect = next.expect ?? { value: "pawn.alive", op: "==", target: true };
+          if (next.mode !== "hold") delete next.timeout;
+        }
+        return { ...next, at: r3(Math.max(0, next.at)), length: r3(Math.max(0, next.length)) };
+      })
+      .sort((x, y) => x.at - y.at || x.id.localeCompare(y.id)),
+  };
 }
 
-// ---------- Schedules ----------
+export const removeCheck = (a: Arrangement, id: string): Arrangement => ({ ...a, checks: a.checks.filter((c) => c.id !== id) });
 
-export const DAY_SHORT = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"] as const;
-const WEEKDAYS = [1, 2, 3, 4, 5];
-
-/** When a schedule runs: "Every day at 02:00", "Weekdays at 02:00", "Mon, Thu at 18:30". */
-export function scheduleText(s: Pick<Schedule, "days" | "at">): string {
-  const days = [...new Set(s.days)].filter((d) => d >= 0 && d <= 6).sort();
-  const when = days.length === 7 ? "Every day"
-    : days.length === 5 && WEEKDAYS.every((d) => days.includes(d)) ? "Weekdays"
-    : days.length === 2 && days.includes(0) && days.includes(6) ? "Weekends"
-    : days.length === 0 ? "Never"
-    : days.map((d) => DAY_SHORT[d]).join(", ");
-  return `${when} at ${s.at}`;
+export function addRegion(a: Arrangement, start: number, end: number): { arrangement: Arrangement; id: string } {
+  const id = nextPartId("r", a.regions.map((r) => r.id));
+  const region: Region = { id, name: `Region ${id.slice(1)}`, start: r3(Math.max(0, start)), end: r3(Math.max(start + 1, end)) };
+  return { id, arrangement: { ...a, regions: [...a.regions, region].sort((x, y) => x.start - y.start) } };
 }
 
-const TIME = /^([01]\d|2[0-3]):[0-5]\d$/;
-
-export function scheduleErrors(s: Pick<ScheduleDraft, "title" | "at" | "days" | "scope">): Partial<Record<"title" | "at" | "days" | "scope", string>> {
-  const e: Partial<Record<"title" | "at" | "days" | "scope", string>> = {};
-  if (!s.title.trim()) e.title = "Give the schedule a name.";
-  if (!TIME.test(s.at)) e.at = "Use a 24-hour time, such as 02:00.";
-  if (s.days.length === 0) e.days = "Pick at least one day.";
-  if (s.scope.kind === "goal" && !s.scope.goalId) e.scope = "Pick a track.";
-  return e;
-}
-
-export const blankSchedule = (): ScheduleDraft => ({
-  title: "Nightly",
-  scope: { kind: "all" },
-  options: planOptionsFor("schedule"),
-  at: "02:00",
-  days: [0, 1, 2, 3, 4, 5, 6],
-  enabled: true,
+export const updateRegion = (a: Arrangement, id: string, patch: Partial<Omit<Region, "id">>): Arrangement => ({
+  ...a,
+  regions: a.regions.map((r) => (r.id === id ? { ...r, ...patch, start: r3(Math.max(0, patch.start ?? r.start)), end: r3(Math.max((patch.start ?? r.start) + 1, patch.end ?? r.end)) } : r)).sort((x, y) => x.start - y.start),
 });
+export const removeRegion = (a: Arrangement, id: string): Arrangement => ({ ...a, regions: a.regions.filter((r) => r.id !== id) });
 
-// ---------- The goal form ----------
+/** Where a span fits on the region lane: none of the other regions overlap it. */
+export const regionFits = (a: Pick<Arrangement, "regions">, start: number, end: number, except?: string): boolean => a.regions.every((r) => r.id === except || end <= r.start || start >= r.end);
 
-/** The goal form as its inputs hold it: strings, so a half-typed number is kept as typed. */
-export interface GoalForm {
-  title: string;
-  description: string;
-  kind: Goal["kind"];
-  /** The goals and milestones this goal is part of: saving changes them too. */
-  parents: string[];
-  /** The checks a new goal starts with (Group into a goal); an edit leaves the goal's checks alone. */
-  checks: CheckRef[];
-  owner: string;
-  priority: GoalPriority | "";
-  /** YYYY-MM-DD, or empty. */
-  due: string;
-  /** Whether a person signs the goal off once its playtests pass. */
-  signOff: boolean;
-  /** The goal's links as typed, one row each; a row with no URL is left out. */
-  links: LinkRow[];
+/** The frames an instance spans, at the arrangement's rate. */
+export function instanceSpan(inst: ClipInstance, clips: Record<string, Clip>, rate: number): { start: number; end: number } {
+  const len = instanceLength(clips[inst.clip], rate);
+  return { start: inst.at, end: inst.at + Math.max(len, rate / 4) };
 }
 
-export type GoalFormErrors = Partial<Record<keyof GoalForm, string>>;
-
-export const GOAL_TITLE_MAX = 120;
-
-function validDate(s: string): boolean {
-  if (!GOAL_DUE.test(s)) return false;
-  const [y, m, d] = s.split("-").map(Number);
-  const t = new Date(Date.UTC(y, m - 1, d));
-  return t.getUTCFullYear() === y && t.getUTCMonth() === m - 1 && t.getUTCDate() === d;
+/** Whether an instance at `at` on a track would overlap another there. */
+export function instanceFits(track: Pick<Track, "instances">, clips: Record<string, Clip>, rate: number, clip: string, at: number, except?: string): boolean {
+  const len = instanceLength(clips[clip], rate);
+  return track.instances.every((i) => {
+    if (i.id === except) return true;
+    const s = instanceSpan(i, clips, rate);
+    return at + len <= s.start || at >= s.end;
+  });
 }
 
-/** The form for a goal, or a blank one; `parents` from its GoalState, since the goal itself does not hold them. */
-export function goalFormOf(g?: Partial<Goal> | null, parents: readonly string[] = []): GoalForm {
-  const a = g?.acceptance ?? DEFAULT_ACCEPTANCE;
-  return {
-    title: g?.title ?? "",
-    description: g?.description ?? "",
-    kind: g?.kind ?? "goal",
-    parents: [...parents],
-    checks: [],
-    owner: g?.owner ?? "",
-    priority: g?.priority ?? "",
-    due: g?.due ?? "",
-    signOff: a.signOff,
-    links: (g?.links ?? []).map(linkRowOf),
-  };
+/** The findings that name one track or instance, by the path the daemon gave them. */
+export function findingsAt(findings: readonly HubFinding[], a: Arrangement, where: { track?: string; instance?: string; check?: string; region?: string }): HubFinding[] {
+  return findings.filter((f) => {
+    const m = /^(tracks|checks|regions)\[(\d+)\](?:\.instances\[(\d+)\])?/.exec(f.path);
+    if (!m) return false;
+    const i = Number(m[2]);
+    if (m[1] === "checks") return !!where.check && a.checks[i]?.id === where.check;
+    if (m[1] === "regions") return !!where.region && a.regions[i]?.id === where.region;
+    const t = a.tracks[i];
+    if (!t) return false;
+    if (where.instance) return m[3] !== undefined && t.instances[Number(m[3])]?.id === where.instance;
+    return !!where.track && t.id === where.track && m[3] === undefined;
+  });
 }
 
-/** What is wrong with the form, field by field; empty when it can be saved. */
-export function goalFormErrors(f: GoalForm, ctx: { selfId?: string; goals?: readonly GoalState[] } = {}): GoalFormErrors {
-  const e: GoalFormErrors = {};
-  const title = f.title.trim();
-  if (!title) e.title = f.kind === "milestone" ? "A scene needs a title." : "A track needs a title.";
-  else if (title.length > GOAL_TITLE_MAX) e.title = `Keep the title under ${GOAL_TITLE_MAX} characters.`;
-  if (f.due && !validDate(f.due)) e.due = "Use a date, such as 2026-12-31.";
-  if (f.parents.length) {
-    const goals = ctx.goals?.map((g) => g.goal);
-    const self = f.parents.find((p) => p === ctx.selfId);
-    const unknown = goals && f.parents.find((p) => !goals.some((g) => g.id === p));
-    const loop = goals && ctx.selfId && f.parents.find((p) => loopIfRequired(goals, p, ctx.selfId!));
-    const it = f.kind === "milestone" ? "scene" : "track";
-    if (self) e.parents = `A ${it} cannot be part of itself.`;
-    else if (unknown) e.parents = "Pick tracks or scenes from the list.";
-    else if (loop) e.parents = `This ${it} already requires ${goals!.find((g) => g.id === loop)?.title ?? loop}, so it cannot also be part of it.`;
-  }
-  const rows = f.links.filter((r) => r.url.trim());
-  const badLink = rows.map(linkFromRow).find((r): r is { error: string } => "error" in r);
-  if (badLink) e.links = badLink.error;
-  else if (rows.length > TRACKER_LINKS_MAX) e.links = `Keep it to ${TRACKER_LINKS_MAX} links.`;
-  return e;
+// ---------- Run feedback ----------
+
+/** Whether a run is of this arrangement: the arrangement itself or one of its regions. */
+export const runOfArrangement = (r: Pick<RunRecord, "test">, id: string): boolean => r.test === id || r.test.startsWith(`${id}:`);
+
+/** The run the Arrangement shows: the one asked for, else the arrangement's newest. */
+export function arrangementRun(recent: readonly RunRecord[], id: string, runId?: string | null): RunRecord | null {
+  if (runId) return recent.find((r) => r.runId === runId) ?? null;
+  return [...recent].filter((r) => runOfArrangement(r, id)).sort((a, b) => b.startedAt.localeCompare(a.startedAt))[0] ?? null;
 }
 
-/** The draft to create a goal from a valid form. */
-export function goalDraftOf(f: GoalForm): GoalDraft {
-  return {
-    title: f.title.trim(),
-    kind: f.kind,
-    ...(f.description.trim() ? { description: f.description.trim() } : {}),
-    parents: [...f.parents],
-    ...(f.checks.length ? { checks: f.checks.map((c) => ({ kind: c.kind, target: c.target })) } : {}),
-    owner: f.owner.trim() || null,
-    ...(f.priority ? { priority: f.priority } : {}),
-    due: f.due || null,
-    acceptance: { stableRuns: 1, signOff: f.signOff },
-    links: f.links.filter((r) => r.url.trim()).map(linkFromRow).flatMap((r) => ("link" in r ? [r.link] : [])),
-  };
+/** A run's check results by check id. */
+export const checkResults = (run: Pick<RunRecord, "checks"> | null | undefined): Record<string, CheckResult> => Object.fromEntries((run?.checks ?? []).map((c) => [c.id, c]));
+
+/** The manual checks of a run that wait for a verdict now. */
+export function awaitingVerdicts(run: RunRecord | null | undefined, checks: readonly Check[]): Check[] {
+  if (!run || runEnded(run.state)) return [];
+  const waiting = new Set(run.checks.filter((c) => c.status === "awaiting_verdict").map((c) => c.id));
+  return checks.filter((c) => c.mode === "manual" && waiting.has(c.id));
 }
 
-/** The update for an existing goal from a valid form: every field the form holds, so clearing one clears it. Its checks are left alone. */
-export function goalUpdateOf(f: GoalForm): GoalUpdate {
-  const { checks: _checks, ...d } = goalDraftOf(f);
-  // The agent merges acceptance field by field, so an edit sends only signOff and a goal's own stableRuns stays as it is.
-  return { ...d, acceptance: { signOff: f.signOff } as AcceptanceRule, description: d.description ?? "", priority: d.priority ?? null };
+/** A run's counts, for its line: how many checks passed of how many. */
+export function runTally(run: Pick<RunRecord, "checks">): { passed: number; failed: number; total: number } {
+  return { passed: run.checks.filter((c) => c.status === "passed").length, failed: run.checks.filter((c) => c.status === "failed").length, total: run.checks.length };
 }
 
-// ---------- Tracker links ----------
-
-/** A link as a form holds it: strings, as typed. */
-export interface LinkRow {
-  url: string;
-  title: string;
-  rel: string;
+/** What the page says after a Run: started, queued behind others, or why nothing was queued. */
+export function queuedText(a: Pick<QueueAnswer, "queued" | "skipped" | "queue">, what: string): { text: string; tone: "ok" | "bad" } {
+  if (!a.queued.length) return { text: a.skipped[0]?.reason ?? `${what} was not queued.`, tone: "bad" };
+  const running = a.queued.some((q) => q.state === "running");
+  const ahead = a.queue.running.length + a.queue.queued.filter((q) => !a.queued.some((x) => x.id === q.id)).length;
+  const n = a.queued.length;
+  const tests = n === 1 ? "1 test" : `${n} tests`;
+  if (running) return { text: n === 1 ? `Running ${what}` : `Running ${what}: ${tests}`, tone: "ok" };
+  if (a.queue.paused) return { text: `Queued ${tests}. The queue is paused.`, tone: "ok" };
+  if (a.queue.waiting.length) return { text: `Queued ${tests}. ${a.queue.waiting[0]!.text}`, tone: "ok" };
+  return { text: ahead ? `Queued ${tests} behind ${ahead} more` : `Queued ${tests}`, tone: "ok" };
 }
 
-export const linkRowOf = (l?: Partial<TrackerLink> | null): LinkRow => ({ url: l?.url ?? "", title: l?.title ?? "", rel: l?.rel ?? "" });
+// ---------- Suites ----------
 
-/** The relationships a link form suggests, with their labels. Any other text is as valid. */
-export const LINK_REL_LABEL: Record<(typeof TRACKER_LINK_RELS)[number], string> = {
-  counterpart: "Counterpart",
-  related: "Related",
-  "filed-from-run": "Filed from a run",
-  blocks: "Blocks",
-};
-export const LINK_RELS: ReadonlyArray<{ id: string; label: string }> = TRACKER_LINK_RELS.map((id) => ({ id, label: LINK_REL_LABEL[id] }));
-
-/** What a typed URL most likely means: a bare host and path ("git.example.com/x/issues/4") is taken as https. */
-export function typedUrl(text: string): string {
-  const t = text.trim();
-  if (!t || /^[a-z][a-z0-9+.-]*:/i.test(t)) return t;
-  return /^[\w-]+(\.[\w-]+)+(:\d+)?(\/|$)/.test(t) ? `https://${t}` : t;
+/** The suites no other suite holds, in title order: the roots of the tree. */
+export function rootSuites(suites: readonly SuiteState[]): SuiteState[] {
+  const held = new Set(suites.flatMap((s) => s.items.flatMap((i) => ("suite" in i ? [i.suite] : []))));
+  return suites.filter((s) => !held.has(s.id)).sort((a, b) => a.title.localeCompare(b.title));
 }
 
-/** A link from a form row, or what is wrong with it in words a person reads. */
-export function linkFromRow(r: { url: string; title?: string; rel?: string }): { link: TrackerLink } | { error: string } {
-  const out = trackerLinkOf({ url: typedUrl(r.url), title: r.title ?? "", rel: r.rel ?? "" });
-  if ("link" in out) return out;
-  if (!r.url.trim()) return { error: "Paste the link's URL." };
-  if (/not allowed/.test(out.problem)) return { error: "That kind of link cannot be opened safely. Use a web address or an app's own link." };
-  return { error: "Use a full URL, such as https://tracker.example.com/issue/42." };
+/** A suite's items with the suite or test each names, for its tree. */
+export function suiteChildren(s: Pick<SuiteState, "items">, suites: readonly SuiteState[], tests: readonly { id: string }[]): Array<{ item: SuiteItem; suite?: SuiteState; test?: string; missing: boolean }> {
+  return s.items.map((item) => {
+    if ("suite" in item) {
+      const found = suites.find((x) => x.id === item.suite);
+      return { item, ...(found ? { suite: found } : {}), missing: !found };
+    }
+    return { item, test: item.test, missing: !tests.some((t) => t.id === item.test) };
+  });
 }
 
-/** Links with one added, replacing a link to the same URL, at most TRACKER_LINKS_MAX. */
-export function withLink(links: readonly TrackerLink[] | undefined, link: TrackerLink): TrackerLink[] {
-  return [...(links ?? []).filter((l) => l.url !== link.url), link].slice(-TRACKER_LINKS_MAX);
+/** Bars for a pass-rate history: a height from 0 to 1 and a label. */
+export function historyBars(history: SuiteState["history"], max = 30): Array<{ batch: string; rate: number; label: string }> {
+  return history.slice(-max).map((p) => ({ batch: p.batch, rate: p.rate, label: `${p.passed} of ${p.total} passed, ${new Date(p.at).toLocaleString()}` }));
 }
 
-export const withoutLink = (links: readonly TrackerLink[] | undefined, url: string): TrackerLink[] => (links ?? []).filter((l) => l.url !== url);
-
-/**
- * A link as a chip shows it: the host (or the address, or the app's scheme)
- * and its title; without a title, the last part of the address, such as
- * "issues/42" or "HOL-118".
- */
-export function linkChip(l: TrackerLink): { host: string; label: string; tip: string } {
-  const host = linkHost(l.url);
-  let label = l.title?.trim() ?? "";
-  if (!label) {
-    const rest = l.url.replace(/^[a-z][a-z0-9+.-]*:(\/\/)?/i, "").replace(/[?#].*$/, "");
-    const parts = rest.split("/").filter(Boolean);
-    const path = /^https?:/i.test(l.url) ? parts.slice(1) : parts;
-    label = path.slice(-2).join("/");
-    if (label === host) label = "";
-  }
-  const rel = l.rel ? (LINK_REL_LABEL as Record<string, string>)[l.rel] ?? l.rel : "";
-  return { host, label, tip: [rel, l.title?.trim(), l.url].filter(Boolean).join("\n") };
+/** A suite with an item added, once. */
+export function withItem(s: Suite, item: SuiteItem): Suite {
+  const key = (i: SuiteItem) => ("test" in i ? `t:${i.test}` : `s:${i.suite}`);
+  return s.items.some((i) => key(i) === key(item)) ? s : { ...s, items: [...s.items, item] };
 }
+export const withoutItem = (s: Suite, item: SuiteItem): Suite => ({ ...s, items: s.items.filter((i) => ("test" in i && "test" in item ? i.test !== item.test : "suite" in i && "suite" in item ? i.suite !== item.suite : true)) });
 
-export const HUB_LINK_COPY = {
-  links: "Links",
-  addLink: "Add link",
-  add: "Add",
-  cancel: "Cancel",
-  urlLabel: "Link URL",
-  urlPlaceholder: "https://tracker.example.com/issue/42",
-  titleLabel: "Link title",
-  titlePlaceholder: "Title (optional)",
-  relLabel: "Relationship",
-  relPlaceholder: "Relationship (optional)",
-  remove: (label: string) => `Remove link ${label}`,
-  opens: "Opens in your browser",
-} as const;
+/** The editable file of a suite as the overview shows it. */
+export const suiteFileOf = (s: SuiteState): Suite => ({ id: s.id, title: s.title, ...(s.description ? { description: s.description } : {}), items: s.items, quarantined: s.quarantined, flaky: s.flaky });
 
-// ---------- Needs attention ----------
+// ---------- Clip piano roll ----------
 
-/** Where an item that needs attention leads when opened in the hub. A blocked fix opens its chat session instead (AttentionItem.sessionId). */
-export function attentionTarget(item: AttentionItem): HubRoute {
-  if (item.kind === "sign_off" && item.goalIds[0]) return { screen: "goal", goalId: item.goalIds[0] };
-  if (item.kind === "plan_failed") return item.runId ? { screen: "run", runId: item.runId } : { screen: "overview" };
-  if (item.runId) return { screen: "run", runId: item.runId };
-  if (item.checkId) return { screen: "check", checkId: item.checkId };
-  if (item.goalIds[0]) return { screen: "goal", goalId: item.goalIds[0] };
-  return { screen: "overview" };
-}
-
-// ---------- Keyboard ----------
-
-export type HubKeyAction =
-  | { type: "go"; to: "overview" | "milestones" | "library" | "queue" }
-  | { type: "next" } | { type: "prev" } | { type: "open" }
-  | { type: "run" } | { type: "fix" } | { type: "select" }
-  | { type: "filter" } | { type: "help" } | { type: "palette" } | { type: "newGoal" };
-
-export interface HubKey {
+/** One row of the piano roll: an Input Action lane, or a move, action or value lane. */
+export interface RollRow {
   key: string;
-  ctrl?: boolean;
-  meta?: boolean;
-  alt?: boolean;
-  shift?: boolean;
+  label: string;
+  kind: "input" | "move" | "action" | "value";
+  /** Bars: an input lane's notes. */
+  notes: Array<{ id: string; start: number; length: number }>;
+  /** Points: curve keys, move points, calls and value keys. */
+  points: Array<{ id: string; t: number; label: string }>;
 }
 
-/** The shortcuts sheet, in the order it lists them. */
-export const HUB_SHORTCUTS: ReadonlyArray<{ keys: string[]; label: string; group: "Move" | "Act" | "Go to" }> = [
-  { keys: ["Ctrl K"], label: "Command palette", group: "Go to" },
-  { keys: ["g", "o"], label: "Overview", group: "Go to" },
-  { keys: ["g", "m"], label: "Scenes", group: "Go to" },
-  { keys: ["g", "l"], label: "Clips", group: "Go to" },
-  { keys: ["g", "q"], label: "Queue", group: "Go to" },
-  { keys: ["j"], label: "Next row", group: "Move" },
-  { keys: ["k"], label: "Previous row", group: "Move" },
-  { keys: ["Enter"], label: "Open the row", group: "Move" },
-  { keys: ["/"], label: "Filter", group: "Move" },
-  { keys: ["r"], label: "Run the row, or the track or clip on screen", group: "Act" },
-  { keys: ["a"], label: "Fix the track's failing clips with an agent", group: "Act" },
-  { keys: ["x"], label: "Select the row", group: "Act" },
-  { keys: ["c"], label: "New track", group: "Act" },
-  { keys: ["?"], label: "This list", group: "Act" },
-];
+const shortAction = (path: string): string => path.split(/[/.]/).filter(Boolean).pop() ?? path;
 
-/** The shortcuts sheet without the fix key unless Fix failing playtests with an agent is on (null, not yet known, counts as off). */
-export function hubShortcuts(agentFixes: boolean | null): typeof HUB_SHORTCUTS {
-  return agentFixes === true ? HUB_SHORTCUTS : HUB_SHORTCUTS.filter((s) => !s.keys.includes("a"));
+export function rollRows(c: Clip): RollRow[] {
+  const rows: RollRow[] = c.input.map((l, i) => ({
+    key: `input:${i}`,
+    label: shortAction(l.action),
+    kind: "input",
+    notes: l.notes.map((n) => ({ id: n.id, start: n.start, length: n.length })),
+    points: l.keys.map((k) => ({ id: k.id, t: k.t, label: Array.isArray(k.v) ? k.v.join(", ") : String(k.v) })),
+  }));
+  for (const l of c.lanes) {
+    if (l.kind === "move") rows.push({ key: `lane:${l.id}`, label: `Move ${l.id}`, kind: "move", notes: [], points: l.points.map((p) => ({ id: p.id, t: p.t, label: p.at.map((n) => Math.round(n)).join(", ") })) });
+    else if (l.kind === "action") rows.push({ key: `lane:${l.id}`, label: `Action ${l.id}`, kind: "action", notes: [], points: l.calls.map((x) => ({ id: x.id, t: x.t, label: x.fn })) });
+    else rows.push({ key: `lane:${l.id}`, label: l.target, kind: "value", notes: [], points: l.keys.map((k) => ({ id: k.id, t: k.t, label: String(k.v) })) });
+  }
+  return rows;
 }
 
-const SINGLE: Record<string, HubKeyAction> = {
-  j: { type: "next" }, ArrowDown: { type: "next" },
-  k: { type: "prev" }, ArrowUp: { type: "prev" },
-  Enter: { type: "open" }, o: { type: "open" },
-  r: { type: "run" }, a: { type: "fix" }, x: { type: "select" },
-  "/": { type: "filter" }, "?": { type: "help" }, c: { type: "newGoal" },
-};
-const AFTER_G: Record<string, HubKeyAction> = {
-  o: { type: "go", to: "overview" }, g: { type: "go", to: "overview" },
-  m: { type: "go", to: "milestones" },
-  l: { type: "go", to: "library" },
-  q: { type: "go", to: "queue" },
-};
-/** A `g` waits this long for its second key. */
-export const CHORD_MS = 1200;
+const mapInput = (c: Clip, i: number, f: (l: InputLane) => InputLane): Clip => ({ ...c, input: c.input.map((l, j) => (j === i ? f(l) : l)) });
+const rowIndex = (key: string): number => Number(key.split(":")[1]);
 
-/**
- * The hub's keys as a small state machine: `press` takes one key and returns
- * what it means, or null. `g` then a letter jumps between screens. Keys with
- * Ctrl, Alt or Meta are left to the page, except Ctrl or Cmd with K.
- */
-export function hubKeymap(now: () => number = Date.now) {
-  let gAt = -Infinity;
+/** A note moved to `start` and given `length` (frames, at the clip's rate). */
+export function setNote(c: Clip, row: string, id: string, start: number, length: number): Clip {
+  if (!row.startsWith("input:")) return c;
+  return mapInput(c, rowIndex(row), (l) => ({ ...l, notes: l.notes.map((n) => (n.id === id ? { ...n, start: r3(Math.max(0, start)), length: r3(Math.max(1, length)) } : n)).sort((a, b) => a.start - b.start) }));
+}
+
+export function addNote(c: Clip, row: string, start: number, length: number): { clip: Clip; id: string } {
+  if (!row.startsWith("input:")) return { clip: c, id: "" };
+  const lane = c.input[rowIndex(row)];
+  const id = nextPartId("n", lane?.notes.map((n) => n.id) ?? []);
+  return { id, clip: mapInput(c, rowIndex(row), (l) => ({ ...l, notes: [...l.notes, { id, start: r3(Math.max(0, start)), length: r3(Math.max(1, length)) }].sort((a, b) => a.start - b.start) })) };
+}
+
+/** A point (curve key, move point, call or value key) moved to `t`. */
+export function setPoint(c: Clip, row: string, id: string, t: number): Clip {
+  const at = r3(Math.max(0, t));
+  if (row.startsWith("input:")) return mapInput(c, rowIndex(row), (l) => ({ ...l, keys: l.keys.map((k) => (k.id === id ? { ...k, t: at } : k)).sort((a, b) => a.t - b.t) }));
+  const laneId = row.slice("lane:".length);
   return {
-    press(k: HubKey): HubKeyAction | null {
-      if ((k.ctrl || k.meta) && !k.alt && k.key.toLowerCase() === "k") {
-        gAt = -Infinity;
-        return { type: "palette" };
-      }
-      if (k.ctrl || k.meta || k.alt) return null;
-      if (now() - gAt < CHORD_MS) {
-        gAt = -Infinity;
-        return AFTER_G[k.key] ?? null;
-      }
-      if (k.key === "g") {
-        gAt = now();
-        return null;
-      }
-      return SINGLE[k.key] ?? null;
-    },
-    /** Whether a `g` waits for its second key. */
-    pending: () => now() - gAt < CHORD_MS,
+    ...c,
+    lanes: c.lanes.map((l) => {
+      if (l.id !== laneId) return l;
+      if (l.kind === "move") return { ...l, points: l.points.map((p) => (p.id === id ? { ...p, t: at } : p)).sort((a, b) => a.t - b.t) };
+      if (l.kind === "action") return { ...l, calls: l.calls.map((p) => (p.id === id ? { ...p, t: at } : p)).sort((a, b) => a.t - b.t) };
+      return { ...l, keys: l.keys.map((p) => (p.id === id ? { ...p, t: at } : p)).sort((a, b) => a.t - b.t) };
+    }),
   };
 }
 
-/** Whether a key event's target takes text, where the hub's single keys must not fire. */
-export function typingTarget(t: { tagName?: string; isContentEditable?: boolean; type?: string } | null | undefined): boolean {
-  if (!t) return false;
-  if (t.isContentEditable) return true;
-  const tag = (t.tagName ?? "").toUpperCase();
-  if (tag === "TEXTAREA" || tag === "SELECT") return true;
-  if (tag !== "INPUT") return false;
-  return !["checkbox", "radio", "button", "submit", "range", "color"].includes((t.type ?? "text").toLowerCase());
+/** A note or point removed. */
+export function removeEvent(c: Clip, row: string, id: string): Clip {
+  if (row.startsWith("input:")) return mapInput(c, rowIndex(row), (l) => ({ ...l, notes: l.notes.filter((n) => n.id !== id), keys: l.keys.filter((k) => k.id !== id) }));
+  const laneId = row.slice("lane:".length);
+  return {
+    ...c,
+    lanes: c.lanes.map((l) => {
+      if (l.id !== laneId) return l;
+      if (l.kind === "move") return { ...l, points: l.points.filter((p) => p.id !== id) };
+      if (l.kind === "action") return { ...l, calls: l.calls.filter((p) => p.id !== id) };
+      return { ...l, keys: l.keys.filter((p) => p.id !== id) };
+    }),
+  };
 }
 
-// ---------- Command palette ----------
-
-export type PaletteCommand = "newGoal" | "runFailing" | "runAll" | "shortcuts" | { runGoal: string } | { runCheck: string };
-
-export interface PaletteEntry {
-  id: string;
-  kind: "goal" | "check" | "run" | "command" | "screen";
-  label: string;
-  hint?: string;
-  /** Opens this route, or runs `command`. */
-  route?: HubRoute;
-  command?: PaletteCommand;
-  look?: StatusLook;
-}
-
-/** Everything the palette can reach, from the overview. */
-export function paletteEntries(o: Pick<HubOverview, "goals" | "checks" | "recent">): PaletteEntry[] {
-  const out: PaletteEntry[] = [
-    { id: "cmd:new-goal", kind: "command", label: HUB_COPY.newGoal, command: "newGoal", hint: "c" },
-    { id: "screen:new-playtest", kind: "screen", label: "New script clip", route: { screen: "draft" } },
-    { id: "cmd:run-failing", kind: "command", label: HUB_COPY.runFailing, command: "runFailing" },
-    { id: "cmd:run-all", kind: "command", label: HUB_COPY.runAll, command: "runAll" },
-    { id: "screen:overview", kind: "screen", label: "Go to Overview", route: { screen: "overview" }, hint: "g o" },
-    { id: "screen:milestones", kind: "screen", label: "Go to Scenes", route: { screen: "milestones" }, hint: "g m" },
-    { id: "screen:library", kind: "screen", label: "Go to Clips", route: { screen: "library" }, hint: "g l" },
-    { id: "screen:queue", kind: "screen", label: "Go to Queue", route: { screen: "queue" }, hint: "g q" },
-    { id: "cmd:shortcuts", kind: "command", label: HUB_COPY.shortcuts, command: "shortcuts", hint: "?" },
-  ];
-  for (const g of sortGoals(o.goals.filter((g) => !g.goal.archived))) {
-    const look = GOAL_STATUS_LOOK[g.status];
-    out.push({ id: `goal:${g.goal.id}`, kind: "goal", label: g.goal.title, hint: g.goal.kind === "milestone" ? "Scene" : "Track", route: { screen: "goal", goalId: g.goal.id }, look });
-    out.push({ id: `run-goal:${g.goal.id}`, kind: "command", label: `Run ${g.goal.title}`, hint: runGoalLabel(g.goal, goalCheckIds(g.goal.id, o.goals).length), command: { runGoal: g.goal.id }, look });
+/** Where a clip's content ends, in its own frames. */
+export function clipEnd(c: Clip): number {
+  let end = c.length;
+  for (const r of rollRows(c)) {
+    for (const n of r.notes) end = Math.max(end, n.start + n.length);
+    for (const p of r.points) end = Math.max(end, p.t);
   }
-  for (const c of sortChecks(o.checks)) {
-    const look = CHECK_HEALTH_LOOK[c.health];
-    out.push({ id: `check:${c.id}`, kind: "check", label: c.name, hint: HUB_COPY.playtest, route: { screen: "check", checkId: c.id }, look });
-    out.push({ id: `run-check:${c.id}`, kind: "command", label: `Run ${c.name}`, hint: "Run clip", command: { runCheck: c.id }, look });
-  }
-  for (const r of o.recent.slice(0, 15)) {
-    out.push({ id: `run:${r.runId}`, kind: "run", label: `${r.name} run`, hint: `${RUN_OUTCOME_LOOK[r.outcome].label}, ${shortAgo(r.startedAt)}`, route: { screen: "run", runId: r.runId }, look: RUN_OUTCOME_LOOK[r.outcome] });
-  }
-  return out;
+  return end;
 }
 
-/** How well `query` matches `text`: higher is better, null for no match. Whole-word and prefix hits beat scattered letters. */
-export function fuzzyScore(query: string, text: string): number | null {
-  const q = query.trim().toLowerCase();
-  if (!q) return 0;
-  const t = text.toLowerCase();
-  const at = t.indexOf(q);
-  if (at === 0) return 1000 - t.length;
-  if (at > 0) return (/[\s/_:-]/.test(t[at - 1]) ? 800 : 600) - at - t.length / 10;
-  let ti = 0;
-  let score = 300;
-  let last = -1;
-  for (const ch of q) {
-    if (ch === " ") continue;
-    const found = t.indexOf(ch, ti);
-    if (found < 0) return null;
-    score -= last >= 0 ? found - last - 1 : found;
-    last = found;
-    ti = found + 1;
-  }
-  return score - t.length / 10;
+// ---------- The lease bar ----------
+
+/** The hub's hold on the editor from a hub.lease event, or null for any other event. */
+export function leaseOfEvent(e: { type: string; data?: unknown }): { lease: EditorLease | null } | null {
+  if (e.type !== HUB_LEASE) return null;
+  const lease = (e.data as { lease?: unknown } | undefined)?.lease;
+  return { lease: lease && typeof lease === "object" ? (lease as EditorLease) : null };
 }
 
-/** The palette's list for a query: with none, commands and screens first, then goals; otherwise best match first. */
-export function searchPalette(entries: readonly PaletteEntry[], query: string, max = 30): PaletteEntry[] {
-  if (!query.trim()) return entries.filter((e) => e.kind !== "run" && !(e.kind === "command" && typeof e.command === "object" && "runCheck" in e.command)).slice(0, max);
-  return entries
-    .map((e) => ({ e, s: fuzzyScore(query, `${e.label} ${e.hint ?? ""}`) }))
-    .filter((x): x is { e: PaletteEntry; s: number } => x.s !== null)
-    .sort((a, b) => b.s - a.s)
-    .slice(0, max)
-    .map((x) => x.e);
-}
-
-// ---------- Live updates ----------
-
-/** The events that make the hub read again. */
-export const hubReloadsOn = (type: string): boolean =>
-  type === HUB_CHANGED || type === "studio.qa.changed" || type.startsWith("script.");
-/** Bursts of script.* events during a run are folded into one read at most this often. */
-export const HUB_RELOAD_MS = 500;
-
-// ---------- Small helpers both clients need ----------
-
-/** A check's display path: the asset path for a script, the target otherwise. */
-export const checkPath = (c: CheckRef): string => c.target;
-
-/** The checks in `all` that a goal does not list yet, for Add checks. */
-export function checksNotIn(goal: Goal, all: readonly CheckState[]): CheckState[] {
-  const have = new Set(goal.checks.map((c) => `${c.kind}:${c.target}`));
-  return sortChecks(all.filter((c) => !have.has(c.id)));
-}
-
-// ---------- The live viewport ----------
-
-/**
- * The Run screen carries a Viewport card (on remote clients only). It never
- * connects on its own: collapsed, it says in one line what the editor and
- * Play In Editor are doing, and that the run is playing now; expanded, it
- * joins the hub's one viewer and draws the picture, or the viewer's notice
- * with its ways forward. These rules say what plays, what the line says and
- * what an expanded card draws. The Now running strip uses playingRuns too.
- */
-
-/** A run playing on the editor now. */
-export interface PlayingRun {
-  runId: string;
-  checkId: string;
-  name: string;
-}
-
-/** A run still playing: not ended, and running or holding for a person's verdict. */
-export const runPlaying = (r: Pick<RunRecord, "outcome" | "endedAt">): boolean => !r.endedAt && (r.outcome === "running" || r.outcome === "needs_you");
-
-/**
- * Every run playing now: from the newest runs, then the queue's current plan
- * for one the run list does not know yet. A run record, when there is one,
- * decides. Nothing plays while the editor is away.
- */
-export function playingRuns(o: Pick<HubOverview, "recent" | "queue" | "editor">): PlayingRun[] {
-  if (!o.editor.connected) return [];
-  const out: PlayingRun[] = [];
-  const known = new Set<string>();
-  for (const r of o.recent) {
-    known.add(r.runId);
-    if (runPlaying(r)) out.push({ runId: r.runId, checkId: `${r.kind}:${r.target}`, name: r.name });
-  }
-  for (const it of o.queue.current?.items ?? []) {
-    if (!it.runId || known.has(it.runId) || it.endedAt) continue;
-    if (it.state === "running" || it.state === "needs_you") out.push({ runId: it.runId, checkId: `${it.check.kind}:${it.check.target}`, name: it.name });
-  }
-  return out;
-}
-
-/**
- * What a Viewport card draws: collapsed (its line only), a notice (the gate or
- * the viewer's state, with its ways forward), the video, the last frame held
- * while the stream reconnects mid-run, or the last frame after the run ended.
- */
-export type HubLiveView = "collapsed" | "notice" | "video" | "held" | "ended";
-
-export interface HubLiveInput {
-  /** The card is expanded: the person asked to watch. */
-  open: boolean;
-  /** One of the screen's checks is running now. */
-  playing: boolean;
-  /** A last frame is held from the run that just ended. */
-  endedFrame: boolean;
-  /** This run was already live here and a frame of it is kept. */
-  seenFrame?: boolean;
-  /** Something stops watching (viewportGate). */
-  gated: boolean;
-  phase: ViewerPhase["phase"];
-}
-
-/**
- * What a card draws. Nothing but its line until it is expanded; then the
- * video while it is live, and otherwise the notice that says why not, never
- * an empty black box. A stream that drops back to waiting or connecting
- * during a run it already showed (PIE restarting, or stopping a moment before
- * the run reports its end) keeps its last frame instead of flashing a notice,
- * and the end of a run it showed keeps the last frame for a moment.
- */
-export function hubLiveView(i: HubLiveInput): HubLiveView {
-  if (!i.open) return "collapsed";
-  if (i.gated) return "notice";
-  if (i.phase === "live") return "video";
-  if (i.playing && i.seenFrame && (i.phase === "waiting" || i.phase === "connecting" || i.phase === "joining")) return "held";
-  if (!i.playing && i.endedFrame) return "ended";
-  return "notice";
-}
-
-/** What a collapsed card's line says: the editor and Play In Editor, or the screen's check that is running now. */
-export interface HubViewerLine {
-  /** off: nothing to watch; on: Play In Editor runs; run: one of the screen's checks runs; warn: the editor cannot stream. */
-  tone: "off" | "on" | "run" | "warn";
-  text: string;
-  /** The screen's check that is running now, named after the text. */
-  run: PlayingRun | null;
-}
-
-/** Why the editor cannot stream, short enough for the line; the expanded card says the rest (viewportGate). */
-const CANNOT_STREAM: Partial<Record<ViewportEditorState, string>> = {
-  "no-actions": "ue-mcp needs an update",
-  "plugin-off": "Pixel Streaming 2 is off",
-  "plugin-restart": "the editor needs a restart",
-  unavailable: "this editor cannot stream",
-};
-
-/**
- * The collapsed card's line. The editor being away comes first, then the
- * screen's run, then what stops streaming, then whether Play In Editor runs.
- * `editorConnected` is the hub's own view of the editor; `status` is
- * GET /viewport, null until it answers.
- */
-export function hubViewerLine(i: { editorConnected: boolean; status: ViewportStatus | null; running: PlayingRun | null }): HubViewerLine {
-  const s = i.status;
-  if (!i.editorConnected || s?.editor === "no-editor") return { tone: "off", text: HUB_VIEWER_COPY.offline, run: null };
-  if (i.running) return { tone: "run", text: HUB_VIEWER_COPY.runningNow, run: i.running };
-  const why = s ? CANNOT_STREAM[s.editor] : undefined;
-  if (why) return { tone: "warn", text: HUB_VIEWER_COPY.cannotStream(why), run: null };
-  return s?.pie ? { tone: "on", text: HUB_VIEWER_COPY.pieOn, run: null } : { tone: "off", text: HUB_VIEWER_COPY.pieOff, run: null };
-}
-
-export const HUB_VIEWER_COPY = {
-  title: "Viewport",
-  /** Expands the card and joins the stream. */
-  watch: "Watch",
-  /** Collapses it; the stream stops a little later. */
-  hide: "Hide",
-  offline: "Editor offline",
-  runningNow: "Running now",
-  cannotStream: (why: string) => `Streaming unavailable: ${why}`,
-  pieOn: "Play In Editor is running",
-  pieOff: "Play In Editor is not running",
+export const LEASE_COPY = {
+  holding: "Studio is running a playtest",
+  release: "Release the editor",
+  releaseHelp: "Stop the run Studio started, end its Play In Editor session and pause the queue",
 } as const;
 
-/** The step a playing run is on: the running one, else the first waiting for a person, else the next to start. */
-export function playingStep<T extends Pick<RunStepSpan, "status">>(steps: readonly T[]): T | null {
-  return steps.find((s) => s.status === "running") ?? steps.find((s) => s.status === "awaiting_verdict") ?? steps.find((s) => s.status === "pending") ?? null;
+// ---------- Copy ----------
+
+export const HUB_COPY = {
+  title: "Playtest Hub",
+  arrangements: "Arrangements",
+  suites: "Suites",
+  runs: "Runs",
+  newArrangement: "New arrangement",
+  newSuite: "New suite",
+  noArrangements: "No arrangements yet",
+  noArrangementsHelp: "An arrangement places clips on tracks in one level, with the checks that grade it. Agents make them with the hub tools, or start one here.",
+  noSuites: "No suites yet",
+  noSuitesHelp: "A suite groups tests to run together and tracks their health over time. A test is an arrangement, or one of its regions.",
+  noRuns: "Nothing has run yet",
+  play: "Run",
+  stop: "Stop",
+  checks: "Checks",
+  regions: "Regions",
+  clips: "Clips",
+  addTrack: "Add track",
+  addCheck: "Add check",
+  addRegion: "Add region",
+  noClips: "No clips yet. Record a performance or ask an agent to write one.",
+  record: "Record",
+  stopRecording: "Stop recording",
+  queue: "Queue",
+  queuePaused: "The queue is paused.",
+  resume: "Resume",
+  pause: "Pause",
+  remove: "Remove",
+  recent: "Recent runs",
+  pass: "Pass",
+  fail: "Fail",
+  verdictNote: "Note (optional)",
+  waitingVerdict: "Waiting for your verdict",
+  personOnly: "Only a person may judge this check",
+  quarantine: "Quarantine",
+  unquarantine: "Release from quarantine",
+  quarantined: "Quarantined",
+  markFlaky: "Mark flaky",
+  unmarkFlaky: "Clear flaky mark",
+  flakyMarked: "Marked flaky",
+  flakyDetected: (checks: readonly string[]) => (checks.length ? `Flaky: ${checks.join(", ")} flip between runs` : "Flaky"),
+  runSuite: "Run suite",
+  addToSuite: "Add",
+  passRate: "Pass rate",
+  history: "Pass-rate history",
+  noHistory: "No runs of this suite yet.",
+  missing: "Missing",
+  level: "Level",
+  openLevel: "The open level",
+  findings: (n: number) => (n === 1 ? "1 problem" : `${n} problems`),
+  deleteConfirm: (what: string) => `Delete ${what}? Its file is removed from the project.`,
+  clipBack: "Back to the arrangement",
+  clipSaved: "Saved",
+  saving: "Saving",
+  dropHint: "Drag a clip here from the drawer",
+  editorBusy: "Waits for the editor",
+  problems: (n: number) => (n === 1 ? "1 hub file does not read" : `${n} hub files do not read`),
+} as const;
+
+/** The display name of a performer kind's clip, for the drawer's filter. */
+export const PERFORMER_KIND_LABEL = { player: "Player", actor: "Actor" } as const;
+
+/** A short glance at a test id: "Arena" or "Arena: Boss fight". */
+export function testLabel(id: string, o: Pick<HubOverview, "tests">): string {
+  return o.tests.find((t) => t.id === id)?.title ?? id;
 }
 
-/** How long the hub keeps its viewer after the last card collapses or leaves the screen, so moving between screens does not reconnect. */
-export const HUB_LIVE_LINGER_MS = 15_000;
-/** How long the last frame stays, dimmed, after a run ends. */
-export const HUB_LIVE_ENDED_MS = 4_000;
+/** Whether an arrangement view's tests can run: an arrangement with no checks cannot be queued. */
+export const canRun = (a: Pick<Arrangement, "checks">): boolean => a.checks.length > 0;
 
-export const HUB_LIVE_COPY = {
-  live: "Live",
-  ended: "Run ended",
-  /** Names the dialog it opens, titled "Play In Editor". */
-  expand: "Open Play In Editor",
-  stepOf: (n: number, total: number) => `Step ${n} of ${total}`,
-  /** A step that has not started, while the run plays. */
-  next: "Up next",
-  starting: "Starting Play In Editor",
-} as const;
+/** The tracks whose header has a warning: a finding on the track or any of its instances. */
+export function trackWarnings(view: Pick<ArrangementView, "arrangement" | "findings">, trackId: string): HubFinding[] {
+  const ti = view.arrangement.tracks.findIndex((t) => t.id === trackId);
+  return ti < 0 ? [] : view.findings.filter((f) => f.path.startsWith(`tracks[${ti}]`));
+}
+
+/** The clip a new instance from the drawer uses when dropped on a track: only clips for the track's performer kind fit. */
+export const clipFits = (clip: Pick<Clip, "performer">, track: Pick<Track, "performer">): boolean => clip.performer === track.performer.kind;

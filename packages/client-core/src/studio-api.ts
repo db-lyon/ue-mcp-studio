@@ -15,7 +15,6 @@ import type {
   MentionSearchRequest,
   MentionSearchResponse,
   PendingForm,
-  PlaytestRequest,
   SessionUpdate,
   ApprovalDecision,
   BusyState,
@@ -112,7 +111,6 @@ export function studioApi(t: Transport) {
       send<{ sessionId: string; to: "subagent" | "queue" | "main" }>("POST", `${session(id)}/agents/${enc(callId)}/messages`, now ? { text, attachments, now } : { text, attachments }),
     retry: (id: string) => send<{ sessionId: string }>("POST", `${session(id)}/retry`),
     compact: (id: string, instructions?: string) => send<{ sessionId: string }>("POST", `${session(id)}/compact`, instructions ? { instructions } : {}),
-    playtest: (id: string, request: PlaytestRequest) => send<{ sessionId: string }>("POST", `${session(id)}/playtest`, request),
     forms: (sessionId: string) => get<{ forms: PendingForm[] }>(`${S}/forms?session=${enc(sessionId)}`),
     answerForm: (id: string, answer: { action: "accept"; content: Record<string, unknown> } | { action: "decline" | "cancel" }) => send<void>("POST", `${S}/forms/${enc(id)}`, answer),
     /** Bytes the daemon serves (a review picture), read through the transport, since a relayed client has no URL to load. */
