@@ -13,6 +13,7 @@ import {
   instanceFits,
   moveInstance,
   nextTitle,
+  offersPerformer,
   parseHubPath,
   queuedText,
   regionFits,
@@ -27,7 +28,7 @@ const A: Arrangement = {
   id: "arena", title: "Arena", level: null, rate: 60,
   tracks: [
     { id: "t1", title: "Player", performer: { kind: "player", client: 0 }, mute: false, solo: false, instances: [{ id: "i1", clip: "run", at: 0 }] },
-    { id: "t2", title: "Guard", performer: { kind: "actor", actor: "BP_Guard" }, mute: false, solo: false, instances: [] },
+    { id: "t2", title: "Client 1", performer: { kind: "player", client: 1 }, mute: false, solo: false, instances: [] },
   ],
   checks: [],
   regions: [{ id: "r1", name: "Start", start: 0, end: 120 }],
@@ -96,16 +97,24 @@ describe("arrangement edits", () => {
 describe("clip roll", () => {
   const clip: Clip = {
     id: "c", title: "C", performer: "player", rate: 60, length: 120,
-    input: [{ action: "/Game/Input/IA_Jump.IA_Jump", type: "bool", notes: [{ id: "n1", start: 0, length: 10 }], keys: [] }],
-    lanes: [{ id: "walk", kind: "move", points: [{ id: "p1", t: 0, at: [0, 0, 0] }] }],
+    input: [
+      { action: "/Game/Input/IA_Jump.IA_Jump", type: "bool", notes: [{ id: "n1", start: 0, length: 10 }], keys: [] },
+      { action: "/Game/Input/IA_Look.IA_Look", type: "axis2d", notes: [], keys: [{ id: "k1", t: 0, v: [0, 0] }] },
+    ],
+    lanes: [],
   };
-  it("draws a row per lane and edits notes and points", () => {
+  it("draws a row per Input Action lane and edits notes and keys", () => {
     const rows = rollRows(clip);
-    expect(rows.map((r) => [r.key, r.label])).toEqual([["input:0", "IA_Jump"], ["lane:walk", "Move walk"]]);
+    expect(rows.map((r) => [r.key, r.label])).toEqual([["input:0", "IA_Jump"], ["input:1", "IA_Look"]]);
     const { clip: added, id } = addNote(clip, "input:0", 40, 10);
     expect(added.input[0]!.notes.map((n) => n.id)).toEqual(["n1", id]);
-    const moved = setPoint(clip, "lane:walk", "p1", 30);
-    expect(moved.lanes[0]).toMatchObject({ points: [{ id: "p1", t: 30 }] });
+    const moved = setPoint(clip, "input:1", "k1", 30);
+    expect(moved.input[1]!.keys).toMatchObject([{ id: "k1", t: 30 }]);
+  });
+
+  it("offers players only on a track", () => {
+    expect(offersPerformer({ kind: "player" })).toBe(true);
+    expect(offersPerformer({ kind: "actor" })).toBe(false);
   });
 });
 

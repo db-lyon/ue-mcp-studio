@@ -25,7 +25,8 @@ import {
   EXPECT_OPS,
   HUB_COPY,
   MIN_ROWS,
-  PERFORMER_KIND_LABEL,
+  offersPerformer,
+  playerLabel,
   RUN_STATE_LOOK,
   addCheck,
   addInstance,
@@ -148,7 +149,8 @@ export function ArrangementScreen({ id, runId }: { id: string; runId: string | n
   const scroll = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
-    api.hub.performers(id).then((p) => setPerformers(p.performers), () => setPerformers([]));
+    // Players only: the editor's player and the remote clients. The picker never offers an actor.
+    api.hub.performers(id).then((p) => setPerformers(p.performers.filter((c) => offersPerformer(c.performer))), () => setPerformers([]));
   }, [id]);
 
   const spans = useMemo(() => {
@@ -605,7 +607,7 @@ function Inspector({ a, sel, results, run, spans, edit, onRemove, onMoveTrack }:
     return (
       <span className="hub-set-inspector">
         <input className="hub-set-name" aria-label="Track name" defaultValue={t.title} key={`${t.id}:${t.title}`} onBlur={(e) => e.target.value.trim() && e.target.value !== t.title && edit((x) => setTrack(x, t.id, { title: e.target.value.trim() }))} />
-        <span className="muted small">{PERFORMER_KIND_LABEL[t.performer.kind]}</span>
+        <span className="muted small">{playerLabel(t.performer)}</span>
         <button className="ghost icon-button" aria-label="Move up" onClick={() => onMoveTrack(t.id, -1)}>↑</button>
         <button className="ghost icon-button" aria-label="Move down" onClick={() => onMoveTrack(t.id, 1)}>↓</button>
         {del}
@@ -672,13 +674,15 @@ function VerdictButtons({ run, check }: { run: RunRecord; check: Check }) {
 function ClipDrawer({ narrow }: { narrow: boolean }) {
   const { o } = useHub();
   const [q, setQ] = useState("");
-  const shown = o.clips.filter((c) => !q || c.title.toLowerCase().includes(q.toLowerCase()) || c.id.includes(q.toLowerCase())).sort((a, b) => a.title.localeCompare(b.title));
+  const shown = o.clips
+    .filter((c) => offersPerformer({ kind: c.performer }) && (!q || c.title.toLowerCase().includes(q.toLowerCase()) || c.id.includes(q.toLowerCase())))
+    .sort((a, b) => a.title.localeCompare(b.title));
   return (
     <div className="hub-set-drawer" style={{ height: narrow ? 200 : 168 }}>
       <div className="hub-set-browser in-drawer">
         <div className="hub-set-browser-find">
           <input type="search" placeholder="Find a clip" aria-label="Find a clip" value={q} onChange={(e) => setQ(e.target.value)} />
-          <p className="hub-set-browser-hint dim small">Drag a clip onto a track whose performer it suits.</p>
+          <p className="hub-set-browser-hint dim small">Drag a clip onto a track.</p>
         </div>
         <div className="hub-set-browser-list">
           {o.clips.length === 0 ? <p className="dim small">{HUB_COPY.noClips}</p> : (
@@ -692,10 +696,10 @@ function ClipDrawer({ narrow }: { narrow: boolean }) {
                       e.dataTransfer.setData(CLIP_MIME, c.id);
                       e.dataTransfer.effectAllowed = "copy";
                     }}
-                    title={`${c.title}: ${PERFORMER_KIND_LABEL[c.performer]}, ${arrangeClock(c.length, c.rate, true)}`}
+                    title={`${c.title}, ${arrangeClock(c.length, c.rate, true)}`}
                   >
                     <span className="hub-set-clip-name">{c.title}</span>
-                    <span className="hub-set-clip-meta dim small">{PERFORMER_KIND_LABEL[c.performer]} · {arrangeClock(c.length, c.rate, true)}</span>
+                    <span className="hub-set-clip-meta dim small">{arrangeClock(c.length, c.rate, true)}</span>
                   </span>
                   <RouteLink className="hub-set-clip-act" to={{ screen: "clip", id: c.id }} aria-label={`Edit ${c.title}`} title={`Edit ${c.title}`}><HubIcon name="edit" size={12} /></RouteLink>
                 </li>

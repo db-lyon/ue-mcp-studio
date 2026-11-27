@@ -1,7 +1,6 @@
 /**
- * A clip as a piano roll: one row per lane (each Input Action, and each move,
- * action or value lane), notes as bars and keys, points and calls as marks
- * on a time grid at the clip's rate. A clip has no checks: those live on an
+ * A player clip as a piano roll: one row per Input Action lane, its notes as
+ * bars and its curve keys as marks on a time grid at the clip's rate. A clip has no checks: those live on an
  * arrangement's Checks track. Drag a note or a mark to move it, its edge to
  * change a note's length, double-click an input row to add a note, and
  * Delete removes the selection. Edits save in the background.
@@ -11,7 +10,6 @@ import type { Clip } from "ue-mcp/daemon";
 import {
   ARRANGE_DEFAULT_ZOOM,
   HUB_COPY,
-  PERFORMER_KIND_LABEL,
   addNote,
   arrangeClock,
   arrangeStep,
@@ -124,7 +122,6 @@ export function ClipScreen({ id, from }: { id: string; from: string | null }) {
           <input className="hub-set-name hub-set-title-input" aria-label="Clip title" defaultValue={clip.title} key={`${clip.id}:${clip.title}`} onBlur={(e) => e.target.value.trim() && e.target.value !== clip.title && edit((c) => ({ ...c, title: e.target.value.trim() }))} />
         </div>
         <div className="hub-head-actions hub-set-transport">
-          <span className="muted small">{PERFORMER_KIND_LABEL[clip.performer]} clip</span>
           <span className="hub-set-clock">{arrangeClock(clip.length, rate, true)}</span>
           <span className="dim small" role="status">{state === "saving" ? HUB_COPY.saving : HUB_COPY.clipSaved}</span>
           <span className="hub-set-zoom">
@@ -194,7 +191,7 @@ export function ClipScreen({ id, from }: { id: string; from: string | null }) {
   );
 }
 
-/** A key, move point, call or value key: a diamond that drags along its lane. */
+/** A curve key: a diamond that drags along its lane. */
 function Mark({ left, label, on, onSelect, onCommit }: { left: number; label: string; on: boolean; onSelect: () => void; onCommit: (dx: number) => void }) {
   const el = useRef<HTMLSpanElement>(null);
   const down = (e: ReactPointerEvent) => {

@@ -75,7 +75,7 @@ export const STUDIO_EXTENSION = "studio";
  */
 export const QA = [
   "When the user wants gameplay tested in Play In Editor (a playtest, a QA pass, a test plan, steps to try), build it in the Playtest Hub with ue-mcp's hub actions, never as steps written out in your reply. "
-    + "A clip is a reusable performance for a player or an actor and never asserts anything; an arrangement places clips on tracks in one level and grades the run with the checks on its Checks track; a test is an arrangement or one of its regions; a suite groups tests. "
+    + "A clip is a reusable player performance of Input Action lanes and never asserts anything; an arrangement places clips on tracks, each driven by a player (the editor's player or a remote client), in one level and grades the run with the checks on its Checks track; a test is an arrangement or one of its regions; a suite groups tests. "
     + "Describe hub.write_arrangement and hub.write_clip first for the file formats.",
   "Queue a run with hub.run and read each check's result from the run. Never decide a check from your own reading of the editor. "
     + "A manual check waits for a verdict: give it with hub.verdict only when the user told you the outcome, and never for a check marked personOnly. Otherwise tell the user to give it on the arrangement in Studio and end your turn.",

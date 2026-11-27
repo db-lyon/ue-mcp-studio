@@ -530,34 +530,36 @@ export const suiteFileOf = (s: SuiteState): Suite => ({ id: s.id, title: s.title
 
 // ---------- Clip piano roll ----------
 
-/** One row of the piano roll: an Input Action lane, or a move, action or value lane. */
+/**
+ * One row of the piano roll: an Input Action lane. Studio's hub drives
+ * players only, so a clip's rows are its Input Action lanes; `kind` leaves
+ * room for another lane kind when a performer kind that takes one is added.
+ */
 export interface RollRow {
   key: string;
   label: string;
-  kind: "input" | "move" | "action" | "value";
-  /** Bars: an input lane's notes. */
+  kind: "input";
+  /** Bars: the lane's notes. */
   notes: Array<{ id: string; start: number; length: number }>;
-  /** Points: curve keys, move points, calls and value keys. */
+  /** Points: the lane's curve keys. */
   points: Array<{ id: string; t: number; label: string }>;
 }
 
 const shortAction = (path: string): string => path.split(/[/.]/).filter(Boolean).pop() ?? path;
 
 export function rollRows(c: Clip): RollRow[] {
-  const rows: RollRow[] = c.input.map((l, i) => ({
+  return c.input.map((l, i) => ({
     key: `input:${i}`,
     label: shortAction(l.action),
     kind: "input",
     notes: l.notes.map((n) => ({ id: n.id, start: n.start, length: n.length })),
     points: l.keys.map((k) => ({ id: k.id, t: k.t, label: Array.isArray(k.v) ? k.v.join(", ") : String(k.v) })),
   }));
-  for (const l of c.lanes) {
-    if (l.kind === "move") rows.push({ key: `lane:${l.id}`, label: `Move ${l.id}`, kind: "move", notes: [], points: l.points.map((p) => ({ id: p.id, t: p.t, label: p.at.map((n) => Math.round(n)).join(", ") })) });
-    else if (l.kind === "action") rows.push({ key: `lane:${l.id}`, label: `Action ${l.id}`, kind: "action", notes: [], points: l.calls.map((x) => ({ id: x.id, t: x.t, label: x.fn })) });
-    else rows.push({ key: `lane:${l.id}`, label: l.target, kind: "value", notes: [], points: l.keys.map((k) => ({ id: k.id, t: k.t, label: String(k.v) })) });
-  }
-  return rows;
 }
+
+/** The performer kinds Studio offers a track: players only, the editor's player or a remote client. */
+export const OFFERED_PERFORMER_KINDS: readonly Performer["kind"][] = ["player"];
+export const offersPerformer = (p: Pick<Performer, "kind">): boolean => OFFERED_PERFORMER_KINDS.includes(p.kind);
 
 const mapInput = (c: Clip, i: number, f: (l: InputLane) => InputLane): Clip => ({ ...c, input: c.input.map((l, j) => (j === i ? f(l) : l)) });
 const rowIndex = (key: string): number => Number(key.split(":")[1]);
@@ -575,35 +577,17 @@ export function addNote(c: Clip, row: string, start: number, length: number): { 
   return { id, clip: mapInput(c, rowIndex(row), (l) => ({ ...l, notes: [...l.notes, { id, start: r3(Math.max(0, start)), length: r3(Math.max(1, length)) }].sort((a, b) => a.start - b.start) })) };
 }
 
-/** A point (curve key, move point, call or value key) moved to `t`. */
+/** A curve key moved to `t`. */
 export function setPoint(c: Clip, row: string, id: string, t: number): Clip {
+  if (!row.startsWith("input:")) return c;
   const at = r3(Math.max(0, t));
-  if (row.startsWith("input:")) return mapInput(c, rowIndex(row), (l) => ({ ...l, keys: l.keys.map((k) => (k.id === id ? { ...k, t: at } : k)).sort((a, b) => a.t - b.t) }));
-  const laneId = row.slice("lane:".length);
-  return {
-    ...c,
-    lanes: c.lanes.map((l) => {
-      if (l.id !== laneId) return l;
-      if (l.kind === "move") return { ...l, points: l.points.map((p) => (p.id === id ? { ...p, t: at } : p)).sort((a, b) => a.t - b.t) };
-      if (l.kind === "action") return { ...l, calls: l.calls.map((p) => (p.id === id ? { ...p, t: at } : p)).sort((a, b) => a.t - b.t) };
-      return { ...l, keys: l.keys.map((p) => (p.id === id ? { ...p, t: at } : p)).sort((a, b) => a.t - b.t) };
-    }),
-  };
+  return mapInput(c, rowIndex(row), (l) => ({ ...l, keys: l.keys.map((k) => (k.id === id ? { ...k, t: at } : k)).sort((a, b) => a.t - b.t) }));
 }
 
-/** A note or point removed. */
+/** A note or key removed. */
 export function removeEvent(c: Clip, row: string, id: string): Clip {
-  if (row.startsWith("input:")) return mapInput(c, rowIndex(row), (l) => ({ ...l, notes: l.notes.filter((n) => n.id !== id), keys: l.keys.filter((k) => k.id !== id) }));
-  const laneId = row.slice("lane:".length);
-  return {
-    ...c,
-    lanes: c.lanes.map((l) => {
-      if (l.id !== laneId) return l;
-      if (l.kind === "move") return { ...l, points: l.points.filter((p) => p.id !== id) };
-      if (l.kind === "action") return { ...l, calls: l.calls.filter((p) => p.id !== id) };
-      return { ...l, keys: l.keys.filter((p) => p.id !== id) };
-    }),
-  };
+  if (!row.startsWith("input:")) return c;
+  return mapInput(c, rowIndex(row), (l) => ({ ...l, notes: l.notes.filter((n) => n.id !== id), keys: l.keys.filter((k) => k.id !== id) }));
 }
 
 /** Where a clip's content ends, in its own frames. */
@@ -692,8 +676,8 @@ export const HUB_COPY = {
   problems: (n: number) => (n === 1 ? "1 hub file does not read" : `${n} hub files do not read`),
 } as const;
 
-/** The display name of a performer kind's clip, for the drawer's filter. */
-export const PERFORMER_KIND_LABEL = { player: "Player", actor: "Actor" } as const;
+/** A player performer's name on a track: the editor's player, or a remote client. */
+export const playerLabel = (p: Performer): string => (p.kind === "player" ? (p.client === 0 ? "Player" : `Client ${p.client}`) : "");
 
 /** A short glance at a test id: "Arena" or "Arena: Boss fight". */
 export function testLabel(id: string, o: Pick<HubOverview, "tests">): string {

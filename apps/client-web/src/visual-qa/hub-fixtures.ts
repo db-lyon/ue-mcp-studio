@@ -1,6 +1,6 @@
 /**
  * The Playtest Hub's screens for the visual QA harness: one small project
- * (an arena arrangement with two tracks, a Checks track in all four modes and
+ * (an arena arrangement with two player tracks, a Checks track in all four modes and
  * two regions; three clips; nested suites with history, a flaky test and a
  * quarantined one) and the daemon's answers to the hub routes for it.
  */
@@ -25,13 +25,13 @@ const CLIPS: Record<string, Clip> = {
     input: [{ action: "/Game/Input/IA_Interact.IA_Interact", type: "bool", notes: [{ id: "n1", start: 30, length: 10 }], keys: [] }],
     lanes: [],
   },
-  "guard-patrol": {
-    id: "guard-patrol", title: "Guard patrol", performer: "actor", rate: 60, length: 480,
-    input: [],
-    lanes: [
-      { id: "walk", kind: "move", points: [{ id: "p1", t: 0, at: [0, 0, 0] }, { id: "p2", t: 200, at: [800, 0, 0] }, { id: "p3", t: 420, at: [800, 600, 0] }] },
-      { id: "alert", kind: "action", calls: [{ id: "c1", t: 300, fn: "RaiseAlarm" }] },
+  "flank-left": {
+    id: "flank-left", title: "Flank left", performer: "player", rate: 60, length: 420,
+    input: [
+      { action: "/Game/Input/IA_Move.IA_Move", type: "axis2d", notes: [{ id: "n1", start: 0, length: 180, value: [-1, 0.5] }, { id: "n2", start: 200, length: 200, value: [0, 1] }], keys: [] },
+      { action: "/Game/Input/IA_Crouch.IA_Crouch", type: "bool", notes: [{ id: "n1", start: 60, length: 120 }], keys: [] },
     ],
+    lanes: [],
   },
 };
 
@@ -39,7 +39,7 @@ const ARENA: Arrangement = {
   id: "arena-gate", title: "Arena gate", level: "/Game/Maps/L_Arena", rate: 60,
   tracks: [
     { id: "t1", title: "Player", performer: { kind: "player", client: 0 }, mute: false, solo: false, instances: [{ id: "i1", clip: "sprint-to-gate", at: 0 }, { id: "i2", clip: "open-gate", at: 330 }] },
-    { id: "t2", title: "BP_Guard_2", performer: { kind: "actor", actor: "BP_Guard_2" }, mute: false, solo: false, instances: [{ id: "i3", clip: "guard-patrol", at: 60 }] },
+    { id: "t2", title: "Client 1", performer: { kind: "player", client: 1 }, mute: false, solo: false, instances: [{ id: "i3", clip: "flank-left", at: 60 }] },
   ],
   checks: [
     { id: "c1", title: "Reaches the gate", at: 120, length: 180, mode: "by_end", expect: { value: "pawn.distance_to:Gate", op: "<", target: 150 } },
@@ -125,7 +125,7 @@ function hubGet(p: string): unknown {
   if (p === "/v1/hub") return OVERVIEW;
   if (p === "/v1/hub/lease") return { lease: null };
   if (p === "/v1/hub/arrangements/arena-gate") return VIEW;
-  if (p.startsWith("/v1/hub/performers")) return { level: "/Game/Maps/L_Arena", performers: [{ performer: { kind: "player", client: 0 }, label: "Player 1", capabilities: ["input", "move", "action", "value"] }, { performer: { kind: "actor", actor: "BP_Guard_2" }, label: "BP_Guard_2", className: "BP_Guard_C", pawn: true, capabilities: ["move", "action", "value"] }] };
+  if (p.startsWith("/v1/hub/performers")) return { level: "/Game/Maps/L_Arena", performers: [{ performer: { kind: "player", client: 0 }, label: "Player 1", capabilities: ["input", "move", "action", "value"] }, { performer: { kind: "player", client: 1 }, label: "Client 1", capabilities: ["input", "move", "action", "value"] }] };
   const clip = /^\/v1\/hub\/clips\/([^/]+)$/.exec(p);
   if (clip && CLIPS[decodeURIComponent(clip[1]!)]) return { clip: CLIPS[decodeURIComponent(clip[1]!)] };
   return undefined;
@@ -144,7 +144,6 @@ export const HUB_SCENARIOS: Record<string, Scenario> = {
   "hub-arrangement": hub("The Arrangement: two tracks, the regions above them and the Checks track in its four modes, a run waiting for a manual verdict", "#/playtests/arrangements/arena-gate", { waitFor: { selector: ".hub-set-check", timeout: 5000 } }),
   "hub-arrangement-check": hub("The Arrangement with the manual check selected: its instruction, person-only, and Pass and Fail in the inspector", "#/playtests/arrangements/arena-gate", { waitFor: { selector: ".hub-set-check", timeout: 5000 }, click: ".hub-set-check.mode-manual" }),
   "hub-clip": hub("A clip as a piano roll: notes on its input lanes and keys on its look lane, no checks", "#/playtests/clips/sprint-to-gate/in/arena-gate", { waitFor: { selector: ".hub-roll-note", timeout: 5000 } }),
-  "hub-clip-actor": hub("An actor clip as a piano roll: its move points and the call on its action lane", "#/playtests/clips/guard-patrol", { waitFor: { selector: ".hub-roll-mark", timeout: 5000 } }),
   "hub-suites": hub("Suites: nested suites with their health, the pass-rate history, a flaky test and a quarantined one", "#/playtests/suites/smoke"),
   "hub-runs": hub("Runs: the test playing now, the queue behind it and the recent runs", "#/playtests/runs"),
 };

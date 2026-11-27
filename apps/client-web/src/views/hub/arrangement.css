@@ -219,7 +219,6 @@
 .hub-root .hub-set-head .hub-set-head-ctl button.hub-set-performer { flex: 1 1 auto; width: auto; height: 18px; min-height: 0; max-width: none; min-width: 0; display: flex; align-items: center; justify-content: flex-start; gap: 3px; padding: 0 3px; border: 1px solid var(--line-strong); border-radius: 2px; background: var(--panel-2); color: var(--text); font: 500 11px/16px var(--sans); letter-spacing: 0; }
 .hub-root .hub-set-head .hub-set-head-ctl button.hub-set-performer:hover { border-color: var(--accent-line, var(--line-strong)); }
 .hub-set-performer-kind, .hub-perf-kind { flex: none; display: inline-flex; align-items: center; justify-content: center; width: 12px; height: 12px; border-radius: 2px; font: 700 8.5px/1 var(--mono); color: var(--panel); background: var(--muted); }
-.hub-set-performer.kind-actor .hub-set-performer-kind, .hub-perf-kind.kind-actor { background: var(--accent); color: var(--on-accent, var(--panel)); }
 .hub-set-performer-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .hub-root .hub-set-corner button.hub-set-add-for.hub-set-add-for.hub-set-add-for { flex: none; width: 20px; height: 22px; min-height: 0; min-width: 0; padding: 0; justify-content: center; color: var(--muted); }
 .hub-root .hub-set-corner button.hub-set-add-for:hover { color: var(--text); }
@@ -278,15 +277,13 @@
 .hub-root .hub-set-verdict button.verdict-pass { color: var(--ok); }
 .hub-root .hub-set-verdict button.verdict-fail { color: var(--bad); }
 
-/* The clip piano roll: notes on input lanes, diamonds for keys, points and calls. */
+/* The clip piano roll: notes on Input Action lanes, diamonds for curve keys. */
 .hub-roll .hub-set-row { min-height: 0; }
 .hub-roll-note .hub-set-block-head { height: 100%; }
 .hub-roll-note .hub-set-block-body { display: none; }
 .hub-roll-mark { position: absolute; top: 50%; width: 9px; height: 9px; margin: -5px 0 0 -5px; transform: rotate(45deg); border: 1px solid var(--accent); background: var(--accent-wash); cursor: grab; touch-action: none; z-index: 1; }
 .hub-roll-mark.on { background: var(--accent); border-color: var(--text); }
 .hub-roll-end { position: absolute; top: 0; bottom: 0; width: 0; border-left: 2px dashed var(--muted); pointer-events: none; }
-.hub-set-row.roll-move .hub-set-head, .hub-set-row.roll-action .hub-set-head, .hub-set-row.roll-value .hub-set-head { border-left-color: var(--accent); }
-
 /* Suites: the tree beside the suite on show, stacked on a narrow page. */
 .hub-suites-layout { display: grid; grid-template-columns: 260px minmax(0, 1fr); gap: 16px; align-items: start; }
 .hub-root.narrow .hub-suites-layout { grid-template-columns: 1fr; }
