@@ -16,7 +16,7 @@
 import * as crypto from "node:crypto";
 import * as fs from "node:fs";
 import * as path from "node:path";
-import { DEFAULT_USAGE, type ApprovalDecision, type ApprovalKind, type Approvals, type ApprovalRequest, type Effort, type PlaytestRunsMode, type TranscriptEntry, type UsageSettings } from "@ue-mcp-studio/shared";
+import { DEFAULT_USAGE, type ApprovalDecision, type ApprovalKind, type Approvals, type ApprovalRequest, type Effort, type TranscriptEntry, type UsageSettings } from "@ue-mcp-studio/shared";
 import { AUTO_COMPACT_FRACTION, EMPTY_TOTALS, contextTokens, contextWindowOf, estimateTokens, requestCost, type CompactionRecord } from "@ue-mcp-studio/shared";
 import type { ContentBlock, ModelProvider, ModelTurn, MessageParam, WebSearchRecord } from "./providers.js";
 import { promptTokens, usageTokens, type TokenUsage } from "./usage.js";
@@ -27,7 +27,6 @@ import type { QueuedMessage, ReplyImageInfo } from "@ue-mcp-studio/shared";
 import type { CardEntry, CardPost } from "@ue-mcp-studio/extension-api";
 import type { BusyTracker } from "./busy.js";
 import type { DialogBroker } from "./dialogs.js";
-import type { QaBroker } from "./qa.js";
 import { TOOLS, WORK_TOOLS, editorConnected, executeTool, forModel, packageFile, validateInput, verifyUnknown, type AgentHost, type ToolExecution, type TurnCallOptions } from "./tools.js";
 import type Anthropic from "@anthropic-ai/sdk";
 import { approvalFor, localToolDefinitions, shell } from "./local-tools.js";
@@ -41,14 +40,13 @@ import { modelName } from "./models.js";
 import { AttachmentStore, contentFor } from "./attachments.js";
 import { keptName, toolResultContent } from "./images.js";
 import { USER_SENT, USER_STOP, interruptedResult, interruptionLine, interruptionNote, type Interruption } from "./interruptions.js";
-import { actionCommandText, flowCommandText, flowValue, parseActionArgs, parseFlowArgs, parseSlashCommand, splitActionName, type ActionRunRequest, type Attachment, type FlowRunRequest, type PlaytestRequest } from "@ue-mcp-studio/shared";
+import { actionCommandText, flowCommandText, flowValue, parseActionArgs, parseFlowArgs, parseSlashCommand, splitActionName, type ActionRunRequest, type Attachment, type FlowRunRequest } from "@ue-mcp-studio/shared";
 import { applyStepEvent, type FlowCaller } from "./flow-run.js";
 import { QUEUED_STOP, SubagentSlots } from "./subagent-slots.js";
 import { REPLY_SHOWN, REPLY_TOOL, REPLY_TOOL_NAME, SUBAGENT_MESSAGES_LINE, SubagentInbox, aboutNote, heardNote, toSubagent, unreadNote } from "./subagent-inbox.js";
 import type { LiveTurn } from "./subscription.js";
 import { DETACHED, type HostedCallbacks, type HostedResult, type HostedRun, type TurnHosts } from "./hosted-turn.js";
 import { REPLY_PROTOCOL, STUDIO_SUBAGENTS_PROTOCOL, type TurnHostRecord, type TurnSpec } from "./turn-host-protocol.js";
-import { playtestParams, playtestTurnParams, type PlaytestFlow } from "./playtest-flow.js";
 import { NOTHING, conditionalFor, pathsOf, type Composed } from "./instructions.js";
 import { NO_EFFECTS, SESSION_KEY, approvalKind, editorPreview, flowStepCall, flowStepKind, type ActionEffects } from "./approval-kind.js";
 import { AGENT_TOOL } from "./tools.js";
@@ -71,30 +69,17 @@ export const FLOW_STEP_PREFIX = "flow-step-";
 export const STUDIO_EXTENSION = "studio";
 
 /**
- * Testing gameplay with the user: a clip, which is a test script the agent
- * creates and Studio shows as a clip card in the chat, never a list or a
- * table of steps written out in a reply. Who starts its run follows the
- * project's Clip runs setting.
+ * Testing gameplay with the user: the Playtest Hub, which ue-mcp's hub tools
+ * write and run and Studio shows on its Playtests tab, never a list or a
+ * table of steps written out in a reply.
  */
 export const QA = [
-  "When the user wants gameplay tested or checked in Play In Editor (a playtest, a QA pass, a test plan, a checklist, steps to try), do not write the steps out as a list in your reply, and not as a table either. "
-    + "Deliver it as a clip: create a ue-mcp test script with pie.script_create (pie.script_update changes one), and Studio shows it as a clip card in the chat. Even when the user asks only for a draft or a plan, the draft is the created script.",
-  "Every clip is a created script and its card; there is no other way to deliver a playtest. A reply that lists steps marked PASS or FAIL, or steps for the user to try, as prose or a table, is a failed clip. "
-    + "Never mark a step passed or failed from your own reading of the editor: the script run's observer, the user on the card, or a subagent the user assigned decides it.",
-  "Make a step auto with an expect when a value the observer reads can decide it (a property, a distance, visibility), and manual when only a person can judge it (how it looks or feels). Describe pie.script_create first for the step format. "
-    + "In a step's instruction, write each asset it names as a markdown link to its object path, as in a reply, so the clip card links it. "
-    + "In a multiplayer clip give each step a player, \"host\" or \"client 1\", \"client 2\" and so on: Studio keeps it, shows it on the card and takes it out before ue-mcp sees the step.",
-  "The user answers manual steps with the Pass, Fail and Skip buttons on the clip card. Never call pie.verdict for a manual step yourself unless the user told you that step's outcome in a message, "
-    + "or the user assigned you the clip from its card: then follow that brief, which says how to drive PIE and which steps you judge. "
-    + "If a run's answer says steps are awaiting a verdict, tell the user to answer them on the clip card and end your turn.",
+  "When the user wants gameplay tested in Play In Editor (a playtest, a QA pass, a test plan, steps to try), build it in the Playtest Hub with ue-mcp's hub actions, never as steps written out in your reply. "
+    + "A clip is a reusable player performance of Input Action lanes and never asserts anything; an arrangement places clips on tracks, each driven by a player (the editor's player or a remote client), in one level and grades the run with the checks on its Checks track; a test is an arrangement or one of its regions; a suite groups tests. "
+    + "Describe hub.write_arrangement and hub.write_clip first for the file formats.",
+  "Queue a run with hub.run and read each check's result from the run. Never decide a check from your own reading of the editor. "
+    + "A manual check waits for a verdict: give it with hub.verdict only when the user told you the outcome, and never for a check marked personOnly. Otherwise tell the user to give it on the arrangement in Studio and end your turn.",
 ];
-
-/** What the agent is told about starting runs, by the Clip runs setting. */
-export function playtestRunsLine(mode: PlaytestRunsMode): string {
-  return mode === "automatic"
-    ? "Clip runs is set to Automatic in Settings > Approvals & review: you may start a clip yourself with pie.script_run (wait: true, start_pie: true when PIE is not running) when the user wants it run, then report the summary and the results_path. Its card goes live."
-    : "Clip runs is set to Manual in Settings > Approvals & review: only the user starts a clip, with Start clip or Assign to subagent on its card. Never call pie.script_run or pie.script_replay; Studio refuses them. Create or update the script, tell the user it is on the card, and end your turn. If the user wants you to run clips yourself, tell them to set Clip runs to Automatic.";
-}
 
 /** The SDK's options for the surface: ue-mcp's projected tools in place of ue_mcp, on Lean and Full. */
 const sdkEditor = (s: EditorSurface) =>
@@ -111,7 +96,7 @@ export const VIEWPORT_LINE =
 
 /** How a reply links the Playtest Hub's records, which Studio opens on its Playtests tab (hubRecordRoute in client-core). */
 export const HUB_LINKS_LINE =
-  "When you name a Playtest Hub track, scene or run in a reply, link it to its page in Studio: [Door opens](#/playtests/goals/<track id>) or [the run](#/playtests/runs/<run id>). Link a clip by its script's object path, as any asset.";
+  "When you name a Playtest Hub arrangement, clip or suite in a reply, link it to its page in Studio: [Arena](#/playtests/arrangements/<arrangement id>), [Jump](#/playtests/clips/<clip id>) or [Smoke](#/playtests/suites/<suite id>). Link a run as [the run](#/playtests/arrangements/<arrangement id>/runs/<run id>).";
 
 const WORK = [
   MICRO_LINE,
@@ -149,12 +134,11 @@ export function subagentLine(usage: Pick<UsageSettings, "subagents" | "subagents
     + `Give each one different assets and files, then check what they report. ${most}`;
 }
 
-const system = (projectDir: string, runs: PlaytestRunsMode, usage: UsageSettings = DEFAULT_USAGE, instructions: Composed = NOTHING): string => [
+const system = (projectDir: string, usage: UsageSettings = DEFAULT_USAGE, instructions: Composed = NOTHING): string => [
   "You work inside Unreal Editor for the user, through ue-mcp, and on the project's files on their machine.",
   ...WORK,
   MENTION_LINE,
   IMAGES_LINE,
-  playtestRunsLine(runs),
   where(projectDir),
   subagentLine(usage),
   "When the editor restarts or crashes during your work, a note tells you why and what was lost. Do not repeat a call whose outcome is unknown without reading the state first.",
@@ -170,8 +154,8 @@ export const SUBAGENT_SYSTEM = [
   "Finish with a short report: what you created or changed (asset paths and files), what you saved, and anything that failed.",
 ].join("\n");
 
-const subagentSystem = (projectDir: string, runs: PlaytestRunsMode, instructions: Composed = NOTHING): string =>
-  [SUBAGENT_SYSTEM, playtestRunsLine(runs), where(projectDir), SUBAGENT_MESSAGES_LINE, instructions.text]
+const subagentSystem = (projectDir: string, instructions: Composed = NOTHING): string =>
+  [SUBAGENT_SYSTEM, where(projectDir), SUBAGENT_MESSAGES_LINE, instructions.text]
     .filter((l): l is string => !!l).join("\n");
 
 /** What a subagent's run settles with. */
@@ -309,10 +293,6 @@ export interface RunnerOptions {
   busy?: BusyTracker;
   /** Puts the editor dialogs a session's calls meet in the chat. */
   dialogs?: DialogBroker;
-  /** Puts the PIE test script runs a session's calls start in the chat, as Playtest cards. */
-  qa?: QaBroker;
-  /** A fix loop's write lease: refuses its session's saves of packages the person has unsaved changes in (ue-mcp's WriteLease). */
-  writes?: { wrap(host: AgentHost, sessionId: string): AgentHost };
   /** The chat's form cards, which the main agent's ask_user raises; without it ask_user answers that it cannot ask here. */
   forms?: FormBroker;
   /**
@@ -321,10 +301,6 @@ export interface RunnerOptions {
    * it notify_user answers that it cannot send here.
    */
   notify?: (sessionId: string, title: string, text: string) => unknown;
-  /** The project's Playtest runs setting, for the prompts; manual when not given. */
-  playtestRuns?: () => PlaytestRunsMode;
-  /** Runs ue-mcp's playtest flow for /playtest, Make playtest and Retry. */
-  playtestFlow?: PlaytestFlow;
   /** Per-turn review: a checkpoint before each turn and after it. */
   review?: { turnStarted(s: StoredSession): Promise<void>; turnEnded(s: StoredSession): Promise<void> };
   /** Runs any of the project's flows for /flow. */
@@ -688,13 +664,10 @@ export class AgentRunner {
   }
 
   /** The host a session's tool calls run on: its editor calls are tracked when there is a busy tracker. */
-  /** assigned: a subagent the user started from a card, whose runs are the user's. */
-  private hostFor(sessionId: string, assigned = false): AgentHost {
+  private hostFor(sessionId: string, _assigned = false): AgentHost {
     const attributed = this.consentHost(sessionId);
-    const leased = this.o.writes ? this.o.writes.wrap(attributed, sessionId) : attributed;
-    const host = this.o.dialogs ? this.o.dialogs.wrap(leased, sessionId) : leased;
-    const tracked = this.o.busy ? this.o.busy.wrap(host, sessionId) : host;
-    return this.o.qa ? this.o.qa.wrap(tracked, sessionId, { assigned }) : tracked;
+    const host = this.o.dialogs ? this.o.dialogs.wrap(attributed, sessionId) : attributed;
+    return this.o.busy ? this.o.busy.wrap(host, sessionId) : host;
   }
 
   /**
@@ -726,11 +699,6 @@ export class AgentRunner {
       setBusy: (busy) => host.setBusy(busy),
       log: host.log,
     } as AgentHost;
-  }
-
-  /** The Playtest runs setting the prompts state. */
-  private runsMode(): PlaytestRunsMode {
-    return this.o.playtestRuns?.() ?? "manual";
   }
 
   private usage(): UsageSettings {
@@ -973,7 +941,7 @@ export class AgentRunner {
   /** The main agent's conversation, with what its requests send besides the messages. */
   private mainConversation(s: StoredSession, surf = this.surface()) {
     const model = this.o.model();
-    const sys: Array<{ type: "text"; text: string }> = [{ type: "text", text: [withSurface(system(this.o.host.projectDir, this.runsMode(), this.usage(), this.composed()), surf), this.skillLines()].filter(Boolean).join("\n") }];
+    const sys: Array<{ type: "text"; text: string }> = [{ type: "text", text: [withSurface(system(this.o.host.projectDir, this.usage(), this.composed()), surf), this.skillLines()].filter(Boolean).join("\n") }];
     const tools = this.mainTools(surf);
     const effort = this.o.effort?.();
     const conv: Conversation & { system: typeof sys; tools: typeof tools; effort: typeof effort } = {
@@ -1299,15 +1267,6 @@ export class AgentRunner {
         }
         continue;
       }
-      // A /playtest's flow answered the previous daemon, if anyone: its card says it was cut off, and Retry runs it again.
-      const flow = this.runningPlaytest(s);
-      if (flow) {
-        Object.assign(flow, { state: "failed", errors: [`It was cut off: ${why}.`] });
-        s.status = "idle";
-        s.waitingCause = null;
-        this.o.store.save(s);
-        continue;
-      }
       // A /flow's run answered the previous daemon: its card says it was cut off.
       const run = [...s.transcript].reverse().find((t) => t.kind === "flow");
       if (run?.kind === "flow" && run.state === "running") {
@@ -1461,7 +1420,7 @@ export class AgentRunner {
   /** The main agent's conversation as the durable runtime runs it: the same prompt, tools and effort as every route's. */
   private durableMainSpec(): AgentSpec {
     const surf = this.surface();
-    const text = [withSurface(system(this.o.host.projectDir, this.runsMode(), this.usage(), this.composed()), surf), this.skillLines()].filter(Boolean).join("\n");
+    const text = [withSurface(system(this.o.host.projectDir, this.usage(), this.composed()), surf), this.skillLines()].filter(Boolean).join("\n");
     const route = this.durableRoute(this.o.model());
     // Code mode (#463 L4): one script making many of these calls, with only its output in context.
     return { route, system: text, ...withSearch(route, this.mainTools(surf), true), effort: this.o.effort?.() ?? "high", codemode: true };
@@ -1561,7 +1520,7 @@ export class AgentRunner {
     const tools = helper?.allowed ? this.workTools(surf).filter((t) => allows((t as { name: string }).name)) : this.workTools(surf);
     if (n?.skills.length) tools.push(SKILL_TOOL);
     tools.push(REPLY_TOOL as Anthropic.Beta.BetaToolUnion);
-    const base = withSurface(subagentSystem(this.o.host.projectDir, assigned ? "automatic" : this.runsMode(), this.composed()), surf);
+    const base = withSurface(subagentSystem(this.o.host.projectDir, this.composed()), surf);
     const systemText = [base, helper ? `You are the project's ${helper.name} helper. Its own instructions follow.\n\n${helper.prompt}` : null, this.skillLines()].filter(Boolean).join("\n\n");
     let route: RouteSpec | null = null;
     if (helper?.run) {
@@ -1628,9 +1587,7 @@ export class AgentRunner {
    * `about`: the agent call of a finished subagent whose thread the user wrote it in.
    */
   async send(sessionId: string, text: string, attachments: Array<Attachment & { path: string }> = [], about?: string): Promise<void> {
-    // A /playtest message runs the playtest flow, not a turn.
     const command = attachments.length ? null : parseSlashCommand(text);
-    if (command?.name === "playtest") return this.playtest(sessionId, { text: command.args }, text);
     // /compact summarises the conversation so far; nothing is sent as a message.
     if (command?.name === "compact") return this.compact(sessionId, command.args);
     // A /flow message (queued, or from a client without the form) runs with the pairs it names.
@@ -1668,7 +1625,7 @@ export class AgentRunner {
       at: now(),
       ...(attachments.length ? { attachments: attachments.map(({ id, name, type, size }) => ({ id, name, type, size })) } : {}),
     });
-    s.turn = { start: s.transcript.length - 1, mutations: 0, targets: [], playtest: false };
+    s.turn = { start: s.transcript.length - 1, mutations: 0, targets: [] };
     s.draft = "";
     s.error = null;
     this.setStatus(s, "running", null);
@@ -1745,86 +1702,6 @@ export class AgentRunner {
     await this.runTurn(s.id);
   }
 
-  /** The card of a /playtest whose flow is still running, if there is one. */
-  private runningPlaytest(s: StoredSession): Extract<TranscriptEntry, { kind: "playtest" }> | null {
-    for (let i = s.transcript.length - 1; i >= 0; i--) {
-      const t = s.transcript[i];
-      if (t.kind === "playtest") return t.state === "created" || t.state === "failed" ? null : t;
-    }
-    return null;
-  }
-
-  /**
-   * A /playtest, from a message or a button (Make playtest, Retry): ue-mcp's
-   * playtest flow, given what to test and the recent conversation. Its card
-   * shows the flow's stage; then the Draft card follows, or the card says no
-   * playtest was made, with the flow's errors and Retry. The agent gets a note
-   * either way, with its next turn.
-   */
-  async playtest(sessionId: string, request: PlaytestRequest, text?: string): Promise<void> {
-    const s = this.require(sessionId);
-    // A card button pressed during a turn waits behind it, as a message does.
-    if (this.busy(s)) {
-      this.enqueue(sessionId, text ?? (request.text.trim() ? `/playtest ${request.text.trim()}` : "/playtest"), []);
-      return;
-    }
-    const source = request.source === undefined ? null : s.transcript[request.source];
-    if (request.source !== undefined && (source?.kind !== "assistant" || source.parent)) throw new Error(`entry ${request.source} is not one of the agent's messages`);
-    const shown = text ?? (request.text.trim() ? `/playtest ${request.text.trim()}` : "/playtest");
-    // The Make playtest pill names the latest turn: its changes are the target, the turn the context.
-    const turn = request.turn === undefined ? null : s.turn?.start === request.turn ? s.turn : undefined;
-    if (turn === undefined) throw new Error(`entry ${request.turn} does not begin the latest turn`);
-    const params = turn
-      ? playtestTurnParams(s.transcript.slice(turn.start), turn.targets)
-      : playtestParams(request.text, source?.kind === "assistant" ? source.text : null, s.transcript);
-    s.archived = false;
-    if (!hasConversation(s) && s.title === DEFAULT_SESSION_TITLE) s.title = shown.slice(0, 60);
-    s.transcript.push({ kind: "user", text: shown, at: now(), ...(request.source !== undefined ? { source: request.source } : {}) });
-    s.turn = { start: s.transcript.length - 1, mutations: 0, targets: [], playtest: true };
-    const card: Extract<TranscriptEntry, { kind: "playtest" }> = { kind: "playtest", state: "gathering", request, attempt: 1, at: now() };
-    s.draft = "";
-    s.error = null;
-    this.addEntry(s, card);
-    const controller = new AbortController();
-    this.active.set(s.id, controller);
-    this.setStatus(s, "running", null);
-    const changed = () => {
-      this.o.store.save(s);
-      this.o.host.events.publish("playtest.changed", { sessionId: s.id, state: card.state, attempt: card.attempt });
-    };
-    try {
-      const flow = this.o.playtestFlow;
-      const outcome = flow
-        ? await flow.run(params, (stage, attempt) => {
-          if (controller.signal.aborted) return;
-          card.state = stage;
-          card.attempt = attempt;
-          changed();
-        }, controller.signal)
-        : { made: false as const, errors: ["This Studio has no playtest flow to run."] };
-      if (controller.signal.aborted) {
-        card.state = "failed";
-        card.errors = ["Stopped."];
-        return changed();
-      }
-      if (outcome.made) {
-        card.state = "created";
-        changed();
-        await this.o.qa?.drafted(s.id, outcome.script);
-        const name = typeof outcome.script.name === "string" ? outcome.script.name : String(outcome.script.path);
-        s.notes.push(`The user ran ${shown}: the playtest flow saved the test script "${name}" (${String(outcome.script.path)}), shown as a draft clip card in the chat.`);
-      } else {
-        card.state = "failed";
-        card.errors = outcome.errors;
-        changed();
-        s.notes.push(`The user ran ${shown}: the playtest flow made no clip.${outcome.errors.join(" ")}`);
-      }
-      this.setStatus(s, "idle", null);
-    } finally {
-      if (this.active.get(s.id) === controller) this.active.delete(s.id);
-    }
-  }
-
   /**
    * A /flow: one of the project's flows, run with the params the user gave.
    * Its card lists the steps as the flow's events report them, then the run's
@@ -1842,7 +1719,7 @@ export class AgentRunner {
     s.archived = false;
     if (!hasConversation(s) && s.title === DEFAULT_SESSION_TITLE) s.title = shown.slice(0, 60);
     s.transcript.push({ kind: "user", text: shown, at: now() });
-    s.turn = { start: s.transcript.length - 1, mutations: 0, targets: [], playtest: false };
+    s.turn = { start: s.transcript.length - 1, mutations: 0, targets: [] };
     const card: Extract<TranscriptEntry, { kind: "flow" }> = { kind: "flow", name, params: request.params, state: "running", steps: [], at: now() };
     s.draft = "";
     s.error = null;
@@ -1964,7 +1841,7 @@ export class AgentRunner {
     s.archived = false;
     if (!hasConversation(s) && s.title === DEFAULT_SESSION_TITLE) s.title = shown.slice(0, 60);
     s.transcript.push({ kind: "user", text: shown, at: now() });
-    s.turn = { start: s.transcript.length - 1, mutations: 0, targets: [], playtest: false };
+    s.turn = { start: s.transcript.length - 1, mutations: 0, targets: [] };
     s.draft = "";
     s.error = null;
     const controller = new AbortController();
@@ -2051,7 +1928,7 @@ ${result}`);
         model: this.o.model(),
         effort: this.o.effort?.() ?? "high",
         // The SDK reads the project's own files itself: Studio adds none of their text.
-        system: withSurface(system(this.o.host.projectDir, this.runsMode(), usage, this.sdkComposed()), surface),
+        system: withSurface(system(this.o.host.projectDir, usage, this.sdkComposed()), surface),
         ...(agent ? { agentTool: { description: agent.description ?? "", inputSchema: agent.input_schema as Record<string, unknown> } } : {}),
         userTools: true,
         ...this.sdkNative(),
@@ -3965,7 +3842,7 @@ ${result}`);
     const surface = this.surface();
     const projectDir = this.o.host.projectDir;
     // Its runs are the user's when the user assigned it: the brief says to start one.
-    const base = withSurface(subagentSystem(projectDir, run.assigned ? "automatic" : this.runsMode(), this.sdkComposed()), surface);
+    const base = withSurface(subagentSystem(projectDir, this.sdkComposed()), surface);
     // What the user wrote to it before its session started goes with its task, read with it.
     const told = this.inbox.drain(call.id);
     if (!attach) this.deliver(s, call.id, told.length, "read");
@@ -4064,7 +3941,7 @@ ${result}`);
     tools.push(REPLY_TOOL);
     run.replies = true;
     const steps = helper?.maxTurns ?? NO_TURN_LIMIT;
-    const base = withSurface(subagentSystem(this.o.host.projectDir, detached ? "automatic" : this.runsMode(), this.composed()), surf);
+    const base = withSurface(subagentSystem(this.o.host.projectDir, this.composed()), surf);
     const systemText = [base, helper ? `You are the project's ${helper.name} helper. Its own instructions follow.\n\n${helper.prompt}` : null, this.skillLines()].filter(Boolean).join("\n\n");
     const provider = helper?.run ? helper.run.provider : this.o.provider;
     const model = helper?.run?.model ?? this.subagentModel();

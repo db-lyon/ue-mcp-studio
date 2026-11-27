@@ -1,5 +1,5 @@
 import { useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
-import { ACCOUNT_NAME, ACCOUNT_SIGN_IN_GITHUB, REMOTE_SIGN_IN, REMOTE_COMMAND, REMOTE_COMMAND_REPLY, REMOTE_ON_COMPUTER, SLASH_COMMANDS, REMOTE_PLAN_OFFERED, contextView, isLocalCommand, parseSlashCommand, remoteCommand, remoteShown, type ActionRunRequest, type FlowRunRequest, type PlaytestRequest, type SessionDetail, type SessionOps, type SessionSummary, type StudioSettings } from "@ue-mcp-studio/shared";
+import { ACCOUNT_NAME, ACCOUNT_SIGN_IN_GITHUB, REMOTE_SIGN_IN, REMOTE_COMMAND, REMOTE_COMMAND_REPLY, REMOTE_ON_COMPUTER, SLASH_COMMANDS, REMOTE_PLAN_OFFERED, contextView, isLocalCommand, parseSlashCommand, remoteCommand, remoteShown, type ActionRunRequest, type FlowRunRequest, type SessionDetail, type SessionOps, type SessionSummary, type StudioSettings } from "@ue-mcp-studio/shared";
 import { api } from "../api";
 import { useRemoteAvailable } from "./settings/remote-available";
 import { REMOTE_NOW_ON, UpgradeAction } from "./Upgrade";
@@ -10,7 +10,7 @@ import type { DaemonState } from "../state";
 import { CHAT_INTRO, SESSIONS_SLOW, SESSION_TRY_AGAIN, SESSION_TRY_AGAIN_LABEL, sessionLoadFailed, SUBAGENTS_SHOWN_KEY, listedSubagents, subagentsLine, subagentsOf, subagentsPress, subagentsShownFrom, subagentsShownValue } from "@ue-mcp-studio/client-core";
 import { useAgentThread } from "../chat/agent-thread";
 import { useDismissed, useSeen } from "../chat/hooks";
-import { EditMessageContext, MainTranscript, PlaytestCommandContext, SubagentThread, type EditMode } from "../chat/Transcript";
+import { EditMessageContext, MainTranscript, SubagentThread, type EditMode } from "../chat/Transcript";
 import { QueuedMessages } from "../chat/Queue";
 import { WorkingLine } from "../chat/Working";
 import { pillsFor } from "../chat/pill-providers";
@@ -26,7 +26,6 @@ import { AgentsContext, AskedContext } from "../chat/asked";
 import { FormCards, useForms } from "../chat/Forms";
 import { FlowLauncher } from "../chat/FlowCommand";
 import { ActionLauncher } from "../chat/ActionCommand";
-import { OutsideRuns, QaContext, useOutsideRuns } from "../chat/Qa";
 import { DialogCards } from "../chat/Dialogs";
 import { useDialogs } from "../chat/dialog-model";
 import { SessionIdContext, useAttachments } from "../chat/attachments";
@@ -39,7 +38,6 @@ import { SessionLoading, SessionRowsLoading } from "../chat/Skeleton";
 import { ChatHeader } from "../chat/ChatHeader";
 import { Sheet } from "../chat/Sheet";
 import { ReviewPanel } from "../chat/TurnReview";
-import { useSessionRuns } from "../chat/sessionRuns";
 import { NARROW, useMedia } from "../layout";
 import { Slot } from "../extensions/Slot";
 import { ErrorBoundary } from "./ErrorBoundary";
@@ -479,33 +477,12 @@ export function ChatView({ daemon, nav, active = true, onSettings }: {
   const busy = detail?.status === "running" || detail?.status === "waiting";
   // The calls waiting for approval, so the thread a call waits in says it waits on the user.
   const asked = useMemo(() => new Set((detail?.approvals ?? []).map((a) => a.toolUseId)), [detail?.approvals]);
-  // The Make clip pill and Retry: the playtest flow, started when no turn runs.
-  const playtest = useMemo(() => (detail && !disconnected
-    ? {
-        busy,
-        run: function run(request: PlaytestRequest): void {
-          setThread(null);
-          setSent((n) => n + 1);
-          api.playtest(detail.id, request).then(() => loadDetail(detail.id), (e: Error) => failWith(() => run(request))(e));
-        },
-      }
-    : null), [detail?.id, disconnected, busy]);
   // The pills above the composer, from the session's tool-call facts. Escape, a click or a sent message clears the row.
   const [dismissedPills, setDismissedPills] = useState<ReadonlySet<string>>(new Set());
   const pills = useMemo(() => (detail && !disconnected ? pillsFor(detail, dismissedPills) : []), [detail, disconnected, dismissedPills]);
   const clearPills = useCallback(() => setDismissedPills((cur) => new Set([...cur, ...pills.map((p) => p.id)])), [pills]);
   const dialogs = useDialogs(daemon);
   const forms = useForms(daemon, detail?.id ?? null);
-  const outside = useOutsideRuns(daemon.events, daemon.streaming);
-  // The session's live playtests, pinned under its header while they run or wait for the user.
-  const sessionRuns = useSessionRuns(detail?.id ?? null, detail?.transcript, daemon.events, detail?.liveRuns);
-  const qaLive = useMemo(() => ({ events: daemon.events, streaming: daemon.streaming, forms, sessionId: detail?.id ?? null, onThread: openThreadId }), [daemon.events, daemon.streaming, forms, detail?.id, openThreadId]);
-  /** The runs with a card on screen, so their verdict forms are answered there. */
-  const qaRuns = useMemo(() => new Set([
-    ...(detail?.transcript ?? []).flatMap((t) => (t.kind === "qa" ? [t.run.runId] : [])),
-    ...outside.runs.map((r) => r.runId),
-    ...sessionRuns.runs.map((r) => r.runId),
-  ]), [detail?.transcript, outside.runs, sessionRuns.runs]);
   const assetLinks = useAssetLinks(detail?.id ?? null);
   const live = sessions.filter((s) => !s.archived);
   const archived = sessions.filter((s) => s.archived);
@@ -647,12 +624,10 @@ export function ChatView({ daemon, nav, active = true, onSettings }: {
           </div>
         )}
         {detail && (
-          <QaContext.Provider value={qaLive}>
           <SessionIdContext.Provider value={detail.id}>
           <AssetLinksContext.Provider value={assetLinks}>
           <AssetTranscriptContext.Provider value={detail.transcript}>
           <EditMessageContext.Provider value={disconnected ? null : editMessage}>
-          <PlaytestCommandContext.Provider value={playtest}>
           <CompactContext.Provider value={disconnected ? null : () => compactNow()}>
             <div className="session-stage">
             <div className="thread-stage" ref={stage}>
@@ -706,8 +681,7 @@ export function ChatView({ daemon, nav, active = true, onSettings }: {
             {/* A native Windows dialog is drawn above every view (DialogBanner), not here as well. */}
             <DialogCards dialogs={(dialogs.state?.dialogs ?? []).filter((d) => d.sessionId === detail.id && !d.native)} now={dialogs.now()} />
             <Approvals sessionId={detail.id} approvals={detail.approvals ?? []} />
-            <OutsideRuns runs={outside.runs} onDismiss={outside.dismiss} />
-            <FormCards forms={forms} runs={qaRuns} />
+            <FormCards forms={forms} />
             {remoteReply === detail.id && (
               <div className="msg assistant local-reply" role="status">
                 <p>{remote.paired ? REMOTE_ON_COMPUTER : remote.available ? REMOTE_NOW_ON : remote.signedIn === false ? REMOTE_SIGN_IN : REMOTE_COMMAND_REPLY}</p>
@@ -729,7 +703,7 @@ export function ChatView({ daemon, nav, active = true, onSettings }: {
             {meterView && meterView.level === "high" && !compacting && warnKey !== warnDismissed && (
               <ContextWarning view={meterView} runtime={runtimeCompacts} busy={busy} onCompact={() => compactNow()} onDismiss={() => setWarnDismissed(warnKey)} />
             )}
-            {playtest && <PillRow pills={pills} actions={{ playtest: playtest.run }} onClear={clearPills} />}
+            {!disconnected && <PillRow pills={pills} actions={{}} onClear={clearPills} />}
             <ErrorBoundary what="The working line" where="Chat > Working line" resetKey={detail.id}>
               <WorkingLine detail={detail} />
             </ErrorBoundary>
@@ -785,12 +759,10 @@ export function ChatView({ daemon, nav, active = true, onSettings }: {
               {reviewOpen && <ReviewPanel sessionId={detail.id} review={detail.review ?? null} timeline={detail.timeline ?? []} onChanged={() => void loadDetail(detail.id)} />}
             </Sheet>
           </CompactContext.Provider>
-          </PlaytestCommandContext.Provider>
           </EditMessageContext.Provider>
           </AssetTranscriptContext.Provider>
           </AssetLinksContext.Provider>
           </SessionIdContext.Provider>
-          </QaContext.Provider>
         )}
       </section>
     </div>

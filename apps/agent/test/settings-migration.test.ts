@@ -8,23 +8,19 @@ import * as path from "node:path";
 import { describe, expect, it } from "vitest";
 import { SettingsStore } from "../src/settings.js";
 import { projectStrategy } from "../src/composer-routes.js";
-import { PlaytestStore } from "../src/playtest-store.js";
 import { DEFAULT_APPROVALS } from "@ue-mcp-studio/shared";
 
 const FIXTURES = path.join(__dirname, "fixtures", "old-settings");
 
 /** A data dir holding an old Studio's files. */
-function oldDir(settings: string, playtests?: string): string {
+function oldDir(settings: string): string {
   const d = fs.mkdtempSync(path.join(os.tmpdir(), "studio-migrate-"));
   fs.copyFileSync(path.join(FIXTURES, settings), path.join(d, "settings.json"));
-  if (playtests) fs.copyFileSync(path.join(FIXTURES, playtests), path.join(d, "playtests.json"));
   return d;
 }
 
 function stores(dir: string) {
-  const settings = new SettingsStore(dir, path.join(dir, "keys"));
-  const playtests = new PlaytestStore(dir);
-  return { settings, playtests };
+  return { settings: new SettingsStore(dir, path.join(dir, "keys")) };
 }
 
 describe("approvals from an older Studio", () => {
@@ -87,13 +83,11 @@ describe("approvals from an older Studio", () => {
 
 describe("budgets from an older Studio", () => {
   it("load without error and drop the old limits", () => {
-    const d = oldDir("settings-0.1.24.json", "playtests-0.1.24.json");
-    const { settings, playtests } = stores(d);
+    const d = oldDir("settings-0.1.24.json");
+    const { settings } = stores(d);
     expect(settings.usage()).not.toHaveProperty("turnTokenLimit");
     settings.update({ theme: "editor" });
     expect(JSON.parse(fs.readFileSync(path.join(d, "settings.json"), "utf-8")).usage).not.toHaveProperty("turnTokenLimit");
-    expect(playtests.runs()).toBe("automatic");
-    expect(playtests.players("/Game/Tests/Sprint")).toEqual({ 0: "host", 2: "client 1" });
   });
 });
 

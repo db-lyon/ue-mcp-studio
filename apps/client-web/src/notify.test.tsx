@@ -3,7 +3,6 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { act, cleanup, render } from "@testing-library/react";
 import type { DaemonEvent } from "ue-mcp/daemon";
 import { DEFAULT_DEVICE_NOTIFY, applyProjectNotify, DEFAULT_PROJECT_NOTIFY, type NotifyTarget, type ProjectNotifyPrefs } from "@ue-mcp-studio/shared";
-import { focusRun } from "./attention";
 import { PRESENCE_EVERY_MS } from "@ue-mcp-studio/client-core";
 import { DEVICE_PREFS_KEY, NOTIFICATION_CLICK, PRESENCE_CHECK_MS, loadDesktopPrefs, loadProjectNotify, pageInUse, resetNotifyState, useNotifications, usePresence } from "./notify";
 
@@ -165,20 +164,6 @@ describe("a notice on this device", () => {
     render(<Probe events={[]} onOpen={onOpen} />);
     window.dispatchEvent(new CustomEvent(NOTIFICATION_CLICK, { detail: { sessionId: "s1", runId: "r1" } }));
     expect(onOpen).toHaveBeenCalledWith({ sessionId: "s1", runId: "r1" });
-  });
-
-  it("scrolls to a playtest's card once it is drawn", async () => {
-    vi.useFakeTimers();
-    focusRun("r1");
-    const el = document.createElement("div");
-    el.setAttribute("data-run-id", "r1");
-    el.scrollIntoView = vi.fn();
-    document.body.appendChild(el);
-    vi.advanceTimersByTime(150);
-    expect(el.scrollIntoView).toHaveBeenCalled();
-    expect(el.classList.contains("attention")).toBe(true);
-    vi.useRealTimers();
-    el.remove();
   });
 });
 

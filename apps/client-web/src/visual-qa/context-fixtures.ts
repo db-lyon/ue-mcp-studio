@@ -55,7 +55,7 @@ const main = (input: number, model = "claude-sonnet-5-5", over: Partial<ContextU
 const KEY: Partial<StudioSettings> = { route: "key" };
 
 const scene = (title: string, s: SessionDetail, extra: Partial<Scenario> = {}): Scenario =>
-  ({ title, hash: `#/chat/${SESSION_ID}`, session: s, index: { playtests: [], listed: true }, settings: KEY, ...extra });
+  ({ title, hash: `#/chat/${SESSION_ID}`, session: s, settings: KEY, ...extra });
 
 const thread = (): SessionDetail => {
   const call: TranscriptEntry = { kind: "tool", call: { id: "agent-cave", name: "agent", input: { description: "Dress the cave floor", prompt: "Place rocks and debris along the cave floor, avoiding the door's swing." }, outcome: "pending", startedAt: ago(30) } };

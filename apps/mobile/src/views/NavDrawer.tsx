@@ -15,7 +15,8 @@ import { useProjectNav } from "../nav";
 import { listState, SWITCH_PROJECT, SWITCH_PROJECT_LABEL } from "@ue-mcp-studio/client-core";
 export { listState };
 
-export type NavTab = "Chat" | "Playtests" | "Settings";
+/** The phone's tabs: the Playtest Hub is the computer's only, a recorded exception to the parity rule. */
+export type NavTab = "Chat" | "Settings";
 const TABS: NavTab[] = ["Chat", "Settings"];
 
 
@@ -49,15 +50,13 @@ export function TabDot({ style, label }: { style?: object; label?: string }) {
   return <View accessibilityLabel={label} style={[{ width: 6, height: 6, borderRadius: 3, backgroundColor: t.c.accent }, style]} />;
 }
 
-export function NavDrawer({ open, onClose, tab, session, updates, playtestsWaiting = 0, onTab, onSession, onNewSession, project, children }: {
+export function NavDrawer({ open, onClose, tab, session, updates, onTab, onSession, onNewSession, project, children }: {
   open: boolean;
   onClose: () => void;
   tab: NavTab;
   /** The open session, if the chat shows one. */
   session: string | null;
   updates: number;
-  /** Playtests across the project that wait for the user. */
-  playtestsWaiting?: number;
   onTab: (t: NavTab) => void;
   onSession: (id: string) => void;
   onNewSession: () => void;
@@ -149,11 +148,6 @@ export function NavDrawer({ open, onClose, tab, session, updates, playtestsWaiti
                 <TabGlyph tab={x} color={active ? t.c.accentHi : t.c.muted} />
                 <T style={s.itemText}>{x}</T>
                 {x === "Settings" && updates > 0 ? <TabDot style={{ marginLeft: -4 }} label={`${updates} ${updates === 1 ? "update" : "updates"} available`} /> : null}
-                {x === "Playtests" && playtestsWaiting > 0 ? (
-                  <View accessibilityLabel={`${playtestsWaiting} need you`} style={s.count}>
-                    <T style={s.countText}>{playtestsWaiting}</T>
-                  </View>
-                ) : null}
               </Pressable>
             );
           })}
@@ -214,7 +208,6 @@ export function DrawerTool({ title, onPress, label }: { title: string; onPress: 
 function TabGlyph({ tab, color }: { tab: NavTab; color: string }) {
   const path = {
     Chat: "M3 4.5A1.5 1.5 0 0 1 4.5 3h7A1.5 1.5 0 0 1 13 4.5v5a1.5 1.5 0 0 1-1.5 1.5H7l-3 2.5V11h0.5A1.5 1.5 0 0 1 3 9.5z",
-    Playtests: "M5 3.5h6M6 3.5v3.2L3.4 11.6A1.3 1.3 0 0 0 4.5 13.5h7a1.3 1.3 0 0 0 1.1-1.9L10 6.7V3.5M5 10h6",
     Settings: "M3 5h10M3 11h10M6 3.5v3M10 9.5v3",
   }[tab];
   return (
@@ -257,8 +250,6 @@ const styles = (t: Theme) => ({
   newText: { ...(t.editor ? font(t, "sans", 400, 12, 1.2) : font(t, "sans", 600, 14.5, 1.2)), color: t.c.accentHi },
   plus: { width: 24, height: 24, borderRadius: 12, backgroundColor: t.c.accent, alignItems: "center" as const, justifyContent: "center" as const },
   nav: { gap: 2 },
-  count: { minWidth: 16, height: 16, marginLeft: 6, paddingHorizontal: 4, borderRadius: 8, backgroundColor: t.c.warn, alignItems: "center" as const, justifyContent: "center" as const },
-  countText: { ...font(t, "mono", 700, 10), lineHeight: 16, color: "#1a1200" },
   recents: { flex: 1, minHeight: 0, marginTop: 10, paddingTop: 10, borderTopWidth: 1, borderTopColor: t.c.line, gap: 1, overflow: "hidden" as const },
   label: { ...font(t, "sans", 600, 12, 1.3), color: t.c.dim, paddingHorizontal: 10, paddingBottom: 6 },
   note: { ...font(t, "sans", 400, 12, t.editor ? 1.5 : 1.55), color: t.c.dim, paddingHorizontal: 10 },

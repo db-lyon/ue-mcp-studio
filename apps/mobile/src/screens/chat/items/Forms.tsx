@@ -1,12 +1,11 @@
 import { useEffect, useState } from "react";
 import { Pressable, ScrollView, Text, View } from "react-native";
-import { ASK_USER_CHOICE, ASK_USER_OTHER, askUserForm, qaVerdictForm, type FormField, type PendingForm } from "@ue-mcp-studio/shared";
+import { ASK_USER_CHOICE, ASK_USER_OTHER, askUserForm, type FormField, type PendingForm } from "@ue-mcp-studio/shared";
 import { formContent, formInitial } from "@ue-mcp-studio/client-core";
 import { Banner, bannerText, baseFont, Card, Check, ContentButton, font, fontName, Input, lineBox, SelectArrow, Sheet, useTheme } from "../../../ui";
 import { useProjectNav } from "../../../nav";
 import { haptic } from "../../../native/haptics";
 import { CardsRegion } from "./Approvals";
-import { QaCard, qaRunFromForm } from "../../../chat/Qa";
 import type { DaemonState } from "../../../chat/hooks";
 
 export { formContent };
@@ -24,22 +23,12 @@ export function useForms(daemon: Pick<DaemonState, "events" | "streaming">, sess
   return forms;
 }
 
-/**
- * Forms ue-mcp raised during this session's calls, such as approving a feedback
- * report. A clip's verdict form is answered on its run's Clip card:
- * here only when that run has no card on screen (`runs`), as a card of its own.
- */
-export function FormCards({ forms, runs }: { forms: PendingForm[]; runs?: ReadonlySet<string> }) {
-  const shown = forms.filter((f) => {
-    const q = qaVerdictForm(f);
-    return !q || !q.runId || !runs?.has(q.runId);
-  });
-  if (shown.length === 0) return null;
+/** Forms ue-mcp raised during this session's calls, such as approving a feedback report. */
+export function FormCards({ forms }: { forms: PendingForm[] }) {
+  if (forms.length === 0) return null;
   return (
     <CardsRegion label="Waiting for your answer" testID="forms">
-      {shown.map((f) => {
-        const run = qaRunFromForm(f);
-        if (run) return <QaCard key={f.id} run={run} form={f} />;
+      {forms.map((f) => {
         const ask = askUserForm(f);
         return ask ? <AskCard key={f.id} form={f} ask={ask} /> : <FormCard key={f.id} form={f} />;
       })}
@@ -319,6 +308,6 @@ export function AskCard({ form, ask }: { form: PendingForm; ask: NonNullable<Ret
 }
 
 /** The forms of one session, where the chat shows them. */
-export function SessionForms({ daemon, sessionId, runs }: { daemon: Pick<DaemonState, "events" | "streaming">; sessionId: string; runs?: ReadonlySet<string> }) {
-  return <FormCards forms={useForms(daemon, sessionId)} runs={runs} />;
+export function SessionForms({ daemon, sessionId }: { daemon: Pick<DaemonState, "events" | "streaming">; sessionId: string }) {
+  return <FormCards forms={useForms(daemon, sessionId)} />;
 }

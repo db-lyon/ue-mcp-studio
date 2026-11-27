@@ -1,18 +1,15 @@
 /**
- * chat/HubRecordLink.tsx: links to Playtest Hub records (web:
- * chat/HubRecordLink.tsx). While the hub is on, the shell provides what it
- * knows of the records and a way to open one; a link that names a playtest
- * then opens its card on the Playtests page, and a hub address the page.
- * The rules are client-core's (hubRecordRoute).
+ * chat/HubRecordLink.tsx: links to Playtest Hub screens (web:
+ * chat/HubRecordLink.tsx). The phone has no hub screens, so the shell
+ * provides no way to open one and a #/playtests link is its text alone; a
+ * client that can open the hub provides HubRecordsContext.
  */
 import { createContext, useContext, type ReactNode } from "react";
 import { Text } from "react-native";
-import { HUB_RECORD_COPY, hubRecordRoute, type HubRecordIndex, type HubRoute } from "@ue-mcp-studio/client-core";
+import { hubAddressRoute, type HubRoute } from "@ue-mcp-studio/client-core";
 import { inlineCode, useTheme } from "../ui";
 
 export interface HubRecords {
-  /** What the phone knows of the records: the playtest list's scripts. Null until it has loaded, when only #/playtests addresses resolve. */
-  index: HubRecordIndex | null;
   open: (route: HubRoute) => void;
 }
 
@@ -21,12 +18,12 @@ export const HubRecordsContext = createContext<HubRecords | null>(null);
 /** The hub screen a link target names and the way to open it, or null for a link that keeps its own behaviour. */
 export function useHubRecord(target: string | null | undefined): { route: HubRoute; open: () => void } | null {
   const records = useContext(HubRecordsContext);
-  if (!records) return null;
-  const route = hubRecordRoute(target, records.index);
+  if (!records || !target) return null;
+  const route = hubAddressRoute(target);
   return route ? { route, open: () => records.open(route) } : null;
 }
 
-/** A link to a hub address around its own text; the text alone while the hub is off. */
+/** A link to a hub address around its own text; the text alone where the hub cannot open. */
 export function HubRecordLink({ address, children }: { address: string; children: ReactNode }) {
   const record = useHubRecord(address);
   if (!record) return <>{children}</>;
@@ -40,7 +37,7 @@ export function HubAnchor({ open, code = false, children }: { open: () => void; 
     ? { ...inlineCode(t), boxShadow: `inset 0 -1px 0 ${t.c.accentLine}` }
     : { color: t.c.accentHi, textDecorationLine: "underline" as const, textDecorationColor: t.c.accentLine };
   return (
-    <Text accessibilityRole="link" accessibilityHint={HUB_RECORD_COPY.opensInHub} style={look} onPress={open}>
+    <Text accessibilityRole="link" accessibilityHint="Opens in the Playtest Hub" style={look} onPress={open}>
       {children}
     </Text>
   );

@@ -214,7 +214,7 @@ export class ReviewBroker {
   turnStarted(s: StoredSession): Promise<void> {
     return this.serial(s.id, async () => {
       s.reviewing = null;
-      if (!this.on(s) || !s.turn || s.turn.playtest) return;
+      if (!this.on(s) || !s.turn) return;
       try {
         const before = await this.checkpoint(`Before: ${turnLabel(s, s.turn.start)}`);
         s.reviewing = { before: before.id, turn: s.turn.start };

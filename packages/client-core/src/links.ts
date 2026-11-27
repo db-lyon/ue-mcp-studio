@@ -6,13 +6,12 @@
  * ever draws a link that goes nowhere.
  */
 import { OBJECT_PATH_IN_TEXT, assetLinkTarget, classifyAssetToken } from "@ue-mcp-studio/shared";
-import { hubHash, type HubRoute } from "./hub.js";
-import { hubAddressRoute } from "./hub-records.js";
+import { hubAddressRoute, hubHash, type HubRoute } from "./hub.js";
 
 export type LinkTarget =
   | { kind: "web"; url: string }
   | { kind: "asset"; path: string }
-  /** #/playtests/...: a Playtest Hub screen, such as a goal or a run. */
+  /** #/playtests/...: a Playtest Hub screen, such as an arrangement or a suite. */
   | { kind: "hub"; route: HubRoute }
   /** path: as written, with forward slashes; line: from a #L12 or :12 suffix. */
   | { kind: "file"; path: string; line?: number }

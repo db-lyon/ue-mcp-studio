@@ -15,7 +15,7 @@ const health = {
   refusedExtensions: [{ name: "studio", version: "0.1.24-beta.10", reason: `studio needs ue-mcp ${NEEDS} or later; this is ${HAVE}`, needsUeMcp: NEEDS }],
 };
 
-const refused = (title: string, o: Partial<Scenario> = {}): Scenario => ({ title, hash: "", index: { playtests: [], listed: true }, ...o });
+const refused = (title: string, o: Partial<Scenario> = {}): Scenario => ({ title, hash: "", ...o });
 
 export const REFUSED_SCENARIOS: Record<string, Scenario> = {
   "refused-by-daemon": refused("A ue-mcp that checks the floor refused Studio: one screen, one button", { get: (p) => (p === "/v1/health" ? health : undefined) }),

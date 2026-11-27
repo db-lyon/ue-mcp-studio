@@ -21,7 +21,6 @@ import { RefusedScreen } from "../src/views/Refused";
 import { Chat } from "../src/views/Chat";
 import { SettingsScreen } from "../src/screens/settings/SettingsScreen";
 import { PluginsScreen } from "../src/screens/plugins/PluginsScreen";
-import { PlaytestsView } from "../src/screens/playtests/Playtests";
 import { FeedbackSheet } from "../src/screens/feedback/FeedbackSheet";
 import { ChangesSheet } from "../src/screens/git/ChangesSheet";
 import { Welcome, Pairing } from "../src/screens/Pairing";
@@ -112,7 +111,7 @@ describe("the shell on a phone with a 48 px navigation bar", () => {
 
   it("pads the drawer by both bars", () => {
     setSafeAreaInsets({ top: 30, bottom: BAR });
-    renderInProject(<NavDrawer open onClose={none} tab="Chat" session={null} updates={0} playtestsWaiting={0} onTab={none} onSession={none} onNewSession={none} />);
+    renderInProject(<NavDrawer open onClose={none} tab="Chat" session={null} updates={0} onTab={none} onSession={none} onNewSession={none} />);
     const drawer = screen.getByLabelText("Navigation");
     expect(px(drawer, "paddingTop")).toBe(10 + 30);
     expect(px(drawer, "paddingBottom")).toBe(10 + BAR);
@@ -174,11 +173,6 @@ describe("pages scroll their end clear of the bar", () => {
     const p = renderInProject(<PluginsScreen daemon={daemon()} />);
     expect(px(content("plugins"), "paddingBottom")).toBe(6 + BAR);
     p.unmount();
-    renderInProject(<PlaytestsView daemon={daemon()} index={{ index: null, error: null, reload: none }} onOpenSession={none} />);
-    expect(px(content("playtests-page"), "paddingBottom")).toBe(18 + BAR);
-    setKeyboardHeight(280);
-    await settle();
-    expect(px(content("playtests-page"), "paddingBottom")).toBe(18 + 280);
   });
 
   // Build 7: mid-scroll, a page's rows showed through the see-through navigation bar (Settings > General's Channel row).
@@ -203,7 +197,6 @@ describe("pages scroll their end clear of the bar", () => {
     for (const page of [
       <SettingsScreen key="s" daemon={daemon()} section={null} onSection={none} onTheme={none} />,
       <PluginsScreen key="p" daemon={daemon()} />,
-      <PlaytestsView key="t" daemon={daemon()} index={{ index: null, error: null, reload: none }} onOpenSession={none} />,
     ]) {
       const r = renderInProject(page);
       backing();

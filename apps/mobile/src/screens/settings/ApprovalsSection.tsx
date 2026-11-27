@@ -2,13 +2,12 @@
  * Approvals & review as a paired browser shows it (client-web
  * views/settings/ApprovalsSection.tsx): the ask-first rules and the dialog
  * policy read only, since they decide what runs on the computer without
- * asking; playtest starts, agent fixes, the wait for a verdict, feedback reports, who
- * answers editor dialogs and turn review still change.
+ * asking; feedback reports, who answers editor dialogs and turn review still
+ * change.
  */
 import { useEffect, useState } from "react";
 import { View } from "react-native";
-import { APPROVAL_ROWS, DESTRUCTIVE_HOLD_SECONDS, PROJECT_SCOPED_KINDS, type AgentSettings, type ApprovalKind, type ApprovalRule, type DialogMode, type DialogPolicy, type FeedbackMode, type PlaytestRunsMode, type StudioSettings } from "@ue-mcp-studio/shared";
-import { AGENT_FIXES_COPY, HELD_COPY, VERDICT_WAIT_OPTIONS } from "@ue-mcp-studio/client-core";
+import { APPROVAL_ROWS, DESTRUCTIVE_HOLD_SECONDS, PROJECT_SCOPED_KINDS, type AgentSettings, type ApprovalKind, type ApprovalRule, type DialogMode, type DialogPolicy, type FeedbackMode, type StudioSettings } from "@ue-mcp-studio/shared";
 import { Card, font, T, useTheme } from "../../ui";
 import { CardLabel, Head, Opt, Radio, Seg, SettingRow, Switch, Txt, useMessage } from "./controls";
 import { Message } from "./GeneralSection";
@@ -34,18 +33,13 @@ const FEEDBACK_MODES: { id: FeedbackMode; name: string; about: string }[] = [
   { id: "defer", name: "Hold", about: "Review later with npx ue-mcp feedback review." },
 ];
 
-const PLAYTEST_STARTS: ReadonlyArray<{ id: PlaytestRunsMode; name: string; help: string }> = [
-  { id: "manual", name: "Manual", help: "Clips run only when you start or assign them." },
-  { id: "automatic", name: "Automatic", help: "Agents can also start clips on their own." },
-];
-
 const POLICIES: ReadonlyArray<{ id: DialogPolicy["kind"]; name: string }> = [
   { id: "wait", name: "Keep waiting" },
   { id: "agent", name: "Hand to agent" },
   { id: "safe", name: "Press Cancel or Keep" },
 ];
 
-type AgentUpdate = Partial<{ feedbackTool: boolean; feedbackMode: FeedbackMode; dialogMode: DialogMode; playtestRuns: PlaytestRunsMode; agentFixes: boolean; verdictWaitMinutes: number }>;
+type AgentUpdate = Partial<{ feedbackTool: boolean; feedbackMode: FeedbackMode; dialogMode: DialogMode }>;
 
 export function ApprovalsSection() {
   const api = useSettingsApi();
@@ -82,15 +76,6 @@ export function ApprovalsSection() {
             ))}
           </View>
         </RemoteReadOnly>
-        <SettingRow title="Clip runs" help={PLAYTEST_STARTS.find((p) => p.id === agent.playtestRuns)?.help}>
-          <Seg label="Clip runs" value={agent.playtestRuns} options={PLAYTEST_STARTS} onChange={(v) => void saveAgent({ playtestRuns: v })} />
-        </SettingRow>
-        <SettingRow inline title={AGENT_FIXES_COPY.setting} help={AGENT_FIXES_COPY.help}>
-          <Switch label={AGENT_FIXES_COPY.setting} on={agent.agentFixes} onChange={(v) => void saveAgent({ agentFixes: v })} />
-        </SettingRow>
-        <SettingRow title={HELD_COPY.verdictWait} help={HELD_COPY.verdictWaitHelp}>
-          <Seg compact label={HELD_COPY.verdictWait} value={String(agent.verdictWaitMinutes)} options={VERDICT_WAIT_OPTIONS} onChange={(v) => void saveAgent({ verdictWaitMinutes: Number(v) })} />
-        </SettingRow>
         <Txt size={12} tone="dim" style={{ marginVertical: 12 }}>
           All other actions run without asking.
         </Txt>
@@ -129,7 +114,7 @@ export function ApprovalsSection() {
 
       <Card>
         <CardLabel>Turn review</CardLabel>
-        <SettingRow inline first title="Review each turn" help="Keep or revert each change after a turn. Override per session in Checkpoints. Required to assign clips.">
+        <SettingRow inline first title="Review each turn" help="Keep or revert each change after a turn. Override per session in Checkpoints.">
           <Switch label="Review each turn" on={settings.reviewTurns !== false} onChange={(v) => void save({ reviewTurns: v })} />
         </SettingRow>
       </Card>

@@ -22,20 +22,24 @@ const TABS: Record<string, Tab> = { chat: "Chat", playtests: "Playtests", settin
 /** A session id or section name as it may appear in the hash; a section may also be an extension's. */
 const SAFE = /^[A-Za-z0-9_-]{1,128}$/;
 const SECTION = /^(?:[A-Za-z0-9_-]{1,128}|ext:[A-Za-z0-9_-]{1,64}:[A-Za-z0-9_-]{1,64})$/;
-/** A hub path: a screen name, at most one encodeURIComponent'd id and the editor's edit or new, nothing that could climb or inject. */
-const HUB_SUB = /^(?:arrangements|arrangement(?:\/[A-Za-z0-9%._~!*'()-]{1,600})?|(?:queue|checks|goals|milestones|runs|clips)(?:\/[A-Za-z0-9%._~!*'()-]{1,600}(?:\/(?:edit|new))?)?)$/;
+/**
+ * A hub path (hubPath in hub.ts): arrangements, an arrangement and one of its runs, a clip and the
+ * arrangement it was opened from, suites or one suite, runs. Ids are encodeURIComponent'd; nothing can climb or inject.
+ */
+const HUB_ID_PART = "[A-Za-z0-9%._~!*'()-]{1,600}";
+const HUB_SUB = new RegExp(`^(?:arrangements(?:/${HUB_ID_PART}(?:/runs/${HUB_ID_PART})?)?|clips/${HUB_ID_PART}(?:/in/${HUB_ID_PART})?|suites(?:/${HUB_ID_PART})?|runs)$`);
 
 export function parseLocation(hash: string): PanelLocation {
   const parts = hash.replace(/^#\/?/, "").split("/").filter(Boolean);
   if (parts[0]?.toLowerCase() === "plugins") return { tab: "Settings", session: null, section: "plugins" };
   const tab = TABS[parts[0]?.toLowerCase() ?? ""] ?? "Chat";
   const rest = parts[1] ?? "";
-  const sub = tab === "Playtests" ? parts.slice(1, 4).join("/") : "";
+  const sub = tab === "Playtests" ? parts.slice(1, 5).join("/") : "";
   return {
     tab,
     session: tab === "Chat" && SAFE.test(rest) ? rest : null,
     section: tab === "Settings" && SECTION.test(rest) ? rest : null,
-    ...(sub && HUB_SUB.test(sub) && parts.length <= 4 ? { sub } : {}),
+    ...(sub && HUB_SUB.test(sub) && parts.length <= 5 ? { sub } : {}),
   };
 }
 

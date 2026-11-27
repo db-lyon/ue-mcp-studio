@@ -15,8 +15,7 @@
  *   DELETE /sessions/:id            remove one (stops its turn first)
  *   PUT  /sessions/:id/draft        the unsent message, kept across reloads
  *   POST /sessions/:id/seen         a subagent thread the user opened, so it is no longer new
- *   POST /sessions/:id/messages     send a message; the turn runs in the background. "/playtest <text>" runs the playtest flow
- *   POST /sessions/:id/playtest     a /playtest: { text?, source?, turn? }, source an agent message's transcript index, turn the latest turn's (the Make playtest pill)
+ *   POST /sessions/:id/messages     send a message; the turn runs in the background
  *   POST /sessions/:id/flow         a /flow: { name, params?, text? }, run through the daemon's /v1/flows/<name>/run
  *   GET  /actions                   every ue-mcp action as category.method, with its line and effect, for /action's menu
  *   GET  /actions/:name             one action's parameters (project(describe_action)), for /action's form
@@ -31,7 +30,7 @@
  *   POST /updates/deferred/now      Restart now: end the turns in progress and run the waiting steps
  *
  * Per-turn review (/review, /sessions/:id/review, /sessions/:id/reviews, /sessions/:id/timeline) is in review.ts.
- * Editor dialogs (/dialogs) are in dialog-routes.ts, playtests, PIE test script runs (/qa), in qa.ts; the Playtest Hub is ue-mcp's (/v1/hub), configured with Studio's cards and settings in hub-bridge.ts. Studio's window and the editor's busy state are in window-routes.ts; resolving
+ * Editor dialogs (/dialogs) are in dialog-routes.ts; the Playtest Hub is ue-mcp's (/v1/hub), given Studio's signals in hub-bridge.ts. Studio's window and the editor's busy state are in window-routes.ts; resolving
  * and opening the assets the chat names (/assets/resolve, /assets/open) in asset-links.ts; the composer's @-mention search
  * (/mentions/search) in mentions.ts.
  *
@@ -42,13 +41,12 @@
  */
 import { registerVersionNotice } from "./version-notice.js";
 import { registerWhatsNew } from "./whats-new.js";
-import { WriteLease, readDiscovery, type DaemonExtensionApi } from "ue-mcp/daemon";
+import { readDiscovery, type DaemonExtensionApi, type RunRecord } from "ue-mcp/daemon";
 import { CONSENT_FEATURE, ConsentLedger, type DisruptionView } from "./consent.js";
 import { UPDATE_REASON, UPDATE_REQUESTER, UpdateHold, consentOf, updateOp, type UpdateHoldState } from "./update-hold.js";
 import { runPersonOperation, stopOwnSubagents, type DisruptionDeps } from "./editor-disruption.js";
 import { registerQueueRoutes } from "./queue-routes.js";
 import { registerVideoRoutes } from "./video-routes.js";
-import { PlaytestFlow } from "./playtest-flow.js";
 import { FlowCaller, offersStepApproval, type FlowStepHost } from "./flow-run.js";
 
 import { ActionCatalog } from "./action-catalog.js";
@@ -56,7 +54,7 @@ import type { AgentHost } from "./tools.js";
 import { registerFlowModel, type ModelHost } from "./flow-model.js";
 import { CLAUDE_SIGN_IN_AVAILABLE, IMAGE_EDGES, PROVIDERS } from "@ue-mcp-studio/shared";
 import { setImageEdge } from "./images.js";
-import type { ActionRunRequest, ApprovalDecision, FlowRunRequest, PlaytestRequest, FeedbackReport, VcsStatus, AttachmentUpload, ModelRoute, SessionUpdate, SignInId, StudioSettings, StudioSettingsUpdate, AccountUsage, StudioAccountResponse } from "@ue-mcp-studio/shared";
+import type { ActionRunRequest, ApprovalDecision, FlowRunRequest, FeedbackReport, VcsStatus, AttachmentUpload, ModelRoute, SessionUpdate, SignInId, StudioSettings, StudioSettingsUpdate, AccountUsage, StudioAccountResponse } from "@ue-mcp-studio/shared";
 import { MENTION_KINDS, splitActionName, type MentionKind } from "@ue-mcp-studio/shared";
 import { AgentRunner, RESTART_CAUSE_FILE } from "./runner.js";
 import { SessionStore, hasConversation } from "./sessions.js";
@@ -85,16 +83,10 @@ import { ChatGptAuth, ChatGptSignInFlow, chatgptModels } from "./chatgpt.js";
 import { BusyTracker } from "./busy.js";
 import { registerDialogs } from "./dialog-routes.js";
 import { registerForms } from "./forms.js";
-import { registerQa } from "./qa.js";
 import { configureHub, offersHub } from "./hub-bridge.js";
-import { startHubMove } from "./hub-migration.js";
 import type { PieWatch } from "./viewport/pie-watch.js";
 import type { Presence } from "./notify.js";
-import { PlaytestIndex, registerPlaytestIndex, type PlaytestIndexHost } from "./playtest-index.js";
-import { Drafting, registerDrafting, type DraftingHost } from "./drafting-routes.js";
-import { Clips, registerClips, type ClipsHost } from "./clip-routes.js";
 import { registerReview } from "./review.js";
-import { PlaytestStore } from "./playtest-store.js";
 import { registerAgentSettings } from "./agent-settings.js";
 import { daemonWindowHost, registerWindowRoutes } from "./window-routes.js";
 import { projectName } from "./window.js";
@@ -127,7 +119,6 @@ export function registerChat(api: DaemonExtensionApi, agentVersion = "0.0.0", pa
   // Every image the model is shown, from a tool or the user, goes at the project's Image size.
   setImageEdge(() => IMAGE_EDGES[settings.usage().imageSize]);
   const store = new SessionStore(api.dataDir, (msg, e) => api.log.warn(`sessions: ${msg}`, e));
-  const playtests = new PlaytestStore(api.dataDir);
   const attachments = new AttachmentStore(api.dataDir);
   // Custom OpenAI-compatible endpoints, for every project like the vendor keys.
   const endpoints = new EndpointStore();
@@ -269,11 +260,6 @@ export function registerChat(api: DaemonExtensionApi, agentVersion = "0.0.0", pa
   const unobserve = api.events.subscribe((e) => busy.observe(e));
   const forms = registerForms(api);
   const dialogs = registerDialogs(api, store, settings, forms);
-  const qa = registerQa(api, store, forms, playtests, () => busy.state());
-  const playtestIndex = new PlaytestIndex({ host: api as unknown as PlaytestIndexHost, broker: qa, store });
-  registerPlaytestIndex(api, playtestIndex);
-  registerDrafting(api, new Drafting({ host: api as unknown as DraftingHost, players: playtests, created: () => playtestIndex.created() }));
-  registerClips(api, new Clips({ host: api as unknown as ClipsHost }));
   const review = registerReview(api, store, () => settings.reviewTurns());
   /** The daemon's own address, for the flow routes. */
   const endpoint = () => {
@@ -326,8 +312,6 @@ export function registerChat(api: DaemonExtensionApi, agentVersion = "0.0.0", pa
     const e = endpoints.get(id);
     return e ? { baseUrl: e.baseUrl, key: endpoints.key(id) } : null;
   };
-  // A fix loop's write lease: its agents never save a package the person has unsaved changes in.
-  const writes = new WriteLease((c, a, args) => api.callAction(c, a, args), api.log);
   // Who is at this computer, from the notifier registered below; the hub reads it only when it decides to start work.
   let presence: Presence | null = null;
   const runner = new AgentRunner({
@@ -337,8 +321,6 @@ export function registerChat(api: DaemonExtensionApi, agentVersion = "0.0.0", pa
     review,
     busy,
     dialogs,
-    qa,
-    writes,
     forms,
     // The notifier is registered below, once the runner exists; a call comes only from a turn, after both.
     notify: (sessionId, title, text) => notifications.notifier.emit("agent.notice", sessionId, title, text, { sessionId }),
@@ -362,8 +344,6 @@ export function registerChat(api: DaemonExtensionApi, agentVersion = "0.0.0", pa
     approvals: () => settings.approvals(),
     effects,
     native: nativeRun,
-    playtestRuns: () => playtests.runs(),
-    playtestFlow: new PlaytestFlow({ endpoint, subscribe: (listener) => api.events.subscribe((e) => listener(e)) }),
     flows: new FlowCaller({ endpoint, subscribe: (listener) => api.events.subscribe((e) => listener(e)) }),
     flowStepApproval: () => offersStepApproval(stepHost),
     contextWindow: knownWindow,
@@ -407,7 +387,7 @@ export function registerChat(api: DaemonExtensionApi, agentVersion = "0.0.0", pa
   });
   registerDurableRoutes(api, { setting: durableSetting, harness: () => runner.durableHarness(), inspect: () => runner.durableInspect(), traces: (q) => runner.durableTraces(q) });
   const unregisterSteps = offersStepApproval(stepHost) ? stepHost.flows!.approveSteps((r) => runner.approveFlowStep(r)) : () => {};
-  // Flow agent steps, such as the playtest flow's draft, run on the model picked here, on its route.
+  // Flow agent steps run on the model picked here, on its route.
   const unregisterModel = registerFlowModel(api as ModelHost, {
     projectDir: api.projectDir,
     model: () => settings.model(),
@@ -415,42 +395,14 @@ export function registerChat(api: DaemonExtensionApi, agentVersion = "0.0.0", pa
     subscription: () => route() === "claude",
     provider: () => providerFor(settings, route(), providerContext()),
   });
-  // A playtest's card hands it to a subagent the runner starts beside the session's turns.
-  qa.setAssigner({ assign: (sid, description, prompt) => runner.assignSubagent(sid, description, prompt), stop: (sid, callId) => runner.stopSubagent(sid, callId) });
-  // It loops until the playtest passes, each attempt between checkpoints.
-  qa.setLoopSupport({
-    checkpoints: {
-      checkpoint: (label) => review.checkpoint(label),
-      changes: (from, to) => review.changes(from, to),
-      restore: (checkpoint, paths, force) => review.restore(checkpoint, paths, force),
-      mark: (sid, m) => {
-        const s = store.get(sid);
-        if (s) review.mark(s, m);
-      },
-    },
-    blocked: (sid) => {
-      const s = store.get(sid);
-      return s && !review.on(s) ? "Review is off in this session, so no checkpoints would let you undo its changes. Turn it on in the session's Checkpoints panel." : null;
-    },
-    writes,
-  });
-  // The Playtest Hub runs in ue-mcp's daemon (/v1/hub). Studio gives it what only a chat client has: the cards
-  // runs live on, the Assign fix loop, the /playtest flow, its settings and the signed-in account.
+  // The Playtest Hub runs in ue-mcp's daemon (/v1/hub), and Studio is its UI. Studio gives it the signals only a
+  // chat client has: the experiment's switch, whether someone is at this computer, and its own agents' editor calls.
   const unconfigureHub = configureHub({
     api,
-    qa,
-    store,
-    writePlaytests: (sid, text) => runner.playtest(sid, { text }),
-    playtestRuns: () => playtests.runs(),
-    signer: () => (settings.accountToken() ? settings.accountLogin() : null) ?? account.registryLogin()?.login ?? null,
     enabled: () => settings.experiments().playtestHub,
     inputAgeMs: () => presence?.desktopInputAgeMs() ?? null,
     busy: () => busy.state(),
-    agentFixes: () => playtests.agentFixes(),
-    onAgentFixes: (l) => playtests.onAgentFixes(l),
   });
-  // Goals Studio kept itself before the hub moved into ue-mcp go into ue-mcp's store, once; the old files stay.
-  const stopHubMove = offersHub(api) ? startHubMove({ dataDir: api.dataDir, endpoint, log: api.log }) : () => {};
 
   const bad = (error: string) => ({ status: 400, body: { error } });
   const missing = (id: string) => ({ status: 404, body: { error: `no session ${id}` } });
@@ -529,7 +481,7 @@ export function registerChat(api: DaemonExtensionApi, agentVersion = "0.0.0", pa
     hold.set(request, "panel", subagents);
     return { status: 409, body: { ok: false, error, request, ...(subagents ? { subagents } : {}) } };
   };
-  registerAgentSettings(api, () => updates.request("restart", {}), playtests);
+  registerAgentSettings(api, () => updates.request("restart", {}));
   registerEndpointRoutes(api, {
     store: endpoints,
     changed: () => {
@@ -917,21 +869,6 @@ export function registerChat(api: DaemonExtensionApi, agentVersion = "0.0.0", pa
     runner.sendNow(s.id, m.text, m.files).catch((e) => api.log.warn(`turn in session ${s.id} failed`, e));
     return { status: 202, body: { sessionId: s.id } };
   });
-  // A /playtest from a button: Make playtest on an agent message (source), or Retry on a failed one.
-  api.route("POST", "/sessions/:id/playtest", (req) => {
-    const s = store.get(req.params.id);
-    if (!s) return missing(req.params.id);
-    const b = (req.body ?? {}) as { text?: unknown; source?: unknown; turn?: unknown };
-    if (b.text !== undefined && typeof b.text !== "string") return bad("body must be { text?: string, source?: integer, turn?: integer }");
-    if (b.turn !== undefined && (!Number.isInteger(b.turn) || s.turn?.start !== b.turn)) return bad("turn is the transcript index that began the latest turn");
-    if (b.source !== undefined && !Number.isInteger(b.source)) return bad("source is the transcript index of an agent message");
-    const source = b.source as number | undefined;
-    if (source !== undefined && (s.transcript[source]?.kind !== "assistant" || s.transcript[source].parent)) return bad(`entry ${source} is not one of the agent's messages`);
-    // During a turn the runner queues the card's command behind it, as a message queues.
-    const request: PlaytestRequest = { text: (b.text as string | undefined) ?? "", ...(source !== undefined ? { source } : {}), ...(b.turn !== undefined ? { turn: b.turn as number } : {}) };
-    runner.playtest(s.id, request).catch((e) => api.log.warn(`playtest in session ${s.id} failed`, e));
-    return { status: 202, body: { sessionId: s.id } };
-  });
   // A /flow from its form: the flow and the params the form gave.
   api.route("POST", "/sessions/:id/flow", (req) => {
     const s = store.get(req.params.id);
@@ -1150,14 +1087,21 @@ export function registerChat(api: DaemonExtensionApi, agentVersion = "0.0.0", pa
     project: projectName(api.projectDir),
     session: (id) => store.get(id) as NotifySession | undefined,
     window: (model) => knownWindow(model),
+    // A hub run that changed, read from the daemon's own route, for Playtest needs you and Playtest finished.
+    hubRun: async (runId) => {
+      const at = offersHub(api) ? endpoint() : null;
+      if (!at) return null;
+      const r = await fetch(`http://127.0.0.1:${at.port}/v1/hub/runs/${encodeURIComponent(runId)}`, { headers: { authorization: `Bearer ${at.token}` } });
+      return r.ok ? ((await r.json()) as RunRecord) : null;
+    },
   });
   presence = notifications.notifier.presence;
 
   runner.recover();
   return {
     runner,
-    // The daemon is stopping: playtests the cards started stop, with the PIE they started, while the editor still answers.
-    shutdown: () => qa.shutdown(),
+    // The daemon is stopping: the hub, which is the daemon's, stops its own runs.
+    shutdown: async () => {},
     dispose: () => {
       notifications.dispose();
       unobserve();
@@ -1167,9 +1111,7 @@ export function registerChat(api: DaemonExtensionApi, agentVersion = "0.0.0", pa
       unregisterModel();
       unregisterSteps();
       dialogs.dispose();
-      stopHubMove();
       unconfigureHub();
-      qa.dispose();
       watch.dispose();
       runner.dispose();
       // A save Windows refused earlier gets one more try before the daemon goes.

@@ -100,17 +100,24 @@ describe("Notifier", () => {
     ]);
   });
 
-  it("playtests: a verdict needed, a loop that needs you, and a finished run", () => {
-    const { ev, published } = setup({ s1: session() });
-    const run = (state: string, steps: Array<{ index: number; status: string }>) => ({ runId: "r1", scriptName: "Door test", state, steps, sessionId: "s1", summary: { failed: steps.filter((s) => s.status === "failed").length } });
-    ev("qa.changed", { runId: "r1", run: run("running", [{ index: 0, status: "running" }]) });
-    ev("qa.changed", { runId: "r1", run: run("awaiting_verdict", [{ index: 0, status: "awaiting_verdict" }]) });
-    ev("qa.attention", { sessionId: "s1", runId: "r1", title: "Playtest needs you", text: "The door never opened." });
-    ev("qa.changed", { runId: "r1", run: run("finished", [{ index: 0, status: "failed" }]) });
+  it("hub runs: a manual check waiting for a verdict, then the result", async () => {
+    const published: Notice[] = [];
+    const states = ["running", "awaiting_verdict", "failed"];
+    let at = 0;
+    const n = new Notifier({
+      project: "Vale",
+      session: () => undefined,
+      prefs: () => DEFAULT_PROJECT_NOTIFY,
+      publish: (type, data) => type === "notify" && published.push(data as unknown as Notice),
+      hubRun: async (runId) => ({ runId, title: "Arena", state: states[at], checks: [{ id: "c1", status: states[at] === "failed" ? "failed" : "pending" }] }) as never,
+    });
+    for (at = 0; at < states.length; at++) {
+      n.observe({ type: "hub.changed", data: { what: ["runs"], runId: "r1" } });
+      await new Promise((r) => setTimeout(r, 0));
+    }
     expect(published.map((p) => [p.kind, p.title, p.text, p.target.runId])).toEqual([
-      ["playtest.needs-you", "Door test", "Step 1 needs your verdict", "r1"],
-      ["playtest.needs-you", "Fix the door", "A playtest loop needs you", "r1"],
-      ["playtest.finished", "Door test", "Failed, 1 step", "r1"],
+      ["playtest.needs-you", "Arena", "A manual check needs your verdict", "r1"],
+      ["playtest.finished", "Arena", "Failed, 1 check", "r1"],
     ]);
   });
 

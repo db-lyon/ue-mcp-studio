@@ -25,7 +25,7 @@ export function ExperimentsSection() {
       <Head title="Experiments" lead="Features still in progress, each off until you switch it on." />
       <Message msg={msg} />
       <Card>
-        <SettingRow first inline title="Playtest Hub" help="Adds a Playtests tab for tracks, the clips that prove them and their runs, on the computer only. Studio for Android does not show it yet.">
+        <SettingRow first inline title="Playtest Hub" help="Adds a Playtests tab for arrangements, suites and their runs, in Studio on the computer. Studio for Android does not show it.">
           <Switch on={settings?.experiments?.playtestHub === true} onChange={setHub} label="Playtest Hub" disabled={!settings} />
         </SettingRow>
       </Card>

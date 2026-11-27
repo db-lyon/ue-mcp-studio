@@ -237,17 +237,10 @@ function callAction(call: Call): { category: string; method: string; args: Recor
 }
 
 /** The PIE test and acceptance actions that start PIE when they run. */
-const PIE_STARTS = new Set(["script_run", "script_replay", "replay_run", "uat_run"]);
-/** A playtest's states once its run has started PIE: a draft or an idle run has not. */
-const PIE_RUN_STATES = new Set<string>(["armed", "running", "awaiting_verdict", "finished", "stopped"]);
+const PIE_STARTS = new Set(["replay_run", "uat_run"]);
 
-/**
- * Whether a line started Play In Editor: a call that started it and
- * succeeded, or a playtest run past its draft that plays in PIE (a manual run
- * does not).
- */
+/** Whether a line started Play In Editor: a call that started it and succeeded. */
 export function startsPie(t: TranscriptEntry): boolean {
-  if (t.kind === "qa") return !t.run.deleted && !t.run.manual && PIE_RUN_STATES.has(t.run.state);
   if (t.kind !== "tool" || t.call.outcome !== "done") return false;
   const a = callAction(t.call);
   if (!a) return false;
@@ -256,8 +249,8 @@ export function startsPie(t: TranscriptEntry): boolean {
   return a.category === "pie" && PIE_STARTS.has(a.method) && a.args.mode !== "manual" && a.args.start_pie !== false;
 }
 
-/** What a PIE card is keyed by: the call or run that started PIE. */
-const pieKey = (t: TranscriptEntry): string => (t.kind === "qa" ? `qa:${t.run.runId}` : t.kind === "tool" ? `call:${t.call.id}` : "");
+/** What a PIE card is keyed by: the call that started PIE. */
+const pieKey = (t: TranscriptEntry): string => (t.kind === "tool" ? `call:${t.call.id}` : "");
 
 /**
  * Whether a call folds into a run of steps: every call but a subagent and a

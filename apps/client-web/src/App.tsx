@@ -22,29 +22,26 @@ import { RemoteApprovalBanner } from "./views/remote/approvals";
 import { RemoteLock } from "./views/remote/RemoteLock";
 import { DockToggle } from "./views/DockToggle";
 import { NavDrawer } from "./views/NavDrawer";
-import { PlaytestsView, usePlaytestIndex } from "./views/Playtests";
 import { HubView } from "./views/hub/Hub";
 import { useExperiments, useHubOverview } from "./views/hub/state";
-import { playtestMatches } from "@ue-mcp-studio/shared";
 import { NARROW, useMedia } from "./layout";
-import { historyState, pushLocation, readLocation, writeLocation } from "./location";
+import { pushLocation, readLocation, writeLocation } from "./location";
 import { useSessionFocus } from "./focus";
-import { focusRun } from "./attention";
 import { useNotifications, usePresence, useWebPush } from "./notify";
 import { replaceStaleWindow } from "./window-version";
 import { RefusalPending, RefusedScreen, useRefusal } from "./views/Refused";
 import { ErrorBoundary } from "./views/ErrorBoundary";
 import { onRemotePage } from "./connection";
-import { HUB_COPY, canDeleteGoals, freshTrail,parseHubPath, trailOf, trailPush, hubRecordIndex, hubRecordLocation, playingRuns, projectListUrl, viewportAllowed } from "@ue-mcp-studio/client-core";
-import { HeldBar, LeaseBar, useHeld, useLease } from "./held";
-import { HeldContext } from "./held-context";
+import { hubPath, projectListUrl, viewportAllowed, type HubRoute } from "@ue-mcp-studio/client-core";
+import { parseTestId } from "ue-mcp/hub";
+import { LeaseBar, useLease } from "./held";
 import { BarProjectSwitch } from "./views/ProjectSwitch";
 import { Slot } from "./extensions/Slot";
 
 const NO_CTX = {};
 
 const TABS = ["Chat", "Playtests", "Settings"] as const;
-// Playtests shows only with the Playtest Hub experiment on; otherwise its old page stays reachable by URL alone.
+// Playtests shows only with the Playtest Hub experiment on.
 const WITHOUT_PLAYTESTS: readonly (typeof TABS)[number][] = TABS.filter((t) => t !== "Playtests");
 type Tab = (typeof TABS)[number];
 
@@ -133,46 +130,31 @@ function Studio({ daemon }: { daemon: DaemonState }) {
     setChatNav((c) => ({ session, n: c.n + 1 }));
   };
   const newSession = () => void api.newSession().then((d) => openChat(d.id), () => openChat(null));
-  // Notifications on this device; clicking one opens its session, and a playtest's card in it.
-  useNotifications(daemon.events, (t) => {
-    if (!t.sessionId) return;
-    openChat(t.sessionId);
-    if (t.runId) focusRun(t.runId);
-  });
-  usePresence();
-  useWebPush();
-  const updates = useUpdateCount();
-  // The project's playtests: the page's rows, and the count on its tab of those that wait for the user.
-  const playtests = usePlaytestIndex(daemon);
-  // The Playtest Hub experiment: the tab shows, draws the hub, and counts what needs attention there.
-  // A verdict waiting live has the held bar on every tab instead, so it is not counted twice.
+  // The Playtest Hub experiment: the tab shows, draws the hub, and counts the manual checks waiting for a verdict.
   const experiments = useExperiments(daemon.events);
   const hubOn = experiments?.playtestHub === true;
   const hub = useHubOverview(daemon, hubOn);
   const shownTabs = hubOn ? TABS : WITHOUT_PLAYTESTS;
-  // While the hub is on, a link to one of its records (in a reply, a tool result, a card) opens it on the Playtests tab.
-  const recordIndex = useMemo(() => (hub.overview ? hubRecordIndex(hub.overview) : null), [hub.overview]);
-  const hubRecords = useMemo<HubRecords | null>(() => (hubOn ? {
-    index: recordIndex,
-    // A history entry whose trail starts at the tab the link was on, so Back and the hub's crumbs return there.
-    open: (route) => {
-      // From inside the hub, the trail grows from the screen on show.
-      const here = parseHubPath(readLocation().sub);
-      pushLocation(hubRecordLocation(route), { hubTrail: tab === "Playtests" ? trailPush(trailOf(historyState(), here), route) : freshTrail(route, tab) });
-      setTab("Playtests");
-    },
-  } : null), [hubOn, recordIndex, tab]);
-  const playtestsWaiting = hubOn
-    ? hub.overview?.attention.length ?? 0
-    : (playtests.index?.playtests ?? []).filter((e) => playtestMatches(e, "needs-you")).length;
-  // Runs holding at a manual step for a verdict, PIE paused: the bar under the header, and the cards' Resume and watch.
-  const held = useHeld(daemon);
+  const openHub = useCallback((route: HubRoute) => {
+    pushLocation({ tab: "Playtests", sub: hubPath(route) || null });
+    setTab("Playtests");
+  }, []);
+  // Notifications on this device; clicking one opens its session, or a hub run on its arrangement.
+  useNotifications(daemon.events, (t) => {
+    if (t.sessionId) return openChat(t.sessionId);
+    if (!t.runId || !hubOn) return;
+    const run = hub.overview?.recent.find((r) => r.runId === t.runId);
+    const ref = run ? parseTestId(run.test) : null;
+    openHub(ref ? { screen: "arrangement", id: ref.arrangement, run: t.runId } : { screen: "runs" });
+  });
+  usePresence();
+  useWebPush();
+  const updates = useUpdateCount();
+  // While the hub is on, a #/playtests link (in a reply, a tool result, a card) opens that screen on the Playtests tab.
+  const hubRecords = useMemo<HubRecords | null>(() => (hubOn ? { open: openHub } : null), [hubOn, openHub]);
+  const playtestsWaiting = hubOn ? (hub.overview?.recent ?? []).filter((r) => r.state === "awaiting_verdict").length : 0;
   // While the Playtest Hub holds the editor: the bar that says so, with Release the editor.
   const lease = useLease(daemon);
-  const openPlaytest = (sessionId: string, runId?: string) => {
-    openChat(sessionId);
-    if (runId) focusRun(runId);
-  };
   // The chat stays mounted once shown, parked while another tab is up, so coming back to it
   // finds the same session, scroll position and composer draft (#40).
   const chatShown = useRef(tab === "Chat");
@@ -182,8 +164,8 @@ function Studio({ daemon }: { daemon: DaemonState }) {
     replaceStaleWindow().catch(() => undefined);
   }, []);
 
-  // The bar's Live button while PIE runs, naming the hub's check that plays when there is one.
-  const playingCheck = hubOn && hub.overview ? playingRuns(hub.overview)[0]?.name ?? null : null;
+  // The bar's Live button while PIE runs, naming the hub's test that plays when there is one.
+  const playingCheck = hubOn ? hub.overview?.queue.running[0]?.title ?? null : null;
   const live = <LiveButton check={playingCheck} />;
 
   // The bar's tools: in the bar when wide, at the foot of the drawer when narrow, never both.
@@ -226,7 +208,7 @@ function Studio({ daemon }: { daemon: DaemonState }) {
                   <button key={t} className={t === tab ? "tab active" : "tab"} onClick={() => setTab(t)}>
                     {t}
                     {t === "Settings" && updates > 0 && <span className="tab-dot" title={`${updates} ${updates === 1 ? "update" : "updates"} available`} />}
-                    {t === "Playtests" && playtestsWaiting > 0 && <span className="tab-count warn" aria-label={`${playtestsWaiting} need you`} title={hubOn ? `${playtestsWaiting} ${HUB_COPY.attention.toLowerCase()}` : `${playtestsWaiting} need you`}>{playtestsWaiting}</span>}
+                    {t === "Playtests" && playtestsWaiting > 0 && <span className="tab-count warn" aria-label={`${playtestsWaiting} need you`} title={`${playtestsWaiting} waiting for your verdict`}>{playtestsWaiting}</span>}
                   </button>
                 ))}
               </nav>
@@ -263,7 +245,6 @@ function Studio({ daemon }: { daemon: DaemonState }) {
         )}
         <DialogBanner daemon={daemon} />
         <LeaseBar lease={lease} />
-        <HeldBar value={held} onOpenCard={(h) => h.sessionId && openPlaytest(h.sessionId, h.runId)} />
         <PendingDisruptions daemon={daemon} />
         <VersionNotice daemon={daemon} />
         <RemoteApprovalBanner onOpenAsk={(o) => { if (o.tab === "Settings") setSection(o.section ?? "general"); setTab(o.tab); }} />
@@ -280,10 +261,10 @@ function Studio({ daemon }: { daemon: DaemonState }) {
             <main className={`view-${tab.toLowerCase()}${tab === "Playtests" && hubOn ? " hub-host" : ""}`}>
               <ErrorBoundary what={tab} resetKey={tab}>
                 {tab === "Playtests" && (hubOn
-                  ? <HubView data={hub} narrow={narrow} onOpenChat={openPlaytest} onChat={() => setTab("Chat")} canDeleteGoals={canDeleteGoals(daemon.health)} events={daemon.events} health={daemon.health} />
-                  // A hub link before the setting has been read waits for it rather than flashing the old page.
-                  : experiments === null && readLocation().sub ? null
-                  : <PlaytestsView daemon={daemon} index={playtests} onOpenSession={openPlaytest} onChat={() => setTab("Chat")} />)}
+                  ? <HubView data={hub} narrow={narrow} />
+                  // Before the setting has been read, nothing; with the hub off, the way to turn it on.
+                  : experiments === null ? null
+                  : <div className="hub-off muted"><p>The Playtest Hub is an experiment. Turn it on in Settings, Experiments.</p><button className="small-button" onClick={() => { setSection("experiments"); setTab("Settings"); }}>Open Experiments</button></div>)}
                 {tab === "Settings" && <SettingsHub daemon={daemon} section={section} onSection={setSection} onTheme={(t: StudioTheme) => void applyTheme(t)} updates={updates} narrow={narrow} />}
               </ErrorBoundary>
             </main>
@@ -294,7 +275,7 @@ function Studio({ daemon }: { daemon: DaemonState }) {
       </div>
     </FileViewerProvider>
   );
-  const withHeld = <HeldContext.Provider value={held}><HubRecordsContext.Provider value={hubRecords}>{studio}</HubRecordsContext.Provider></HeldContext.Provider>;
+  const withHeld = <HubRecordsContext.Provider value={hubRecords}>{studio}</HubRecordsContext.Provider>;
   return liveAllowed ? <LiveProvider daemon={daemon} onSettings={settingsFromChat}>{withHeld}</LiveProvider> : withHeld;
 }
 

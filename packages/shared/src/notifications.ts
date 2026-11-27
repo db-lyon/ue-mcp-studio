@@ -27,8 +27,8 @@ export const NOTIFY_KINDS: ReadonlyArray<{ kind: NotifyKind; name: string; help:
   { kind: "turn.failed", name: "Turn failed or stopped", help: "A turn ended with an error, or was stopped.", on: true },
   { kind: "approval.waiting", name: "Approval waiting", help: "A tool call waits for you to allow or deny it.", on: true },
   { kind: "dialog.waiting", name: "Editor dialog waiting", help: "An editor dialog waits for your answer.", on: true },
-  { kind: "playtest.needs-you", name: "Clip needs you", help: "A manual step waits for your verdict, or a playtest loop stopped for you.", on: true },
-  { kind: "playtest.finished", name: "Clip finished", help: "A clip run ended, passed or failed.", on: true },
+  { kind: "playtest.needs-you", name: "Playtest needs you", help: "A manual check waits for your verdict.", on: true },
+  { kind: "playtest.finished", name: "Playtest finished", help: "A playtest run passed or failed.", on: true },
   { kind: "subagent.finished", name: "Subagent finished", help: "A subagent ended its task.", on: false },
   { kind: "agent.notice", name: "Agent asks for you", help: "The agent wants your attention while it works, such as when a long build ends.", on: true },
   { kind: "context.limit", name: "Context near the limit", help: "A conversation is close to compaction, or a compaction failed.", on: false },
@@ -38,7 +38,7 @@ export const NOTIFY_KINDS: ReadonlyArray<{ kind: NotifyKind; name: string; help:
 
 export const isNotifyKind = (v: unknown): v is NotifyKind => NOTIFY_KINDS.some((k) => k.kind === v);
 
-/** Where tapping a notification goes: a session, and in it a playtest card, approval or dialog. */
+/** Where tapping a notification goes: a session, an approval or dialog in it, or a Playtest Hub run. */
 export interface NotifyTarget {
   sessionId?: string;
   runId?: string;

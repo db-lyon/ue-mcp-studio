@@ -117,7 +117,7 @@ function ForgotPin({ onDone, onCancel }: { onDone: (s: RemoteLockSettings) => vo
 export const SENSITIVE_ACTIONS: readonly string[] = [
   "Answer approvals, editor dialogs and forms",
   "Start, stop, restart or rebuild the editor, or stop turns waiting on it",
-  "Run clips or flows, or change clip scripts",
+  "Run playtests or flows",
   "Send the next queued message, or one now",
   "Keep, revert or undo changes",
   "Delete a chat",

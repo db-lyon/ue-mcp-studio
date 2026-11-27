@@ -8,7 +8,7 @@
 import { useBack } from "../back";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Animated, AppState, Pressable, RefreshControl, ScrollView, useWindowDimensions, View } from "react-native";
-import { SLASH_COMMANDS, contextView, parseSlashCommand, type ActionRunRequest, type FlowRunRequest, type PlaytestRequest, type SessionDetail, type SessionOps, type SessionSummary, type StudioSettings } from "@ue-mcp-studio/shared";
+import { SLASH_COMMANDS, contextView, parseSlashCommand, type ActionRunRequest, type FlowRunRequest, type SessionDetail, type SessionOps, type SessionSummary, type StudioSettings } from "@ue-mcp-studio/shared";
 import { NO_LIVE, applyLive, type LiveParts } from "@ue-mcp-studio/client-core";
 import { CHAT_INTRO, DetailLoader, SESSIONS_SLOW, SESSION_TRY_AGAIN, SESSION_TRY_AGAIN_LABEL, sessionLoadFailed, chatPane, composerPlaceholder, composerQueues, composerTarget, listedSubagents, sessionGone, subagentsLine, subagentsOf, subagentsPress, toMainFromThread, unreachable } from "@ue-mcp-studio/client-core";
 import { useProjectNav } from "../nav";
@@ -20,7 +20,7 @@ import { publishRecentSessions } from "../native/shortcuts";
 import { Banner, Button, font, labelFont, NavBarBacking, T, useAvoidedInsets, useSheetInsets, useTheme, type Theme } from "../ui";
 import { ConnectModel, ModelAndEffort, ModelPicker, useCatalog } from "./ModelPicker";
 import { useDaemonState, useDismissed, useSeen } from "../chat/hooks";
-import { EditMessageContext, EntryBoundary, MainTranscript, TranscriptFromContext, PlaytestCommandContext, SubagentThread, type EditMode } from "../chat/Transcript";
+import { EditMessageContext, EntryBoundary, MainTranscript, TranscriptFromContext, SubagentThread, type EditMode } from "../chat/Transcript";
 import { QueuedMessages } from "../chat/Queue";
 import { WorkingLine } from "../chat/Working";
 import { pillsFor } from "../chat/pill-providers";
@@ -39,7 +39,6 @@ import { useAgentThread } from "../chat/agent-thread";
 import { FormCards, useForms } from "../screens/chat/items";
 import { FlowLauncher } from "../chat/FlowCommand";
 import { ActionLauncher } from "../chat/ActionCommand";
-import { OutsideRuns, QaContext, useOutsideRuns } from "../chat/Qa";
 import { DialogCards } from "../screens/chat/items";
 import { useDialogs } from "../chat/dialog-model";
 import { SessionIdContext, useAttachments } from "../chat/attachments";
@@ -48,7 +47,6 @@ import { SessionLoading, SessionRowsLoading } from "../chat/Skeleton";
 import { ChatHeader } from "../chat/ChatHeader";
 import { Sheet } from "../chat/Sheet";
 import { ReviewPanel } from "../screens/chat/items";
-import { useSessionRuns } from "../chat/sessionRuns";
 import { buttonText, small } from "../chat/styles";
 import { DiagStrip, noteError, resetDiag, setDiag } from "../chat/diag";
 import { ErrorBoundary } from "./ErrorBoundary";
@@ -504,36 +502,12 @@ export function Chat({ nav, initialSession = null, onSettings, active = true, on
   useEffect(() => setDiag({ entries: detail ? (Array.isArray(detail.transcript) ? detail.transcript.length : -2) : -1 }), [detail]);
   // The calls waiting for approval, so the thread a call waits in says it waits on the user.
   const asked = useMemo(() => new Set((detail?.approvals ?? []).map((a) => a.toolUseId)), [detail?.approvals]);
-  // Retry on a failed playtest: the playtest flow, started when no turn runs.
-  const playtest = useMemo(
-    () =>
-      detail && !disconnected
-        ? {
-            busy,
-            run: function run(request: PlaytestRequest): void {
-              setThread(null);
-              setSent((n) => n + 1);
-              api.playtest(detail.id, request).then(() => loadDetail(detail.id), (e: Error) => failWith(() => run(request))(e));
-            },
-          }
-        : null,
-    [detail?.id, disconnected, busy],
-  );
   // The pills above the composer, from the session's tool-call facts. A sent message clears the row.
   const [dismissedPills, setDismissedPills] = useState<ReadonlySet<string>>(new Set());
   const pills = useMemo(() => (detail && !disconnected ? pillsFor(detail, dismissedPills) : []), [detail, disconnected, dismissedPills]);
   const clearPills = useCallback(() => setDismissedPills((cur) => new Set([...cur, ...pills.map((p) => p.id)])), [pills]);
   const dialogs = useDialogs();
   const forms = useForms(daemon, detail?.id ?? null);
-  const outside = useOutsideRuns(daemon.events, daemon.streaming);
-  // The session's live playtests, pinned under its header while they run or wait for the user.
-  const sessionRuns = useSessionRuns(detail?.id ?? null, detail?.transcript, daemon.events, detail?.liveRuns);
-  const qaLive = useMemo(() => ({ events: daemon.events, streaming: daemon.streaming, forms, sessionId: detail?.id ?? null, onThread: openThreadId }), [daemon.events, daemon.streaming, forms, detail?.id, openThreadId]);
-  /** The runs with a card on screen, so their verdict forms are answered there. */
-  const qaRuns = useMemo(
-    () => new Set([...(detail?.transcript ?? []).flatMap((x) => (x.kind === "qa" ? [x.run.runId] : [])), ...outside.runs.map((r) => r.runId), ...sessionRuns.runs.map((r) => r.runId)]),
-    [detail?.transcript, outside.runs, sessionRuns.runs],
-  );
   const assetLinks = useAssetLinks(detail?.id ?? null);
   const live = sessions.filter((s) => !s.archived);
   const archived = sessions.filter((s) => s.archived);
@@ -708,13 +682,11 @@ export function Chat({ nav, initialSession = null, onSettings, active = true, on
         ) : null}
         {!detail && !selected ? <Empty settings={settings} onSettings={setSettings} onCreate={(x) => void create(x)} /> : null}
         {detail ? (
-          <QaContext.Provider value={qaLive}>
             <SessionIdContext.Provider value={detail.id}>
               <AssetLinksContext.Provider value={assetLinks}>
                 <AssetTranscriptContext.Provider value={detail.transcript}>
                 <TranscriptFromContext.Provider value={detail.from ?? 0}>
                   <EditMessageContext.Provider value={disconnected ? null : editMessage}>
-                    <PlaytestCommandContext.Provider value={playtest}>
                       <CompactContext.Provider value={disconnected ? null : () => compactNow()}>
                         {/* The transcript, the cards and the composer: the composer's box is capped by what this column leaves it. */}
                         <View testID="chat-column" style={{ flex: 1, minHeight: 0 }} onLayout={(e) => setColumnH(Math.round(e.nativeEvent.layout.height))}>
@@ -743,8 +715,7 @@ export function Chat({ nav, initialSession = null, onSettings, active = true, on
                         {/* A native Windows dialog is drawn above every view (DialogBanner), not here as well. */}
                         <DialogCards dialogs={(dialogs.state?.dialogs ?? []).filter((d) => d.sessionId === detail.id && !d.native)} now={dialogs.now()} />
                         <Approvals sessionId={detail.id} approvals={detail.approvals ?? []} />
-                        <OutsideRuns runs={outside.runs} onDismiss={outside.dismiss} />
-                        <FormCards forms={forms} runs={qaRuns} />
+                        <FormCards forms={forms} />
                         {remoteCmd.reply === detail.id ? (
                           <RemoteReply remote={remoteCmd.remote} onDismiss={remoteCmd.dismiss} onSettings={onSettings && (() => { remoteCmd.dismiss(); onSettings("remote"); })} />
                         ) : null}
@@ -758,7 +729,7 @@ export function Chat({ nav, initialSession = null, onSettings, active = true, on
                         {meterView && meterView.level === "high" && !compacting && warnKey !== warnDismissed ? (
                           <ContextWarning view={meterView} runtime={runtimeCompacts} busy={busy} onCompact={() => compactNow()} onDismiss={() => setWarnDismissed(warnKey)} />
                         ) : null}
-                        {playtest ? <PillRow pills={pills} actions={{ playtest: playtest.run }} onClear={clearPills} /> : null}
+                        {!disconnected ? <PillRow pills={pills} actions={{}} onClear={clearPills} /> : null}
                         </View>
                         <View onLayout={(e) => setDiag({ composerH: e.nativeEvent.layout.height })}>
                         <ErrorBoundary what="The working line" where="Chat > Working line" resetKey={detail.id}>
@@ -806,13 +777,11 @@ export function Chat({ nav, initialSession = null, onSettings, active = true, on
                           ) : null}
                         </Sheet>
                       </CompactContext.Provider>
-                    </PlaytestCommandContext.Provider>
                   </EditMessageContext.Provider>
                 </TranscriptFromContext.Provider>
                 </AssetTranscriptContext.Provider>
               </AssetLinksContext.Provider>
             </SessionIdContext.Provider>
-          </QaContext.Provider>
         ) : null}
       </KeyboardAvoidingView>
     </AgentsContext.Provider>

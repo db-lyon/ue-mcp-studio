@@ -98,8 +98,6 @@ data: ${data}
 
 try {
   for (const [k, v] of Object.entries(scenario.storage ?? {})) window.localStorage.setItem(k, v);
-  if (scenario.filter) window.localStorage.setItem("studio.playtests.filter", scenario.filter);
-  else window.localStorage.removeItem("studio.playtests.filter");
 } catch {
   // Storage blocked: the page picks its own filter.
 }
@@ -143,17 +141,10 @@ window.open = () => null;
 // newest line: the transcript follows new lines, not text that reflows later, and the race was the shot's.
 const fontsLoaded = Promise.all([...document.fonts].map((f) => f.load().catch(() => undefined)));
 
-// The Arrangement's Clips window is its own page, as main.tsx draws it.
-if (scenario.hash === "#/clips-window") {
-  void Promise.all([import("../views/hub/ClipsWindow"), fontsLoaded]).then(([{ ClipsWindow }]) => {
-    createRoot(document.getElementById("root")!).render(<StrictMode><ClipsWindow /></StrictMode>);
-  });
-} else {
-  void Promise.all([import("../App"), fontsLoaded]).then(([{ App }]) => {
-    createRoot(document.getElementById("root")!).render(
-      <StrictMode>
-        <App />
-      </StrictMode>,
-    );
-  });
-}
+void Promise.all([import("../App"), fontsLoaded]).then(([{ App }]) => {
+  createRoot(document.getElementById("root")!).render(
+    <StrictMode>
+      <App />
+    </StrictMode>,
+  );
+});

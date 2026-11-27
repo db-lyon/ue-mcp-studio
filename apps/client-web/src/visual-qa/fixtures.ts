@@ -1,25 +1,15 @@
 /**
- * Playtest states for the visual QA harness (visual-qa.html): each scenario is
- * what the daemon would answer for one open session or the Playtests page.
- * The runs are built with the same shared helpers the agent uses, so the UI
- * draws them exactly as it would draw a live run in that state.
+ * Chat states for the visual QA harness (visual-qa.html): each scenario is
+ * what the daemon would answer for one open session or screen.
  */
 import qrcode from "qrcode-generator";
 import {
-  qaActive,
-  qaDraftFromScript,
-  qaNeedsYou,
-  qaRunFromAnswer,
   mentionToken,
   rankMentions,
   type CustomEndpoint,
   type EditorDialog,
   type MentionMatch,
   type MentionSearchResponse,
-  type PlaytestEntry,
-  type PlaytestIndexAnswer,
-  type QaLoop,
-  type QaRun,
   type SessionDetail,
   type SessionSummary,
   type StudioSettings,
@@ -28,92 +18,6 @@ import {
 } from "@ue-mcp-studio/shared";
 
 const ago = (min: number) => new Date(Date.now() - min * 60_000).toISOString();
-const SCRIPTS = "/Game/PIEStudio/Scripts";
-
-/** Steps as a PIE test script has them: an auto check or a person's judgement. */
-const STEPS: Array<{ instruction: string; judge: "auto" | "manual"; expect?: { value: string; op: string; target?: number } }> = [
-  { instruction: "Press jump and the character leaves the ground", judge: "auto", expect: { value: "JumpCurrentCount", op: "gt", target: 0 } },
-  { instruction: "The jump arc looks right and lands cleanly", judge: "manual" },
-  { instruction: "Walk into the door trigger and the door opens", judge: "auto", expect: { value: "BP_Door.OpenAngle", op: "gt", target: 80 } },
-  { instruction: "The door opens without a visible pop", judge: "manual" },
-  { instruction: "Sprint speed stays above 600 while running", judge: "auto", expect: { value: "CharacterMovement.Velocity.Size", op: "gt", target: 600 } },
-];
-
-export function run(id: string, name: string, state: string, statuses: string[], over: Partial<QaRun> = {}): QaRun {
-  const r = qaRunFromAnswer({
-    success: true,
-    run_id: id,
-    script: `${SCRIPTS}/${name}`,
-    script_name: name,
-    state,
-    results_path: `C:/Projects/StudioE2E/Saved/MCPObservations/${id}/results.json`,
-    steps: statuses.map((status, index) => {
-      const s = STEPS[index % STEPS.length];
-      return {
-        index,
-        ...s,
-        status,
-        ...(s.judge === "auto" && status === "failed" ? { evidence: { value: s.expect?.value, at_start: 0, at_end: 0, samples: 120, observed: true, reason: "The value never changed in the window" } } : {}),
-        ...(s.judge === "manual" && status === "failed" ? { note: index === 1 ? "The landing clips through the ledge" : "The door snaps open on the first frame", verdict_source: "action" } : {}),
-      };
-    }),
-    awaiting: statuses.flatMap((s, i) => (s === "awaiting_verdict" ? [i] : [])),
-    last_seq: 4,
-  }, { sessionId: "qa-session", seenAt: ago(4) })!;
-  return { ...r, ...over };
-}
-
-function loop(state: QaLoop["state"]): QaLoop {
-  const first = { n: 1, callId: "agent-1", before: "cp-0", after: "cp-1", changes: [{ path: "Content/Blueprints/BP_Door.uasset", status: "modified" as const }], failing: ["Step 3: the door never opened"], startedAt: ago(9), endedAt: ago(6) };
-  const second = { n: 2, callId: "agent-2", before: "cp-1", ...(state === "running" ? {} : { after: "cp-2", endedAt: ago(2) }), changes: [], failing: state === "running" ? [] : ["Step 3: the door never opened"], startedAt: ago(5) };
-  return {
-    id: `loop-${state}`,
-    state,
-    attempts: [first, second],
-    baseline: "cp-0",
-    startedAt: ago(9),
-    ...(state === "needs_you" ? { endedAt: ago(2), blocker: { kind: "no_progress" as const, reason: "Two attempts changed nothing about step 3: the door trigger never fires in PIE.", evidence: ["Step 3: the door never opened"], step: 2 } } : {}),
-  };
-}
-
-const assigned = (state: QaLoop["state"]) => ({ callId: "agent-2", sessionId: "qa-session", state: state === "running" ? "running" as const : "done" as const, at: ago(9), loop: loop(state) });
-
-/** A draft whose steps name assets the ways a model writes them: a markdown link, a code span, a bare path, a bare name, and arrange and act targets. */
-const LINKED_STEPS = [
-  { instruction: "Load [L_WG_Meadow](/Game/Maps/L_WG_Meadow) and walk up to BP_Obstacle_BrokenBridge", judge: "manual" as const },
-  { instruction: "Press `IA_Jump` at the gap past /Game/Props/SM_PlankWorn.SM_PlankWorn; BP_NotInThisProject stays plain", judge: "manual" as const,
-    arrange: [{ kind: "spawn", class: "/Game/AI/BP_Wolf.BP_Wolf_C" }, { kind: "set", target: "BridgeGate", path: "bLocked", value: false }],
-    act: [{ place: { at: "BridgeGate", offset: [-150, 0, 0] } }, { press: { action: "/Game/Input/IA_Jump.IA_Jump" } }] },
-  { instruction: "The character lands on the far side", judge: "auto" as const, expect: { value: "CharacterMovement.MovementMode", op: "eq", target: 1 } },
-];
-
-/** What the agent answers for the names and paths in LINKED_STEPS. */
-const LINKED_ASSETS: Record<string, string> = {
-  BP_Obstacle_BrokenBridge: "/Game/Obstacles/BP_Obstacle_BrokenBridge.BP_Obstacle_BrokenBridge",
-  IA_Jump: "/Game/Input/IA_Jump.IA_Jump",
-  "/Game/Props/SM_PlankWorn.SM_PlankWorn": "/Game/Props/SM_PlankWorn.SM_PlankWorn",
-};
-const resolveLinked = (path: string, body: unknown) => {
-  if (path !== "/v1/ext/studio/assets/resolve") return undefined;
-  const refs = ((body as { refs?: Array<{ token: string }> } | undefined)?.refs ?? []);
-  return { status: 200, body: { results: refs.map((r) => (LINKED_ASSETS[r.token] ? { status: "resolved", paths: [LINKED_ASSETS[r.token]] } : { status: "unresolved" })) } };
-};
-
-export const RUNS = {
-  linked: { ...qaDraftFromScript({ path: `${SCRIPTS}/TS_Playtest_BP_Obstacle_BrokenBridge`, name: "TS_Playtest_BP_Obstacle_BrokenBridge", map: "/Game/Maps/L_WG_Meadow", steps: LINKED_STEPS }, { sessionId: "qa-session", seenAt: ago(6) })! },
-  draft:{ ...qaDraftFromScript({ path: `${SCRIPTS}/PT_DoorOpens`, name: "PT_DoorOpens", steps: STEPS }, { sessionId: "qa-session", seenAt: ago(6) })! },
-  armed: run("script_PT_DoorOpens_armed", "PT_DoorOpens", "armed", ["pending", "pending", "pending", "pending", "pending"]),
-  running: run("script_PT_JumpCheck_running", "PT_JumpCheck", "running", ["passed", "running", "pending", "pending", "pending"]),
-  waiting: run("script_PT_DoorOpens_waiting", "PT_DoorOpens", "awaiting_verdict", ["passed", "passed", "passed", "awaiting_verdict", "pending"]),
-  failed: run("script_PT_LandingCheck_done", "PT_LandingCheck", "finished", ["passed", "failed", "passed", "failed", "skipped"]),
-  stopped: run("script_PT_Sprint_stopped", "PT_Sprint", "stopped", ["passed", "passed", "pending", "pending", "pending"]),
-  loopRunning: run("script_PT_LedgeGrab_loop", "PT_LedgeGrab", "running", ["passed", "passed", "running", "pending", "pending"], { assignment: assigned("running") }),
-  judged: (() => {
-    const r = run("script_PT_DoorLooks_unreadable-1", "PT_DoorLooks", "finished", ["passed", "passed", "passed", "passed", "passed"]);
-    return { ...r, steps: r.steps.map((s) => (s.index === 3 ? { ...s, verdictSource: "agent" as const, note: "The door swings over 9 frames with no pop.", evidence: { note: "The door swings over 9 frames with no pop.", captures: ["C:/Projects/StudioE2E/Saved/Screenshots/door_open_01.png", "C:/Projects/StudioE2E/Saved/Screenshots/door_open_02_unreadable.png"] } } : s)) };
-  })(),
-  loopNeedsYou: run("script_PT_GateTrigger_blocked", "PT_GateTrigger", "finished", ["passed", "passed", "failed", "skipped", "passed"], { assignment: assigned("needs_you") }),
-};
 
 const SESSION_ID = "qa-session";
 const summary = (title: string, minutes: number): SessionSummary => ({
@@ -128,50 +32,24 @@ const summary = (title: string, minutes: number): SessionSummary => ({
   awaiting: 0,
 });
 
-/** A conversation that leads up to the playtests it holds. */
-function transcript(runs: QaRun[]): TranscriptEntry[] {
-  const entries: TranscriptEntry[] = [
-    { kind: "user", text: "Make a playtest for L_Playtest: jump, walk into the door trigger and sprint, and let me judge how the jump and the door look.", at: ago(12) },
+/** A short conversation, then any lines the scenario adds. */
+function transcript(extra: TranscriptEntry[]): TranscriptEntry[] {
+  return [
+    { kind: "user", text: "Make the door in L_Playtest open when the player walks into its trigger, and ease the swing.", at: ago(12) },
+    { kind: "assistant", text: "The trigger now opens BP_Door, and the swing eases in over 0.4 s.", at: ago(11) },
+    ...extra,
   ];
-  if (runs.length === 0) {
-    entries.push({ kind: "assistant", text: "Which level should it run in? L_Playtest is open now.", at: ago(11) });
-    return entries;
-  }
-  entries.push({ kind: "assistant", text: "I saved it as a script. ue-mcp checks the jump, the door angle and the sprint speed; you watch the jump arc and how the door opens.", at: ago(11) });
-  for (const r of runs) entries.push({ kind: "qa", run: r });
-  const text = runs.some(qaNeedsYou) ? "It needs you now: the card below has what it is waiting on."
-    : runs.every((r) => r.state === "armed") ? "It is starting. I will read the results when it ends."
-    : runs.some(qaActive) ? "It is running. I will read the results when it ends."
-    : runs.some((r) => r.state === "finished" || r.state === "stopped") ? "The run ended; its card has each step's result."
-    : "It is ready. Press Start clip on its card to run it.";
-  entries.push({ kind: "assistant", text, at: ago(3) });
-  return entries;
 }
 
-function detail(title: string, runs: QaRun[]): SessionDetail {
-  return { ...summary(title, 3), transcript: transcript(runs), touched: [], draft: "", seen: [], dismissed: [], queue: [], error: null, approvals: [], review: null, timeline: [] };
+function detail(title: string, extra: TranscriptEntry[]): SessionDetail {
+  return { ...summary(title, 3), transcript: transcript(extra), touched: [], draft: "", seen: [], dismissed: [], queue: [], error: null, approvals: [], review: null, timeline: [] };
 }
-
-const entry = (r: QaRun | null, over: Partial<PlaytestEntry> & { script: string; name: string }): PlaytestEntry =>
-  ({ last: r, card: r?.sessionId ? r : null, draft: null, session: r?.sessionId ? { id: SESSION_ID, title: "Door playtest" } : null, ...over });
-
-const PROJECT: PlaytestEntry[] = [
-  entry(RUNS.waiting, { script: RUNS.waiting.script, name: "PT_DoorOpens" }),
-  entry(RUNS.loopNeedsYou, { script: RUNS.loopNeedsYou.script, name: "PT_GateTrigger", session: { id: SESSION_ID, title: "Fix the gate trigger so the playtest passes on every attempt" } }),
-  entry(RUNS.running, { script: RUNS.running.script, name: "PT_JumpCheck", session: { id: "s-jump", title: "Jump feel" } }),
-  entry({ ...RUNS.failed, sessionId: null, seenAt: ago(130) }, { script: RUNS.failed.script, name: "PT_LandingCheck" }),
-  entry({ ...run("script_PT_Walk_done", "PT_Walk", "finished", ["passed", "passed", "passed"]), seenAt: ago(60 * 26) }, { script: `${SCRIPTS}/PT_Walk`, name: "PT_Walk", session: { id: "s-walk", title: "Walking" } }),
-  { script: `${SCRIPTS}/PT_Crouch`, name: "PT_Crouch", last: null, card: null, draft: { ...qaDraftFromScript({ path: `${SCRIPTS}/PT_Crouch`, name: "PT_Crouch", steps: STEPS.slice(0, 3) }, { seenAt: ago(1) })! }, session: null },
-];
 
 export interface Scenario {
   /** What the shot shows, for the index. */
   title: string;
   hash: string;
   session?: SessionDetail;
-  index: PlaytestIndexAnswer;
-  /** The Playtests page's filter, as the viewer last picked it. */
-  filter?: "needs-you" | "failing" | "all";
   /** Clicked after the page settles: a CSS selector. */
   click?: string;
   /** Hovered with the mouse just before the shot, to show a hover card: a CSS selector. */
@@ -282,8 +160,8 @@ function mentionScenario(title: string, text: string, sources: MentionSearchResp
   };
 }
 
-const inSession = (title: string, sessionTitle: string, runs: QaRun[], click?: string, focus?: string): Scenario =>
-  ({ title, hash: `#/chat/${SESSION_ID}`, session: detail(sessionTitle, runs), index: { playtests: PROJECT, listed: true }, ...(click ? { click } : {}), ...(focus ? { focus } : {}) });
+const inSession = (title: string, sessionTitle: string, extra: TranscriptEntry[], click?: string, focus?: string): Scenario =>
+  ({ title, hash: `#/chat/${SESSION_ID}`, session: detail(sessionTitle, extra), ...(click ? { click } : {}), ...(focus ? { focus } : {}) });
 
 /** A session whose main agent started two subagents, both running: the thread list with each agent's tokens. */
 function withAgents(): SessionDetail {
@@ -609,9 +487,7 @@ function withStopEditor(): SessionDetail {
 const dialogScene = (title: string, dialog: EditorDialog): Scenario => ({
   title,
   hash: `#/chat/${SESSION_ID}`,
-  session: withStopEditor(),
-  index: { playtests: [], listed: true },
-  get: (p) => (p === "/v1/ext/studio/dialogs" ? { dialogs: [dialog], now: Date.now() } : undefined),
+  session: withStopEditor(),  get: (p) => (p === "/v1/ext/studio/dialogs" ? { dialogs: [dialog], now: Date.now() } : undefined),
 });
 
 /** The project's source control with changed files, for the changes panel. */
@@ -817,8 +693,8 @@ export const EDITOR_SCENARIOS: Record<string, Scenario> = {
   "editor-chip-off": editorState("Top bar: the editor chip with the editor not running", {}, { connected: false }),
   "editor-chip-off-open": editorState("The editor chip opened with the editor not running: Start", {}, { connected: false, open: true }),
   "editor-chip-failed-open": editorState("The editor chip opened after a restart that did not bring the editor back: the step and the reason", FAILED, { connected: false, open: true }),
-  "diagnostics": { title: "Settings, Diagnostics: the editor connected, its controls and the daemon", hash: "#/settings/diagnostics", index: { playtests: [], listed: true }, get: (p) => (p === "/v1/health" ? health(true) : undefined), fullPage: true },
-  "diagnostics-disconnected": { title: "Settings, Diagnostics: the editor crashed, only Start offered", hash: "#/settings/diagnostics", index: { playtests: [], listed: true }, get: (p) => (p === "/v1/health" ? health(false, { cause: "crashed", at: "2026-11-04T23:01:00Z" }) : undefined), fullPage: true },
+  "diagnostics": { title: "Settings, Diagnostics: the editor connected, its controls and the daemon", hash: "#/settings/diagnostics", get: (p) => (p === "/v1/health" ? health(true) : undefined), fullPage: true },
+  "diagnostics-disconnected": { title: "Settings, Diagnostics: the editor crashed, only Start offered", hash: "#/settings/diagnostics", get: (p) => (p === "/v1/health" ? health(false, { cause: "crashed", at: "2026-11-04T23:01:00Z" }) : undefined), fullPage: true },
   "flow-launcher-unnamed": flowTyped("/flow with no name: the project's flows to pick from", "/flow ", {}, true),
   "flow-launcher-unknown": flowTyped("/flow with a name that is no flow: the closest names", "/flow bake-lightng "),
   "flow-launcher-error": flowTyped("/flow whose plan cannot be read: the reason and Close", "/flow playtest-smoke "),
@@ -837,39 +713,31 @@ export const SCENARIOS: Record<string, Scenario> = {
   "version-notice": {
     title: "Another project installed a newer Studio: Update this project and Keep (ue-mcp#1619)",
     hash: `#/chat/${SESSION_ID}`,
-    session: withAgents(),
-    index: { playtests: [], listed: true },
-    get: (p) => (p === "/v1/ext/studio/version-notice" ? { notice: { installed: "0.1.25", current: "0.1.23" } } : undefined),
+    session: withAgents(),    get: (p) => (p === "/v1/ext/studio/version-notice" ? { notice: { installed: "0.1.25", current: "0.1.23" } } : undefined),
   },
   "nav-drawer": {
     title: "The narrow navigation drawer opened from the bar's menu button: New session, the tabs, Recents and the bar's tools",
     hash: `#/chat/${SESSION_ID}`,
-    session: withAgents(),
-    index: { playtests: [], listed: true },
-    narrowClicks: [".bar-menu-button"],
+    session: withAgents(),    narrowClicks: [".bar-menu-button"],
   },
-  "tools-open": { title: "A turn's tool calls, their fold opened and the command and its output opened", hash: `#/chat/${SESSION_ID}`, session: withTools(), index: { playtests: [], listed: true }, clicks: [".thread-stage .steps-head", ".thread-stage .steps-list details.tool > summary"] },
-  "tools-open-edit": { title: "An edit_file call opened: its diff, long lines wrapped under their text", hash: `#/chat/${SESSION_ID}`, session: withTools(), index: { playtests: [], listed: true }, clicks: [".thread-stage .steps-head", ".thread-stage .steps-list details.tool:nth-of-type(2) > summary"], scroll: ".thread-stage .steps-list details.tool:nth-of-type(2)" },
-  "steps-folded": { title: "Each run of tool calls between two messages folded into one line, a failed build counted in red, every message in view", hash: `#/chat/${SESSION_ID}`, session: withSteps("idle"), index: { playtests: [], listed: true } },
-  "steps-expanded": { title: "The run of reads opened: every read named by its file, the line range where given", hash: `#/chat/${SESSION_ID}`, session: withSteps("idle"), index: { playtests: [], listed: true }, click: '.thread-stage .steps-head:has-text("Read 8 files")', height: 1100 },
-  "steps-running": { title: "A run of tool calls while the turn runs: the step going now on its summary line", hash: `#/chat/${SESSION_ID}`, session: withSteps("running"), index: { playtests: [], listed: true } },
-  "approvals-waiting": { title: "Two approvals waiting: an edit with its diff and a build command", hash: `#/chat/${SESSION_ID}`, session: withApprovals(), index: { playtests: [], listed: true } },
-  "reply-image": { title: "A reply that shows a PIE capture: the animated GIF inline above its text, loaded through Studio", hash: `#/chat/${SESSION_ID}`, session: withReplyImage(), index: { playtests: [], listed: true }, waitFor: { selector: ".md-image-tile.is-loaded", timeout: 5000 } },
+  "tools-open": { title: "A turn's tool calls, their fold opened and the command and its output opened", hash: `#/chat/${SESSION_ID}`, session: withTools(), clicks: [".thread-stage .steps-head", ".thread-stage .steps-list details.tool > summary"] },
+  "tools-open-edit": { title: "An edit_file call opened: its diff, long lines wrapped under their text", hash: `#/chat/${SESSION_ID}`, session: withTools(), clicks: [".thread-stage .steps-head", ".thread-stage .steps-list details.tool:nth-of-type(2) > summary"], scroll: ".thread-stage .steps-list details.tool:nth-of-type(2)" },
+  "steps-folded": { title: "Each run of tool calls between two messages folded into one line, a failed build counted in red, every message in view", hash: `#/chat/${SESSION_ID}`, session: withSteps("idle") },
+  "steps-expanded": { title: "The run of reads opened: every read named by its file, the line range where given", hash: `#/chat/${SESSION_ID}`, session: withSteps("idle"), click: '.thread-stage .steps-head:has-text("Read 8 files")', height: 1100 },
+  "steps-running": { title: "A run of tool calls while the turn runs: the step going now on its summary line", hash: `#/chat/${SESSION_ID}`, session: withSteps("running") },
+  "approvals-waiting": { title: "Two approvals waiting: an edit with its diff and a build command", hash: `#/chat/${SESSION_ID}`, session: withApprovals() },
+  "reply-image": { title: "A reply that shows a PIE capture: the animated GIF inline above its text, loaded through Studio", hash: `#/chat/${SESSION_ID}`, session: withReplyImage(), waitFor: { selector: ".md-image-tile.is-loaded", timeout: 5000 } },
   "chat-pie-live": {
     title: "The agent started PIE: the Play In Editor card with Watch live",
     hash: `#/chat/${SESSION_ID}`,
-    session: withPieStart(),
-    index: { playtests: [], listed: true },
-    get: (p) => (p === "/v1/ext/studio/viewport" ? pieStatus({}) : undefined),
+    session: withPieStart(),    get: (p) => (p === "/v1/ext/studio/viewport" ? pieStatus({}) : undefined),
     remotePage: true,
     waitFor: { selector: ".pie-card.live", timeout: 5000 },
   },
   "chat-pie-watch": {
     title: "Watch live pressed: the viewport over the chat, armed and waiting for PIE to draw its first frame",
     hash: `#/chat/${SESSION_ID}`,
-    session: withPieStart(),
-    index: { playtests: [], listed: true },
-    click: ".pie-card button.primary",
+    session: withPieStart(),    click: ".pie-card button.primary",
     remotePage: true,
     post: (p) => (p === "/v1/ext/studio/viewport/viewers" ? { status: 201, body: { viewer: "v1", iceServers: [{ urls: "stun:stun.l.google.com:19302" }], status: pieStatus({ source: "pie", viewers: 1, bridge: { available: true, pluginEnabled: true, streaming: false, armed: true } }) } } : undefined),
     get: (p, url) => {
@@ -883,18 +751,14 @@ export const SCENARIOS: Record<string, Scenario> = {
   "bar-live": {
     title: "A paired browser while Play In Editor runs: Live in the top bar, left of Feedback (in the bar itself when narrow)",
     hash: `#/chat/${SESSION_ID}`,
-    session: withAgents(),
-    index: { playtests: [], listed: true },
-    get: (p) => (p === "/v1/ext/studio/viewport" ? pieStatus({}) : undefined),
+    session: withAgents(),    get: (p) => (p === "/v1/ext/studio/viewport" ? pieStatus({}) : undefined),
     remotePage: true,
     waitFor: { selector: ".bar .live-button", timeout: 5000 },
   },
   "bar-live-open": {
     title: "Live pressed: the viewport over the current screen, armed and waiting for PIE to draw its first frame",
     hash: `#/chat/${SESSION_ID}`,
-    session: withAgents(),
-    index: { playtests: [], listed: true },
-    remotePage: true,
+    session: withAgents(),    remotePage: true,
     click: ".bar .live-button",
     post: (p) => (p === "/v1/ext/studio/viewport/viewers" ? { status: 201, body: { viewer: "v1", iceServers: [{ urls: "stun:stun.l.google.com:19302" }], status: pieStatus({ source: "pie", viewers: 1, bridge: { available: true, pluginEnabled: true, streaming: false, armed: true } }) } } : undefined),
     get: (p, url) => {
@@ -905,58 +769,50 @@ export const SCENARIOS: Record<string, Scenario> = {
     holdGet: /\/viewport\/viewers\/v1\/signals\?after=[1-9]/,
     waitFor: { selector: ".viewport-dialog .viewport-notice", timeout: 5000 },
   },
-  "reply-image-pending": { title: "A reply's capture before any byte has come: its tile at the final size, the format and size, loading", hash: `#/chat/${SESSION_ID}`, session: withReplyImage("Pending_Sequence"), index: { playtests: [], listed: true }, waitFor: { selector: ".md-image-tile.is-waiting", timeout: 3000 } },
-  "reply-image-loading": { title: "A reply's capture loading: the poster frame in its tile, with how far the 11.8 MB file has come", hash: `#/chat/${SESSION_ID}`, session: withReplyImage("Loading_Sequence"), index: { playtests: [], listed: true }, waitFor: { selector: ".md-image-bar > span", timeout: 5000 } },
-  "reply-image-failed": { title: "A reply's capture that did not load: the tile kept, with the caption and Retry", hash: `#/chat/${SESSION_ID}`, session: withReplyImage("Failed_Sequence"), index: { playtests: [], listed: true }, waitFor: { selector: ".md-image-tile.is-failed", timeout: 3000 } },
-  "reply-image-legacy": { title: "A reply from an older Studio, without the capture's size: a 16:9 tile the GIF is fitted into", hash: `#/chat/${SESSION_ID}`, session: withReplyImage("Legacy_Sequence", true), index: { playtests: [], listed: true }, waitFor: { selector: ".md-image-tile.is-loaded", timeout: 5000 } },
+  "reply-image-pending": { title: "A reply's capture before any byte has come: its tile at the final size, the format and size, loading", hash: `#/chat/${SESSION_ID}`, session: withReplyImage("Pending_Sequence"), waitFor: { selector: ".md-image-tile.is-waiting", timeout: 3000 } },
+  "reply-image-loading": { title: "A reply's capture loading: the poster frame in its tile, with how far the 11.8 MB file has come", hash: `#/chat/${SESSION_ID}`, session: withReplyImage("Loading_Sequence"), waitFor: { selector: ".md-image-bar > span", timeout: 5000 } },
+  "reply-image-failed": { title: "A reply's capture that did not load: the tile kept, with the caption and Retry", hash: `#/chat/${SESSION_ID}`, session: withReplyImage("Failed_Sequence"), waitFor: { selector: ".md-image-tile.is-failed", timeout: 3000 } },
+  "reply-image-legacy": { title: "A reply from an older Studio, without the capture's size: a 16:9 tile the GIF is fitted into", hash: `#/chat/${SESSION_ID}`, session: withReplyImage("Legacy_Sequence", true), waitFor: { selector: ".md-image-tile.is-loaded", timeout: 5000 } },
   "dialog-save-content": dialogScene("The Save Content prompt put to you: the caption, the packages as a table you tick, and the dialog's own buttons once", saveContentDialog("asking")),
   "dialog-save-content-agent": dialogScene("The Save Content prompt while the agent decides: the table's ticks read only, Answer it yourself", saveContentDialog("agent")),
   "dialog-save-content-flat": dialogScene("The Save Content prompt from a ue-mcp that sends no structure: its text, without the button labels, and the rows to tick", saveContentDialog("asking", false)),
   "dialog-native-gpu": dialogScene("The editor's GPU device lost: the native Windows box above every view, what it means, its OK, and the GPU state from the editor log", gpuCrashDialog()),
   "dialog-native-gpu-details": { ...dialogScene("The GPU device-lost card with the editor log lines opened", gpuCrashDialog()), clicks: [".dialog-details summary"] },
-  "queue-running": { title: "Three messages queued behind a running turn: Send now, Edit and Remove on each row", hash: `#/chat/${SESSION_ID}`, session: withQueue("running"), index: { playtests: [], listed: true } },
-  "queue-stopped": { title: "The queue waiting after a Stop: Send next in its header, Send now on each row", hash: `#/chat/${SESSION_ID}`, session: withQueue("stopped"), index: { playtests: [], listed: true } },
-  "vcs-changes": { title: "The source control chip opened: the changed files and the picked file's diff", hash: `#/chat/${SESSION_ID}`, session: withTools(), index: { playtests: [], listed: true }, get: vcsGet, clicks: ["button.chip.vcs", ".changes-list li button"], narrowClicks: [".bar-menu-button", ".drawer-foot button.chip.vcs", ".changes-list li button"] },
-  "vcs-changes-remote": { title: "A paired browser: the source control chip opened, the changed files and the picked file's diff", hash: `#/chat/${SESSION_ID}`, session: withTools(), index: { playtests: [], listed: true }, get: vcsGet, remotePage: true, clicks: ["button.chip.vcs", ".changes-list li button"], narrowClicks: [".bar-menu-button", ".drawer-foot button.chip.vcs", ".changes-list li button"] },
-  "vcs-changes-list-narrow": { title: "The source control chip opened on a phone: only the changed files, no diff until one is tapped", hash: `#/chat/${SESSION_ID}`, session: withTools(), index: { playtests: [], listed: true }, get: vcsGet, clicks: ["button.chip.vcs"], narrowClicks: [".bar-menu-button", ".drawer-foot button.chip.vcs"] },
-  "vcs-changes-tree": { title: "The source control changes as a folder tree: collapsible folders with change counts, status letters on files", hash: `#/chat/${SESSION_ID}`, session: withTools(), index: { playtests: [], listed: true }, get: vcsGet, clicks: ["button.chip.vcs", ".changes-view button:last-child"], narrowClicks: [".bar-menu-button", ".drawer-foot button.chip.vcs", ".changes-view button:last-child"] },
-  "vcs-changes-tree-remote": { title: "A paired browser: the changes as a folder tree", hash: `#/chat/${SESSION_ID}`, session: withTools(), index: { playtests: [], listed: true }, get: vcsGet, remotePage: true, clicks: ["button.chip.vcs", ".changes-view button:last-child"], narrowClicks: [".bar-menu-button", ".drawer-foot button.chip.vcs", ".changes-view button:last-child"] },
-  "vcs-changes-empty": { title: "The source control chip opened on a project with nothing changed: No changes.", hash: `#/chat/${SESSION_ID}`, session: withTools(), index: { playtests: [], listed: true }, get: vcsCleanGet, clicks: ["button.chip.vcs"], narrowClicks: [".bar-menu-button", ".drawer-foot button.chip.vcs"] },
-  "vcs-changes-truncated": { title: "More files changed than the list holds: the note under the list", hash: `#/chat/${SESSION_ID}`, session: withTools(), index: { playtests: [], listed: true }, get: vcsTruncatedGet, clicks: ["button.chip.vcs"], narrowClicks: [".bar-menu-button", ".drawer-foot button.chip.vcs"] },
-  "vcs-changes-tree-collapsed": { title: "The changes tree with every folder collapsed", hash: `#/chat/${SESSION_ID}`, session: withTools(), index: { playtests: [], listed: true }, get: vcsGet, clicks: ["button.chip.vcs", ".changes-view button:last-child", ".changes-toolbar > button:last-child"], narrowClicks: [".bar-menu-button", ".drawer-foot button.chip.vcs", ".changes-view button:last-child", ".changes-toolbar > button:last-child"] },
-  "vcs-changes-no-diff": { title: "A changed file with no text diff opened: the reason in place of the diff", hash: `#/chat/${SESSION_ID}`, session: withTools(), index: { playtests: [], listed: true }, get: vcsNoDiffGet, clicks: ["button.chip.vcs", ".changes-list li:nth-child(3) button"], narrowClicks: [".bar-menu-button", ".drawer-foot button.chip.vcs", ".changes-list li:nth-child(3) button"] },
-  "checkpoints": { title: "Checkpoints opened from the composer bar's flag (or its overflow menu, folded): the review switch and the timeline", hash: `#/chat/${SESSION_ID}`, session: withTimeline(), index: { playtests: [], listed: true }, clicks: [UTILITY_OR_MORE("composer-checkpoints"), `?.composer-more-item.composer-checkpoints`] },
+  "queue-running": { title: "Three messages queued behind a running turn: Send now, Edit and Remove on each row", hash: `#/chat/${SESSION_ID}`, session: withQueue("running") },
+  "queue-stopped": { title: "The queue waiting after a Stop: Send next in its header, Send now on each row", hash: `#/chat/${SESSION_ID}`, session: withQueue("stopped") },
+  "vcs-changes": { title: "The source control chip opened: the changed files and the picked file's diff", hash: `#/chat/${SESSION_ID}`, session: withTools(), get: vcsGet, clicks: ["button.chip.vcs", ".changes-list li button"], narrowClicks: [".bar-menu-button", ".drawer-foot button.chip.vcs", ".changes-list li button"] },
+  "vcs-changes-remote": { title: "A paired browser: the source control chip opened, the changed files and the picked file's diff", hash: `#/chat/${SESSION_ID}`, session: withTools(), get: vcsGet, remotePage: true, clicks: ["button.chip.vcs", ".changes-list li button"], narrowClicks: [".bar-menu-button", ".drawer-foot button.chip.vcs", ".changes-list li button"] },
+  "vcs-changes-list-narrow": { title: "The source control chip opened on a phone: only the changed files, no diff until one is tapped", hash: `#/chat/${SESSION_ID}`, session: withTools(), get: vcsGet, clicks: ["button.chip.vcs"], narrowClicks: [".bar-menu-button", ".drawer-foot button.chip.vcs"] },
+  "vcs-changes-tree": { title: "The source control changes as a folder tree: collapsible folders with change counts, status letters on files", hash: `#/chat/${SESSION_ID}`, session: withTools(), get: vcsGet, clicks: ["button.chip.vcs", ".changes-view button:last-child"], narrowClicks: [".bar-menu-button", ".drawer-foot button.chip.vcs", ".changes-view button:last-child"] },
+  "vcs-changes-tree-remote": { title: "A paired browser: the changes as a folder tree", hash: `#/chat/${SESSION_ID}`, session: withTools(), get: vcsGet, remotePage: true, clicks: ["button.chip.vcs", ".changes-view button:last-child"], narrowClicks: [".bar-menu-button", ".drawer-foot button.chip.vcs", ".changes-view button:last-child"] },
+  "vcs-changes-empty": { title: "The source control chip opened on a project with nothing changed: No changes.", hash: `#/chat/${SESSION_ID}`, session: withTools(), get: vcsCleanGet, clicks: ["button.chip.vcs"], narrowClicks: [".bar-menu-button", ".drawer-foot button.chip.vcs"] },
+  "vcs-changes-truncated": { title: "More files changed than the list holds: the note under the list", hash: `#/chat/${SESSION_ID}`, session: withTools(), get: vcsTruncatedGet, clicks: ["button.chip.vcs"], narrowClicks: [".bar-menu-button", ".drawer-foot button.chip.vcs"] },
+  "vcs-changes-tree-collapsed": { title: "The changes tree with every folder collapsed", hash: `#/chat/${SESSION_ID}`, session: withTools(), get: vcsGet, clicks: ["button.chip.vcs", ".changes-view button:last-child", ".changes-toolbar > button:last-child"], narrowClicks: [".bar-menu-button", ".drawer-foot button.chip.vcs", ".changes-view button:last-child", ".changes-toolbar > button:last-child"] },
+  "vcs-changes-no-diff": { title: "A changed file with no text diff opened: the reason in place of the diff", hash: `#/chat/${SESSION_ID}`, session: withTools(), get: vcsNoDiffGet, clicks: ["button.chip.vcs", ".changes-list li:nth-child(3) button"], narrowClicks: [".bar-menu-button", ".drawer-foot button.chip.vcs", ".changes-list li:nth-child(3) button"] },
+  "checkpoints": { title: "Checkpoints opened from the composer bar's flag (or its overflow menu, folded): the review switch and the timeline", hash: `#/chat/${SESSION_ID}`, session: withTimeline(), clicks: [UTILITY_OR_MORE("composer-checkpoints"), `?.composer-more-item.composer-checkpoints`] },
   "remote-lock-screen": {
     title: "A paired browser with the whole-client PIN lock on: Studio locked until the PIN set on the computer is entered",
-    hash: "#/chat",
-    index: { playtests: [], listed: true },
-    remotePage: true,
+    hash: "#/chat",    remotePage: true,
     get: (p) => (p === "/v1/ext/studio/lock" ? { whole: true, sensitive: false, locked: true, sensitiveOpen: true, idleMinutes: 15, pinLength: 4 } : undefined),
     waitFor: { selector: ".lock-screen", timeout: 10_000 },
   },
   "remote-lock-screen-typing": {
     title: "The lock screen for a six-digit PIN with three digits typed: six dots, three filled, no enter key",
-    hash: "#/chat",
-    index: { playtests: [], listed: true },
-    remotePage: true,
+    hash: "#/chat",    remotePage: true,
     get: (p) => (p === "/v1/ext/studio/lock" ? { whole: true, sensitive: false, locked: true, sensitiveOpen: true, idleMinutes: 15, pinLength: 6 } : undefined),
     waitFor: { selector: ".lock-screen", timeout: 10_000 },
     clicks: [".pin-pad .pin-key:nth-child(1)", ".pin-pad .pin-key:nth-child(5)", ".pin-pad .pin-key:nth-child(9)"],
   },
   "remote-lock-screen-wrong": {
     title: "The lock screen after wrong PINs: the wait before the next try and how many tries are left before the browser is removed",
-    hash: "#/chat",
-    index: { playtests: [], listed: true },
-    remotePage: true,
+    hash: "#/chat",    remotePage: true,
     get: (p) => (p === "/v1/ext/studio/lock" ? { whole: true, sensitive: false, locked: true, sensitiveOpen: true, idleMinutes: 15, remaining: 3, retryAfterMs: 32_000 } : undefined),
     waitFor: { selector: ".lock-screen", timeout: 10_000 },
   },
   "remote-pin-sheet": {
     title: "A paired browser with the sensitive-actions PIN lock on: Allow on an approval asks for the PIN before it goes",
     hash: `#/chat/${SESSION_ID}`,
-    session: withApprovals(),
-    index: { playtests: [], listed: true },
-    remotePage: true,
+    session: withApprovals(),    remotePage: true,
     get: (p) => (p === "/v1/ext/studio/lock" ? { whole: false, sensitive: true, locked: false, sensitiveOpen: false, idleMinutes: 15, pinLength: 4 } : undefined),
     post: (p) => (p.includes("/approvals/") ? { status: 423, body: { error: "Enter your PIN to do this.", code: "pin-required" } } : undefined),
     clicks: [".approval.card button.primary"],
@@ -964,9 +820,7 @@ export const SCENARIOS: Record<string, Scenario> = {
   },
   "plugins-remote": {
     title: "Plugins in a paired browser: the installed list and the catalog read only, with the note that changes run on the computer",
-    hash: "#/settings/plugins",
-    index: { playtests: [], listed: true },
-    remotePage: true,
+    hash: "#/settings/plugins",    remotePage: true,
     get: (p) =>
       p === "/v1/plugins" ? { plugins: [
         { name: "ue-mcp-meshy", version: "1.2.0", pinned: null, status: "ok", categories: ["meshy"], problems: [] },
@@ -982,9 +836,7 @@ export const SCENARIOS: Record<string, Scenario> = {
   },
   "agents-long": {
     title: "Three subagents started one at a time, with long titles, in a conversation long enough to scroll: each tile holds its title and activity inside its border",
-    hash: `#/chat/${SESSION_ID}`,
-    index: { playtests: [], listed: true },
-    session: (() => {
+    hash: `#/chat/${SESSION_ID}`,    session: (() => {
       const d = withAgents();
       const call = (id: string, description: string, minutes: number): TranscriptEntry =>
         ({ kind: "tool", call: { id, name: "agent", input: { description, prompt: description }, outcome: "pending", startedAt: ago(minutes) } });
@@ -1007,25 +859,23 @@ export const SCENARIOS: Record<string, Scenario> = {
       };
     })(),
   },
-  "agents-tokens": { title: "The thread list: the main agent and its subagents, each with the tokens it spent this session", hash: `#/chat/${SESSION_ID}`, session: withAgents(), index: { playtests: [], listed: true } },
-  "subagent-message": { title: "A running subagent's thread: the composer messages that subagent, and the message the user sent it shows in its thread", hash: `#/chat/${SESSION_ID}`, session: withSubagentMessage(), index: { playtests: [], listed: true }, click: '.thread-stage .tool-call:has-text("Place rocks along the cave floor")' },
-  "agents-sheet": { title: "The subagents from the composer bar's Subagents button (or its overflow menu, folded): narrow, the thread list in a sheet titled with its one summary line; wide, the list inline under the composer with the button pressed, and no sheet", hash: `#/chat/${SESSION_ID}`, session: withAgents(), index: { playtests: [], listed: true }, clicks: [], narrowClicks: [UTILITY_OR_MORE("composer-agents"), `?.composer-more-item.composer-agents`] },
-  "agents-long-titles": { title: "Subagents with titles longer than the screen, the finished ones open: every title whole on one line in its row's own sideways scroller, never cut short, with Stop and Dismiss pinned at the right outside it (the sheet narrow, inline wide)", hash: `#/chat/${SESSION_ID}`, session: withLongAgents(), index: { playtests: [], listed: true }, clicks: [".agents-fold"], narrowClicks: [UTILITY_OR_MORE("composer-agents"), `?.composer-more-item.composer-agents`, ".sheet-body .agents-fold"] },
-  "agents-long-titles-end": { title: "The same rows, each scrolled sideways to its end: the rest of every title, its state, activity, calls and usage, still clear of Stop and Dismiss", hash: `#/chat/${SESSION_ID}`, session: withLongAgents(), index: { playtests: [], listed: true }, clicks: [".agents-fold"], narrowClicks: [UTILITY_OR_MORE("composer-agents"), `?.composer-more-item.composer-agents`, ".sheet-body .agents-fold"], scrollEnd: ".agents-scroll" },
-  "agents-hidden": { title: "Wide, the Subagents button pressed once: the inline list is hidden and takes no room, the button is no longer pressed and keeps its badge (narrow, the list is in a sheet and nothing is inline)", hash: `#/chat/${SESSION_ID}`, session: withAgents(), index: { playtests: [], listed: true }, clicks: [UTILITY_OR_MORE("composer-agents"), `?.composer-more-item.composer-agents`], narrowClicks: [] },
-  "agents-cleared": { title: "Two subagents running after twelve finished ones were cleared, the main agent free: the badge and the list both say 2 (the sheet narrow, inline wide), the working line reads 2 subagents working", hash: `#/chat/${SESSION_ID}`, session: withClearedAgents(), index: { playtests: [], listed: true }, clicks: [], narrowClicks: [UTILITY_OR_MORE("composer-agents"), `?.composer-more-item.composer-agents`] },
+  "agents-tokens": { title: "The thread list: the main agent and its subagents, each with the tokens it spent this session", hash: `#/chat/${SESSION_ID}`, session: withAgents() },
+  "subagent-message": { title: "A running subagent's thread: the composer messages that subagent, and the message the user sent it shows in its thread", hash: `#/chat/${SESSION_ID}`, session: withSubagentMessage(), click: '.thread-stage .tool-call:has-text("Place rocks along the cave floor")' },
+  "agents-sheet": { title: "The subagents from the composer bar's Subagents button (or its overflow menu, folded): narrow, the thread list in a sheet titled with its one summary line; wide, the list inline under the composer with the button pressed, and no sheet", hash: `#/chat/${SESSION_ID}`, session: withAgents(), clicks: [], narrowClicks: [UTILITY_OR_MORE("composer-agents"), `?.composer-more-item.composer-agents`] },
+  "agents-long-titles": { title: "Subagents with titles longer than the screen, the finished ones open: every title whole on one line in its row's own sideways scroller, never cut short, with Stop and Dismiss pinned at the right outside it (the sheet narrow, inline wide)", hash: `#/chat/${SESSION_ID}`, session: withLongAgents(), clicks: [".agents-fold"], narrowClicks: [UTILITY_OR_MORE("composer-agents"), `?.composer-more-item.composer-agents`, ".sheet-body .agents-fold"] },
+  "agents-long-titles-end": { title: "The same rows, each scrolled sideways to its end: the rest of every title, its state, activity, calls and usage, still clear of Stop and Dismiss", hash: `#/chat/${SESSION_ID}`, session: withLongAgents(), clicks: [".agents-fold"], narrowClicks: [UTILITY_OR_MORE("composer-agents"), `?.composer-more-item.composer-agents`, ".sheet-body .agents-fold"], scrollEnd: ".agents-scroll" },
+  "agents-hidden": { title: "Wide, the Subagents button pressed once: the inline list is hidden and takes no room, the button is no longer pressed and keeps its badge (narrow, the list is in a sheet and nothing is inline)", hash: `#/chat/${SESSION_ID}`, session: withAgents(), clicks: [UTILITY_OR_MORE("composer-agents"), `?.composer-more-item.composer-agents`], narrowClicks: [] },
+  "agents-cleared": { title: "Two subagents running after twelve finished ones were cleared, the main agent free: the badge and the list both say 2 (the sheet narrow, inline wide), the working line reads 2 subagents working", hash: `#/chat/${SESSION_ID}`, session: withClearedAgents(), clicks: [], narrowClicks: [UTILITY_OR_MORE("composer-agents"), `?.composer-more-item.composer-agents`] },
   "utilities-folded": {
     title: "Running subagents in a bar too narrow for its utilities: they fold into one overflow button with the subagents' count, its menu open (wide, the whole row shows)",
     hash: `#/chat/${SESSION_ID}`,
-    session: { ...withAgents(), draft: "Then check the fog density" },
-    index: { playtests: [], listed: true },
-    clicks: ["?.composer-more-button"],
+    session: { ...withAgents(), draft: "Then check the fog density" },    clicks: ["?.composer-more-button"],
   },
-  "endpoints-empty": { title: "Models & accounts with no custom endpoint yet, and the route order", hash: "#/settings/models", index: { playtests: [], listed: true }, endpoints: [], fullPage: true },
-  "endpoints-populated": { title: "Models & accounts with two custom endpoints, one whose model list failed", hash: "#/settings/models", index: { playtests: [], listed: true }, endpoints: ENDPOINTS, fullPage: true },
-  "endpoints-error": { title: "Models & accounts when the endpoints cannot be read", hash: "#/settings/models", index: { playtests: [], listed: true }, endpoints: "error", fullPage: true },
-  "endpoints-add": { title: "Adding a custom endpoint", hash: "#/settings/models", index: { playtests: [], listed: true }, endpoints: [], click: ".endpoints-card h2.cfg-label button", fullPage: true },
-  "endpoints-edit": { title: "Editing a custom endpoint: its models", hash: "#/settings/models", index: { playtests: [], listed: true }, endpoints: ENDPOINTS, click: ".endpoint-row:nth-of-type(2) .endpoint-actions button:nth-child(2)", fullPage: true },
+  "endpoints-empty": { title: "Models & accounts with no custom endpoint yet, and the route order", hash: "#/settings/models", endpoints: [], fullPage: true },
+  "endpoints-populated": { title: "Models & accounts with two custom endpoints, one whose model list failed", hash: "#/settings/models", endpoints: ENDPOINTS, fullPage: true },
+  "endpoints-error": { title: "Models & accounts when the endpoints cannot be read", hash: "#/settings/models", endpoints: "error", fullPage: true },
+  "endpoints-add": { title: "Adding a custom endpoint", hash: "#/settings/models", endpoints: [], click: ".endpoints-card h2.cfg-label button", fullPage: true },
+  "endpoints-edit": { title: "Editing a custom endpoint: its models", hash: "#/settings/models", endpoints: ENDPOINTS, click: ".endpoint-row:nth-of-type(2) .endpoint-actions button:nth-child(2)", fullPage: true },
   "composer-handle-focus": (() => {
     const s = inSession("The message box's resize handle focused from the keyboard: its active state, as while dragging", "Door playtest", []);
     return { ...s, focus: ".composer-divider" };
@@ -1119,70 +969,24 @@ export const SCENARIOS: Record<string, Scenario> = {
   },
   "remote-ue-mcp-offline": {
     title: "A paired browser while ue-mcp on the computer is away: offline, reconnecting by itself, nothing to run, and Retry",
-    hash: "#/chat",
-    index: { playtests: [], listed: true },
-    remoteOffline: true,
+    hash: "#/chat",    remoteOffline: true,
     waitFor: { selector: ".overlay[data-phase=needsYou]", timeout: 30_000 },
   },
   "remote-waking": {
     title: "A paired browser's tab back from the background while ue-mcp is still away: a quiet Reconnecting line over the page, no offline panel yet",
-    hash: "#/chat",
-    index: { playtests: [], listed: true },
-    remoteOffline: true,
+    hash: "#/chat",    remoteOffline: true,
     wake: true,
     waitFor: { selector: ".conn-line", timeout: 15_000 },
   },
   "remote-approval-banner": {
     title: "A device asks to control the project while the owner is elsewhere in Studio: the request as a banner over every view",
-    hash: "#/settings/general",
-    index: { playtests: [], listed: true },
-    get: (p) => (p === "/v1/ext/studio/remote/approvals" ? { approvals: [ASKING] } : undefined),
+    hash: "#/settings/general",    get: (p) => (p === "/v1/ext/studio/remote/approvals" ? { approvals: [ASKING] } : undefined),
   },
   "session-empty": inSession("A session with no clip: Checkpoints in the composer bar", "Door playtest", []),
-  "draft": inSession("A draft: collapsed card in the transcript with Start clip on it", "Door playtest", [RUNS.draft]),
-  "draft-asset-links": { ...inSession("A draft opened: asset names in its steps, its script path and its arrange and act targets as links; a name that does not resolve stays plain", "Broken bridge", [RUNS.linked], ".thread-stage .qa-toggle"), post: resolveLinked, focus: ".thread-stage .qa-instruction .asset-link:not(.code)" },
-  "armed": inSession("Armed: the latest item in the conversation", "Door playtest", [RUNS.armed]),
-  "running": inSession("Running: the latest item in the conversation", "Jump check", [RUNS.running]),
-  "running-viewport": {
-    ...inSession("A paired browser, running while Play In Editor plays: Viewport on the card", "Jump check", [RUNS.running]),
-    remotePage: true,
-    get: (p) => (p === "/v1/ext/studio/viewport" ? pieStatus({}) : undefined),
-    waitFor: { selector: '.thread-stage button[aria-label="Viewport"]', timeout: 5000 },
-  },
-  "running-viewport-open": {
-    ...inSession("Viewport pressed in a project without Pixel Streaming 2: the viewer over the chat says so, with Enable it", "Jump check", [RUNS.running]),
-    remotePage: true,
-    get: (p) => (p === "/v1/ext/studio/viewport" ? pieStatus({ editor: "plugin-off", bridge: { available: true, pluginEnabled: false, streaming: false, armed: false } }) : undefined),
-    click: '.thread-stage button[aria-label="Viewport"]',
-    waitFor: { selector: ".viewport-dialog .viewport-notice", timeout: 5000 },
-  },
-  "waiting": inSession("Waiting for a verdict: Pass, Fail and Skip on the card", "Door playtest", [RUNS.waiting]),
-  "waiting-open": inSession("Waiting, opened in place from the waiting step's bar", "Door playtest", [RUNS.waiting], ".thread-stage .qa-path-step[data-status='awaiting_verdict'] button"),
-  "focus-step-bar": inSession("Keyboard focus on a step bar of a waiting card", "Door playtest", [RUNS.waiting], undefined, ".thread-stage .qa-path-step:nth-child(2) button"),
-  "focus-verdict": inSession("Keyboard focus on Pass", "Door playtest", [RUNS.waiting], undefined, ".thread-stage .qa-answer button"),
-  "finished-failures": inSession("Finished with failures", "Landing check", [RUNS.failed]),
-  "finished-failures-open": inSession("Finished with failures, opened from a failed step's bar", "Landing check", [RUNS.failed], ".qa-path-step[data-status='failed'] button"),
-  "stopped": inSession("Stopped: in the transcript, a neutral pill, with the steps it never reached marked", "Sprint", [RUNS.stopped]),
-  "agent-captures": { ...inSession("A step the agent judged, opened: one capture it saw and one it can no longer read", "Door looks", [RUNS.judged]), clicks: [".thread-stage .qa-toggle", ".thread-stage .qa-agent-evidence summary"], scroll: ".thread-stage .qa-agent-evidence" },
-  "loop-running": inSession("Assigned loop running, with its attempt", "Ledge grab", [RUNS.loopRunning]),
-  "loop-needs-you": inSession("Loop that needs you, with its reason and Review", "Gate trigger", [RUNS.loopNeedsYou]),
-  "waiting-remote": { ...inSession("A paired browser waiting for a verdict: Pass, Fail and Skip on the card", "Door playtest", [RUNS.waiting]), remotePage: true },
-  "loop-needs-you-open": { ...inSession("Loop that needs you, opened: Assign again and Cancel loop", "Gate trigger", [RUNS.loopNeedsYou], ".thread-stage .qa-toggle"), scroll: ".thread-stage .qa-loop" },
-  "strip-two-need-you": inSession("Two that need you and one running", "Door playtest", [RUNS.running, RUNS.waiting, RUNS.loopNeedsYou]),
-  "strip-several": inSession("Several live in one conversation", "Door playtest", [RUNS.failed, RUNS.running, RUNS.waiting, RUNS.loopRunning, RUNS.loopNeedsYou]),
   "new-messages": (() => {
-    const s = inSession("New messages arrive while the reader is scrolled up: the pill takes its own row, over no line", "Door playtest", [RUNS.armed]);
+    const s = inSession("New messages arrive while the reader is scrolled up: the pill takes its own row, over no line", "Door playtest", []);
     const talk: TranscriptEntry[] = Array.from({ length: 6 }, (_, i) => ({ kind: i % 2 ? "assistant" as const : "user" as const, text: i % 2 ? "ue-mcp reads the door angle every frame; the run ends when every step has a result." : "How does it decide the door opened?", at: ago(20 - i) }));
     return { ...s, session: { ...s.session!, transcript: [...talk, ...s.session!.transcript] }, arrives: { kind: "assistant", text: "PIE is up; the first step is running.", at: ago(0) } };
   })(),
-  "page-needs-you": { title: "Playtests page, Needs you", hash: "#/playtests", index: { playtests: PROJECT, listed: true }, filter: "needs-you" },
-  "page-failing": { title: "Playtests page, Failing", hash: "#/playtests", index: { playtests: PROJECT, listed: true }, filter: "failing" },
-  "page-all": { title: "Playtests page, All", hash: "#/playtests", index: { playtests: PROJECT, listed: true }, filter: "all" },
-  "page-row-open": { title: "Playtests page, a row's full card opened in place", hash: "#/playtests", index: { playtests: PROJECT, listed: true }, filter: "all", click: ".playtests-row:nth-child(4) .qa-toggle" },
-  "page-row-edit": { title: "Playtests page, Edit on a script run outside Studio: the step editor in place", hash: "#/playtests", index: { playtests: PROJECT, listed: true }, filter: "all", clicks: [".playtests-list > :nth-child(4) .qa-toggle", ".playtests-list > :nth-child(4) button[aria-label='Edit']"] },
-  "page-row-delete": { title: "Playtests page, Delete waiting for its second click", hash: "#/playtests", index: { playtests: PROJECT, listed: true }, filter: "all", clicks: [".playtests-list > :nth-child(4) .qa-toggle", ".playtests-list > :nth-child(4) button[aria-label='Delete']"] },
-  "page-row-offline-open": { title: "Playtests page, an open row while the editor is away: Edit and Delete disabled", hash: "#/playtests", index: { playtests: PROJECT.slice(0, 5), listed: false }, filter: "all", click: ".playtests-row:nth-child(4) .qa-toggle" },
-  "page-empty": { title: "Playtests page with no playtests in the project", hash: "#/playtests", index: { playtests: [], listed: true }, filter: "all" },
-  "page-editor-offline": { title: "Playtests page while the editor cannot list scripts", hash: "#/playtests", index: { playtests: PROJECT.slice(0, 5), listed: false }, filter: "all" },
   ...EDITOR_SCENARIOS,
 };

@@ -26,7 +26,6 @@ import type {
   ActionDescription,
   ActionListing,
   ActionRunRequest,
-  PlaytestRequest,
   QueuedMessage,
   SessionDetail,
   SessionSync,
@@ -46,8 +45,6 @@ import type {
   DialogMode,
   FeedbackMode,
   PendingForm,
-  HubLeaseEvent, QaHeld, QaRun, QaScriptStep, PlaytestRunsMode, PlaytestIndexAnswer,
-  QaVerdict,
   CheckpointChange,
   RestoreOutcome,
   ReviewStatus,
@@ -76,7 +73,8 @@ import type {
   ViewportStatus,
 } from "@ue-mcp-studio/shared";
 import { alive, fromUeMcp, recordDiag } from "./diag";
-import { clipsApi, draftingApi, hubApi, setApi,notificationsOf, playtestsQuery, threadQuery, uploadChunked, uploadInParts } from "@ue-mcp-studio/client-core";
+import { hubApi, notificationsOf, threadQuery, uploadChunked, uploadInParts } from "@ue-mcp-studio/client-core";
+import type { HubLeaseEvent } from "ue-mcp/daemon";
 import { FILE_REVEAL_PATH } from "@ue-mcp-studio/shared";
 import type { AgentThreadPage, Notice, NotifyDelivery, NotifyDevice, ProjectNotifyUpdate } from "@ue-mcp-studio/shared";
 import { agentSettingsOf, catalogOf, contextOf, healthOf, installOf, nativeOf, settingsOf } from "./normalize";
@@ -254,8 +252,6 @@ export const api = {
     call<{ sessionId: string }>("POST", `/v1/ext/studio/sessions/${encodeURIComponent(id)}/action`, request),
   actions: () => call<{ actions: ActionListing[] }>("GET", "/v1/ext/studio/actions"),
   describeAction: (name: string) => call<ActionDescription>("GET", `/v1/ext/studio/actions/${encodeURIComponent(name)}`),
-  playtest: (id: string, request: PlaytestRequest) =>
-    call<{ sessionId: string }>("POST", `/v1/ext/studio/sessions/${encodeURIComponent(id)}/playtest`, request),
   queue: (id: string, text: string, attachments: string[] = []) =>
     call<QueuedMessage>("POST", `/v1/ext/studio/sessions/${encodeURIComponent(id)}/queue`, { text, attachments }),
   editQueued: (id: string, qid: string, text: string) => call<void>("PUT", `/v1/ext/studio/sessions/${encodeURIComponent(id)}/queue/${encodeURIComponent(qid)}`, { text }),
@@ -299,38 +295,14 @@ export const api = {
     call<void>("POST", `/v1/ext/studio/sessions/${encodeURIComponent(id)}/approvals/${encodeURIComponent(approvalId)}`, { decision }),
   busy: () => call<BusyState>("GET", "/v1/ext/studio/busy"),
   agentSettings: () => call<unknown>("GET", "/v1/ext/studio/agent-settings").then(agentSettingsOf),
-  saveAgentSettings: (u: Partial<{ feedbackTool: boolean; feedbackMode: FeedbackMode; dialogMode: DialogMode; playtestRuns: PlaytestRunsMode; agentFixes: boolean; verdictWaitMinutes: number }>) => call<unknown>("PUT", "/v1/ext/studio/agent-settings", u).then(agentSettingsOf),
+  saveAgentSettings: (u: Partial<{ feedbackTool: boolean; feedbackMode: FeedbackMode; dialogMode: DialogMode }>) => call<unknown>("PUT", "/v1/ext/studio/agent-settings", u).then(agentSettingsOf),
   forms: (sessionId: string) => call<{ forms: PendingForm[] }>("GET", `/v1/ext/studio/forms?session=${encodeURIComponent(sessionId)}`),
   answerForm: (id: string, answer: { action: "accept"; content: Record<string, unknown> } | { action: "decline" | "cancel" }) =>
     call<void>("POST", `/v1/ext/studio/forms/${encodeURIComponent(id)}`, answer),
-  qaRuns: () => call<{ runs: QaRun[] }>("GET", "/v1/ext/studio/qa/runs"),
-  qaPlaytests: (fresh = false, limit?: number) => call<PlaytestIndexAnswer>("GET", `/v1/ext/studio/qa/playtests${playtestsQuery(fresh, limit)}`),
-  qaPlaytestCard: (script: string) => call<{ run: QaRun }>("POST", "/v1/ext/studio/qa/playtests/card", { script }),
-  qaPlaytestScript: (script: string) => call<{ run: QaRun }>("GET", `/v1/ext/studio/qa/playtests/script?script=${encodeURIComponent(script)}`),
-  qaPlaytestSave: (script: string, steps: QaScriptStep[], map?: string) => call<{ script: string }>("PUT", "/v1/ext/studio/qa/playtests/script", { script, steps, ...(map !== undefined ? { map } : {}) }),
-  qaPlaytestDelete: (script: string) => call<{ script: string }>("DELETE", `/v1/ext/studio/qa/playtests/script?script=${encodeURIComponent(script)}`),
-  qaStatus: (runId: string, sinceSeq?: number) =>
-    call<{ answer: Record<string, unknown>; run: QaRun | null }>("GET", `/v1/ext/studio/qa/runs/${encodeURIComponent(runId)}/status${sinceSeq === undefined ? "" : `?since_seq=${sinceSeq}`}`),
-  qaVerdict: (runId: string, step: number, verdict: QaVerdict, note?: string) =>
-    call<{ run: QaRun }>("POST", `/v1/ext/studio/qa/runs/${encodeURIComponent(runId)}/verdict`, note ? { step, verdict, note } : { step, verdict }),
-  qaAssign: (runId: string, sessionId?: string | null, withoutCheckpoints?: boolean) =>
-    call<{ run: QaRun }>("POST", `/v1/ext/studio/qa/runs/${encodeURIComponent(runId)}/assign`, { ...(sessionId ? { sessionId } : {}), ...(withoutCheckpoints ? { withoutCheckpoints } : {}) }),
-  qaCancelAssign: (runId: string) => call<{ run: QaRun }>("DELETE", `/v1/ext/studio/qa/runs/${encodeURIComponent(runId)}/assign`),
-  qaRevertLoop: (runId: string, attempt?: number) =>
-    call<{ run: QaRun; outcome: RestoreOutcome }>("POST", `/v1/ext/studio/qa/runs/${encodeURIComponent(runId)}/loop/revert`, attempt === undefined ? {} : { attempt }),
-  qaStop: (runId: string) => call<{ run: QaRun }>("POST", `/v1/ext/studio/qa/runs/${encodeURIComponent(runId)}/stop`),
-  qaHeld: () => call<{ held: QaHeld[] }>("GET", "/v1/ext/studio/qa/held"),
-  qaResume: (runId: string) => call<{ held: QaHeld }>("POST", `/v1/ext/studio/qa/runs/${encodeURIComponent(runId)}/resume`),
   /** The Playtest Hub's hold on the editor, for the app's bar. */
   hubLease: () => call<HubLeaseEvent>("GET", "/v1/hub/lease"),
   /** Release the editor: what the hub holds stops, and its queue pauses. */
   hubRelease: () => call<unknown>("POST", "/v1/hub/release", {}),
-  qaRun: (runId: string, options: { startPie: boolean; players: number; listen: boolean; record: boolean }) =>
-    call<{ run: QaRun }>("POST", `/v1/ext/studio/qa/runs/${encodeURIComponent(runId)}/run`, options),
-  qaSaveScript: (runId: string, steps: QaScriptStep[], map?: string) => call<{ run: QaRun }>("PUT", `/v1/ext/studio/qa/runs/${encodeURIComponent(runId)}/script`, { steps, ...(map !== undefined ? { map } : {}) }),
-  qaDeleteScript: (runId: string) => call<{ run: QaRun }>("DELETE", `/v1/ext/studio/qa/runs/${encodeURIComponent(runId)}/script`),
-  qaDismiss: (runId: string) => call<void>("DELETE", `/v1/ext/studio/qa/runs/${encodeURIComponent(runId)}`),
-  qaResultsUrl: (runId: string) => `/v1/ext/studio/qa/runs/${encodeURIComponent(runId)}/results`,
   reviewStatus: () => call<ReviewStatus>("GET", "/v1/ext/studio/review/status"),
   setSessionReview: (sessionId: string, on: boolean | null) => call<{ review: boolean | null }>("PUT", `/v1/ext/studio/sessions/${encodeURIComponent(sessionId)}/review`, { on }),
   reviewDiff: (sessionId: string, reviewId: string, path: string) =>
@@ -343,8 +315,6 @@ export const api = {
     call<{ timeline: TimelineMark[]; outcome: RestoreOutcome }>("POST", `/v1/ext/studio/sessions/${encodeURIComponent(sessionId)}/timeline/restore`, force ? { checkpoint, force } : { checkpoint }),
   timelineUndo: (sessionId: string, checkpoint: string) =>
     call<{ timeline: TimelineMark[]; outcome: RestoreOutcome }>("POST", `/v1/ext/studio/sessions/${encodeURIComponent(sessionId)}/timeline/undo`, { checkpoint }),
-  qaCaptureUrl: (runId: string, step: number, n: number) =>
-    `/v1/ext/studio/qa/runs/${encodeURIComponent(runId)}/steps/${step}/captures/${n}`,
   reviewImageUrl: (name: string) => `/v1/ext/studio/review/images/${encodeURIComponent(name)}`,
   reviewThumbnailUrl: (id: string) => `/v1/ext/studio/review/thumbnails/${encodeURIComponent(id)}`,
   reviewNativeDiff: (sessionId: string, reviewId: string, path: string) =>
@@ -372,12 +342,6 @@ export const api = {
   sendFeedback: (report: FeedbackReport) => call<FeedbackResult>("POST", "/v1/ext/studio/feedback", report),
   /** The Playtest Hub's routes (client-core hubApi), over this page's fetch. */
   hub: hubApi(<T,>(method: string, url: string, body?: unknown) => call<T>(method, url, body)),
-  /** The hub's playtest editor (client-core draftingApi). */
-  drafting: draftingApi(<T,>(method: string, url: string, body?: unknown) => call<T>(method, url, body)),
-  /** Timeline playtests (client-core clipsApi). */
-  clips: clipsApi(<T,>(method: string, url: string, body?: unknown) => call<T>(method, url, body)),
-  /** The hub's set of tracks and scenes (client-core setApi). */
-  set: setApi(<T,>(method: string, url: string, body?: unknown) => call<T>(method, url, body)),
 };
 
 /** A stream whose response head has not come back this long is stalled: abort and ask again. */

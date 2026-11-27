@@ -1080,8 +1080,7 @@ describe("queued messages", () => {
     await until(() => model.waiting === 1);
     await runner.flow(s.id, { name: "qa", params: { level: "Main map" } });
     await runner.action(s.id, { category: "level", method: "place_actor", args: { name: "A" } });
-    await runner.playtest(s.id, { text: "the door" });
-    expect(store.get(s.id)!.queue!.map((q) => q.text)).toEqual(['/flow qa level="Main map"', "/action level.place_actor name=A", "/playtest the door"]);
+    expect(store.get(s.id)!.queue!.map((q) => q.text)).toEqual(['/flow qa level="Main map"', "/action level.place_actor name=A"]);
     model.release();
     await first;
   });

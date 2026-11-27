@@ -21,6 +21,31 @@
 .hub-set-transport { display: flex; align-items: center; gap: 4px; margin-left: 6px; }
 .hub-root button.hub-set-transport-btn { height: 26px; min-height: 0; padding: 0 10px; font: 600 12px/1 var(--sans); letter-spacing: 0; }
 .hub-root button.hub-set-transport-btn.on { background: var(--accent-wash); border-color: var(--accent); color: var(--accent); }
+.hub-root button.hub-set-transport-btn.icon { width: 28px; padding: 0; justify-content: center; }
+.hub-root button.hub-set-transport-btn.rec { color: var(--bad); }
+.hub-root button.hub-set-transport-btn.rec.on { background: var(--bad); border-color: var(--bad); color: var(--panel); }
+.hub-set-transport-group { display: inline-flex; align-items: center; gap: 2px; flex: none; }
+.hub-set-transport-group.run { margin-left: 6px; }
+.hub-set-transport-group .hub-set-io { height: 26px; margin-left: 2px; font-size: 12px; }
+.hub-set-mode { display: inline-flex; align-items: center; gap: 6px; flex: none; height: 24px; padding: 0 9px; border: 1px solid var(--line-strong); border-radius: 999px; font: 600 12px/1 var(--sans); white-space: nowrap; }
+.hub-set-mode.is-audition { border-color: var(--accent); color: var(--accent); }
+.hub-set-mode.is-run { border-color: var(--ok); color: var(--ok); }
+.hub-set-mode.is-record { border-color: var(--bad); color: var(--bad); }
+.hub-set-rec-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--bad); animation: hub-pulse 1s ease-in-out infinite; }
+.hub-set-clock.is-record { border-color: var(--bad); color: var(--bad); }
+.hub-set-clock.is-audition { border-color: var(--accent); }
+.hub-set-clock.is-run { border-color: var(--ok); }
+.hub-root button.hub-set-toggle.arm { color: var(--bad); }
+.hub-root button.hub-set-toggle.arm.on { background: var(--bad); border-color: var(--bad); color: var(--panel); }
+.hub-root button.hub-set-toggle:disabled { opacity: 0.4; cursor: not-allowed; }
+.hub-set-recshade { position: absolute; top: 0; bottom: 0; background: var(--bad); opacity: 0.14; border-left: 2px solid var(--bad); }
+.hub-set-cursor.audition { border-left-color: var(--accent); }
+.hub-set-cursor.run { border-left-color: var(--ok); }
+/* On a narrow page the transport takes the lines it needs under the title. */
+.hub-root.narrow .hub-set .hub-head.compact { flex-wrap: wrap; }
+.hub-root.narrow .hub-set .hub-head.compact .hub-head-actions { flex: 1 1 100%; flex-wrap: wrap; row-gap: 4px; margin-left: 0; }
+.hub-root.narrow .hub-set-transport-group.run { margin-left: 0; }
+@media (prefers-reduced-motion: reduce) { .hub-set-rec-dot { animation: none; } }
 /* The switcher at the head of the transport: the arrangement shown, and the others to open in its place. */
 .hub-root button.hub-set-switch { display: inline-flex; align-items: center; gap: 6px; max-width: 200px; margin-right: 4px; }
 .hub-set-switch-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -69,6 +94,9 @@
 .hub-set-verdict strong { flex: none; white-space: nowrap; }
 .hub-set-verdict-ask { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--muted); }
 .hub-set-verdict input { flex: 0 1 200px; min-width: 80px; height: 26px; }
+/* On a narrow page the note takes its own line, so Pass and Fail stay in view. */
+.hub-root.narrow .hub-set-verdict { flex-wrap: wrap; row-gap: 6px; }
+.hub-root.narrow .hub-set-verdict input { flex: 1 1 100%; order: 3; }
 
 /* The timelines: one scroller, the ruler sticky at the top and the header column sticky at the left. */
 .hub-set-surface { flex: 1; min-height: 0; display: flex; border: 1px solid var(--line); border-radius: var(--radius); background: var(--panel); outline: none; overflow: hidden; }
@@ -219,7 +247,6 @@
 .hub-root .hub-set-head .hub-set-head-ctl button.hub-set-performer { flex: 1 1 auto; width: auto; height: 18px; min-height: 0; max-width: none; min-width: 0; display: flex; align-items: center; justify-content: flex-start; gap: 3px; padding: 0 3px; border: 1px solid var(--line-strong); border-radius: 2px; background: var(--panel-2); color: var(--text); font: 500 11px/16px var(--sans); letter-spacing: 0; }
 .hub-root .hub-set-head .hub-set-head-ctl button.hub-set-performer:hover { border-color: var(--accent-line, var(--line-strong)); }
 .hub-set-performer-kind, .hub-perf-kind { flex: none; display: inline-flex; align-items: center; justify-content: center; width: 12px; height: 12px; border-radius: 2px; font: 700 8.5px/1 var(--mono); color: var(--panel); background: var(--muted); }
-.hub-set-performer.kind-actor .hub-set-performer-kind, .hub-perf-kind.kind-actor { background: var(--accent); color: var(--on-accent, var(--panel)); }
 .hub-set-performer-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .hub-root .hub-set-corner button.hub-set-add-for.hub-set-add-for.hub-set-add-for { flex: none; width: 20px; height: 22px; min-height: 0; min-width: 0; padding: 0; justify-content: center; color: var(--muted); }
 .hub-root .hub-set-corner button.hub-set-add-for:hover { color: var(--text); }
@@ -234,3 +261,78 @@
 .hub-perf-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .hub-perf-class { margin-left: auto; flex: none; max-width: 45%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 11.5px; }
 .hub-perf-note { margin: 4px 6px 6px; line-height: 1.4; }
+
+/* The transport's title and level. */
+.hub-set .hub-head-text { flex: 0 1 auto; display: flex; align-items: center; gap: 6px; min-width: 0; }
+.hub-set .hub-back { margin-bottom: 0; }
+.hub-set .hub-set-name.hub-set-title-input { flex: 0 1 260px; min-width: 100px; height: 28px; font: 700 14px/1 var(--sans); background: transparent; border-color: transparent; }
+.hub-set .hub-set-name.hub-set-title-input:hover, .hub-set .hub-set-name.hub-set-title-input:focus { border-color: var(--line-strong); background: var(--panel); }
+.hub-set-level { min-width: 0; max-width: 160px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+/* The run on show: its state and tally, one line. */
+.hub-set-run { flex: none; display: flex; align-items: center; gap: 10px; min-height: 26px; flex-wrap: wrap; }
+
+/* The regions lane and the Checks track sit above and below the tracks; their headers do not drag. */
+.hub-set-head.fixed { cursor: default; border-left-color: var(--line-strong); background: var(--panel-2); }
+.hub-set-head.fixed .hub-set-title-text { font: 600 11px/18px var(--sans); text-transform: uppercase; letter-spacing: 0.04em; color: var(--muted); }
+.hub-set-row.regions { height: 44px; border-bottom-color: var(--line-strong); }
+.hub-set-row.checks { min-height: 46px; border-top: 1px solid var(--line-strong); position: sticky; bottom: 0; z-index: 4; background: var(--panel); }
+.hub-set-row.checks .hub-set-lane { background-color: var(--panel-2); }
+.hub-set-add-check { flex: 1 1 auto; width: auto; max-width: none; }
+.hub-set-performer-select { flex: 1 1 auto; width: auto; max-width: none; }
+.hub-set-region { --clip: var(--muted); }
+.hub-set-region.on { --clip: var(--accent); }
+.hub-set-region .hub-set-block-head { background: transparent; color: var(--text); border-bottom: 2px solid var(--clip); }
+.hub-set-region { background: var(--accent-wash); border-style: solid; border-width: 0 1px; }
+
+/* Check notes, one look per mode: by the end marks its end, throughout fills, hold waits at its start, manual asks a person. */
+.hub-set-check { --clip: var(--accent); }
+.hub-set-check.mode-throughout { --clip: #31a9d6; }
+.hub-set-check.mode-hold { --clip: #d9b42b; }
+.hub-set-check.mode-manual { --clip: #a05ad8; }
+.hub-set-check.mode-by_end .hub-set-block-body { box-shadow: inset -3px 0 0 var(--clip); }
+.hub-set-check.mode-throughout .hub-set-block-body { background: var(--clip); opacity: 0.35; }
+.hub-set-check.mode-hold .hub-set-block-body { box-shadow: inset 3px 0 0 var(--clip); }
+.hub-set-check.mode-manual { border-radius: 9px; }
+.hub-set-block-mark { flex: none; padding: 0 2px; border-radius: 2px; background: var(--panel); color: var(--text); font: 700 8.5px/11px var(--mono); }
+.hub-set .hub-set-check.st-passed { border-color: var(--ok); }
+.hub-set .hub-set-check.st-failed { border-color: var(--bad); }
+.hub-set .hub-set-check.st-awaiting_verdict { border-color: var(--warn); box-shadow: 0 0 0 1px var(--warn); }
+.hub-set-check .hub-set-block-body { min-height: 0; }
+/* A drawer row: the clip's name, its length, and Edit at the end. */
+.hub-set-clip-row .hub-set-clip { flex: 1; min-width: 0; display: flex; align-items: center; gap: 8px; height: 28px; padding: 0 6px; cursor: grab; user-select: none; }
+.hub-set-clip-row .hub-set-clip-act { display: inline-flex; align-items: center; justify-content: center; }
+.hub-set-check-flag { display: inline-flex; align-items: center; gap: 4px; white-space: nowrap; }
+.hub-set-inspector .hub-set-name.wide { flex: 1 1 260px; }
+.hub-set-inspector .hub-set-name.narrow { flex: 0 1 80px; min-width: 50px; }
+.hub-set-io.wide { flex: 0 0 auto; width: auto; max-width: none; }
+.hub-root .hub-set-verdict button.verdict-pass { color: var(--ok); }
+.hub-root .hub-set-verdict button.verdict-fail { color: var(--bad); }
+
+/* The clip piano roll: notes on Input Action lanes, diamonds for curve keys. */
+.hub-roll .hub-set-row { min-height: 0; }
+.hub-roll-note .hub-set-block-head { height: 100%; }
+.hub-roll-note .hub-set-block-body { display: none; }
+.hub-roll-mark { position: absolute; top: 50%; width: 9px; height: 9px; margin: -5px 0 0 -5px; transform: rotate(45deg); border: 1px solid var(--accent); background: var(--accent-wash); cursor: grab; touch-action: none; z-index: 1; }
+.hub-roll-mark.on { background: var(--accent); border-color: var(--text); }
+.hub-roll-end { position: absolute; top: 0; bottom: 0; width: 0; border-left: 2px dashed var(--muted); pointer-events: none; }
+/* Suites: the tree beside the suite on show, stacked on a narrow page. */
+.hub-suites-layout { display: grid; grid-template-columns: 260px minmax(0, 1fr); gap: 16px; align-items: start; }
+.hub-root.narrow .hub-suites-layout { grid-template-columns: 1fr; }
+.hub-suite-tree .hub-list .hub-list { margin-top: 2px; }
+.hub-suite-detail { display: flex; flex-direction: column; gap: 12px; min-width: 0; }
+.hub-suite-title { width: 100%; max-width: 420px; height: 32px; box-sizing: border-box; font: 700 19px/1.2 var(--sans); background: transparent; border-color: transparent; }
+.hub-suite-title:hover, .hub-suite-title:focus { border-color: var(--line-strong); background: var(--panel); }
+.hub-history { display: flex; align-items: flex-end; gap: 3px; height: 56px; }
+.hub-history-bar { flex: 0 0 10px; border-radius: 2px 2px 0 0; background: var(--warn); }
+.hub-history-bar.ok { background: var(--ok); }
+.hub-history-bar.bad { background: var(--bad); }
+.hub-test-row.quarantined .hub-row-title { color: var(--muted); }
+.hub-flaky { color: var(--warn); }
+.hub-root .hub-test-row button.on { color: var(--warn); border-color: var(--warn); }
+.hub-suite-add { display: flex; gap: 6px; flex-wrap: wrap; }
+.hub-suite-add select { flex: 0 1 320px; min-width: 0; }
+@media (max-width: 760px) {
+  .hub-test-row { flex-wrap: wrap; }
+  .hub-test-row .hub-row-actions { width: 100%; justify-content: flex-end; padding: 0 8px 6px; }
+}

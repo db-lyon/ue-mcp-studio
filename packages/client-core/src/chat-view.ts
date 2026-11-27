@@ -1,10 +1,9 @@
 /**
  * What the chat view says and decides that is not drawing: the session list's
  * lines, which pane a narrow chat shows, the context meter's words, attachment
- * sizes, and a session's live playtest runs. The web client and the app draw
- * these the same way.
+ * sizes. The web client and the app draw these the same way.
  */
-import type { ContextUsage, ContextView, QaRun, SessionSummary, TranscriptEntry } from "@ue-mcp-studio/shared";
+import type { ContextUsage, ContextView, SessionSummary } from "@ue-mcp-studio/shared";
 import { tokenCount } from "./chat-model.js";
 
 const STATUS_LABEL: Record<string, string> = {
@@ -150,52 +149,3 @@ export function contextWarningText(view: ContextView, runtime: boolean): string 
 }
 
 // attachmentUrl, isImage, formatBytes and MAX_BYTES are in composer.ts.
-
-
-/** The newer of two views of a run: the higher seq, and the server's on a tie. */
-export function newerRun(server: QaRun, local: QaRun): QaRun {
-  if (server.runId !== local.runId) return server;
-  if (server.lastSeq >= local.lastSeq) return server;
-  // The steps from the newer events, the subagent as the agent last saved it.
-  return server.assignment ? { ...local, assignment: server.assignment } : local;
-}
-
-/** The session's runs as they are now: its transcript's, with every studio.qa.changed since the transcript was read. */
-export interface SessionRuns {
-  runs: QaRun[];
-  /** A run id the transcript may still hold (a draft's, before its run took the card) to the run that holds it now. */
-  alias: ReadonlyMap<string, string>;
-}
-
-/**
- * The runs of a session from its transcript and the studio.qa.changed events after `after` (the last event id the transcript already holds).
- * `live`: the daemon's live runs (SessionDetail.liveRuns), so a run whose card is before the page a client holds is still pinned.
- */
-export function sessionRunsOf(sessionId: string | null, transcript: TranscriptEntry[] | undefined, events: ReadonlyArray<{ id: number; type: string; data: Record<string, unknown> }>, after: number, live: readonly QaRun[] = []): SessionRuns {
-  const byId = new Map<string, QaRun>();
-  const alias = new Map<string, string>();
-  for (const r of live) byId.set(r.runId, r);
-  for (const t of transcript ?? []) if (t.kind === "qa") byId.set(t.run.runId, t.run);
-  for (const e of events) {
-    if (e.id <= after || e.type !== "studio.qa.changed") continue;
-    const run = e.data.run as QaRun | undefined;
-    if (!run?.runId) continue;
-    const replaces = typeof e.data.replaces === "string" ? e.data.replaces : null;
-    if (replaces && byId.has(replaces)) {
-      byId.delete(replaces);
-      alias.set(replaces, run.runId);
-      byId.set(run.runId, run);
-    } else if (byId.has(run.runId)) {
-      byId.set(run.runId, newerRun(run, byId.get(run.runId)!));
-    } else if (sessionId && run.sessionId === sessionId) {
-      byId.set(run.runId, run);
-    }
-  }
-  // An alias chain (draft, manual run, full run) resolves to the run at its end.
-  for (const [from, to] of alias) {
-    let end = to;
-    for (let i = 0; i < 8 && alias.has(end); i++) end = alias.get(end)!;
-    alias.set(from, end);
-  }
-  return { runs: [...byId.values()], alias };
-}

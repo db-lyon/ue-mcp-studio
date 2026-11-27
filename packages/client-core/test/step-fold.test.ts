@@ -111,17 +111,15 @@ describe("folding tool calls", () => {
 });
 
 describe("the main thread folds steps", () => {
-  it("and never folds replies, notes, dialogs, review, QA, flow, cards, compaction, playtests or subagents", () => {
+  it("and never folds replies, notes, dialogs, review, flow, cards, compaction or subagents", () => {
     const visible: TranscriptEntry[] = [
       reply("Looking at the wiki."),
       { kind: "note", text: "note", at: at(1) },
       { kind: "dialog", dialog: { id: "d", title: "Save?", openedAt: Date.parse(at(1)) } as never },
       { kind: "review", review: { at: at(1) } as never },
-      { kind: "qa", run: { seenAt: at(1) } as never },
       { kind: "flow", name: "f", params: {}, state: "running", steps: [], at: at(1) } as never,
       { kind: "card", ext: "x", type: "y", data: {}, at: at(1) } as never,
       { kind: "compaction", at: at(1) } as never,
-      { kind: "playtest", state: "drafting", request: {} as never, attempt: 1, at: at(1) },
     ];
     for (const v of visible) {
       const items = mainTimeline([user("go"), read("a"), read("b"), v, read("c"), read("d")]);

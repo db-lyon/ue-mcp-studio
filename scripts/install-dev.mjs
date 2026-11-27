@@ -4,7 +4,7 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import { fileURLToPath } from "node:url";
-import { signBundle } from "ue-mcp/daemon";
+import { DAEMON_API_VERSION, signBundle } from "ue-mcp/daemon";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const webDist = path.join(root, "apps", "client-web", "dist");
@@ -50,7 +50,7 @@ if (fs.existsSync(windowExe)) {
   fs.mkdirSync(path.join(staging, "bin"), { recursive: true });
   fs.copyFileSync(windowExe, path.join(staging, "bin", "studio-window.exe"));
 }
-const manifest = signBundle(path.join(staging, "ui"), { name: "studio", version, api: { min: 1, max: 1 } }, fs.readFileSync(keyFile, "utf-8"));
+const manifest = signBundle(path.join(staging, "ui"), { name: "studio", version, api: { min: DAEMON_API_VERSION, max: DAEMON_API_VERSION } }, fs.readFileSync(keyFile, "utf-8"));
 fs.renameSync(staging, target);
 // Earlier dev installs only; releases stay.
 for (const e of fs.readdirSync(extensions, { withFileTypes: true })) {

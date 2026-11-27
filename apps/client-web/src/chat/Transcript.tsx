@@ -1,12 +1,11 @@
 import { createContext, memo, useContext, useEffect, useMemo, useState } from "react";
 import { api } from "../api";
 import { MentionText } from "./MentionMenu";
-import { lineDiff, type Attachment, type PlaytestRequest, type PlaytestStage, type TranscriptEntry, type TurnStatus } from "@ue-mcp-studio/shared";
+import { lineDiff, type Attachment, type TranscriptEntry, type TurnStatus } from "@ue-mcp-studio/shared";
 import { DiffView } from "./Diff";
 import { useAgents, useAsked } from "./asked";
 import type { ReplyImageInfo, SessionAgent } from "@ue-mcp-studio/shared";
 import { DialogLine } from "./Dialogs";
-import { QaCard } from "./Qa";
 import { TurnReviewCard } from "./TurnReview";
 import { FlowCard } from "./FlowCommand";
 import { CompactionMarker } from "./Compaction";
@@ -90,15 +89,7 @@ export const Entry = memo(function Entry({ entry }: { entry: TranscriptEntry }) 
   }
   if (entry.kind === "note") return <div className="banner warn note">{entry.text}</div>;
   if (entry.kind === "dialog") return <DialogLine dialog={entry.dialog} />;
-  // A deleted script's cards leave the conversation with it.
-  if (entry.kind === "qa") return entry.run.deleted ? null : <QaCard run={entry.run} />;
   if (entry.kind === "review") return <TurnReviewCard review={entry.review} />;
-  if (entry.kind === "playtest") {
-    return entry.state === "failed"
-      ? <PlaytestFailed errors={entry.errors?.length ? entry.errors : ["The /playtest flow made no clip."]} request={entry.request} />
-      : <PlaytestProgress entry={entry} />;
-  }
-  if (entry.kind === "playtest-failed") return <PlaytestFailed errors={[entry.reason]} request={entry.request} />;
   if (entry.kind === "flow") return <FlowCard entry={entry} />;
   if (entry.kind === "card") return <ExtensionCard entry={entry} />;
   if (entry.kind === "compaction") return <CompactionMarker entry={entry} />;
@@ -113,52 +104,6 @@ function ExtensionCard({ entry }: { entry: Extract<TranscriptEntry, { kind: "car
   const item = useSlot("chat.card").find((i) => i.ext === entry.ext && i.contribution.id === entry.type);
   const ctx = useMemo(() => ({ sessionId: sessionId ?? "", data: entry.data }), [sessionId, entry.data]);
   return item ? <Contribution item={item} ctx={ctx} /> : null;
-}
-
-/**
- * Runs a /playtest from a button: Retry on a failed one. `busy` while a turn
- * runs, when it cannot start. Null where nothing can be sent.
- */
-export const PlaytestCommandContext = createContext<{ busy: boolean; run: (req: PlaytestRequest) => void } | null>(null);
-
-/** The playtest flow's stages, in order, as the card names them. */
-const PLAYTEST_STAGES: Array<[PlaytestStage, string]> = [
-  ["gathering", "Gathering"],
-  ["drafting", "Drafting"],
-  ["checking", "Checking"],
-  ["created", "Created"],
-];
-
-/** A /playtest while its flow runs: the stages, the one in progress marked, and the draft's attempt after a retry. */
-function PlaytestProgress({ entry }: { entry: Extract<TranscriptEntry, { kind: "playtest" }> }) {
-  const at = PLAYTEST_STAGES.findIndex(([s]) => s === entry.state);
-  return (
-    <div className="banner playtest-progress" role="status" aria-label="Playtest progress">
-      <ol className="row small playtest-stages">
-        {PLAYTEST_STAGES.map(([stage, label], i) => (
-          <li key={stage} className={i < at || entry.state === "created" ? "done" : i === at ? "active" : "dim"} aria-current={i === at ? "step" : undefined}>
-            {label}
-            {stage === "drafting" && entry.attempt > 1 && ` (attempt ${entry.attempt})`}
-          </li>
-        ))}
-      </ol>
-    </div>
-  );
-}
-
-/** A /playtest that saved no script: that it failed, the flow's errors, and Retry. */
-function PlaytestFailed({ errors, request }: { errors: string[]; request: PlaytestRequest }) {
-  const playtest = useContext(PlaytestCommandContext);
-  return (
-    <div className="banner bad playtest-failed" role="status">
-      <div className="row">
-        <strong>No clip was made.</strong>
-        <span className="spacer" />
-        {playtest && <button className="small-button" disabled={playtest.busy} onClick={() => playtest.run(request)}>Retry</button>}
-      </div>
-      {errors.length === 1 ? <div className="small">{errors[0]}</div> : <ul className="small">{errors.map((e, i) => <li key={i}>{e}</li>)}</ul>}
-    </div>
-  );
 }
 
 /**

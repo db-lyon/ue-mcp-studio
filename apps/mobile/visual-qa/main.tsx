@@ -4,12 +4,10 @@
 import { createRoot } from "react-dom/client";
 import type { StudioTheme } from "@ue-mcp-studio/shared";
 import { Harness, SCENARIOS } from "./harness";
-import { CardsHarness } from "./cards";
 import { REFERENCE, SCENES, SceneHarness } from "./scenes";
 import { PARITY } from "./parity";
 import { store } from "../ui-test/mocks/secure-store";
 import { setSafeAreaInsets } from "../ui-test/mocks/safe-area";
-import { FILTER_KEY } from "../src/screens/playtests/Playtests";
 import { AppScreenHarness, APP_SCREENS } from "./screens";
 
 /** A phone's 3-button navigation bar over the bottom of the page: translucent, so whatever sits under it shows through. */
@@ -55,9 +53,6 @@ requestAnimationFrame(dropScrollLayers);
 
 const name = params.get("scenario") ?? "session-empty";
 const theme = (params.get("theme") ?? "ue-mcp") as StudioTheme;
-// The Playtests page's filter, as the viewer last picked it.
-const picked = SCENARIOS[name]?.filter;
-if (picked) store.set(FILTER_KEY, picked);
 // The device's own storage the scenario starts from (its notification settings), in the phone's secure store.
 for (const [k, v] of Object.entries(SCENARIOS[name]?.storage ?? {})) store.set(k, v);
 
@@ -67,12 +62,10 @@ for (const [k, v] of Object.entries(SCENARIOS[name]?.storage ?? {})) store.set(k
   scenes: Object.fromEntries(Object.entries(SCENES).map(([k, s]) => [k, { title: s.title, clicks: s.clicks ?? [], type: s.type ?? null, reference: REFERENCE[k] ?? null }])),
   screens: Object.keys(APP_SCREENS),
 };
-// ?cards=1: only the session's playtest cards, for scripts/parity-cards-mobile.mjs.
-const cards = params.get("cards") === "1";
 // ?screen=<name>: one of the app's own screens outside a project (pairing, projects, the fingerprint offer, a sheet), one state each.
 const screen = params.get("screen");
 // ?scene=<name>: one of the app's own screens in one of its states (./scenes).
 const scene = params.get("scene");
 createRoot(document.getElementById("root")!).render(
-  scene ? <SceneHarness name={scene} theme={theme} /> : screen ? <AppScreenHarness name={screen} theme={theme} /> : cards ? <CardsHarness name={name} theme={theme} /> : <Harness name={name} theme={theme} />,
+  scene ? <SceneHarness name={scene} theme={theme} /> : screen ? <AppScreenHarness name={screen} theme={theme} /> : <Harness name={name} theme={theme} />,
 );

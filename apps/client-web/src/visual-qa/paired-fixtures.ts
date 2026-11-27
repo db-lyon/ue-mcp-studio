@@ -7,7 +7,7 @@
  */
 import type { Scenario } from "./fixtures";
 
-const page = (title: string, hash: string, o: Partial<Scenario> = {}): Scenario => ({ title, hash, index: { playtests: [], listed: true }, ...o });
+const page = (title: string, hash: string, o: Partial<Scenario> = {}): Scenario => ({ title, hash, ...o });
 
 const ENVIRONMENT = "Studio 0.1.25-beta.30\nue-mcp 1.4.11-beta.4\nEditor plugin 0.1.7\nUnreal Engine 5.7\nWindows 11\nModel: Claude Sonnet 5.5 (Claude sign-in)";
 const FEEDBACK_BUTTON = 'button[title="Report a problem or suggest an idea"]';

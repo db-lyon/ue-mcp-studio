@@ -1,6 +1,6 @@
 /** The chat's way into the live viewport: when Play In Editor reads as live, what the Play In Editor card says, and where the card goes in a thread. */
 import { describe, expect, it } from "vitest";
-import type { QaRun, ToolCallRecord, TranscriptEntry, ViewportStatus } from "@ue-mcp-studio/shared";
+import type { ToolCallRecord, TranscriptEntry, ViewportStatus } from "@ue-mcp-studio/shared";
 import { asksViewportAgain, pieCard, pieFromEvent, withPie } from "../src/viewport.js";
 import { pieRunning } from "../src/viewport-open.js";
 import { mainTimeline, startsPie } from "../src/chat-model.js";
@@ -10,7 +10,6 @@ const call = (category: string, method: string, args: Record<string, unknown>, o
   kind: "tool",
   call: { id, name: "ue_mcp", input: { action: "call", category, method, args }, outcome, startedAt: "" },
 });
-const qa = (over: Partial<QaRun>): TranscriptEntry => ({ kind: "qa", run: { runId: "r1", script: "s", scriptName: "s", state: "running", steps: [], awaiting: [], lastSeq: 0, summary: { total: 0, passed: 0, failed: 0, skipped: 0, pending: 0, awaiting: 0 }, resultsPath: null, sessionId: "x", toolUseId: null, seenAt: "", ...over } });
 
 describe("Play In Editor live", () => {
   it("reads live while PIE runs or its stream is up, not while a stream is only armed", () => {
@@ -50,16 +49,13 @@ describe("the Play In Editor card", () => {
 });
 
 describe("where the card goes", () => {
-  it("knows the calls and runs that start PIE", () => {
+  it("knows the calls that start PIE", () => {
     expect(startsPie(call("editor", "play_in_editor", { pieAction: "start" }))).toBe(true);
     expect(startsPie(call("editor", "play_in_editor", { pieAction: "status" }))).toBe(false);
     expect(startsPie(call("editor", "play_in_editor", { pieAction: "start" }, "error"))).toBe(false);
     expect(startsPie(call("editor", "play_in_editor_ignore_blueprint_errors", {}))).toBe(true);
-    expect(startsPie(call("pie", "script_run", { script: "/Game/T" }))).toBe(true);
-    expect(startsPie(call("pie", "script_run", { script: "/Game/T", mode: "manual" }))).toBe(false);
-    expect(startsPie(qa({}))).toBe(true);
-    expect(startsPie(qa({ state: "draft" }))).toBe(false);
-    expect(startsPie(qa({ manual: true }))).toBe(false);
+    expect(startsPie(call("pie", "replay_run", {}))).toBe(true);
+    expect(startsPie(call("pie", "replay_run", { mode: "manual" }))).toBe(false);
   });
 
   it("puts the card after what started PIE, breaks the run of steps there, and marks the newest", () => {

@@ -344,9 +344,7 @@ const diffAnswer = (url: URL): unknown => {
 const card = (title: string, open?: keyof typeof PATHS, scroll?: string): Scenario => ({
   title,
   hash: `#/chat/${SESSION_ID}`,
-  session: SESSION,
-  index: { playtests: [], listed: true },
-  height: 1500,
+  session: SESSION,  height: 1500,
   get: (p, url) => (/\/reviews\/[^/]+\/diff$/.test(p) ? diffAnswer(url) : undefined),
   ...(open ? { clicks: [`[data-path='${PATHS[open]}'] .review-item-name`], scroll: scroll ?? `[data-path='${PATHS[open]}']` } : {}),
 });
@@ -355,9 +353,7 @@ const card = (title: string, open?: keyof typeof PATHS, scroll?: string): Scenar
 const one = (title: string, session: SessionDetail, o: Partial<Scenario> = {}): Scenario => ({
   title,
   hash: `#/chat/${SESSION_ID}`,
-  session,
-  index: { playtests: [], listed: true },
-  height: 1100,
+  session,  height: 1100,
   get: (p, url) => (/\/reviews\/[^/]+\/diff$/.test(p) ? diffAnswer(url) : undefined),
   scroll: ".review-card",
   ...o,

@@ -1,11 +1,12 @@
 /**
  * The hub's state on the page: whether the experiment is on, the overview
- * read from GET /hub and read again as runs, goals and the queue change, and
- * the context every hub screen draws from.
+ * read from GET /v1/hub and read again on hub.changed, and the context every
+ * hub screen draws from.
  */
-import { createContext, useContext, useEffect, useRef, useState, type RefObject } from "react";
-import type { HubOverview, PlanRequest, StudioExperiments } from "@ue-mcp-studio/shared";
-import { HUB_RELOAD_MS, hubReloadsOn, type HubKeyAction, type HubRoute, type HubTrail } from "@ue-mcp-studio/client-core";
+import { createContext, useContext, useEffect, useRef, useState } from "react";
+import type { StudioExperiments } from "@ue-mcp-studio/shared";
+import type { HubOverview, QueueRequest } from "ue-mcp/daemon";
+import { HUB_RELOAD_MS, hubReloadsOn, type HubRoute } from "@ue-mcp-studio/client-core";
 import { api } from "../../api";
 import type { DaemonState } from "../../state";
 
@@ -42,55 +43,20 @@ export function useExperiments(events: DaemonState["events"]): StudioExperiments
   return x;
 }
 
-/** Fired on window when Settings changes Fix failing clips with an agent, so the hub's Fix buttons follow. */
-export const AGENT_FIXES_EVENT = "studio:agent-fixes";
-
-export function announceAgentFixes(on: boolean): void {
-  if (typeof window === "undefined") return;
-  window.dispatchEvent(new CustomEvent<boolean>(AGENT_FIXES_EVENT, { detail: on }));
-}
-
-/**
- * Whether Fix failing clips with an agent is on, read when a screen opens;
- * null until the agent answers, when neither the Fix buttons nor the line
- * saying they are off is shown.
- */
-export function useAgentFixes(): boolean | null {
-  const [on, setOn] = useState<boolean | null>(null);
-  useEffect(() => {
-    let live = true;
-    Promise.resolve().then(() => api.agentSettings()).then((a) => live && setOn(a.agentFixes), () => live && setOn(false));
-    const heard = (e: Event) => setOn((e as CustomEvent<boolean>).detail === true);
-    window.addEventListener(AGENT_FIXES_EVENT, heard);
-    return () => {
-      live = false;
-      window.removeEventListener(AGENT_FIXES_EVENT, heard);
-    };
-  }, []);
-  return on;
-}
-
 export interface HubData {
   overview: HubOverview | null;
   error: string | null;
   /** Bumped on every read, so a screen with its own detail reads it again too. */
   version: number;
   reload: () => void;
-  /** Change the overview in place ahead of the daemon's answer; the next read replaces it. */
-  patch: (f: (o: HubOverview) => HubOverview) => void;
 }
 
-/**
- * The overview, while the hub is on: read when the stream is up, then again
- * after hub.changed, studio.qa.changed and script.* events. A run's
- * burst of script events is folded into one read per HUB_RELOAD_MS.
- */
+/** The overview while the hub is on: read when the stream is up, then again after hub events, a burst folded into one read. */
 export function useHubOverview(daemon: Pick<DaemonState, "events" | "streaming">, on: boolean): HubData {
   const [overview, setOverview] = useState<HubOverview | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [version, setVersion] = useState(0);
   const live = useRef(true);
-  // Set on every mount: StrictMode mounts twice, and the first unmount must not silence the second.
   useEffect(() => {
     live.current = true;
     return () => {
@@ -99,14 +65,13 @@ export function useHubOverview(daemon: Pick<DaemonState, "events" | "streaming">
   }, []);
   const reload = () => {
     if (!on) return;
-    setVersion((v) => v + 1);
     api.hub.overview().then((o) => {
       if (!live.current) return;
       setOverview(o);
       setError(null);
+      setVersion((v) => v + 1);
     }, (e: Error) => live.current && setError(e.message));
   };
-  // Read when the hub is switched on, and again when the stream comes back, since events may have been missed.
   useEffect(() => {
     if (on) reload();
     else setOverview(null);
@@ -126,13 +91,7 @@ export function useHubOverview(daemon: Pick<DaemonState, "events" | "streaming">
   useEffect(() => () => {
     if (timer.current) clearTimeout(timer.current);
   }, []);
-  return { overview, error, version, reload, patch: (f) => setOverview((o) => (o ? f(o) : o)) };
-}
-
-/** What a new goal starts with: the goals it is part of, and its kind. */
-export interface GoalPreset {
-  parents?: string[];
-  kind?: "goal" | "milestone";
+  return { overview, error, version, reload };
 }
 
 export interface HubContextValue {
@@ -143,40 +102,8 @@ export interface HubContextValue {
   narrow: boolean;
   /** A short line at the foot of the hub: what just happened, or why it did not. */
   notify: (text: string, tone?: "ok" | "bad") => void;
-  /** Queue a plan and say what was queued. */
-  runPlan: (req: PlanRequest, what?: string) => Promise<void>;
-  runCheck: (checkId: string, name?: string) => Promise<void>;
-  openChat: (sessionId: string, runId?: string) => void;
-  editGoal: (goalId: string | null, preset?: GoalPreset) => void;
-  addChecks: (goalId: string) => void;
-  /** Pick an existing goal for this goal to require. */
-  requireGoal: (goalId: string) => void;
-  /** Ask which goal to add these checks to. */
-  addToGoal: (checkIds: string[]) => void;
-  /** Confirm, then delete these playtests' script assets; `onDone` gets the ids that were deleted. */
-  deleteChecks: (checkIds: string[], onDone?: (deleted: string[]) => void) => void;
-  /** Whether the daemon offers deleting goals (GOAL_DELETE_FEATURE); Delete is hidden without it. */
-  canDeleteGoals: boolean;
-  /** Confirm, then delete a goal or milestone; its playtests stay. `onDone` runs once it is gone. */
-  deleteGoal: (goalId: string, onDone?: () => void) => void;
-  /** Draft with an agent: describe a playtest, and the /playtest flow writes it in a chat session. */
-  describePlaytest: () => void;
-  /** The screen on show takes the keys the hub does not handle itself, set on each render; return true when one was used. */
-  onKeys: (handler: (a: HubKeyAction) => boolean) => void;
-  /** A screen with unsaved changes (the playtest editor): leaving it asks first, and Discard calls `discard`. Null when it closes. */
-  guardLeave: (guard: LeaveGuard | null) => void;
-  /** The way the user came to this screen; back and the breadcrumbs follow it. */
-  trail: HubTrail;
-  /** Go back this many screens along the trail (past its first, to the tab it came from). */
-  goBack: (steps: number) => void;
-  /** The daemon's recent events and health, for screens that follow a run live (the timeline). */
-  events?: DaemonState["events"];
-  health?: unknown;
-}
-
-export interface LeaveGuard {
-  dirty: () => boolean;
-  discard: () => void;
+  /** Queue a test or a suite and say where it went. */
+  run: (req: QueueRequest, what: string) => Promise<void>;
 }
 
 export const HubContext = createContext<HubContextValue | null>(null);
@@ -185,22 +112,4 @@ export function useHub(): HubContextValue {
   const c = useContext(HubContext);
   if (!c) throw new Error("useHub outside the hub");
   return c;
-}
-
-/**
- * A cursor over a screen's rows for j and k: the index, kept inside the list,
- * and the row it lands on scrolled into view.
- */
-export function useCursor(count: number, list: RefObject<HTMLElement>): [number, (i: number) => void, (d: number) => void] {
-  const [at, setAt] = useState(0);
-  useEffect(() => {
-    if (at > 0 && at >= count) setAt(Math.max(0, count - 1));
-  }, [count]);
-  const set = (i: number) => {
-    const next = Math.max(0, Math.min(count - 1, i));
-    setAt(next);
-    const row = list.current?.querySelectorAll<HTMLElement>("[data-row]")[next];
-    if (row && typeof row.scrollIntoView === "function") row.scrollIntoView({ block: "nearest" });
-  };
-  return [Math.min(at, Math.max(0, count - 1)), set, (d) => set(at + d)];
 }

@@ -3,12 +3,10 @@
  * with every detail and sync answer, so a client holding only a page of the
  * transcript and a client holding all of it show the same thing: the
  * subagents (their state, current step and thread size), the working line's
- * facts, whether the conversation is being compacted, and the live playtests.
+ * facts, and whether the conversation is being compacted.
  * The daemon computes it; clients only format it (client-core).
  */
 import type { ContextUsage } from "./context.js";
-import type { QaRun } from "ue-mcp/hub";
-import { qaActive, qaNeedsYou } from "./playtests.js";
 import type { ToolCallRecord, TranscriptEntry, TurnStatus } from "./index.js";
 
 /** What a subagent is doing now. */
@@ -61,8 +59,6 @@ export interface SessionDerived {
   working: WorkingFacts;
   /** The main conversation is being compacted now. */
   compacting: boolean;
-  /** The session's playtests that are live or need the user, wherever their card is in the transcript. */
-  liveRuns: QaRun[];
 }
 
 export interface DeriveContext {
@@ -78,7 +74,7 @@ export interface DeriveContext {
 }
 
 const timeOf = (t: TranscriptEntry): number =>
-  t.kind === "dialog" ? t.dialog.openedAt : t.kind === "qa" ? Date.parse(t.run.seenAt) : t.kind === "review" ? Date.parse(t.review.at) : Date.parse(t.kind === "tool" ? t.call.endedAt ?? t.call.startedAt : t.at);
+  t.kind === "dialog" ? t.dialog.openedAt : t.kind === "review" ? Date.parse(t.review.at) : Date.parse(t.kind === "tool" ? t.call.endedAt ?? t.call.startedAt : t.at);
 
 /**
  * A subagent's state from its call and its own entries: finished by its
@@ -145,7 +141,6 @@ export function deriveSession(transcript: readonly TranscriptEntry[], ctx: Deriv
     subagents: sessionAgents(transcript, ctx),
     working: workingFacts(transcript),
     compacting: transcript.some((t) => t.kind === "compaction" && !t.parent && t.state === "running"),
-    liveRuns: transcript.flatMap((t) => (t.kind === "qa" && (qaActive(t.run) || qaNeedsYou(t.run)) ? [t.run] : [])),
   };
 }
 

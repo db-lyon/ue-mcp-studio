@@ -10,12 +10,9 @@ import {
   type DialogMode,
   type DialogPolicy,
   type FeedbackMode,
-  type PlaytestRunsMode,
   type StudioSettings,
 } from "@ue-mcp-studio/shared";
-import { AGENT_FIXES_COPY, HELD_COPY, VERDICT_WAIT_OPTIONS } from "@ue-mcp-studio/client-core";
 import { api } from "../../api";
-import { announceAgentFixes } from "../hub/state";
 import { Head } from "../SettingsHub";
 import { Card, NumberField, Opt, Row, Seg, Switch, useMessage } from "./controls";
 import { RemoteReadOnly } from "./RemoteReadOnly";
@@ -41,12 +38,7 @@ export const FEEDBACK_MODES: { id: FeedbackMode; name: string; about: string }[]
   { id: "defer", name: "Hold", about: "Review later with npx ue-mcp feedback review." },
 ];
 
-const PLAYTEST_STARTS: ReadonlyArray<{ id: PlaytestRunsMode; name: string; help: string }> = [
-  { id: "manual", name: "Manual", help: "Clips run only when you start or assign them." },
-  { id: "automatic", name: "Automatic", help: "Agents can also start clips on their own." },
-];
-
-type AgentUpdate = Partial<{ feedbackTool: boolean; feedbackMode: FeedbackMode; dialogMode: DialogMode; playtestRuns: PlaytestRunsMode; agentFixes: boolean; verdictWaitMinutes: number }>;
+type AgentUpdate = Partial<{ feedbackTool: boolean; feedbackMode: FeedbackMode; dialogMode: DialogMode }>;
 
 /**
  * Approvals & review: what waits for the user before an agent acts, and what
@@ -65,7 +57,6 @@ export function ApprovalsSection() {
   const saveAgent = (u: AgentUpdate) =>
     api.saveAgentSettings(u).then((a) => {
       setAgent(a);
-      announceAgentFixes(a.agentFixes);
       if (a.restarting) msg.ok("Saved. ue-mcp restarts after the current turn.");
       else msg.clear();
     }, msg.fail);
@@ -84,15 +75,6 @@ export function ApprovalsSection() {
           </Row>
         ))}
         </RemoteReadOnly>
-        <Row title="Clip runs" help={PLAYTEST_STARTS.find((p) => p.id === agent.playtestRuns)?.help}>
-          <Seg label="Clip runs" value={agent.playtestRuns} options={PLAYTEST_STARTS} onChange={(v) => void saveAgent({ playtestRuns: v })} />
-        </Row>
-        <Row inline title={AGENT_FIXES_COPY.setting} help={AGENT_FIXES_COPY.help}>
-          <Switch label={AGENT_FIXES_COPY.setting} on={agent.agentFixes} onChange={(v) => void saveAgent({ agentFixes: v })} />
-        </Row>
-        <Row title={HELD_COPY.verdictWait} help={HELD_COPY.verdictWaitHelp}>
-          <Seg compact label={HELD_COPY.verdictWait} value={String(agent.verdictWaitMinutes)} options={VERDICT_WAIT_OPTIONS} onChange={(v) => void saveAgent({ verdictWaitMinutes: Number(v) })} />
-        </Row>
         <p className="cfg-note">All other actions run without asking.</p>
       </Card>
 
@@ -123,7 +105,7 @@ export function ApprovalsSection() {
       </Card>
 
       <Card label="Turn review">
-        <Row inline title="Review each turn" help="Keep or revert each change after a turn. Override per session in Checkpoints. Required to assign clips.">
+        <Row inline title="Review each turn" help="Keep or revert each change after a turn. Override per session in Checkpoints.">
           <Switch label="Review each turn" on={settings.reviewTurns !== false} onChange={(v) => void save({ reviewTurns: v })} />
         </Row>
       </Card>
