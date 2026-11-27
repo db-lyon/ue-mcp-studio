@@ -84,7 +84,7 @@ const NOTIFY_STATE = {
   titles: { "qa-muted": "Bake lighting overnight" },
 };
 
-const page = (title: string, section: string, o: Partial<Scenario> = {}): Scenario => ({ title, hash: `#/settings/${section}`, index: { playtests: [], listed: true }, height: 2600, ...o });
+const page = (title: string, section: string, o: Partial<Scenario> = {}): Scenario => ({ title, hash: `#/settings/${section}`, height: 2600, ...o });
 
 /**
  * GET /whats-new: three Studio releases newer than beta.24 (one restating its
