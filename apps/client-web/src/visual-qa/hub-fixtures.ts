@@ -96,10 +96,10 @@ const OVERVIEW: HubOverview = {
   tests: TESTS,
   queue: {
     paused: false, waiting: [],
-    running: [{ id: "q1", test: "arena-gate", title: "Arena gate", runner: "editor", source: "person", batch: "b-41", queuedAt: ago(2), state: "running", runId: "run-41" }],
+    running: [{ id: "q1", test: "arena-gate", title: "Arena gate", runner: "editor", source: "person", batch: "b-41", queuedAt: ago(2), state: "running", runId: "run-41", runnerReason: "it has manual checks, which a person judges in the open editor" }],
     queued: [
-      { id: "q2", test: "bridge-crossing", title: "Bridge crossing", runner: "editor", source: "schedule", batch: "b-42", suite: "traversal", queuedAt: ago(1), state: "queued" },
-      { id: "q3", test: "arena-gate:approach", title: "Arena gate: Approach", runner: "editor", source: "person", batch: "b-43", suite: "smoke", queuedAt: ago(1), state: "queued" },
+      { id: "q2", test: "bridge-crossing", title: "Bridge crossing", runner: "headless", source: "schedule", batch: "b-42", suite: "traversal", queuedAt: ago(1), state: "queued" },
+      { id: "q3", test: "arena-gate:approach", title: "Arena gate: Approach", runner: "headless", source: "person", batch: "b-43", suite: "smoke", queuedAt: ago(1), state: "queued", runnerReason: "a hidden editor fits in memory" },
     ],
   },
   lease: null,
@@ -108,9 +108,17 @@ const OVERVIEW: HubOverview = {
     { runId: "run-40", test: "bridge-crossing", title: "Bridge crossing", runner: "editor", source: "schedule", batch: "b-40", suite: "traversal", startedAt: ago(42), endedAt: ago(40), state: "failed", revision: "a3f9c21e", dirty: 0, checks: [{ id: "c1", status: "passed" }, { id: "c2", status: "failed", message: "pawn.z fell below -500" }] },
     { runId: "run-39", test: "arena-gate:gate", title: "Arena gate: Gate", runner: "editor", source: "person", batch: "b-39", suite: "smoke", startedAt: ago(70), endedAt: ago(69), state: "passed", revision: "a3f9c21e", dirty: 0, checks: [{ id: "c3", status: "passed" }, { id: "c4", status: "passed", verdict: { by: "person", at: ago(69) } }] },
   ],
-  schedules: [],
+  schedules: [
+    { id: "s_nightly", title: "Nightly", suite: "nightly", runner: "headless", days: [1, 2, 3, 4, 5], time: "03:00", enabled: true, lastRunAt: ago(9 * 60) },
+    { id: "s_traversal", title: "Traversal", suite: "traversal", runner: "headless", days: [0, 1, 2, 3, 4, 5, 6], time: "12:30", enabled: true, lastRunAt: ago(30) },
+    { id: "s_gate", title: "Gate swing check", test: "arena-gate:gate", runner: "editor", days: [1, 3, 5], time: "17:45", enabled: false, lastRunAt: null },
+  ],
   problems: [],
 };
+
+/** An audition of the Gate region looping on the open editor, second time through, with no test run going. */
+const AUDITION = { playId: "p1", test: "arena-gate:gate", from: 320, loop: true, startedAt: ago(1), state: "running", frame: 410, pass: 2, checks: [{ id: "c3", status: "passed", frame: 371 }, { id: "c4", status: "skipped" }] };
+const IDLE: HubOverview = { ...OVERVIEW, recent: OVERVIEW.recent.slice(1), queue: { ...OVERVIEW.queue, running: [] } };
 
 const VIEW: ArrangementView = { arrangement: ARENA, length: 540, findings: [], clips: CLIPS, tests: TESTS.slice(0, 3) };
 
@@ -118,6 +126,7 @@ const VIEW: ArrangementView = { arrangement: ARENA, length: 540, findings: [], c
 function hubGet(p: string): unknown {
   if (p === "/v1/hub") return OVERVIEW;
   if (p === "/v1/hub/lease") return { lease: null };
+  if (p === "/v1/hub/play") return { play: null };
   if (p === "/v1/hub/arrangements/arena-gate") return VIEW;
   if (p.startsWith("/v1/hub/performers")) return { level: "/Game/Maps/L_Arena", performers: [{ performer: { kind: "player", client: 0 }, label: "Player 1", capabilities: ["input", "move", "action", "value"] }, { performer: { kind: "player", client: 1 }, label: "Client 1", capabilities: ["input", "move", "action", "value"] }] };
   const clip = /^\/v1\/hub\/clips\/([^/]+)$/.exec(p);
@@ -139,5 +148,17 @@ export const HUB_SCENARIOS: Record<string, Scenario> = {
   "hub-arrangement-check": hub("The Arrangement with the manual check selected: its instruction, person-only, and Pass and Fail in the inspector", "#/playtests/arrangements/arena-gate", { waitFor: { selector: ".hub-set-check", timeout: 5000 }, click: ".hub-set-check.mode-manual" }),
   "hub-clip": hub("A clip as a piano roll: notes on its input lanes and keys on its look lane, no checks", "#/playtests/clips/sprint-to-gate/in/arena-gate", { waitFor: { selector: ".hub-roll-note", timeout: 5000 } }),
   "hub-suites": hub("Suites: nested suites with their health, the pass-rate history, a flaky test and a quarantined one", "#/playtests/suites/smoke"),
-  "hub-runs": hub("Runs: the test playing now, the queue behind it and the recent runs", "#/playtests/runs"),
+  "hub-arrangement-audition": hub("The transport auditioning: the Gate region looping on the open editor, second pass, its checks coloured, no test run", "#/playtests/arrangements/arena-gate", {
+    waitFor: { selector: ".hub-set-check", timeout: 5000 },
+    get: (p) => (p === "/v1/hub" ? IDLE : p === "/v1/hub/play" ? { play: AUDITION } : hubGet(p)),
+    clicks: [".hub-set-region:nth-child(2)", "button[aria-label='Loop']"],
+  }),
+  "hub-arrangement-recording": hub("Recording: the Player track armed, a take recording from the playhead, the clock and mode in red", "#/playtests/arrangements/arena-gate", {
+    waitFor: { selector: ".hub-set-check", timeout: 5000 },
+    get: (p) => (p === "/v1/hub" ? IDLE : hubGet(p)),
+    post: (p) => (p === "/v1/hub/record/start" ? { status: 200, body: { recording: true } } : undefined),
+    clicks: [".hub-set-toggle.arm", ".hub-set-transport-btn.rec"],
+  }),
+  "hub-runs": hub("Runs: the test playing now and the queue behind it, each with where it plays and why, the schedules and the recent runs", "#/playtests/runs", { height: 1400 }),
+  "hub-schedule-edit": hub("A schedule open for editing: what it runs, its name, days, time, and headless or the open editor", "#/playtests/runs", { height: 1400, click: ".hub-schedule-row button[aria-label^='Edit']" }),
 };

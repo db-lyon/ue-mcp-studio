@@ -316,4 +316,7 @@ export const PARITY: Record<string, ParityEntry> = {
   "hub-clip": {notOnPhone: HUB},
   "hub-suites": {notOnPhone: HUB},
   "hub-runs": {notOnPhone: HUB},
+  "hub-arrangement-audition": {notOnPhone: HUB},
+  "hub-arrangement-recording": {notOnPhone: HUB},
+  "hub-schedule-edit": {notOnPhone: HUB},
 };
