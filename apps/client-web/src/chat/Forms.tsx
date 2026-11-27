@@ -1,8 +1,7 @@
 import { useEffect, useState, type KeyboardEvent } from "react";
-import { ASK_USER_CHOICE, ASK_USER_OTHER, askUserForm, qaVerdictForm, type FormField, type PendingForm } from "@ue-mcp-studio/shared";
+import { ASK_USER_CHOICE, ASK_USER_OTHER, askUserForm, type FormField, type PendingForm } from "@ue-mcp-studio/shared";
 import { api } from "../api";
 import type { DaemonState } from "../state";
-import { QaCard, qaRunFromForm } from "./Qa";
 import { formContent, formInitial } from "@ue-mcp-studio/client-core";
 
 /** The forms waiting in this session, kept current from studio.form.changed. */
@@ -17,22 +16,12 @@ export function useForms(daemon: Pick<DaemonState, "events" | "streaming">, sess
   return forms;
 }
 
-/**
- * Forms ue-mcp raised during this session's calls, such as approving a feedback
- * report. A clip's verdict form is answered on its run's Clip card:
- * here only when that run has no card on screen (`runs`), as a card of its own.
- */
-export function FormCards({ forms, runs }: { forms: PendingForm[]; runs?: ReadonlySet<string> }) {
-  const shown = forms.filter((f) => {
-    const q = qaVerdictForm(f);
-    return !q || !q.runId || !runs?.has(q.runId);
-  });
-  if (shown.length === 0) return null;
+/** Forms ue-mcp raised during this session's calls, such as approving a feedback report. */
+export function FormCards({ forms }: { forms: PendingForm[] }) {
+  if (forms.length === 0) return null;
   return (
     <div className="approvals" role="region" aria-label="Waiting for your answer">
-      {shown.map((f) => {
-        const run = qaRunFromForm(f);
-        if (run) return <QaCard key={f.id} run={run} form={f} />;
+      {forms.map((f) => {
         const ask = askUserForm(f);
         return ask ? <AskCard key={f.id} form={f} ask={ask} /> : <FormCard key={f.id} form={f} />;
       })}
@@ -264,6 +253,6 @@ export function AskCard({ form, ask }: { form: PendingForm; ask: NonNullable<Ret
 }
 
 /** The forms of one session, where the chat shows them. */
-export function SessionForms({ daemon, sessionId, runs }: { daemon: DaemonState; sessionId: string; runs?: ReadonlySet<string> }) {
-  return <FormCards forms={useForms(daemon, sessionId)} runs={runs} />;
+export function SessionForms({ daemon, sessionId }: { daemon: DaemonState; sessionId: string }) {
+  return <FormCards forms={useForms(daemon, sessionId)} />;
 }

@@ -5,12 +5,11 @@
  * LiveProvider holds the page's one PIE status and its one viewer, and the
  * full viewer's dialog. Everything that shows the viewport reads it
  * (LiveContext): the bar's Live button on every tab while PIE runs, the
- * chat's Play In Editor card, a live playtest card's Viewport (Qa.tsx), and
- * the Playtest Hub's Run screen picture (views/hub/live.tsx). So the editor
- * never streams to this page twice.
+ * chat's Play In Editor card and the Playtest Hub's Arrangement. So the
+ * editor never streams to this page twice.
  *
  * The viewer joins while something wants it (the dialog open, or an inline
- * picture holding it) and leaves HUB_LIVE_LINGER_MS after the last lets go,
+ * picture holding it) and leaves LIVE_LINGER_MS after the last lets go,
  * so moving between screens keeps the one connection.
  *
  * The status is GET /viewport, asked on mount and again after the events
@@ -21,7 +20,6 @@ import { createContext, useContext, useEffect, useMemo, useRef, useState, type R
 import { createPortal } from "react-dom";
 import type { ViewportSource, ViewportStatus } from "@ue-mcp-studio/shared";
 import {
-  HUB_LIVE_LINGER_MS,
   LIVE_BUTTON,
   VIEWPORT_MODAL_TITLE,
   WATCH_LIVE,
@@ -38,6 +36,9 @@ import {
   type ViewportNotice,
 } from "@ue-mcp-studio/client-core";
 import { api } from "../api";
+
+/** How long the viewer stays joined after the last picture lets it go, so moving between screens keeps one connection. */
+const LIVE_LINGER_MS = 15_000;
 import type { DaemonState } from "../state";
 import { ViewportView, browserPeer } from "../views/Viewport";
 import type { SettingsSection } from "../views/settings/sections";
@@ -138,7 +139,7 @@ export function LiveProvider({ daemon, onSettings, peer = browserPeer, children 
       setKeep(true);
       return;
     }
-    const t = setTimeout(() => setKeep(false), HUB_LIVE_LINGER_MS);
+    const t = setTimeout(() => setKeep(false), LIVE_LINGER_MS);
     return () => clearTimeout(t);
   }, [wanted]);
   const joined = keep && pie.status !== null && gate === null;

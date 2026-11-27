@@ -1,15 +1,12 @@
 /**
- * Links to Playtest Hub records. While the hub is on, the app provides what
- * it knows of the hub's records and a way to open one; a link that names a
- * playtest, goal, milestone or run then opens it on the Playtests tab. The
- * rules are client-core's (hubRecordRoute).
+ * Links to Playtest Hub screens. While the hub is on, the app provides a way
+ * to open one; a #/playtests/... link in a reply then opens it on the
+ * Playtests tab. The address rules are client-core's (hubAddressRoute).
  */
 import { createContext, useContext, type ReactNode } from "react";
-import { HUB_RECORD_COPY, hubHash, hubRecordRoute, type HubRecordIndex, type HubRoute } from "@ue-mcp-studio/client-core";
+import { hubAddressRoute, hubHash, type HubRoute } from "@ue-mcp-studio/client-core";
 
 export interface HubRecords {
-  /** What the hub knows; null while the hub is off or its overview has not loaded, when only #/playtests addresses resolve. */
-  index: HubRecordIndex | null;
   open: (route: HubRoute) => void;
 }
 
@@ -18,8 +15,8 @@ export const HubRecordsContext = createContext<HubRecords | null>(null);
 /** The hub screen a link target names and the way to open it, or null for a link that keeps its own behaviour. */
 export function useHubRecord(target: string | null | undefined): { route: HubRoute; open: () => void } | null {
   const records = useContext(HubRecordsContext);
-  if (!records) return null;
-  const route = hubRecordRoute(target, records.index);
+  if (!records || !target) return null;
+  const route = hubAddressRoute(target);
   return route ? { route, open: () => records.open(route) } : null;
 }
 
@@ -36,7 +33,7 @@ export function HubAnchor({ route, open, code, children }: { route: HubRoute; op
     <a
       className={`asset-link hub-record-link${code ? " code" : ""}`}
       href={hubHash(route)}
-      title={HUB_RECORD_COPY.opensInHub}
+      title="Opens in the Playtest Hub"
       onClick={(e) => {
         if (e.button !== 0 || e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return;
         e.preventDefault();

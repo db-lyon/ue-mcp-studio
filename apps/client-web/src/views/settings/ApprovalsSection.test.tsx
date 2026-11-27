@@ -55,14 +55,6 @@ describe("Approvals & review: before it acts", () => {
     expect(m.saveSettings).toHaveBeenCalledWith({ approvals: { shell: "project" } });
     expect(checked("Shell commands", "In project")).toBe(true);
   });
-
-  it("starts clips Manual by default, and saves Automatic", async () => {
-    await show();
-    expect(checked("Clip runs", "Manual")).toBe(true);
-    expect(screen.getByText("Clips run only when you start or assign them.")).toBeTruthy();
-    await act(async () => void fireEvent.click(screen.getByRole("radio", { name: "Automatic" })));
-    expect(m.saveAgentSettings).toHaveBeenCalledWith({ playtestRuns: "automatic" });
-  });
 });
 
 describe("Approvals & review: shared settings", () => {

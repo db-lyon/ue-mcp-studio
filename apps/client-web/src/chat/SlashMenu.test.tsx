@@ -9,18 +9,19 @@ import type { PendingFile } from "./attachments";
 afterEach(cleanup);
 
 describe("the command registry", () => {
-  it("has /playtest, /flow and /action", () => {
-    expect(SLASH_COMMANDS.map((c) => c.name)).toEqual(["playtest", "flow", "action", "compact"]);
+  it("has /flow, /action and /compact", () => {
+    expect(SLASH_COMMANDS.map((c) => c.name)).toEqual(["flow", "action", "compact"]);
   });
 
   it("reads a command and its text from a message, and leaves any other message alone", () => {
-    expect(parseSlashCommand("/playtest")).toEqual({ name: "playtest", args: "" });
-    expect(parseSlashCommand("  /playtest  the double jump \n")).toEqual({ name: "playtest", args: "the double jump" });
-    expect(parseSlashCommand("/playtest the door\nand the key")).toEqual({ name: "playtest", args: "the door\nand the key" });
-    expect(parseSlashCommand("/playtesting")).toBeNull();
+    expect(parseSlashCommand("/compact")).toEqual({ name: "compact", args: "" });
+    expect(parseSlashCommand("  /compact  keep the door work \n")).toEqual({ name: "compact", args: "keep the door work" });
+    expect(parseSlashCommand("/compact the door\nand the key")).toEqual({ name: "compact", args: "the door\nand the key" });
+    expect(parseSlashCommand("/compacting")).toBeNull();
+    expect(parseSlashCommand("/playtest the door")).toBeNull();
     expect(parseSlashCommand("/unknown thing")).toBeNull();
     // A command with free text runs from mid-message too; the rest of the message is its text.
-    expect(parseSlashCommand("please /playtest it")).toEqual({ name: "playtest", args: "please it" });
+    expect(parseSlashCommand("please /compact it")).toEqual({ name: "compact", args: "please it" });
     expect(parseSlashCommand("/Game/Maps/Main is broken")).toBeNull();
     expect(parseSlashCommand("/flow rebuild clean=true")).toEqual({ name: "flow", args: "rebuild clean=true" });
     expect(parseSlashCommand("/action level.place_actor actorClass=PointLight")).toEqual({ name: "action", args: "level.place_actor actorClass=PointLight" });
@@ -29,7 +30,7 @@ describe("the command registry", () => {
   it("knows a name is being typed while the message ends in a slash and the start of a name", () => {
     expect(slashQuery("/")).toBe("");
     expect(slashQuery("/pla")).toBe("pla");
-    expect(slashQuery("/playtest ")).toBeNull();
+    expect(slashQuery("/compact ")).toBeNull();
     expect(slashQuery("hi /pla")).toBe("pla");
     expect(slashQuery("and/or")).toBeNull();
     expect(slashQuery("/pla\n")).toBeNull();
@@ -37,15 +38,15 @@ describe("the command registry", () => {
   });
 
   it("matches by the start of the name", () => {
-    expect(matchCommands("").map((c) => c.name)).toEqual(["playtest", "flow", "action", "compact"]);
-    expect(matchCommands("PLAY").map((c) => c.name)).toEqual(["playtest"]);
+    expect(matchCommands("").map((c) => c.name)).toEqual(["flow", "action", "compact"]);
+    expect(matchCommands("COMP").map((c) => c.name)).toEqual(["compact"]);
     expect(matchCommands("x")).toEqual([]);
   });
 });
 
 const COMMANDS: SlashCommand[] = [
-  { name: "playtest", summary: "Draft a playtest" },
-  { name: "plan", summary: "Plan something" },
+  { name: "compact", summary: "Compact" },
+  { name: "commit", summary: "Commit something" },
   { name: "review", summary: "Review" },
 ];
 
@@ -81,13 +82,13 @@ describe("the slash menu", () => {
     render(<Harness onSend={() => {}} commands={COMMANDS} />);
     expect(screen.queryByRole("listbox")).toBeNull();
     fireEvent.change(box(), { target: { value: "/" } });
-    expect(options().map((o) => o.text)).toEqual(["/playtest", "/plan", "/review"]);
-    fireEvent.change(box(), { target: { value: "/pla" } });
-    expect(options().map((o) => o.text)).toEqual(["/playtest", "/plan"]);
+    expect(options().map((o) => o.text)).toEqual(["/compact", "/commit", "/review"]);
+    fireEvent.change(box(), { target: { value: "/com" } });
+    expect(options().map((o) => o.text)).toEqual(["/compact", "/commit"]);
     fireEvent.change(box(), { target: { value: "/zzz" } });
     expect(screen.queryByRole("listbox")).toBeNull();
-    fireEvent.change(box(), { target: { value: "say /pla" } });
-    expect(options().map((o) => o.text)).toEqual(["/playtest"]);
+    fireEvent.change(box(), { target: { value: "say /com" } });
+    expect(options().map((o) => o.text)).toEqual(["/compact"]);
   });
 
   it("moves with the arrow keys, wrapping, and points the text box at the option in focus", () => {
@@ -105,14 +106,14 @@ describe("the slash menu", () => {
   it("picks with Enter, which puts the command in the message without sending it; the next Enter sends", () => {
     const onSend = vi.fn();
     render(<Harness onSend={onSend} commands={COMMANDS} />);
-    fireEvent.change(box(), { target: { value: "/p" } });
+    fireEvent.change(box(), { target: { value: "/c" } });
     fireEvent.keyDown(box(), { key: "ArrowDown" });
     fireEvent.keyDown(box(), { key: "Enter" });
-    expect(box().value).toBe("/plan ");
+    expect(box().value).toBe("/commit ");
     expect(onSend).not.toHaveBeenCalled();
     expect(screen.queryByRole("listbox")).toBeNull();
     fireEvent.keyDown(box(), { key: "Enter" });
-    expect(onSend).toHaveBeenCalledWith("/plan ");
+    expect(onSend).toHaveBeenCalledWith("/commit ");
   });
 
   it("picks with Tab or a click, and Escape closes it until the message changes", () => {
@@ -122,11 +123,11 @@ describe("the slash menu", () => {
     expect(box().value).toBe("/review ");
     fireEvent.change(box(), { target: { value: "/" } });
     fireEvent.mouseDown(screen.getAllByRole("option")[0]);
-    expect(box().value).toBe("/playtest ");
+    expect(box().value).toBe("/compact ");
     fireEvent.change(box(), { target: { value: "/" } });
     fireEvent.keyDown(box(), { key: "Escape" });
     expect(screen.queryByRole("listbox")).toBeNull();
-    fireEvent.change(box(), { target: { value: "/p" } });
+    fireEvent.change(box(), { target: { value: "/c" } });
     expect(screen.queryByRole("listbox")).not.toBeNull();
   });
 
@@ -134,11 +135,10 @@ describe("the slash menu", () => {
     const onSend = vi.fn();
     render(<Harness onSend={onSend} />);
     fireEvent.change(box(), { target: { value: "/" } });
-    expect(options()).toEqual([{ text: "/playtest", selected: true }, { text: "/flow", selected: false }, { text: "/action", selected: false }, { text: "/compact", selected: false }]);
+    expect(options()).toEqual([{ text: "/flow", selected: true }, { text: "/action", selected: false }, { text: "/compact", selected: false }]);
+    fireEvent.change(box(), { target: { value: "/compact keep the door work" } });
     fireEvent.keyDown(box(), { key: "Enter" });
-    fireEvent.change(box(), { target: { value: "/playtest the door opens" } });
-    fireEvent.keyDown(box(), { key: "Enter" });
-    expect(onSend).toHaveBeenCalledWith("/playtest the door opens");
+    expect(onSend).toHaveBeenCalledWith("/compact keep the door work");
   });
 });
 

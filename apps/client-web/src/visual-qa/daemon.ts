@@ -82,13 +82,6 @@ export function daemonFor(scenario: Scenario, theme: StudioTheme, arrived: () =>
         const n = (k: string) => (url.searchParams.has(k) ? Number(url.searchParams.get(k)) : undefined);
         return s && agentThreadPage(s.transcript, id, { tail: n("tail"), before: n("before") });
       }],
-      [/^\/v1\/ext\/studio\/qa\/playtests$/, () => scenario.index],
-      [/^\/v1\/ext\/studio\/qa\/playtests\/script$/, () => {
-        const e = scenario.index.playtests.find((x) => x.script === url.searchParams.get("script"));
-        const r = e?.draft ?? e?.card ?? e?.last;
-        return r ? { run: r } : undefined;
-      }],
-      [/^\/v1\/ext\/studio\/qa\/runs$/, () => ({ runs: [] })],
       [/^\/v1\/ext\/studio\/forms$/, () => ({ forms: [] })],
       [/^\/v1\/ext\/studio\/dialogs$/, () => ({ dialogs: [], now: Date.now() })],
       [/^\/v1\/ext\/studio\/busy$/, () => ({ now: Date.now(), calls: [] })],

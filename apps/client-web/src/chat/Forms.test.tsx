@@ -60,29 +60,3 @@ describe("the agent's ask_user question", () => {
   });
 });
 
-describe("a test script's verdict form", () => {
-  const RUN = "script_DoorOpens_20261023_100000";
-  const verdictForm = {
-    id: "f2", sessionId: "s1", call: "pie(script_run)", at: "",
-    message: `Test script /Game/PIEStudio/Scripts/DoorOpens (run ${RUN}) needs your verdict on one manual step:`,
-    fields: {
-      step_2: { type: "string" as const, title: "Step 3", description: "The door opens without a visible pop", enum: ["pass", "fail", "skip"] },
-      step_2_note: { type: "string" as const, title: "Step 3 note" },
-    },
-    required: [],
-  };
-
-  it("is answered on its run's card, not drawn as a form", () => {
-    render(<FormCards forms={[verdictForm, form]} runs={new Set([RUN])} />);
-    expect(screen.queryByText("The door opens without a visible pop")).toBeNull();
-    expect(screen.getByRole("group", { name: "A question from feedback(submit)" })).toBeTruthy();
-  });
-
-  it("is a checklist card of its own when its run has no card on screen", () => {
-    render(<FormCards forms={[verdictForm]} runs={new Set()} />);
-    expect(screen.queryByRole("button", { name: "Submit" })).toBeNull();
-    expect(screen.getByRole("group", { name: "Clip DoorOpens" })).toBeTruthy();
-    fireEvent.click(screen.getByRole("button", { name: "Pass step 3" }));
-    expect(m.answerForm).toHaveBeenCalledWith("f2", { action: "accept", content: { step_2: "pass" } });
-  });
-});
