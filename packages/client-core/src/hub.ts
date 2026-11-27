@@ -6,7 +6,7 @@
  *
  * Every hub type comes from `ue-mcp/daemon` and every hub function from
  * `ue-mcp/hub`, which exports the same declarations without Node imports.
- * Studio declares none of its own (tests/no-hub-copies.test.ts).
+ * Studio declares none of its own (packages/client-core/test/no-hub-copies.test.ts).
  */
 import type {
   Arrangement,
@@ -316,6 +316,13 @@ export const MIN_ROWS = 6;
 
 // ---------- Arrangement edits ----------
 
+/** A title not in `taken`: the base, then "base 2", "base 3". */
+export function nextTitle(base: string, taken: readonly string[]): string {
+  const t = new Set(taken.map((x) => x.toLowerCase()));
+  if (!t.has(base.toLowerCase())) return base;
+  for (let i = 2; ; i++) if (!t.has(`${base} ${i}`.toLowerCase())) return `${base} ${i}`;
+}
+
 /** An id not in `taken`: prefix and the first free number. */
 export function nextPartId(prefix: string, taken: Iterable<string>): string {
   const t = new Set(taken);
@@ -414,14 +421,17 @@ export const removeRegion = (a: Arrangement, id: string): Arrangement => ({ ...a
 /** Where a span fits on the region lane: none of the other regions overlap it. */
 export const regionFits = (a: Pick<Arrangement, "regions">, start: number, end: number, except?: string): boolean => a.regions.every((r) => r.id === except || end <= r.start || start >= r.end);
 
-/** The frames an instance spans, at the arrangement's rate. */
-export function instanceSpan(inst: ClipInstance, clips: Record<string, Clip>, rate: number): { start: number; end: number } {
+/** What the timeline needs of a clip: its length at its rate. A Clip or a ClipSummary. */
+export type ClipSpan = Pick<Clip, "length" | "rate">;
+
+/** The frames an instance spans, at the arrangement's rate; never under a quarter second, so an empty clip can be grabbed. */
+export function instanceSpan(inst: Pick<ClipInstance, "clip" | "at">, clips: Record<string, ClipSpan>, rate: number): { start: number; end: number } {
   const len = instanceLength(clips[inst.clip], rate);
   return { start: inst.at, end: inst.at + Math.max(len, rate / 4) };
 }
 
 /** Whether an instance at `at` on a track would overlap another there. */
-export function instanceFits(track: Pick<Track, "instances">, clips: Record<string, Clip>, rate: number, clip: string, at: number, except?: string): boolean {
+export function instanceFits(track: Pick<Track, "instances">, clips: Record<string, ClipSpan>, rate: number, clip: string, at: number, except?: string): boolean {
   const len = instanceLength(clips[clip], rate);
   return track.instances.every((i) => {
     if (i.id === except) return true;

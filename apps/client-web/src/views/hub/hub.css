@@ -64,13 +64,7 @@ button.hub-rail-keys { justify-content: flex-start; margin-top: 8px; font: 500 1
 .hub-live-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--accent); box-shadow: var(--mark-glow); animation: hub-pulse 1.4s ease-in-out infinite; }
 @keyframes hub-pulse { 50% { opacity: 0.35; } }
 
-/* The rail folded to its icons on a screen that takes the whole page (the Arrangement): labels stay for screen readers and tooltips. */
-.hub-root.slim nav.hub-rail { width: 48px; padding: 8px 6px; }
-.hub-root.slim .hub-rail-item, .hub-root.slim button.hub-find, .hub-root.slim button.hub-rail-keys { position: relative; justify-content: center; padding: 4px; gap: 0; }
-.hub-root.slim .hub-rail-label, .hub-root.slim .hub-rail-count, .hub-root.slim button.hub-find > :not(svg), .hub-root.slim .hub-rail-keys > :not(svg), .hub-root.slim .hub-rail-head,
-.hub-root.slim .hub-rail-item > :not(svg):not(.hub-mark) { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
-.hub-root.slim .hub-rail-goals { display: none; }
-.hub-root.slim button.hub-find, .hub-root.slim button.hub-rail-keys { font-size: 0; color: var(--muted); }
+/* The Arrangement fills the page beside the rail, as a DAW's does. */
 .hub-main.fill { display: flex; flex-direction: column; overflow: hidden; padding: 8px 10px 0; }
 .hub-main.fill > .hub-screen { flex: 1; min-height: 0; max-width: none; width: 100%; margin: 0; }
 .hub-head.compact { align-items: center; flex-wrap: nowrap; gap: 8px; }
